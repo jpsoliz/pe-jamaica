@@ -27,7 +27,7 @@ public sealed record ManifestDocument(
             createdAt.UtcDateTime.ToString("O"),
             createdBy,
             null,
-            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null),
+            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null, null),
             Array.Empty<string>(),
             Array.Empty<string>());
     }
@@ -38,7 +38,8 @@ public sealed record ManifestPayload(
     [property: JsonPropertyName("source_files")] IReadOnlyList<ManifestSourceFile> SourceFiles,
     [property: JsonPropertyName("detected_profile")] DetectedSourceInputProfile? DetectedProfile,
     [property: JsonPropertyName("innola_transaction")] ManifestInnolaTransaction? InnolaTransaction = null,
-    [property: JsonPropertyName("attachment_provenance")] IReadOnlyList<ManifestAttachmentProvenance>? AttachmentProvenance = null);
+    [property: JsonPropertyName("attachment_provenance")] IReadOnlyList<ManifestAttachmentProvenance>? AttachmentProvenance = null,
+    [property: JsonPropertyName("innola_lifecycle")] ManifestInnolaLifecycle? InnolaLifecycle = null);
 
 public sealed record ManifestSourceFile(
     [property: JsonPropertyName("original_path")] string OriginalPath,
@@ -75,3 +76,20 @@ public sealed record ManifestAttachmentProvenance(
     [property: JsonPropertyName("service_reference")] string ServiceReference,
     [property: JsonPropertyName("copied_path")] string CopiedPath,
     [property: JsonPropertyName("copied_at")] string CopiedAt);
+
+public sealed record ManifestInnolaLifecycle(
+    [property: JsonPropertyName("transaction_id")] string TransactionId,
+    [property: JsonPropertyName("transaction_number")] string TransactionNumber,
+    [property: JsonPropertyName("task_id")] string TaskId,
+    [property: JsonPropertyName("process_step")] string ProcessStep,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("claimed_by")] string? ClaimedBy,
+    [property: JsonPropertyName("claimed_display_name")] string? ClaimedDisplayName,
+    [property: JsonPropertyName("claimed_at")] string? ClaimedAt,
+    [property: JsonPropertyName("last_saved_at")] string? LastSavedAt,
+    [property: JsonPropertyName("cancelled_at")] string? CancelledAt,
+    [property: JsonPropertyName("completion_ready")] bool CompletionReady,
+    [property: JsonPropertyName("completion_ready_reason")] string? CompletionReadyReason,
+    [property: JsonPropertyName("completed_by")] string? CompletedBy,
+    [property: JsonPropertyName("completed_at")] string? CompletedAt,
+    [property: JsonPropertyName("last_error_category")] string? LastErrorCategory);

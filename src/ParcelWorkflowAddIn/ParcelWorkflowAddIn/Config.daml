@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-             version="0.1.0"
+             version="0.1.2"
              desktopVersion="3.6">
     <Name>Parcel Workflow</Name>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>

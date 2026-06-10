@@ -55,12 +55,13 @@ development_status:
   2-1-run-manifest-preflight: done
   2-2-add-sidwell-shell-innola-login-and-session-gating: done
   2-3-display-available-innola-transactions: done
-  2-4-load-transaction-details-and-attachments-into-case-folder: review
-  2-5-control-active-transaction-lifecycle-and-completion-gate: backlog
-  2-6-validate-arcgis-pro-and-python-processing-environment: backlog
-  2-7-validate-dwg-readiness-when-present: backlog
-  2-8-configure-processing-and-credential-profiles: backlog
-  2-9-display-preflight-results-and-gate-extraction: backlog
+  2-4-load-transaction-details-and-attachments-into-case-folder: done
+  2-5-control-active-transaction-lifecycle-and-completion-gate: done
+  2-6-validate-arcgis-pro-and-python-processing-environment: done
+  2-7-enforce-transaction-execution-state-and-panel-locking: done
+  2-8-validate-dwg-readiness-when-present: backlog
+  2-9-configure-processing-and-credential-profiles: backlog
+  2-10-display-preflight-results-and-gate-extraction: backlog
   epic-2-retrospective: optional
 
   epic-3: backlog

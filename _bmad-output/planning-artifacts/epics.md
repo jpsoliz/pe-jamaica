@@ -494,7 +494,42 @@ So that extraction does not fail later because of missing runtime dependencies.
 **And** long-running checks show progress without freezing ArcGIS Pro
 **And** results are written to `preflight_summary.json`.
 
-### Story 2.7: Validate DWG Readiness When Present
+### Story 2.7: Enforce Transaction Execution State and Panel Locking
+
+As a cadastral technical staff user,
+I want the add-in to lock the transaction list while a selected transaction is being processed,
+So that I cannot accidentally switch transactions or corrupt the active Parcel Workflow context.
+
+**Acceptance Criteria:**
+
+**Given** the user is logged out
+**When** the Sidwell Co ribbon is shown
+**Then** Login, Configuration, and About are enabled
+**And** Transaction Panel and Parcel Workflow are disabled.
+
+**Given** the user logs in successfully
+**When** the Transaction Panel is available
+**Then** it is enabled and populated with available transactions
+**And** Parcel Workflow remains disabled until a transaction is started.
+
+**Given** the user selects a transaction
+**When** the user double-clicks the row or clicks Start
+**Then** the add-in loads and starts/claims the transaction
+**And** the selected transaction remains highlighted
+**And** the transaction list, filter, search, and sort controls are locked
+**And** Parcel Workflow is enabled for the loaded Case Folder.
+
+**Given** a transaction is active
+**When** the user tries to select or start a different transaction
+**Then** the add-in prevents switching until the active transaction is saved/stopped, cancelled, or completed.
+
+**Given** the user saves/stops or completes the active transaction
+**When** the lifecycle action succeeds
+**Then** the active lock is cleared
+**And** Parcel Workflow is disabled
+**And** the Transaction Panel is unlocked and refreshed or restored.
+
+### Story 2.8: Validate DWG Readiness When Present
 
 As a cadastral technical staff user,
 I want preflight to inspect DWG references when they are part of the transaction,
@@ -510,7 +545,7 @@ So that CAD-derived context and annotation expectations are known before extract
 **And** absent DWG files do not block Scenario A transactions
 **And** the DWG readiness result is included in `preflight_summary.json`.
 
-### Story 2.8: Configure Processing and Credential Profiles
+### Story 2.9: Configure Processing and Credential Profiles
 
 As a cadastral technical staff user or administrator,
 I want v1 processing profiles to control AI/OCR/local/manual behavior and credential usage,
@@ -527,7 +562,7 @@ So that AI remains optional and local-only processing is always possible.
 **And** secrets are never written to `preflight_summary.json`, reports, or logs
 **And** missing AI credentials do not block local-only processing.
 
-### Story 2.9: Display Preflight Results and Gate Extraction
+### Story 2.10: Display Preflight Results and Gate Extraction
 
 As a cadastral technical staff user,
 I want clear preflight results and correction guidance in the dock pane,

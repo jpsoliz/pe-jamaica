@@ -14,9 +14,12 @@
   <ItemGroup>
     <None Remove="Config.daml" />
     <None Remove="Images\Ribbon\*.png" />
+    <None Remove="Images\TaskList\*.png" />
     <None Remove="Settings\WorkflowSettings.json" />
     <Content Include="Config.daml" CopyToOutputDirectory="Never" />
     <Content Include="Images\Ribbon\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Images\Ribbon\*.png" />
+    <Resource Include="Images\TaskList\*.png" />
     <Content Include="Settings\WorkflowSettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

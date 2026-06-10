@@ -7,7 +7,7 @@ namespace ParcelWorkflowAddIn.Tests.Innola;
 
 internal static class InnolaTransactionLoadServiceTests
 {
-    public static async Task SuccessfulMockLoadCreatesCaseFolderAndEnablesParcelWorkflow()
+    public static async Task SuccessfulMockLoadCreatesCaseFolderAndKeepsParcelWorkflowDisabledUntilClaim()
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
@@ -17,7 +17,7 @@ internal static class InnolaTransactionLoadServiceTests
         var result = await service.LoadSelectedTransactionAsync();
 
         TestAssert.True(result.Success, "Mock transaction load should succeed.");
-        TestAssert.True(manager.CanOpenParcelWorkflow, "Parcel Workflow should be enabled after load success.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should stay disabled until the transaction is started/claimed.");
         TestAssert.Equal("TR100000004", manager.LoadedTransactionNumber, "Loaded transaction mismatch.");
         TestAssert.True(File.Exists(Path.Combine(result.Layout!.RootDirectory, "manifest.json")), "Manifest should exist.");
 
@@ -92,6 +92,43 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(!result.Success, "Unsupported attachment should block load.");
         TestAssert.True(result.ErrorMessage!.Contains("Unsupported attachment file type", StringComparison.OrdinalIgnoreCase), "Unsupported extension error should be clear.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after attachment failure.");
+    }
+
+    public static async Task LaterAttachmentFailureCleansPreviouslyWrittenFiles()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var attachments = new[]
+        {
+            new InnolaAttachmentMetadata("att-one", "plan.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-one", true),
+            new InnolaAttachmentMetadata("att-two", "points.csv", ".csv", "text/csv", SourceRole.PointsComputation, "points", 4, null, "mock-attachment:att-two", true)
+        };
+        var service = LoadService(
+            manager,
+            new FailingSecondAttachmentService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments)),
+            tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(!result.Success, "Load should fail when a later attachment fails.");
+        var sourceDirectory = Path.Combine(tempRoot.Path, "TR100000004", "source");
+        TestAssert.True(!Directory.Exists(sourceDirectory) || Directory.GetFiles(sourceDirectory).Length == 0, "Previously written attachment files should be cleaned up after failed load.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after partial attachment failure.");
+    }
+
+    public static async Task DetailAdapterExceptionReturnsRetryableNonSecretError()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, new ThrowingDetailService(), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(!result.Success, "Thrown adapter failure should be converted to a failed load result.");
+        TestAssert.Equal("Could not load transaction. Try again.", result.ErrorMessage, "Adapter exception should return a safe retryable message.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after adapter exception.");
     }
 
     public static async Task AttachmentFileNameTraversalBlocksLoad()
@@ -305,6 +342,57 @@ internal static class InnolaTransactionLoadServiceTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(InnolaAttachmentContentResult.Succeeded(new byte[] { 1, 2, 3, 4 }));
+        }
+    }
+
+    private sealed class FailingSecondAttachmentService : IInnolaTransactionDetailService
+    {
+        private readonly InnolaTransactionDetail detail;
+        private int contentCalls;
+
+        public FailingSecondAttachmentService(InnolaTransactionDetail detail)
+        {
+            this.detail = detail;
+        }
+
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionDetailResult.Succeeded(detail));
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            contentCalls++;
+            return Task.FromResult(contentCalls == 1
+                ? InnolaAttachmentContentResult.Succeeded(new byte[] { 1, 2, 3, 4 })
+                : InnolaAttachmentContentResult.Failure("Attachment content was not found.", "not_found"));
+        }
+    }
+
+    private sealed class ThrowingDetailService : IInnolaTransactionDetailService
+    {
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            throw new HttpRequestException("token secret-password raw response");
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Should not be called.");
         }
     }
 

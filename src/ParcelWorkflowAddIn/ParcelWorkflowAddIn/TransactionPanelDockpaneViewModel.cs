@@ -13,7 +13,9 @@ internal sealed class TransactionPanelDockpaneViewModel : DockPane
             ShellState.Session,
             ShellState.Transactions,
             ShellState.TransactionProcessStep,
-            ShellState.TransactionLoader);
+            ShellState.TransactionLoader,
+            ShellState.LifecycleCoordinator,
+            autoRefreshOnLogin: true);
     }
 
     public TransactionPanelState State { get; }

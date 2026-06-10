@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
@@ -49,7 +50,17 @@ public sealed class InnolaTransactionLoadService
 
         var session = sessionManager.CurrentSession;
         var selected = sessionManager.SelectedTransaction;
-        var detailResult = await detailService.GetTransactionDetailAsync(session, selected, cancellationToken);
+        InnolaTransactionDetailResult detailResult;
+        try
+        {
+            detailResult = await detailService.GetTransactionDetailAsync(session, selected, cancellationToken);
+        }
+        catch (Exception exception) when (IsExpectedAdapterFailure(exception))
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure("Could not load transaction. Try again.");
+        }
+
         if (!detailResult.Success || detailResult.Detail is null)
         {
             sessionManager.ClearLoadedTransaction();
@@ -88,6 +99,7 @@ public sealed class InnolaTransactionLoadService
         var sourceFiles = manifest.Payload.SourceFiles.ToList();
         var provenance = (manifest.Payload.AttachmentProvenance ?? Array.Empty<ManifestAttachmentProvenance>()).ToList();
         var loadedAt = getUtcNow().UtcDateTime.ToString("O");
+        var newlyWrittenFiles = new List<string>();
 
         foreach (var attachment in detail.Attachments)
         {
@@ -97,9 +109,21 @@ public sealed class InnolaTransactionLoadService
                 continue;
             }
 
-            var content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+            InnolaAttachmentContentResult content;
+            try
+            {
+                content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+            }
+            catch (Exception exception) when (IsExpectedAdapterFailure(exception))
+            {
+                CleanupNewlyWrittenFiles(newlyWrittenFiles);
+                sessionManager.ClearLoadedTransaction();
+                return InnolaTransactionLoadResult.Failure("Could not load transaction. Try again.");
+            }
+
             if (!content.Success)
             {
+                CleanupNewlyWrittenFiles(newlyWrittenFiles);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(SafeRetryMessage(content.ErrorMessage));
             }
@@ -108,10 +132,12 @@ public sealed class InnolaTransactionLoadService
             var written = attachmentWriter.Write(layout, serviceReference, attachment.FileName, content.Content, attachment.SourceRole);
             if (!written.Success || written.ManifestSourceFile is null)
             {
+                CleanupNewlyWrittenFiles(newlyWrittenFiles);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(written.ErrorMessage ?? "Attachment could not be copied to the Case Folder.");
             }
 
+            newlyWrittenFiles.Add(written.ManifestSourceFile.CopiedPath);
             sourceFiles.Add(written.ManifestSourceFile);
             provenance.Add(new ManifestAttachmentProvenance(
                 attachment.AttachmentId,
@@ -162,6 +188,7 @@ public sealed class InnolaTransactionLoadService
             or NotSupportedException
             or ArgumentException)
         {
+            CleanupNewlyWrittenFiles(newlyWrittenFiles);
             sessionManager.ClearLoadedTransaction();
             return InnolaTransactionLoadResult.Failure($"Case Folder manifest could not be updated: {exception.Message}");
         }
@@ -259,6 +286,37 @@ public sealed class InnolaTransactionLoadService
         }
 
         return message;
+    }
+
+    private static bool IsExpectedAdapterFailure(Exception exception)
+    {
+        return exception is HttpRequestException
+            or IOException
+            or InvalidOperationException
+            or NotSupportedException
+            or UnauthorizedAccessException
+            or TaskCanceledException;
+    }
+
+    private static void CleanupNewlyWrittenFiles(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception exception) when (exception is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ArgumentException)
+            {
+                // Best-effort cleanup. The load still fails and the manifest is not advanced.
+            }
+        }
     }
 
     private sealed record CaseFolderPreparationResult(

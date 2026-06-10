@@ -12,7 +12,7 @@ public sealed record InnolaTransactionLoadResult(
 {
     public static InnolaTransactionLoadResult Succeeded(
         CaseFolderLayout layout,
-        DetectedSourceInputProfile detectedProfile,
+        DetectedSourceInputProfile? detectedProfile,
         string statusMessage)
     {
         return new InnolaTransactionLoadResult(true, layout, detectedProfile, statusMessage, null);

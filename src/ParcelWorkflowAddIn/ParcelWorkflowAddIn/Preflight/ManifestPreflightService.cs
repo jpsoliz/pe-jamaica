@@ -30,19 +30,42 @@ public sealed class ManifestPreflightService
 
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly Func<string> createRunId;
+    private readonly IProcessingEnvironmentPreflightService environmentPreflightService;
 
     public ManifestPreflightService()
-        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}")
+        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService())
     {
     }
 
     public ManifestPreflightService(Func<DateTimeOffset> getUtcNow, Func<string> createRunId)
+        : this(getUtcNow, createRunId, new NoOpProcessingEnvironmentPreflightService())
+    {
+    }
+
+    public ManifestPreflightService(
+        Func<DateTimeOffset> getUtcNow,
+        Func<string> createRunId,
+        IProcessingEnvironmentPreflightService environmentPreflightService)
     {
         this.getUtcNow = getUtcNow;
         this.createRunId = createRunId;
+        this.environmentPreflightService = environmentPreflightService;
+    }
+
+    public static ManifestPreflightService CreateDefault()
+    {
+        return new ManifestPreflightService(
+            () => DateTimeOffset.UtcNow,
+            () => $"preflight-{Guid.NewGuid():N}",
+            new ProcessingEnvironmentPreflightService());
     }
 
     public PreflightSummaryDocument Run(CaseFolderLayout layout, string? createdBy)
+    {
+        return RunAsync(layout, createdBy).GetAwaiter().GetResult();
+    }
+
+    public async Task<PreflightSummaryDocument> RunAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
     {
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         var manifestHash = ComputeSourceManifestHash(manifest);
@@ -63,6 +86,11 @@ public sealed class ManifestPreflightService
         {
             EvaluateProfile(manifest, layout, blockers, passed);
         }
+
+        var environmentResult = await environmentPreflightService.RunAsync(layout, cancellationToken).ConfigureAwait(false);
+        blockers.AddRange(environmentResult.Blockers);
+        warnings.AddRange(environmentResult.Warnings);
+        passed.AddRange(environmentResult.PassedChecks);
 
         var status = blockers.Count > 0 ? "blocked" : "passed";
         var summary = new PreflightSummaryDocument(

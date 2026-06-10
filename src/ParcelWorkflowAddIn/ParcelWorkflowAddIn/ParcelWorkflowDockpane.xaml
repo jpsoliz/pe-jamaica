@@ -99,6 +99,37 @@
                 Command="{Binding ReopenCaseCommand}"
                 Content="Reopen Case" />
       </StackPanel>
+
+      <TextBlock Grid.Row="6"
+                 Text="Lifecycle"
+                 Margin="0,8,0,0"
+                 FontWeight="SemiBold" />
+      <TextBlock Grid.Row="6"
+                 Grid.Column="1"
+                 Margin="8,8,0,0"
+                 Text="{Binding LifecycleStatusText}"
+                 TextWrapping="Wrap" />
+
+      <WrapPanel Grid.Row="7"
+                 Grid.Column="1"
+                 Margin="8,8,0,0">
+        <Button Margin="0,0,6,4"
+                Padding="8,2"
+                Command="{Binding StartOrClaimTransactionCommand}"
+                Content="Start" />
+        <Button Margin="0,0,6,4"
+                Padding="8,2"
+                Command="{Binding SaveProgressCommand}"
+                Content="Save Progress" />
+        <Button Margin="0,0,6,4"
+                Padding="8,2"
+                Command="{Binding CancelProcessCommand}"
+                Content="Cancel Process" />
+        <Button Margin="0,0,6,4"
+                Padding="8,2"
+                Command="{Binding CompleteTransactionCommand}"
+                Content="Complete" />
+      </WrapPanel>
     </Grid>
 
     <StackPanel Grid.Row="2"

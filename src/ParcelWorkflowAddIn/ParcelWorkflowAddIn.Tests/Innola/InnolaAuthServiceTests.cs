@@ -62,6 +62,19 @@ internal static class InnolaAuthServiceTests
         }
     }
 
+    public static async Task MockAuthEnablesDryRunLogin()
+    {
+        var service = new MockInnolaAuthService();
+
+        var result = await service.LoginAsync("eltrs.innola-solutions.com", "dry.run.user", string.Empty);
+
+        TestAssert.True(result.Success, "Mock login should succeed for dry-run testing.");
+        TestAssert.Equal("https://eltrs.innola-solutions.com/", result.Session?.ServerUrl, "Mock login should normalize server URL.");
+        TestAssert.Equal("dry.run.user", result.Session?.User.Username, "Mock login user mismatch.");
+        TestAssert.True(result.Session!.User.Groups.Contains("survey"), "Mock login should include a survey group.");
+        TestAssert.True(!string.IsNullOrWhiteSpace(result.Session.AccessToken), "Mock login should produce an in-memory token.");
+    }
+
     private sealed class FakeHttpMessageHandler : HttpMessageHandler
     {
         private readonly string responseBody;

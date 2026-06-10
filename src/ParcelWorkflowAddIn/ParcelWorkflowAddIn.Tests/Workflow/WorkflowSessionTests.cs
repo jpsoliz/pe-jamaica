@@ -11,7 +11,7 @@ internal static class WorkflowSessionTests
 {
     public static void WorkflowSessionStartsAtNoCase()
     {
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
 
         TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Initial workflow state mismatch.");
         TestAssert.Equal("No Case", session.CurrentStep, "Initial current step mismatch.");
@@ -35,7 +35,7 @@ internal static class WorkflowSessionTests
 
     public static void WorkflowSessionExposesValidationFailureStatus()
     {
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
 
         session.SetValidationFailure("Transaction ID and output location are required.");
 
@@ -48,7 +48,7 @@ internal static class WorkflowSessionTests
         using var incoming = new TempDirectory();
         var sourcePath = Path.Combine(incoming.Path, "plan.pdf");
         File.WriteAllText(sourcePath, "source");
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
 
         var result = session.AddSourceFiles(new[] { sourcePath });
 
@@ -389,7 +389,7 @@ internal static class WorkflowSessionTests
                 ManifestPreflightServiceTests.Source("points.csv", ".csv", "points_computation"),
                 ManifestPreflightServiceTests.Source("reference.dwg", ".dwg", "dwg_reference")
             });
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
 
         var summary = session.RunManifestPreflight("tester");
@@ -414,13 +414,13 @@ internal static class WorkflowSessionTests
                 ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
                 ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
             });
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
 
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Preflight passed: manifest checks complete.", session.StatusText, "Passed preflight status mismatch.");
+        TestAssert.Equal("Preflight passed: manifest and environment checks complete.", session.StatusText, "Passed preflight status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
@@ -441,7 +441,7 @@ internal static class WorkflowSessionTests
                 ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
                 ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
             });
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunManifestPreflight("tester");
 
@@ -466,7 +466,7 @@ internal static class WorkflowSessionTests
                 ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
                 ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
             });
-        var session = new WorkflowSession(new CaseFolderStore());
+        var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunManifestPreflight("tester");
 
@@ -542,5 +542,16 @@ internal static class WorkflowSessionTests
         {
             RevealedPath = copiedPath;
         }
+    }
+
+    private static WorkflowSession CreateManifestOnlySession()
+    {
+        return new WorkflowSession(
+            new CaseFolderStore(),
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService());
     }
 }

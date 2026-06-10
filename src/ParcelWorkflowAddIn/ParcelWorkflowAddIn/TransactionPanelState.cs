@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows.Input;
 using ParcelWorkflowAddIn.Innola;
 
@@ -10,14 +11,20 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly InnolaSessionManager session;
     private readonly IInnolaTransactionService transactionService;
     private readonly InnolaTransactionLoadService? transactionLoadService;
+    private readonly InnolaTransactionLifecycleCoordinator? lifecycleCoordinator;
+    private readonly IActiveTransactionSwitchDecisionProvider switchDecisionProvider;
     private readonly Func<DateTimeOffset> clock;
+    private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
+    private readonly HashSet<string> locallyCompletedTransactionNumbers = new(StringComparer.OrdinalIgnoreCase);
     private string selectedFilter = "All tasks";
     private string searchText = string.Empty;
     private string sortField = "Transaction no";
     private string sortDirection = "Ascending";
     private InnolaTransactionRow? selectedRow;
     private bool isLoading;
+    private bool refreshAfterLoginQueued;
+    private string? savedTransactionNumber;
     private string statusText = "Not logged in.";
     private string? errorText;
 
@@ -26,7 +33,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IInnolaTransactionService transactionService,
         string processStep,
         Func<DateTimeOffset>? clock)
-        : this(session, transactionService, processStep, null, clock)
+        : this(session, transactionService, processStep, null, null, null, clock)
     {
     }
 
@@ -36,18 +43,40 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         string processStep,
         InnolaTransactionLoadService? transactionLoadService = null,
         Func<DateTimeOffset>? clock = null)
+        : this(session, transactionService, processStep, transactionLoadService, null, null, clock)
+    {
+    }
+
+    public TransactionPanelState(
+        InnolaSessionManager session,
+        IInnolaTransactionService transactionService,
+        string processStep,
+        InnolaTransactionLoadService? transactionLoadService,
+        InnolaTransactionLifecycleCoordinator? lifecycleCoordinator = null,
+        IActiveTransactionSwitchDecisionProvider? switchDecisionProvider = null,
+        Func<DateTimeOffset>? clock = null,
+        bool autoRefreshOnLogin = false)
     {
         this.session = session;
         this.transactionService = transactionService;
         this.transactionLoadService = transactionLoadService;
+        this.lifecycleCoordinator = lifecycleCoordinator;
+        this.switchDecisionProvider = switchDecisionProvider ?? new StayOnCurrentTransactionDecisionProvider();
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
+        this.autoRefreshOnLogin = autoRefreshOnLogin;
 
         Rows = new ObservableCollection<InnolaTransactionRow>();
         RefreshCommand = new RelayCommand(async () => await RefreshAsync(), () => CanRefresh);
         LoadSelectedCommand = new RelayCommand(async () => await LoadSelectedTransactionAsync(), () => CanLoadSelectedTransaction);
+        StartTransactionCommand = new RelayCommand(async () => await StartSelectedTransactionAsync(), () => CanStartTransaction);
+        StopTaskCommand = new RelayCommand(async () => await SaveCurrentTransactionAsync(), () => CanStopTask);
+        ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
+        AddDocumentCommand = new RelayCommand(ShowAddDocumentNotConfigured, () => CanAddDocument);
+        CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         session.SessionChanged += (_, _) => HandleSessionChanged();
         RefreshSessionState();
+        QueueRefreshAfterLogin();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -63,6 +92,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public ICommand RefreshCommand { get; }
 
     public ICommand LoadSelectedCommand { get; }
+
+    public ICommand StartTransactionCommand { get; }
+
+    public ICommand StopTaskCommand { get; }
+
+    public ICommand ViewDocumentsCommand { get; }
+
+    public ICommand AddDocumentCommand { get; }
+
+    public ICommand CompleteTaskCommand { get; }
 
     public string ProcessStep { get; }
 
@@ -88,9 +127,32 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
-    public bool CanRefresh => IsLoggedIn && !IsLoading;
+    public bool IsTransactionActive => session.HasActiveTransaction;
 
-    public bool CanUseListControls => IsLoggedIn && !IsLoading && allRows.Count > 0;
+    public bool IsTransactionPanelLocked => IsTransactionActive;
+
+    public string? ActiveTransactionNumber => IsTransactionActive
+        ? session.SelectedTransaction?.TransactionNumber
+        : null;
+
+    public string? SavedTransactionNumber
+    {
+        get => savedTransactionNumber;
+        private set
+        {
+            if (savedTransactionNumber == value)
+            {
+                return;
+            }
+
+            savedTransactionNumber = value;
+            NotifyPropertyChanged(nameof(SavedTransactionNumber));
+        }
+    }
+
+    public bool CanRefresh => IsLoggedIn && !IsLoading && !IsTransactionPanelLocked;
+
+    public bool CanUseListControls => IsLoggedIn && !IsLoading && allRows.Count > 0 && !IsTransactionPanelLocked;
 
     public bool HasRows => Rows.Count > 0;
 
@@ -99,6 +161,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public bool IsEmpty => IsLoggedIn && !IsLoading && !HasError && Rows.Count == 0;
 
     public string? LoadedCaseFolderPath => session.LoadedCaseFolderPath;
+
+    public string SavedTransactionStatusText => "In Progress by current user";
 
     public string StatusText
     {
@@ -138,6 +202,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         set
         {
             var normalized = string.IsNullOrWhiteSpace(value) ? "All tasks" : value;
+            if (IsTransactionPanelLocked)
+            {
+                StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before changing filters.";
+                return;
+            }
+
             if (selectedFilter == normalized)
             {
                 return;
@@ -155,6 +225,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         set
         {
             var normalized = value ?? string.Empty;
+            if (IsTransactionPanelLocked)
+            {
+                StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before searching.";
+                return;
+            }
+
             if (searchText == normalized)
             {
                 return;
@@ -172,6 +248,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         set
         {
             var normalized = string.IsNullOrWhiteSpace(value) ? "Transaction no" : value;
+            if (IsTransactionPanelLocked)
+            {
+                StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before sorting.";
+                return;
+            }
+
             if (sortField == normalized)
             {
                 return;
@@ -189,6 +271,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         set
         {
             var normalized = string.IsNullOrWhiteSpace(value) ? "Ascending" : value;
+            if (IsTransactionPanelLocked)
+            {
+                StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before sorting.";
+                return;
+            }
+
             if (sortDirection == normalized)
             {
                 return;
@@ -205,6 +293,20 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         get => selectedRow;
         set
         {
+            if (IsTransactionPanelLocked && value is not null && !IsActiveRow(value))
+            {
+                RestoreSelectedRow(ActiveTransactionNumber);
+                StatusText = $"Active transaction {ActiveTransactionNumber} remains selected.";
+                return;
+            }
+
+            if (IsTransactionPanelLocked && value is null && selectedRow is not null)
+            {
+                RestoreSelectedRow(ActiveTransactionNumber);
+                StatusText = $"Active transaction {ActiveTransactionNumber} remains selected.";
+                return;
+            }
+
             if (ReferenceEquals(selectedRow, value))
             {
                 return;
@@ -218,10 +320,37 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
-    public bool CanLoadSelectedTransaction => IsLoggedIn && !IsLoading && SelectedRow is { IsLoadable: true };
+    public bool CanLoadSelectedTransaction => IsLoggedIn
+        && !IsLoading
+        && !IsTransactionPanelLocked
+        && SelectedRow is { IsLoadable: true };
+
+    public bool CanStartTransaction => IsLoggedIn
+        && !IsLoading
+        && lifecycleCoordinator is not null
+        && SelectedRow is { IsLoadable: true }
+        && !session.HasActiveTransaction;
+
+    public bool CanStopTask => IsLoggedIn && !IsLoading && lifecycleCoordinator is not null && session.CanSaveProgress;
+
+    public bool CanViewDocuments => IsLoggedIn
+        && !IsLoading
+        && session.IsTransactionLoaded
+        && !string.IsNullOrWhiteSpace(session.LoadedCaseFolderPath);
+
+    public bool CanAddDocument => CanViewDocuments;
+
+    public bool CanCompleteTask => IsLoggedIn && !IsLoading && lifecycleCoordinator is not null && session.CanCompleteTransaction;
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
+        if (IsTransactionPanelLocked)
+        {
+            StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before refreshing.";
+            NotifyListState();
+            return;
+        }
+
         if (!IsLoggedIn || session.CurrentSession is null)
         {
             allRows.Clear();
@@ -252,9 +381,6 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
             if (!result.Success)
             {
-                allRows.Clear();
-                Rows.Clear();
-                SelectedRow = null;
                 ErrorText = result.ErrorMessage ?? "Could not refresh transactions. Try again.";
                 StatusText = "Could not refresh transactions. Try again.";
                 return;
@@ -287,7 +413,66 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
-        session.SelectTransaction(SelectedRow, clock());
+        var requestedRow = SelectedRow;
+        var previousTransactionState = session.CaptureTransactionState();
+        if (session.HasActiveTransaction
+            && session.SelectedTransaction is not null
+            && !session.SelectedTransaction.TransactionNumber.Equals(requestedRow.TransactionNumber, StringComparison.OrdinalIgnoreCase))
+        {
+            var decision = switchDecisionProvider.Decide(session.SelectedTransaction, requestedRow);
+            if (decision == ActiveTransactionSwitchDecision.StayOnCurrentTransaction)
+            {
+                lifecycleCoordinator?.RecordSwitchDecision(
+                    "transaction_switch_stayed",
+                    "succeeded",
+                    $"Stayed on active transaction {previousTransactionState.SelectedTransaction?.TransactionNumber}.");
+                RestoreSelectedRow(previousTransactionState.SelectedTransaction?.TransactionNumber);
+                StatusText = $"Active transaction {previousTransactionState.SelectedTransaction?.TransactionNumber} remains loaded.";
+                return;
+            }
+
+            if (lifecycleCoordinator is null)
+            {
+                RestoreSelectedRow(previousTransactionState.SelectedTransaction?.TransactionNumber);
+                StatusText = "Save or cancel the active transaction before loading another.";
+                ErrorText = StatusText;
+                return;
+            }
+
+            if (decision == ActiveTransactionSwitchDecision.CancelCurrentProcess)
+            {
+                lifecycleCoordinator.RecordSwitchDecision(
+                    "transaction_switch_cancelled",
+                    "succeeded",
+                    $"Cancelled active transaction {previousTransactionState.SelectedTransaction?.TransactionNumber} before loading {requestedRow.TransactionNumber}.");
+            }
+
+            InnolaTransactionStateSnapshot? savedTransactionState = null;
+            var lifecycleResult = decision == ActiveTransactionSwitchDecision.SaveProgress
+                ? await lifecycleCoordinator.SaveProgressAsync(cancellationToken)
+                : lifecycleCoordinator.CancelActiveProcess();
+            if (!lifecycleResult.Success)
+            {
+                RestoreSelectedRow(previousTransactionState.SelectedTransaction?.TransactionNumber);
+                ErrorText = lifecycleResult.ErrorMessage ?? "Active transaction could not be released. Try again.";
+                StatusText = ErrorText;
+                return;
+            }
+
+            if (decision == ActiveTransactionSwitchDecision.SaveProgress)
+            {
+                savedTransactionState = session.CaptureTransactionState();
+                lifecycleCoordinator.RecordSwitchDecision(
+                    "transaction_switch_saved",
+                    "succeeded",
+                    $"Saved active transaction {savedTransactionState.SelectedTransaction?.TransactionNumber} before loading {requestedRow.TransactionNumber}.");
+            }
+            session.ClearSelectedTransaction();
+            previousTransactionState = savedTransactionState ?? session.CaptureTransactionState();
+            SelectedRow = requestedRow;
+        }
+
+        session.SelectTransaction(requestedRow, clock());
         if (transactionLoadService is null)
         {
             StatusText = $"Selected transaction: {SelectedRow.TransactionNumber}.";
@@ -302,6 +487,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             var result = await transactionLoadService.LoadSelectedTransactionAsync(cancellationToken);
             if (!result.Success)
             {
+                session.RestoreTransactionState(previousTransactionState);
                 ErrorText = result.ErrorMessage ?? "Could not load transaction. Try again.";
                 StatusText = ErrorText;
                 return;
@@ -317,18 +503,169 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
+    public async Task StartSelectedTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanStartTransaction || lifecycleCoordinator is null || SelectedRow is null)
+        {
+            return;
+        }
+
+        var requestedTransactionNumber = SelectedRow.TransactionNumber;
+        await LoadSelectedTransactionAsync(cancellationToken);
+        if (!session.IsTransactionLoaded
+            || session.SelectedTransaction is null
+            || !session.SelectedTransaction.TransactionNumber.Equals(requestedTransactionNumber, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = $"Starting transaction: {requestedTransactionNumber}.";
+        try
+        {
+            var result = await lifecycleCoordinator.StartOrClaimAsync(cancellationToken);
+            ApplyLifecycleResult(result, $"Transaction {requestedTransactionNumber} is in progress.");
+            if (result.Success)
+            {
+                SavedTransactionNumber = null;
+                RestoreSelectedRow(requestedTransactionNumber);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+            NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+        }
+    }
+
+    public async Task SaveCurrentTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanStopTask || lifecycleCoordinator is null)
+        {
+            return;
+        }
+
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = "Saving current transaction progress.";
+        try
+        {
+            var savedTransactionNumber = session.LoadedTransactionNumber;
+            var result = await lifecycleCoordinator.SaveProgressAsync(cancellationToken);
+            ApplyLifecycleResult(result, "Progress saved. Transaction remains in progress.");
+            if (result.Success)
+            {
+                SavedTransactionNumber = savedTransactionNumber;
+                session.ClearLoadedTransaction();
+                RestoreSelectedRow(savedTransactionNumber);
+                StatusText = result.StatusMessage ?? "Progress saved. Select a transaction to continue.";
+                NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+        }
+    }
+
+    public async Task CompleteCurrentTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanCompleteTask || lifecycleCoordinator is null)
+        {
+            return;
+        }
+
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = "Completing transaction.";
+        try
+        {
+            var completedTransactionNumber = session.LoadedTransactionNumber;
+            var result = await lifecycleCoordinator.CompleteAsync(cancellationToken);
+            ApplyLifecycleResult(result, "Transaction completed.");
+            if (result.Success)
+            {
+                SavedTransactionNumber = null;
+                if (!string.IsNullOrWhiteSpace(completedTransactionNumber))
+                {
+                    locallyCompletedTransactionNumbers.Add(completedTransactionNumber);
+                }
+
+                SelectedRow = null;
+                await RefreshAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+        }
+    }
+
+    private void ViewLoadedDocuments()
+    {
+        var folder = session.LoadedCaseFolderPath;
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            StatusText = "Load a transaction before viewing documents.";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folder,
+                UseShellExecute = true
+            });
+            StatusText = $"Opened documents for {session.LoadedTransactionNumber}.";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            ErrorText = "Could not open the transaction documents folder.";
+            StatusText = ErrorText;
+        }
+    }
+
+    private void ShowAddDocumentNotConfigured()
+    {
+        StatusText = "Add document to Innola is not configured yet. Add local source files from Parcel Workflow.";
+    }
+
+    private void ApplyLifecycleResult(InnolaTransactionLoadResult result, string successStatus)
+    {
+        if (!result.Success)
+        {
+            ErrorText = result.ErrorMessage ?? "Transaction action could not be completed. Try again.";
+            StatusText = ErrorText;
+            return;
+        }
+
+        StatusText = result.StatusMessage ?? successStatus;
+        ErrorText = null;
+    }
+
     private void HandleSessionChanged()
     {
         RefreshSessionState();
         if (!session.IsLoggedIn)
         {
+            refreshAfterLoginQueued = false;
+            SavedTransactionNumber = null;
+            locallyCompletedTransactionNumbers.Clear();
             allRows.Clear();
             Rows.Clear();
             SelectedRow = null;
             ErrorText = null;
             StatusText = "Not logged in.";
             NotifyListState();
+            return;
         }
+
+        QueueRefreshAfterLogin();
     }
 
     private void RefreshSessionState()
@@ -336,14 +673,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(IsLoggedIn));
         NotifyPropertyChanged(nameof(CanRefresh));
         NotifyPropertyChanged(nameof(CanUseListControls));
+        NotifyPropertyChanged(nameof(IsTransactionActive));
+        NotifyPropertyChanged(nameof(IsTransactionPanelLocked));
+        NotifyPropertyChanged(nameof(ActiveTransactionNumber));
         NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
+        NotifyPropertyChanged(nameof(CanStartTransaction));
+        NotifyPropertyChanged(nameof(CanStopTask));
+        NotifyPropertyChanged(nameof(CanViewDocuments));
+        NotifyPropertyChanged(nameof(CanAddDocument));
+        NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         NotifyCommandStates();
     }
 
     private void ApplyView(string? previousTransactionNumber = null)
     {
-        var filtered = ApplyFilter(allRows);
+        var filtered = ApplyFilter(allRows)
+            .Where(row => !locallyCompletedTransactionNumbers.Contains(row.TransactionNumber));
         filtered = ApplySearch(filtered);
         filtered = ApplySort(filtered);
 
@@ -363,6 +709,46 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         NotifyListState();
+    }
+
+    private void RestoreSelectedRow(string? transactionNumber)
+    {
+        if (string.IsNullOrWhiteSpace(transactionNumber))
+        {
+            SelectedRow = null;
+            return;
+        }
+
+        SelectedRow = Rows.FirstOrDefault(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsActiveRow(InnolaTransactionRow row)
+    {
+        return ActiveTransactionNumber is not null
+            && row.TransactionNumber.Equals(ActiveTransactionNumber, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void QueueRefreshAfterLogin()
+    {
+        if (!autoRefreshOnLogin || refreshAfterLoginQueued || !IsLoggedIn || Rows.Count > 0 || IsTransactionPanelLocked)
+        {
+            return;
+        }
+
+        refreshAfterLoginQueued = true;
+        _ = RefreshAfterLoginAsync();
+    }
+
+    private async Task RefreshAfterLoginAsync()
+    {
+        try
+        {
+            await RefreshAsync();
+        }
+        finally
+        {
+            refreshAfterLoginQueued = false;
+        }
     }
 
     private IEnumerable<InnolaTransactionRow> ApplyFilter(IEnumerable<InnolaTransactionRow> source)
@@ -424,7 +810,15 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(HasRows));
         NotifyPropertyChanged(nameof(IsEmpty));
         NotifyPropertyChanged(nameof(CanUseListControls));
+        NotifyPropertyChanged(nameof(IsTransactionActive));
+        NotifyPropertyChanged(nameof(IsTransactionPanelLocked));
+        NotifyPropertyChanged(nameof(ActiveTransactionNumber));
         NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
+        NotifyPropertyChanged(nameof(CanStartTransaction));
+        NotifyPropertyChanged(nameof(CanStopTask));
+        NotifyPropertyChanged(nameof(CanViewDocuments));
+        NotifyPropertyChanged(nameof(CanAddDocument));
+        NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyCommandStates();
     }
 
@@ -438,6 +832,31 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (LoadSelectedCommand is RelayCommand load)
         {
             load.RaiseCanExecuteChanged();
+        }
+
+        if (StartTransactionCommand is RelayCommand start)
+        {
+            start.RaiseCanExecuteChanged();
+        }
+
+        if (StopTaskCommand is RelayCommand stop)
+        {
+            stop.RaiseCanExecuteChanged();
+        }
+
+        if (ViewDocumentsCommand is RelayCommand viewDocuments)
+        {
+            viewDocuments.RaiseCanExecuteChanged();
+        }
+
+        if (AddDocumentCommand is RelayCommand addDocument)
+        {
+            addDocument.RaiseCanExecuteChanged();
+        }
+
+        if (CompleteTaskCommand is RelayCommand complete)
+        {
+            complete.RaiseCanExecuteChanged();
         }
     }
 

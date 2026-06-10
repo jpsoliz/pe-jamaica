@@ -21,6 +21,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealSourceFileCommand;
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
+    private readonly RelayCommand startOrClaimTransactionCommand;
+    private readonly RelayCommand saveProgressCommand;
+    private readonly RelayCommand cancelProcessCommand;
+    private readonly RelayCommand completeTransactionCommand;
     private string? outputLocation;
     private string? transactionId;
 
@@ -34,7 +38,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         openSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Open), CanExecuteSourceFileAction);
         revealSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Reveal), CanExecuteSourceFileAction);
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
-        runPreflightCommand = new RelayCommand(RunPreflight);
+        runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync());
+        startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
+        saveProgressCommand = new RelayCommand(async () => await SaveProgressAsync(), () => ShellState.Session.CanSaveProgress);
+        cancelProcessCommand = new RelayCommand(CancelProcess, () => ShellState.Session.CanCancelActiveProcess);
+        completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => ShellState.Session.CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
     }
@@ -57,6 +65,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string StatusText => workflowSession.StatusText;
 
+    public string LifecycleStatusText => ShellState.Session.LifecycleStatusText ?? "No active transaction lifecycle.";
+
     public IReadOnlyList<SourceFileCopyResult> SourceFiles => workflowSession.SourceFiles;
 
     public ICommand CreateCaseCommand => createCaseCommand;
@@ -76,6 +86,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RouteSourceFileToMapCommand => routeSourceFileToMapCommand;
 
     public ICommand RunPreflightCommand => runPreflightCommand;
+
+    public ICommand StartOrClaimTransactionCommand => startOrClaimTransactionCommand;
+
+    public ICommand SaveProgressCommand => saveProgressCommand;
+
+    public ICommand CancelProcessCommand => cancelProcessCommand;
+
+    public ICommand CompleteTransactionCommand => completeTransactionCommand;
 
     public string DetectedProfileLabel => workflowSession.DetectedProfileLabel;
 
@@ -123,7 +141,50 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public void RunPreflight()
     {
-        workflowSession.RunManifestPreflight(Environment.UserName);
+        RunPreflightAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task RunPreflightAsync()
+    {
+        var running = workflowSession.RunManifestPreflightAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        await running;
+        RefreshWorkflowProperties();
+    }
+
+    public async Task StartOrClaimTransactionAsync()
+    {
+        var result = await ShellState.LifecycleCoordinator.StartOrClaimAsync();
+        if (!result.Success)
+        {
+            workflowSession.SetValidationFailure(result.ErrorMessage ?? "Could not start transaction. Try again.");
+        }
+
+        RefreshWorkflowProperties();
+    }
+
+    public async Task SaveProgressAsync()
+    {
+        var result = await ShellState.LifecycleCoordinator.SaveProgressAsync();
+        if (!result.Success)
+        {
+            workflowSession.SetValidationFailure(result.ErrorMessage ?? "Could not save progress. Try again.");
+        }
+
+        RefreshWorkflowProperties();
+    }
+
+    public void CancelProcess()
+    {
+        var result = ShellState.LifecycleCoordinator.CancelActiveProcess();
+        workflowSession.SetValidationFailure(result.StatusMessage ?? result.ErrorMessage ?? "Current process cancelled locally.");
+        RefreshWorkflowProperties();
+    }
+
+    public async Task CompleteTransactionAsync()
+    {
+        var result = await ShellState.LifecycleCoordinator.CompleteAsync();
+        workflowSession.SetValidationFailure(result.StatusMessage ?? result.ErrorMessage ?? "Complete is blocked.");
         RefreshWorkflowProperties();
     }
 
@@ -199,6 +260,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CurrentWorkflowState));
         NotifyPropertyChanged(nameof(CurrentStep));
         NotifyPropertyChanged(nameof(StatusText));
+        NotifyPropertyChanged(nameof(LifecycleStatusText));
         NotifyPropertyChanged(nameof(SourceFiles));
         NotifyPropertyChanged(nameof(DetectedProfileLabel));
         NotifyPropertyChanged(nameof(IntakeIssues));
@@ -215,6 +277,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand.RaiseCanExecuteChanged();
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
+        startOrClaimTransactionCommand.RaiseCanExecuteChanged();
+        saveProgressCommand.RaiseCanExecuteChanged();
+        cancelProcessCommand.RaiseCanExecuteChanged();
+        completeTransactionCommand.RaiseCanExecuteChanged();
     }
 
     private void SyncLoadedCaseFolder()
@@ -227,6 +293,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         if (workflowSession.CaseFolderPath?.Equals(loadedCaseFolderPath, StringComparison.OrdinalIgnoreCase) == true)
         {
+            RefreshWorkflowProperties();
             return;
         }
 

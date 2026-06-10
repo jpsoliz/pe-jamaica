@@ -4,7 +4,7 @@ baseline_commit: NO_VCS
 
 # Story 2.4: Load Transaction Details and Attachments into Case Folder
 
-Status: review
+Status: done
 
 ## Story
 
@@ -369,7 +369,9 @@ GPT-5 Codex
 - `tools\validate_contracts.ps1` - passed.
 - `tools\run_python_tests.ps1` - passed, 2 tests.
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` - passed, 86 tests.
+- Review fix rerun: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` - passed, 89 tests.
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore` - passed, 0 warnings, 0 errors.
+- Review fix rerun: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore` - passed, 0 warnings, 0 errors.
 - `tools\package_addin.ps1` - passed; package produced at `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.esriAddInX`.
 
 ### Completion Notes List
@@ -380,6 +382,7 @@ GPT-5 Codex
 - Extended manifest payload with optional `innola_transaction` and `attachment_provenance` fields while preserving old manifest compatibility.
 - Extended Case Folder ID validation to support Innola transaction numbers like `TR100000004`.
 - Updated Transaction Panel load behavior and Parcel Workflow dock pane sync to open the loaded Case Folder.
+- Fixed review findings: failed new loads now preserve any previously loaded Case Folder, partial attachment files are cleaned up on later load failure, and expected adapter exceptions return sanitized retryable errors.
 - Live Innola detail/download adapter remains a conservative placeholder until exact production detail/download endpoints are mapped; mock mode is fully functional for dry-run.
 
 ### File List
@@ -415,3 +418,4 @@ GPT-5 Codex
 |---|---:|---|---|
 | 2026-06-10 | 0.1 | Initial story context for loading Innola transaction details and attachments into Case Folder. | Mary |
 | 2026-06-10 | 1.0 | Implemented transaction load orchestration, manifest provenance, mock attachments, panel load behavior, Case Folder reopen, tests, validation, and packaging. | Codex |
+| 2026-06-10 | 1.1 | Addressed code review findings for failed-load preservation, partial attachment cleanup, adapter exception handling, and regression coverage. | Codex |

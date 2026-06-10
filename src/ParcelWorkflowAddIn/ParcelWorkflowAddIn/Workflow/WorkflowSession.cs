@@ -21,6 +21,7 @@ public sealed class WorkflowSession
     private readonly List<PreflightCheck> preflightBlockers = [];
     private readonly List<PreflightCheck> preflightWarnings = [];
     private readonly List<PreflightCheck> preflightPassedChecks = [];
+    private bool preflightRunActive;
 
     public WorkflowSession(CaseFolderStore caseFolderStore)
         : this(caseFolderStore, new SourceFileCopyService(), new SourceInputProfileDetector())
@@ -43,7 +44,7 @@ public sealed class WorkflowSession
         SourceInputProfileDetector sourceInputProfileDetector,
         SourceFileActionService sourceFileActionService,
         SourceFileActionAuditService sourceFileActionAuditService)
-        : this(caseFolderStore, sourceFileCopyService, sourceInputProfileDetector, sourceFileActionService, sourceFileActionAuditService, new ManifestPreflightService())
+        : this(caseFolderStore, sourceFileCopyService, sourceInputProfileDetector, sourceFileActionService, sourceFileActionAuditService, ManifestPreflightService.CreateDefault())
     {
     }
 
@@ -224,6 +225,26 @@ public sealed class WorkflowSession
 
     public PreflightSummaryDocument RunManifestPreflight(string? operatorId)
     {
+        return RunManifestPreflightAsync(operatorId).GetAwaiter().GetResult();
+    }
+
+    public async Task<PreflightSummaryDocument> RunManifestPreflightAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (preflightRunActive)
+        {
+            StatusText = "Preflight is already running.";
+            return new PreflightSummaryDocument(
+                "1.0.0",
+                TransactionId ?? string.Empty,
+                "not-run",
+                DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+                operatorId,
+                string.Empty,
+                new PreflightSummaryPayload("blocked", Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>()),
+                Array.Empty<string>(),
+                new[] { StatusText });
+        }
+
         if (!CanRunPreflight() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
             StatusText = "Create or reopen a Case Folder before running preflight.";
@@ -249,12 +270,13 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = "Preflight running: manifest checks.";
+        StatusText = "Preflight running: environment checks.";
+        preflightRunActive = true;
 
         try
         {
             SetWorkflowState(layout, WorkflowState.PreflightRunning);
-            var summary = manifestPreflightService.Run(layout, operatorId);
+            var summary = await manifestPreflightService.RunAsync(layout, operatorId, cancellationToken).ConfigureAwait(false);
             ClearPreflightResults();
             preflightBlockers.AddRange(summary.Payload.Blockers);
             preflightWarnings.AddRange(summary.Payload.Warnings);
@@ -268,13 +290,17 @@ public sealed class WorkflowSession
 
             StatusText = finalState == WorkflowState.PreflightBlocked
                 ? $"Preflight blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
-                : "Preflight passed: manifest checks complete.";
+                : "Preflight passed: manifest and environment checks complete.";
 
             return summary;
         }
         catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
         {
             return BlockManifestPreflightFailure(layout, operatorId, exception);
+        }
+        finally
+        {
+            preflightRunActive = false;
         }
     }
 
@@ -285,7 +311,8 @@ public sealed class WorkflowSession
 
     private bool CanRunPreflight()
     {
-        return CurrentState is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
+        return !preflightRunActive
+            && (CurrentState is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed);
     }
 
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)
