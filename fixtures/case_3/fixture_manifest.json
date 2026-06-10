@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0.0",
+  "fixture_id": "case_3",
+  "source_profile": "bad_quality_scanned_computation_pdf_plus_txt_csv_points_map_pdf_and_dwg",
+  "expected_artifacts": [],
+  "expected_severity_outcome": "manual_process_possible",
+  "audit_assertions": []
+}

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sidwell Co Transaction Panel Mockup</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --primary: #1F6B75;
+      --danger: #B42318;
+      --info: #2B6CB0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--surface-base);
+      color: var(--text-primary);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(320px, 420px));
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .pane {
+      min-height: 620px;
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+    }
+
+    .header {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 10px;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+
+    .status {
+      margin-top: 2px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    button,
+    select,
+    input {
+      min-height: 24px;
+      border: 1px solid var(--border-default);
+      border-radius: 2px;
+      background: #fff;
+      color: var(--text-primary);
+      font: inherit;
+    }
+
+    button {
+      padding: 2px 8px;
+    }
+
+    button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button:disabled,
+    select:disabled,
+    input:disabled {
+      color: var(--text-muted);
+      background: var(--surface-subtle);
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 6px 8px;
+      padding: 10px;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    label {
+      align-self: center;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sort-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .list {
+      overflow: auto;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .row {
+      min-height: 64px;
+      padding: 6px;
+      border-bottom: 1px solid var(--border-default);
+      display: grid;
+      gap: 3px;
+    }
+
+    .row.selected {
+      background: var(--surface-subtle);
+      border-left: 3px solid var(--primary);
+      padding-left: 3px;
+    }
+
+    .row-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .transaction {
+      color: var(--info);
+      text-decoration: underline;
+    }
+
+    .task {
+      font-weight: 600;
+    }
+
+    .time {
+      white-space: nowrap;
+    }
+
+    .assignment {
+      font-style: italic;
+    }
+
+    .footer {
+      min-height: 44px;
+      padding: 8px 10px;
+      color: var(--text-secondary);
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    .empty,
+    .loading {
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      padding: 24px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="pane" aria-label="Logged out transaction panel">
+      <div class="header">
+        <div>
+          <h1>Transactions</h1>
+          <div class="status">Not logged in.</div>
+        </div>
+        <div class="toolbar">
+          <button disabled>Refresh</button>
+          <button disabled>Load</button>
+        </div>
+      </div>
+      <div class="controls">
+        <label>Filter</label><select disabled><option>All tasks</option></select>
+        <label>Search</label><input disabled>
+        <label>Sorting</label><div class="sort-row"><select disabled><option>Transaction no</option></select><select disabled><option>Ascending</option></select></div>
+      </div>
+      <div class="empty">Login to view available transactions.</div>
+      <div class="footer">Transaction Panel is enabled after Innola login.</div>
+    </section>
+
+    <section class="pane" aria-label="Populated transaction panel">
+      <div class="header">
+        <div>
+          <h1>Transactions</h1>
+          <div class="status">6 available transactions.</div>
+        </div>
+        <div class="toolbar">
+          <button>Refresh</button>
+          <button class="primary">Load</button>
+        </div>
+      </div>
+      <div class="controls">
+        <label>Filter</label><select><option>All tasks</option><option>My tasks</option><option>Group tasks</option></select>
+        <label>Search</label><input value="QC">
+        <label>Sorting</label><div class="sort-row"><select><option>Transaction no</option><option>Task name</option><option>Received</option></select><select><option>Ascending</option><option>Descending</option></select></div>
+      </div>
+      <div class="list">
+        <article class="row selected">
+          <div class="row-top"><div><span class="transaction">TR100000009</span> - <span class="task">QC of Registration Cases</span></div><div class="time">15/Oct/2024 09:53</div></div>
+          <div>John Johnson</div>
+          <div><span class="assignment">TDC - Robert Smith</span> <span>Available</span></div>
+        </article>
+        <article class="row">
+          <div class="row-top"><div><span class="transaction">TR100000014</span> - <span class="task">QC of Registration Cases</span></div><div class="time">15/Oct/2024 10:15</div></div>
+          <div>Sergiy Lizenko, Derven George Pullen</div>
+          <div><span class="assignment">TDC - Sergiy Lizenko</span> <span>Available</span></div>
+        </article>
+        <article class="row">
+          <div class="row-top"><div><span class="transaction">TR100000020</span> - <span class="task">Review Instrument</span></div><div class="time">15/Oct/2024 12:19</div></div>
+          <div>Hermina Small</div>
+          <div><span class="assignment">TSBD - Maksym Kalyta</span> <span>Available</span></div>
+        </article>
+      </div>
+      <div class="footer">Selected transaction: TR100000009. Parcel Workflow remains disabled until transaction details and attachments are loaded.</div>
+    </section>
+
+    <section class="pane" aria-label="Error transaction panel">
+      <div class="header">
+        <div>
+          <h1>Transactions</h1>
+          <div class="status">Could not refresh transactions. Try again.</div>
+        </div>
+        <div class="toolbar">
+          <button>Refresh</button>
+          <button disabled>Load</button>
+        </div>
+      </div>
+      <div class="controls">
+        <label>Filter</label><select><option>All tasks</option></select>
+        <label>Search</label><input>
+        <label>Sorting</label><div class="sort-row"><select><option>Transaction no</option></select><select><option>Ascending</option></select></div>
+      </div>
+      <div class="empty">No rows loaded.</div>
+      <div class="footer error">Could not refresh transactions. Try again.</div>
+    </section>
+  </main>
+</body>
+</html>

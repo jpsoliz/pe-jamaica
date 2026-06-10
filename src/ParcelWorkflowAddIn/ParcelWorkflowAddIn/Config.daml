@@ -1,0 +1,89 @@
+<ArcGIS defaultAssembly="ParcelWorkflowAddIn.dll"
+        defaultNamespace="ParcelWorkflowAddIn"
+        xmlns="http://schemas.esri.com/DADF/Registry"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
+             version="0.1.0"
+             desktopVersion="3.6">
+    <Name>Parcel Workflow</Name>
+    <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
+    <Author>Sidwell</Author>
+    <Company>Sidwell</Company>
+  </AddInInfo>
+  <modules>
+    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="false" caption="Parcel Workflow">
+      <tabs>
+        <tab id="ParcelWorkflow_Tab" caption="Sidwell Co">
+          <group refID="ParcelWorkflow_Group" />
+        </tab>
+      </tabs>
+      <groups>
+        <group id="ParcelWorkflow_Group" caption="Sidwell Co" appearsOnAddInTab="true">
+          <button refID="ParcelWorkflow_LoginButton" />
+          <button refID="ParcelWorkflow_TransactionPanelButton" />
+          <button refID="ParcelWorkflow_ConfigurationButton" />
+          <button refID="ParcelWorkflow_ShowDockpaneButton" />
+          <button refID="ParcelWorkflow_AboutButton" />
+        </group>
+      </groups>
+      <controls>
+        <button id="ParcelWorkflow_LoginButton"
+                caption="Login"
+                className="ShowLoginWindowButton"
+                loadOnClick="true"
+                smallImage="Images\Ribbon\Login16.png"
+                largeImage="Images\Ribbon\Login32.png">
+          <tooltip heading="Login">Login to the Innola system<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_TransactionPanelButton"
+                caption="Transaction Panel"
+                className="ShowTransactionPanelButton"
+                loadOnClick="true"
+                smallImage="Images\Ribbon\Tasks16.png"
+                largeImage="Images\Ribbon\Tasks32.png">
+          <tooltip heading="Transaction Panel">Open available Innola transactions<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_ConfigurationButton"
+                caption="Configuration"
+                className="ShowConfigurationWindowButton"
+                loadOnClick="true"
+                smallImage="Images\Ribbon\Configuration16.png"
+                largeImage="Images\Ribbon\Configuration32.png">
+          <tooltip heading="Configuration">Open local parcel workflow settings<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_ShowDockpaneButton"
+                caption="Parcel Workflow"
+                className="ShowParcelWorkflowDockpaneButton"
+                loadOnClick="true"
+                smallImage="Images\Ribbon\ParcelWorkflow16.png"
+                largeImage="Images\Ribbon\ParcelWorkflow32.png">
+          <tooltip heading="Parcel Workflow">Open the parcel workflow pane<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_AboutButton"
+                caption="About"
+                className="ShowAboutWindowButton"
+                loadOnClick="true"
+                smallImage="Images\Ribbon\About16.png"
+                largeImage="Images\Ribbon\About32.png">
+          <tooltip heading="About">About this add-in<disabledText /></tooltip>
+        </button>
+      </controls>
+      <dockPanes>
+        <dockPane id="ParcelWorkflow_TransactionPanelDockpane"
+                  caption="Transactions"
+                  className="TransactionPanelDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="TransactionPanelDockpane" />
+        </dockPane>
+        <dockPane id="ParcelWorkflow_Dockpane"
+                  caption="Parcel Workflow"
+                  className="ParcelWorkflowDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="ParcelWorkflowDockpane" />
+        </dockPane>
+      </dockPanes>
+    </insertModule>
+  </modules>
+</ArcGIS>

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ParcelWorkflowAddIn</RootNamespace>
+    <AssemblyName>ParcelWorkflowAddIn</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <PackageType>Addin</PackageType>
+    <ArcGISProSdkTargets>C:\Program Files\ArcGIS\Pro\bin\Esri.ProApp.SDK.Desktop.targets</ArcGISProSdkTargets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Config.daml" />
+    <None Remove="Images\Ribbon\*.png" />
+    <None Remove="Settings\WorkflowSettings.json" />
+    <Content Include="Config.daml" CopyToOutputDirectory="Never" />
+    <Content Include="Images\Ribbon\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Settings\WorkflowSettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="ArcGIS.Core">
+      <HintPath>C:\Program Files\ArcGIS\Pro\bin\ArcGIS.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ArcGIS.Desktop.Framework">
+      <HintPath>C:\Program Files\ArcGIS\Pro\bin\ArcGIS.Desktop.Framework.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateArcGISProSdkPackagingTargets" BeforeTargets="Build" Condition="!Exists('$(ArcGISProSdkTargets)')">
+    <Error Text="ArcGIS Pro SDK packaging targets were not found at '$(ArcGISProSdkTargets)'. Install the matching ArcGIS Pro SDK or update ArcGISProSdkTargets in this project file." />
+  </Target>
+
+  <Import Project="$(ArcGISProSdkTargets)" Condition="Exists('$(ArcGISProSdkTargets)') And '$(MSBuildRuntimeType)' != 'Core'" />
+</Project>

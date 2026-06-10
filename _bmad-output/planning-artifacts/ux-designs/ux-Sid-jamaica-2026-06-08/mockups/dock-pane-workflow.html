@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NLA Parcel Workflow Add-in - Dock Pane Mock</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --success: #2F7D4F;
+      --warning: #B7791F;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--text-primary);
+    }
+    body {
+      margin: 0;
+      background: #DDE3E7;
+      padding: 24px;
+    }
+    .shell {
+      width: 420px;
+      min-height: 760px;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.18);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 12px;
+    }
+    h1 {
+      font-size: 16px;
+      line-height: 1.35;
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+    .meta, .path, .caption {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .status-line {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .pill {
+      border-radius: 2px;
+      padding: 2px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      white-space: nowrap;
+    }
+    .pill.success { color: #fff; background: var(--success); border-color: var(--success); }
+    .pill.warning { color: #1F2933; background: #F6E6BF; border-color: var(--warning); }
+    .pill.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+    }
+    .step {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-left: 3px solid transparent;
+      border-radius: 4px;
+      padding: 6px 6px;
+      font-size: 11px;
+      min-height: 30px;
+      box-sizing: border-box;
+    }
+    .step.active { border-left-color: var(--primary); font-weight: 600; }
+    .step.done { border-left-color: var(--success); }
+    .step.blocked { border-left-color: var(--danger); }
+    main {
+      flex: 1;
+      overflow: auto;
+      padding: 12px;
+    }
+    section {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .section-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-default);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .section-body { padding: 10px; }
+    .field-row {
+      display: grid;
+      grid-template-columns: 82px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 30px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--surface-subtle);
+    }
+    .field-row:last-child { border-bottom: none; }
+    .label {
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    button {
+      font: inherit;
+      font-size: 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      padding: 5px 9px;
+      cursor: default;
+    }
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--surface-subtle);
+      padding: 6px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--surface-inset);
+    }
+    .severity {
+      width: 4px;
+      border-radius: 2px;
+      display: inline-block;
+      height: 18px;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .severity.critical { background: var(--danger); }
+    .severity.warning { background: var(--warning); }
+    .severity.pass { background: var(--success); }
+    .review-row-missing { background: #FFF8E8; }
+    .review-row-edited { background: #EDF7F1; }
+    .artifact {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--surface-subtle);
+      font-size: 12px;
+    }
+    .artifact:last-child { border-bottom: none; }
+    .action-bar {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .log {
+      background: #25313A;
+      color: #D8E2E8;
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 62px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" role="application" aria-label="Parcel Workflow dock pane">
+    <header>
+      <h1>Parcel Workflow</h1>
+      <div class="meta">Transaction TR-SMD-0000001</div>
+      <div class="status-line">
+        <span class="pill success">Review approved</span>
+        <span class="pill warning">Score pending</span>
+        <span class="pill">Local v1</span>
+      </div>
+    </header>
+
+    <nav class="steps" aria-label="Workflow steps">
+      <div class="step done">Intake</div>
+      <div class="step done">Preflight</div>
+      <div class="step active">Review</div>
+      <div class="step">Validation</div>
+      <div class="step">Outputs</div>
+      <div class="step">Sync Ready</div>
+    </nav>
+
+    <main>
+      <section>
+        <div class="section-head"><span>Source Intake</span><span class="pill success">Copied</span></div>
+        <div class="section-body">
+          <div class="field-row">
+            <span class="label">Scenario</span>
+            <span>Scenario B - PDF/TXT/CSV + DWG + plan PDF</span>
+            <button>Change</button>
+          </div>
+          <div class="field-row">
+            <span class="label">Points</span>
+            <span class="path">source/points.csv</span>
+            <button>View</button>
+          </div>
+          <div class="field-row">
+            <span class="label">DWG</span>
+            <span class="path">source/reference.dwg</span>
+            <button>View</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><span>Preflight</span><span class="pill warning">1 warning</span></div>
+        <div class="section-body">
+          <table>
+            <thead><tr><th>Result</th><th>Check</th><th>Details</th></tr></thead>
+            <tbody>
+              <tr><td><span class="severity pass"></span>Pass</td><td>Required files</td><td>4 files copied</td></tr>
+              <tr><td><span class="severity warning"></span>Warn</td><td>DWG sublayers</td><td>Annotation found, Parcels missing</td></tr>
+              <tr><td><span class="severity pass"></span>Pass</td><td>Workspace</td><td>Writable output folder</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><span>Extraction Review</span><span class="pill warning">3 need review</span></div>
+        <div class="section-body">
+          <table>
+            <thead><tr><th>Point</th><th>Status</th><th>Source</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr class="review-row-edited"><td>P-101</td><td>Edited</td><td>PDF p.2</td><td><button>Evidence</button></td></tr>
+              <tr><td>P-102</td><td>OK</td><td>CSV row 12</td><td><button>Open</button></td></tr>
+              <tr class="review-row-missing"><td>P-103</td><td>Missing value</td><td>OCR low</td><td><button>Edit</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><span>Output Package Preview</span><span class="pill">Not generated</span></div>
+        <div class="section-body">
+          <div class="artifact"><span>result.gdb</span><span class="caption">points, lines, annotations</span></div>
+          <div class="artifact"><span>extracted_geometry.geojson</span><span class="caption">points + lines</span></div>
+          <div class="artifact"><span>report.html / report.pdf / report.json</span><span class="caption">execution report</span></div>
+        </div>
+      </section>
+    </main>
+
+    <div class="action-bar">
+      <button>Back</button>
+      <button class="primary">Approve Review</button>
+    </div>
+    <div class="log">13:42 Extraction complete. 24 points, 18 lines. 3 low-confidence items require review.</div>
+  </div>
+</body>
+</html>

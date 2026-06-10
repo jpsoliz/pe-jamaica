@@ -1,0 +1,546 @@
+using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.Tests.Preflight;
+using ParcelWorkflowAddIn.Workflow;
+
+namespace ParcelWorkflowAddIn.Tests.Workflow;
+
+internal static class WorkflowSessionTests
+{
+    public static void WorkflowSessionStartsAtNoCase()
+    {
+        var session = new WorkflowSession(new CaseFolderStore());
+
+        TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Initial workflow state mismatch.");
+        TestAssert.Equal("No Case", session.CurrentStep, "Initial current step mismatch.");
+        TestAssert.Equal("No active case", session.StatusText, "Initial status text mismatch.");
+    }
+
+    public static void WorkflowSessionExposesIntakeStateAfterCreation()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(store);
+
+        var result = session.CreateCase("TR-SMD-0000001", tempRoot.Path, "tester");
+
+        TestAssert.True(result.Success, "Workflow case creation should succeed.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Workflow should move to intake.");
+        TestAssert.Equal("TR-SMD-0000001", session.TransactionId, "Transaction ID should be exposed.");
+        TestAssert.Equal("Intake", session.CurrentStep, "Current step should be intake.");
+        TestAssert.Equal("Case created", session.StatusText, "Status text should indicate creation.");
+    }
+
+    public static void WorkflowSessionExposesValidationFailureStatus()
+    {
+        var session = new WorkflowSession(new CaseFolderStore());
+
+        session.SetValidationFailure("Transaction ID and output location are required.");
+
+        TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Validation failure should not change workflow state.");
+        TestAssert.Equal("Transaction ID and output location are required.", session.StatusText, "Validation failure should update status text.");
+    }
+
+    public static void WorkflowSessionRejectsSourceFilesWithoutActiveCase()
+    {
+        using var incoming = new TempDirectory();
+        var sourcePath = Path.Combine(incoming.Path, "plan.pdf");
+        File.WriteAllText(sourcePath, "source");
+        var session = new WorkflowSession(new CaseFolderStore());
+
+        var result = session.AddSourceFiles(new[] { sourcePath });
+
+        TestAssert.True(!result.Success, "Source files should be rejected without an active case.");
+        TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Rejected source files should not change workflow state.");
+        TestAssert.Equal("Create or reopen a Case Folder before adding source files.", session.StatusText, "Missing case status should be clear.");
+    }
+
+    public static void WorkflowSessionAddsSourceFilesDuringIntake()
+    {
+        using var tempRoot = new TempDirectory();
+        using var incoming = new TempDirectory();
+        var sourcePath = Path.Combine(incoming.Path, "plan.pdf");
+        File.WriteAllText(sourcePath, "source");
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(store, new SourceFileCopyService(() => new DateTimeOffset(2026, 6, 9, 1, 2, 3, TimeSpan.Zero)));
+        session.CreateCase("TR-SMD-0000001", tempRoot.Path, "tester");
+
+        var result = session.AddSourceFiles(new[] { sourcePath });
+
+        TestAssert.True(result.Success, "Source files should be added during intake.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Source copy should keep workflow in intake.");
+        TestAssert.Equal(1, session.SourceFiles.Count, "Session should expose copied source file list.");
+        TestAssert.Equal("Copied 1 source file to Case Folder source area.", session.StatusText, "Source copy status mismatch.");
+    }
+
+    public static void WorkflowSessionExposesRejectedSourceFileRows()
+    {
+        using var tempRoot = new TempDirectory();
+        using var incoming = new TempDirectory();
+        var sourcePath = Path.Combine(incoming.Path, "notes.docx");
+        File.WriteAllText(sourcePath, "source");
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(store, new SourceFileCopyService(() => new DateTimeOffset(2026, 6, 9, 1, 2, 3, TimeSpan.Zero)));
+        session.CreateCase("TR-SMD-0000001", tempRoot.Path, "tester");
+
+        var result = session.AddSourceFiles(new[] { sourcePath });
+
+        TestAssert.True(!result.Success, "Unsupported source file should fail.");
+        TestAssert.Equal(1, session.SourceFiles.Count, "Session should expose rejected source file row.");
+        TestAssert.True(!session.SourceFiles[0].Copied, "Rejected source file row should not be marked copied.");
+        TestAssert.True(session.SourceFiles[0].Message.Contains("Unsupported source file type: .docx", StringComparison.OrdinalIgnoreCase), "Rejected row should expose unsupported extension message.");
+    }
+
+    public static void WorkflowSessionPersistsDetectedProfileWithoutRemovingSourceFiles()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(() => new DateTimeOffset(2026, 6, 9, 1, 2, 3, TimeSpan.Zero)),
+            new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero)));
+        var caseResult = session.CreateCase("TR-SMD-0000001", tempRoot.Path, "tester");
+        var manifest = ManifestSerializer.Read(caseResult.Layout!.ManifestPath);
+        var sourceFiles = new[]
+        {
+            new ManifestSourceFile("C:\\incoming\\points.csv", Path.Combine(caseResult.Layout.SourceDirectory, "points.csv"), ".csv", 10, "2026-06-09T01:00:00Z", "points_computation"),
+            new ManifestSourceFile("C:\\incoming\\reference.dwg", Path.Combine(caseResult.Layout.SourceDirectory, "reference.dwg"), ".dwg", 10, "2026-06-09T01:00:00Z", "dwg_reference"),
+            new ManifestSourceFile("C:\\incoming\\plan.pdf", Path.Combine(caseResult.Layout.SourceDirectory, "plan.pdf"), ".pdf", 10, "2026-06-09T01:00:00Z", "plan_map_reference")
+        };
+        ManifestSerializer.Write(caseResult.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { SourceFiles = sourceFiles } });
+
+        var profile = session.RefreshInputProfile();
+
+        var updatedManifest = ManifestSerializer.Read(caseResult.Layout.ManifestPath);
+        TestAssert.Equal("scenario_b", profile.ProfileCode, "Workflow profile code mismatch.");
+        TestAssert.Equal("scenario_b", updatedManifest.Payload.DetectedProfile!.ProfileCode, "Manifest profile code mismatch.");
+        TestAssert.Equal(3, updatedManifest.Payload.SourceFiles.Count, "Profile persistence must preserve source files.");
+        TestAssert.Equal("Scenario B - points/computation + DWG + plan/map reference", session.DetectedProfileLabel, "Session detected profile label mismatch.");
+        TestAssert.Equal(0, session.IntakeIssues.Count, "Scenario B should not expose intake issues.");
+    }
+
+    public static void WorkflowSessionReopensValidCaseFolder()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var sourcePath = Path.Combine(created.Layout!.SourceDirectory, "points.csv");
+        File.WriteAllText(sourcePath, "point_id,x,y");
+        var manifest = ManifestSerializer.Read(created.Layout.ManifestPath);
+        ManifestSerializer.Write(
+            created.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = new[]
+                    {
+                        new ManifestSourceFile("C:\\incoming\\points.csv", sourcePath, ".csv", 12, "2026-06-09T01:00:00Z", "points_computation")
+                    },
+                    DetectedProfile = new DetectedSourceInputProfile(
+                        "scenario_b",
+                        "Scenario B - points/computation + DWG + plan/map reference",
+                        "matched",
+                        "2026-06-09T02:00:00Z",
+                        Array.Empty<string>(),
+                        Array.Empty<string>())
+                }
+            });
+        var session = new WorkflowSession(store);
+
+        var result = session.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        TestAssert.True(result.Success, "Workflow session should reopen a valid Case Folder.");
+        TestAssert.Equal("TR-SMD-0000001", session.TransactionId, "Session transaction ID should be restored.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Session should resume intake.");
+        TestAssert.Equal(1, session.SourceFiles.Count, "Session source rows should be restored.");
+        TestAssert.Equal("Scenario B - points/computation + DWG + plan/map reference", session.DetectedProfileLabel, "Detected profile should be restored.");
+        TestAssert.Equal("Case reopened", session.StatusText, "Reopen status text mismatch.");
+    }
+
+    public static void WorkflowSessionReopensCaseWithMissingDetectedProfileIssue()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var session = new WorkflowSession(store);
+
+        var result = session.ReopenCaseFolder(created.Layout!.RootDirectory);
+
+        TestAssert.True(result.Success, "Case without detected profile should reopen.");
+        TestAssert.Equal("Detected profile: not refreshed", session.DetectedProfileLabel, "Missing detected profile label mismatch.");
+        TestAssert.True(session.IntakeIssues.Any(issue => issue.Contains("Refresh Intake", StringComparison.OrdinalIgnoreCase)), "Missing detected profile should surface a refresh issue.");
+    }
+
+    public static void WorkflowSessionReportsReopenFailuresWithoutReplacingActiveCase()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var activeCase = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var session = new WorkflowSession(store);
+        session.ReopenCaseFolder(activeCase.Layout!.RootDirectory);
+        var invalidCasePath = Path.Combine(tempRoot.Path, "TR-SMD-0000002");
+        Directory.CreateDirectory(invalidCasePath);
+
+        var result = session.ReopenCaseFolder(invalidCasePath);
+
+        TestAssert.True(!result.Success, "Missing manifest should fail through session.");
+        TestAssert.Equal("TR-SMD-0000001", session.TransactionId, "Failed reopen should not replace active transaction.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Failed reopen should not replace active state.");
+        TestAssert.True(session.IntakeIssues.Any(issue => issue.Contains("Manifest", StringComparison.OrdinalIgnoreCase)), "Failed reopen should expose recoverability issue.");
+    }
+
+    public static void WorkflowSessionDoesNotCreateProcessingArtifactsDuringReopen()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var session = new WorkflowSession(store);
+
+        var result = session.ReopenCaseFolder(created.Layout!.RootDirectory);
+
+        TestAssert.True(result.Success, "Valid Case Folder should reopen.");
+        foreach (var artifactPath in new[]
+        {
+            Path.Combine(created.Layout.WorkingDirectory, "preflight_summary.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "extraction_review_data.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "approved_review.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "validation_summary.json"),
+            Path.Combine(created.Layout.OutputDirectory, "output_summary.json"),
+            Path.Combine(created.Layout.LogsDirectory, "process.log"),
+            Path.Combine(created.Layout.OutputDirectory, "extracted_geometry.geojson")
+        })
+        {
+            TestAssert.True(!File.Exists(artifactPath), $"Reopen must not create processing artifact: {artifactPath}");
+        }
+    }
+
+    public static void WorkflowSessionClearsReopenedCaseStateWhenCreatingNewCase()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var reopenedCase = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var sourcePath = Path.Combine(reopenedCase.Layout!.SourceDirectory, "points.csv");
+        File.WriteAllText(sourcePath, "point_id,x,y");
+        var preflightPath = Path.Combine(reopenedCase.Layout.WorkingDirectory, "preflight_summary.json");
+        File.WriteAllText(preflightPath, "{}");
+        var manifest = ManifestSerializer.Read(reopenedCase.Layout.ManifestPath);
+        ManifestSerializer.Write(
+            reopenedCase.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = new[]
+                    {
+                        new ManifestSourceFile("C:\\incoming\\points.csv", sourcePath, ".csv", 12, "2026-06-09T01:00:00Z", "points_computation")
+                    },
+                    DetectedProfile = new DetectedSourceInputProfile(
+                        "scenario_b",
+                        "Scenario B - points/computation + DWG + plan/map reference",
+                        "matched",
+                        "2026-06-09T02:00:00Z",
+                        Array.Empty<string>(),
+                        Array.Empty<string>())
+                }
+            });
+        var session = new WorkflowSession(store);
+        session.ReopenCaseFolder(reopenedCase.Layout.RootDirectory);
+
+        var newCase = session.CreateCase("TR-SMD-0000002", tempRoot.Path, "tester");
+
+        TestAssert.True(newCase.Success, "New case creation should still work after reopen.");
+        TestAssert.Equal("TR-SMD-0000002", session.TransactionId, "New case transaction ID should replace reopened case.");
+        TestAssert.Equal(0, session.SourceFiles.Count, "New case should not retain reopened source rows.");
+        TestAssert.Equal(0, session.IntakeIssues.Count, "New case should not retain reopened recoverability issues.");
+        TestAssert.Equal(0, session.AvailableArtifacts.Count, "New case should not retain reopened available artifacts.");
+        TestAssert.Equal("Detected profile: not refreshed", session.DetectedProfileLabel, "New case should reset detected profile label.");
+    }
+
+    public static void WorkflowSessionSourceActionsWorkAfterReopen()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var sourcePath = Path.Combine(created.Layout!.SourceDirectory, "plan.pdf");
+        File.WriteAllText(sourcePath, "source");
+        var manifest = ManifestSerializer.Read(created.Layout.ManifestPath);
+        ManifestSerializer.Write(
+            created.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = new[]
+                    {
+                        new ManifestSourceFile("C:\\incoming\\plan.pdf", sourcePath, ".pdf", 10, "2026-06-09T01:00:00Z", "plan_map_reference")
+                    }
+                }
+            });
+        var launcher = new FakeSourceFileLauncher();
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(launcher),
+            new SourceFileActionAuditService(() => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)));
+        session.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        var result = session.ExecuteSourceFileAction(session.SourceFiles[0], SourceFileAction.Open, "tester");
+
+        TestAssert.True(result.Success, "Source action should work after reopen.");
+        TestAssert.Equal(sourcePath, launcher.OpenedPath, "Workflow source action should open copied path.");
+        TestAssert.Equal("Opened source file.", session.StatusText, "Workflow status should reflect open action.");
+    }
+
+    public static void WorkflowSessionSourceActionFailuresAreNonBlocking()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(new FakeSourceFileLauncher()),
+            new SourceFileActionAuditService(() => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)));
+        session.ReopenCaseFolder(created.Layout!.RootDirectory);
+        var row = new SourceFileCopyResult("C:\\incoming\\missing.pdf", Path.Combine(created.Layout.SourceDirectory, "missing.pdf"), "missing.pdf", ".pdf", 10, null, "copied", "Copied to Case Folder source area.", Copied: true);
+
+        var result = session.ExecuteSourceFileAction(row, SourceFileAction.Open, "tester");
+
+        TestAssert.True(!result.Success, "Missing source action should fail.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Failed source action should not change workflow state.");
+        TestAssert.True(session.StatusText.Contains("missing", StringComparison.OrdinalIgnoreCase), "Failure should be reported in status text.");
+    }
+
+    public static void WorkflowSessionSourceActionsAuditAndAvoidProcessingArtifacts()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var sourcePath = Path.Combine(created.Layout!.SourceDirectory, "plan.pdf");
+        File.WriteAllText(sourcePath, "source");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(new FakeSourceFileLauncher()),
+            new SourceFileActionAuditService(() => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)));
+        session.ReopenCaseFolder(created.Layout.RootDirectory);
+        var row = new SourceFileCopyResult("C:\\incoming\\plan.pdf", sourcePath, "plan.pdf", ".pdf", 10, null, "copied", "Copied to Case Folder source area.", Copied: true);
+
+        var result = session.ExecuteSourceFileAction(row, SourceFileAction.Reveal, "tester");
+
+        TestAssert.True(result.Success, "Reveal should succeed.");
+        TestAssert.True(File.Exists(Path.Combine(created.Layout.WorkingDirectory, "source_action_audit.json")), "Source action audit should be written.");
+        foreach (var artifactPath in new[]
+        {
+            Path.Combine(created.Layout.WorkingDirectory, "preflight_summary.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "extraction_review_data.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "approved_review.json"),
+            Path.Combine(created.Layout.WorkingDirectory, "validation_summary.json"),
+            Path.Combine(created.Layout.OutputDirectory, "output_summary.json"),
+            Path.Combine(created.Layout.LogsDirectory, "process.log"),
+            Path.Combine(created.Layout.OutputDirectory, "extracted_geometry.geojson")
+        })
+        {
+            TestAssert.True(!File.Exists(artifactPath), $"Source actions must not create processing artifact: {artifactPath}");
+        }
+    }
+
+    public static void WorkflowSessionSourceActionSucceedsWhenExistingAuditIsCorrupt()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "TR-SMD-0000001", "tester");
+        var sourcePath = Path.Combine(created.Layout!.SourceDirectory, "plan.pdf");
+        File.WriteAllText(sourcePath, "source");
+        Directory.CreateDirectory(created.Layout.WorkingDirectory);
+        File.WriteAllText(SourceFileActionAuditService.GetAuditPath(created.Layout), "{ not valid json");
+        var launcher = new FakeSourceFileLauncher();
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(launcher),
+            new SourceFileActionAuditService(() => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)));
+        session.ReopenCaseFolder(created.Layout.RootDirectory);
+        var row = new SourceFileCopyResult("C:\\incoming\\plan.pdf", sourcePath, "plan.pdf", ".pdf", 10, null, "copied", "Copied to Case Folder source area.", Copied: true);
+
+        var result = session.ExecuteSourceFileAction(row, SourceFileAction.Open, "tester");
+
+        TestAssert.True(result.Success, "Source action should remain successful even when audit append fails.");
+        TestAssert.Equal(sourcePath, launcher.OpenedPath, "Open action should still launch copied path.");
+        TestAssert.Equal("Opened source file.", session.StatusText, "Audit failure should not replace source action status.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Audit failure should not change workflow state.");
+    }
+
+    public static void WorkflowSessionRunManifestPreflightBlocksMissingRole()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("points.csv", ".csv", "points_computation"),
+                ManifestPreflightServiceTests.Source("reference.dwg", ".dwg", "dwg_reference")
+            });
+        var session = new WorkflowSession(new CaseFolderStore());
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var summary = session.RunManifestPreflight("tester");
+
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blockers should move workflow to preflight blocked.");
+        TestAssert.Equal("Preflight blocked: missing plan/map reference.", session.StatusText, "Blocked preflight status mismatch.");
+        TestAssert.Equal(1, session.PreflightBlockers.Count, "Session should expose preflight blockers.");
+        TestAssert.Equal(0, session.PreflightWarnings.Count, "Session should expose preflight warnings.");
+        TestAssert.True(session.PreflightPassedChecks.Count > 0, "Session should expose passed checks.");
+        TestAssert.Equal("blocked", summary.Payload.Status, "Workflow preflight summary should be blocked.");
+        TestAssert.Equal("preflight_blocked", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight blocked.");
+    }
+
+    public static void WorkflowSessionRunManifestPreflightCanPassManifestLayer()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = new WorkflowSession(new CaseFolderStore());
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var summary = session.RunManifestPreflight("tester");
+
+        TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
+        TestAssert.Equal("Preflight passed: manifest checks complete.", session.StatusText, "Passed preflight status mismatch.");
+        TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
+        TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
+        TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
+        TestAssert.Equal("preflight_passed", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight passed.");
+    }
+
+    public static void WorkflowSessionAddingSourceAfterPreflightInvalidatesPreflight()
+    {
+        using var tempRoot = new TempDirectory();
+        using var incoming = new TempDirectory();
+        var incomingSource = Path.Combine(incoming.Path, "extra-plan.pdf");
+        File.WriteAllText(incomingSource, "source");
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = new WorkflowSession(new CaseFolderStore());
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        var result = session.AddSourceFiles(new[] { incomingSource }, "plan_map_reference");
+
+        TestAssert.True(result.Success, "Adding source after preflight should still copy the source file.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Intake edits should reset workflow state to intake.");
+        TestAssert.True(!File.Exists(layout.PreflightSummaryPath), "Intake edits should remove stale preflight summary.");
+        TestAssert.Equal(0, session.PreflightBlockers.Count, "Intake edits should clear stale blockers.");
+        TestAssert.Equal(0, session.PreflightPassedChecks.Count, "Intake edits should clear stale passed checks.");
+        TestAssert.Equal("intake", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest should persist intake state after source edits.");
+    }
+
+    public static void WorkflowSessionRefreshingProfileAfterPreflightInvalidatesPreflight()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = new WorkflowSession(new CaseFolderStore());
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        var profile = session.RefreshInputProfile();
+
+        TestAssert.Equal("scenario_a", profile.ProfileCode, "Profile refresh should still detect Scenario A.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Profile refresh should reset workflow state to intake.");
+        TestAssert.True(!File.Exists(layout.PreflightSummaryPath), "Profile refresh should remove stale preflight summary.");
+        TestAssert.Equal(0, session.PreflightBlockers.Count, "Profile refresh should clear stale blockers.");
+        TestAssert.Equal(0, session.PreflightPassedChecks.Count, "Profile refresh should clear stale passed checks.");
+        TestAssert.Equal("intake", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest should persist intake state after profile refresh.");
+    }
+
+    public static void WorkflowSessionRunManifestPreflightHandlesCorruptManifest()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = new WorkflowSession(new CaseFolderStore());
+        session.ReopenCaseFolder(layout.RootDirectory);
+        File.WriteAllText(layout.ManifestPath, "{ not valid json");
+
+        var summary = session.RunManifestPreflight("tester");
+
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Corrupt manifest should move session to preflight blocked.");
+        TestAssert.Equal("blocked", summary.Payload.Status, "Corrupt manifest should return a blocked summary.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "manifest_readable"), "Corrupt manifest blocker should be present.");
+        TestAssert.True(session.PreflightBlockers.Any(check => check.CheckId == "manifest_readable"), "Session should expose corrupt manifest blocker.");
+        TestAssert.Equal("Preflight blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
+    }
+
+    public static void WorkflowSessionReopensPreflightArtifactWithoutDownstreamCommands()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        new WorkflowSession(new CaseFolderStore()).ReopenCaseFolder(layout.RootDirectory);
+        new ManifestPreflightService().Run(layout, "tester");
+        var session = new WorkflowSession(new CaseFolderStore());
+
+        var result = session.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(result.Success, "Case with preflight artifact should reopen.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "preflight_summary.json"), "Preflight summary should be available after reopen.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Reopen must not create extraction artifact.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Reopen must not create output artifact.");
+    }
+
+    private sealed class FakeSourceFileLauncher : ISourceFileLauncher
+    {
+        public string? OpenedPath { get; private set; }
+
+        public string? RevealedPath { get; private set; }
+
+        public void OpenFile(string copiedPath)
+        {
+            OpenedPath = copiedPath;
+        }
+
+        public void RevealFile(string copiedPath)
+        {
+            RevealedPath = copiedPath;
+        }
+    }
+}

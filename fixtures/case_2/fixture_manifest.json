@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0.0",
+  "fixture_id": "case_2",
+  "source_profile": "good_quality_scanned_computation_pdf_plus_good_quality_scanned_parcel_map_pdf",
+  "expected_artifacts": [],
+  "expected_severity_outcome": "usable_extraction_expected",
+  "audit_assertions": []
+}

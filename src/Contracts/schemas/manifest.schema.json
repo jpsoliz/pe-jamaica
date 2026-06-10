@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manifest.schema.json",
+  "title": "Manifest",
+  "type": "object",
+  "required": ["schema_version", "transaction_id", "run_id", "created_at", "created_by", "source_manifest_hash", "payload", "warnings", "errors"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "transaction_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "created_by": { "type": ["string", "null"] },
+    "source_manifest_hash": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "required": ["workflow_state", "source_files"],
+      "properties": {
+        "workflow_state": { "type": "string" },
+        "source_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["original_path", "copied_path", "file_type", "file_size", "copied_at", "source_role"],
+            "properties": {
+              "original_path": { "type": "string" },
+              "copied_path": { "type": "string" },
+              "file_type": { "type": "string" },
+              "file_size": { "type": "integer" },
+              "copied_at": { "type": "string" },
+              "source_role": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "detected_profile": {
+          "type": ["object", "null"],
+          "required": ["profile_code", "display_label", "status", "detected_at", "missing_roles", "issues"],
+          "properties": {
+            "profile_code": { "type": "string" },
+            "display_label": { "type": "string" },
+            "status": { "type": "string" },
+            "detected_at": { "type": "string" },
+            "missing_roles": { "type": "array", "items": { "type": "string" } },
+            "issues": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "warnings": { "type": "array" },
+    "errors": { "type": "array" }
+  }
+}

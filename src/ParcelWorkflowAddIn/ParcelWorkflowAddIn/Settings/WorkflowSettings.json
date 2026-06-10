@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "arcgis_pro_sdk_lane": "3.6",
+  "visual_studio": "2022 17.13+",
+  "target_framework": "net8.0-windows",
+  "arcgis_python_executable": "C:\\JPFiles\\Dropbox\\Sidwell\\Development\\AI-Survey\\python-envs\\arcgispro-survey-ai\\python.exe",
+  "innola_server_url": "https://eltrs.innola-solutions.com/",
+  "innola_transaction_mode": "mock",
+  "innola_process_step": "parcel_workflow",
+  "case_folder_output_root": ""
+}

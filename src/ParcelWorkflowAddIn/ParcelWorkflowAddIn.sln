@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.0.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParcelWorkflowAddIn", "ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj", "{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParcelWorkflowAddIn.Tests", "ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj", "{A24AA70E-A469-4691-AF79-70C93E6C10E6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A24AA70E-A469-4691-AF79-70C93E6C10E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A24AA70E-A469-4691-AF79-70C93E6C10E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A24AA70E-A469-4691-AF79-70C93E6C10E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A24AA70E-A469-4691-AF79-70C93E6C10E6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

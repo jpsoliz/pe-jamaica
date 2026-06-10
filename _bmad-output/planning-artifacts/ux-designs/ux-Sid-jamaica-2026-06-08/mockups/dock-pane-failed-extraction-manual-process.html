@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NLA Parcel Workflow Add-in - Failed Extraction Manual Process</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --success: #2F7D4F;
+      --warning: #B7791F;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--text-primary);
+    }
+    body { margin: 0; background: #DDE3E7; padding: 24px; }
+    .shell {
+      width: 420px;
+      min-height: 760px;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.18);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 12px;
+    }
+    h1 { font-size: 16px; line-height: 1.35; margin: 0 0 6px; font-weight: 600; }
+    h2 { font-size: 13px; margin: 0; font-weight: 600; }
+    .meta, .caption, .path { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+    .status-line { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .pill {
+      border-radius: 2px;
+      padding: 2px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      white-space: nowrap;
+    }
+    .pill.success { color: #fff; background: var(--success); border-color: var(--success); }
+    .pill.warning { color: #1F2933; background: #F6E6BF; border-color: var(--warning); }
+    .pill.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+    }
+    .step {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-left: 3px solid transparent;
+      border-radius: 4px;
+      padding: 6px;
+      font-size: 11px;
+      min-height: 30px;
+      box-sizing: border-box;
+    }
+    .step.done { border-left-color: var(--success); }
+    .step.active { border-left-color: var(--danger); font-weight: 600; }
+    .step.locked { color: var(--text-muted); background: #F1F3F5; }
+    main { flex: 1; overflow: auto; padding: 12px; }
+    section {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .section-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .section-body { padding: 10px; font-size: 12px; line-height: 1.4; }
+    .failure-panel {
+      border-left: 4px solid var(--danger);
+      background: #FFF4F2;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .failure-title { font-weight: 600; margin-bottom: 4px; }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .metric {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .metric strong { display: block; font-size: 16px; margin-bottom: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td {
+      border-bottom: 1px solid var(--surface-subtle);
+      padding: 6px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--text-secondary); font-size: 11px; font-weight: 600; background: var(--surface-inset); }
+    .severity {
+      width: 4px;
+      border-radius: 2px;
+      display: inline-block;
+      height: 18px;
+      vertical-align: middle;
+      margin-right: 6px;
+      background: var(--danger);
+    }
+    .decision {
+      border: 1px solid #E0A39B;
+      background: #FFF8F7;
+      border-radius: 4px;
+      padding: 10px;
+    }
+    .radio-row {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 6px;
+      margin: 8px 0;
+      align-items: start;
+    }
+    button {
+      font: inherit;
+      font-size: 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      padding: 5px 9px;
+    }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+    button.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+    button[disabled] { color: var(--text-muted); background: #EEF1F3; }
+    .action-bar {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .log {
+      background: #25313A;
+      color: #D8E2E8;
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 62px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" role="application" aria-label="Parcel Workflow failed extraction state">
+    <header>
+      <h1>Parcel Workflow</h1>
+      <div class="meta">Transaction TR-SMD-0000001</div>
+      <div class="status-line">
+        <span class="pill danger">Extraction failed</span>
+        <span class="pill">0 usable records</span>
+        <span class="pill warning">Manual decision required</span>
+      </div>
+    </header>
+
+    <nav class="steps" aria-label="Workflow steps">
+      <div class="step done">Intake</div>
+      <div class="step done">Preflight</div>
+      <div class="step active">Review</div>
+      <div class="step locked">Validation</div>
+      <div class="step locked">Outputs</div>
+      <div class="step locked">Sync Ready</div>
+    </nav>
+
+    <main>
+      <section>
+        <div class="section-head"><h2>Extraction Result</h2><span class="pill danger">Failed</span></div>
+        <div class="section-body">
+          <div class="failure-panel">
+            <div class="failure-title">No usable points or lines were extracted.</div>
+            <div>The automated run did not produce reviewable geometry. Continue through Manual Process or add/correct data manually before trying validation.</div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric"><strong>0</strong><span class="caption">usable points</span></div>
+            <div class="metric"><strong>0</strong><span class="caption">usable lines</span></div>
+            <div class="metric"><strong>4</strong><span class="caption">source files checked</span></div>
+            <div class="metric"><strong>0/10</strong><span class="caption">solution score</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><h2>Failure Evidence</h2><button>Open log</button></div>
+        <div class="section-body">
+          <table>
+            <thead><tr><th>Status</th><th>Area</th><th>Evidence</th></tr></thead>
+            <tbody>
+              <tr><td><span class="severity"></span>Critical</td><td>OCR extraction</td><td>No coordinate table detected in scanned computation PDF.</td></tr>
+              <tr><td><span class="severity"></span>Critical</td><td>Geometry</td><td>No point or line candidates available for review.</td></tr>
+              <tr><td><span class="severity"></span>Critical</td><td>Output</td><td>Geometry generation is locked until review data exists.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><h2>Manual Process Decision</h2><span class="pill warning">User choice</span></div>
+        <div class="section-body">
+          <div class="decision">
+            <div class="failure-title">Choose how this transaction should continue.</div>
+            <label class="radio-row"><input type="radio" checked><span>Route to Manual Process for COGO/manual ArcGIS Pro handling.</span></label>
+            <label class="radio-row"><input type="radio"><span>Add or correct review data manually, then rerun validation.</span></label>
+            <label class="radio-row"><input type="radio"><span>Return to Intake and replace source files.</span></label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="action-bar">
+      <button>Back to Intake</button>
+      <button class="danger">Confirm Manual Process</button>
+    </div>
+    <div class="log">14:08 Extraction failed. 0 usable points, 0 usable lines. Manual Process decision required.</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NLA Parcel Workflow Add-in - Review Before Output</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --success: #2F7D4F;
+      --warning: #B7791F;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--text-primary);
+    }
+    body { margin: 0; background: #DDE3E7; padding: 24px; }
+    .shell {
+      width: 420px;
+      min-height: 820px;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.18);
+      display: flex;
+      flex-direction: column;
+    }
+    header { background: var(--surface-panel); border-bottom: 1px solid var(--border-default); padding: 12px; }
+    h1 { font-size: 16px; line-height: 1.35; margin: 0 0 6px; font-weight: 600; }
+    h2 { font-size: 13px; margin: 0; font-weight: 600; }
+    .meta, .caption, .path { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+    .status-line { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .pill {
+      border-radius: 2px;
+      padding: 2px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      white-space: nowrap;
+    }
+    .pill.success { color: #fff; background: var(--success); border-color: var(--success); }
+    .pill.warning { color: #1F2933; background: #F6E6BF; border-color: var(--warning); }
+    .pill.danger { color: #fff; background: var(--danger); border-color: var(--danger); }
+    .pill.info { color: #fff; background: var(--info); border-color: var(--info); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+    }
+    .step {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-left: 3px solid transparent;
+      border-radius: 4px;
+      padding: 6px;
+      font-size: 11px;
+      min-height: 30px;
+      box-sizing: border-box;
+    }
+    .step.done { border-left-color: var(--success); }
+    .step.active { border-left-color: var(--primary); font-weight: 600; }
+    .step.locked { color: var(--text-muted); background: #F1F3F5; }
+    main { flex: 1; overflow: auto; padding: 12px; }
+    section {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .section-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .section-body { padding: 10px; font-size: 12px; line-height: 1.4; }
+    .lock-panel {
+      border-left: 4px solid var(--info);
+      background: #F1F7FC;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .lock-title { font-weight: 600; margin-bottom: 4px; }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td {
+      border-bottom: 1px solid var(--surface-subtle);
+      padding: 6px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--text-secondary); font-size: 11px; font-weight: 600; background: var(--surface-inset); }
+    .review-row-missing { background: #FFF8E8; }
+    .review-row-edited { background: #EDF7F1; }
+    .review-row-low { background: #F4F1FA; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .summary {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .summary strong { display: block; font-size: 15px; margin-bottom: 2px; }
+    .artifact {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--surface-subtle);
+      font-size: 12px;
+    }
+    .artifact:last-child { border-bottom: none; }
+    button {
+      font: inherit;
+      font-size: 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      padding: 5px 9px;
+    }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+    button[disabled] { color: var(--text-muted); background: #EEF1F3; }
+    .action-bar {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .log {
+      background: #25313A;
+      color: #D8E2E8;
+      padding: 8px 12px;
+      font-size: 11px;
+      line-height: 1.4;
+      max-height: 62px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell" role="application" aria-label="Parcel Workflow review before output state">
+    <header>
+      <h1>Parcel Workflow</h1>
+      <div class="meta">Transaction TR-SMD-0000001</div>
+      <div class="status-line">
+        <span class="pill info">Review required</span>
+        <span class="pill warning">5 unresolved</span>
+        <span class="pill">Geometry locked</span>
+      </div>
+    </header>
+
+    <nav class="steps" aria-label="Workflow steps">
+      <div class="step done">Intake</div>
+      <div class="step done">Preflight</div>
+      <div class="step active">Review</div>
+      <div class="step locked">Validation</div>
+      <div class="step locked">Outputs</div>
+      <div class="step locked">Sync Ready</div>
+    </nav>
+
+    <main>
+      <section>
+        <div class="section-head"><h2>Review Gate</h2><span class="pill info">Before geometry</span></div>
+        <div class="section-body">
+          <div class="lock-panel">
+            <div class="lock-title">Geometry generation is locked until review is approved.</div>
+            <div>Review extracted points and lines, correct missing or low-confidence values, then approve the review data. Validation and output creation unlock after approval.</div>
+          </div>
+          <div class="summary-grid">
+            <div class="summary"><strong>24</strong><span class="caption">points found</span></div>
+            <div class="summary"><strong>18</strong><span class="caption">lines found</span></div>
+            <div class="summary"><strong>5</strong><span class="caption">unresolved</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><h2>Extracted Points</h2><button>Add point</button></div>
+        <div class="section-body">
+          <div class="toolbar">
+            <span class="caption">Filter: unresolved and low confidence</span>
+            <button>Show all</button>
+          </div>
+          <table>
+            <thead><tr><th>ID</th><th>Easting</th><th>Northing</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr class="review-row-edited"><td>P-101</td><td>731245.22</td><td>612994.10</td><td>Edited</td></tr>
+              <tr class="review-row-low"><td>P-102</td><td>731251.90</td><td>612981.42</td><td>Low confidence</td></tr>
+              <tr class="review-row-missing"><td>P-103</td><td>--</td><td>612965.18</td><td>Missing easting</td></tr>
+              <tr><td>P-104</td><td>731278.01</td><td>612944.77</td><td>OK</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><h2>Geometry Preview Inputs</h2><span class="pill warning">Not approved</span></div>
+        <div class="section-body">
+          <div class="artifact"><span>Approved Review Data</span><span class="caption">missing</span></div>
+          <div class="artifact"><span>Validation Summary</span><span class="caption">locked</span></div>
+          <div class="artifact"><span>Output GDB generation</span><span class="caption">locked</span></div>
+          <div class="artifact"><span>GeoJSON export</span><span class="caption">locked</span></div>
+        </div>
+      </section>
+    </main>
+
+    <div class="action-bar">
+      <button>Add / Correct Data</button>
+      <button class="primary">Approve Review</button>
+    </div>
+    <div class="log">13:57 Review pending. 24 points and 18 lines extracted. 5 unresolved items block validation and geometry generation.</div>
+  </div>
+</body>
+</html>

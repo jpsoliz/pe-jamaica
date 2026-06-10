@@ -1,0 +1,96 @@
+# generated: 2026-06-09
+# last_updated: 2026-06-10
+# project: Sid-jamaica
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog -> in-progress: Automatically when first story is created (via create-story)
+#   - in-progress -> done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review in a fresh context
+
+generated: 2026-06-09
+last_updated: 2026-06-10
+project: Sid-jamaica
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  epic-1: done
+  1-1-set-up-arcgis-pro-add-in-and-processing-scaffold: done
+  1-2-create-transaction-case-folder: done
+  1-3-add-and-copy-source-files-to-the-case-folder: done
+  1-4-detect-source-input-profile: done
+  1-5-reopen-and-resume-existing-case-folder: done
+  1-6-open-or-reveal-source-files-from-intake: done
+  epic-1-retrospective: done
+
+  epic-2: in-progress
+  2-1-run-manifest-preflight: done
+  2-2-add-sidwell-shell-innola-login-and-session-gating: done
+  2-3-display-available-innola-transactions: done
+  2-4-load-transaction-details-and-attachments-into-case-folder: review
+  2-5-control-active-transaction-lifecycle-and-completion-gate: backlog
+  2-6-validate-arcgis-pro-and-python-processing-environment: backlog
+  2-7-validate-dwg-readiness-when-present: backlog
+  2-8-configure-processing-and-credential-profiles: backlog
+  2-9-display-preflight-results-and-gate-extraction: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-run-extraction-from-passed-preflight: backlog
+  3-2-handle-zero-or-failed-extraction-results: backlog
+  3-3-display-extraction-review-table: backlog
+  3-4-edit-add-or-mark-review-records: backlog
+  3-5-approve-extraction-review-data: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-run-validation-on-approved-review-data: backlog
+  4-2-display-validation-findings-by-severity: backlog
+  4-3-gate-output-generation-based-on-validation-result: backlog
+  4-4-route-case-to-manual-process-by-user-decision: backlog
+  4-5-return-from-validation-to-review-for-corrections: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-generate-local-output-package-from-passed-validation: backlog
+  5-2-create-gdb-feature-classes-and-geojson: backlog
+  5-3-generate-reports-and-diagnostic-logs: backlog
+  5-4-display-output-artifact-list: backlog
+  5-5-add-generated-layers-to-active-arcgis-pro-map: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-display-cadindex-sync-readiness-facade: backlog
+  6-2-record-enterprise-candidate-metadata: backlog
+  6-3-preserve-end-to-end-audit-trail: backlog
+  6-4-create-case-1-4-acceptance-fixture-contracts: backlog
+  6-5-validate-fixture-runs-and-recovery-behavior: backlog
+  epic-6-retrospective: optional

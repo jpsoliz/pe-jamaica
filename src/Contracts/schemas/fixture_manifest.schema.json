@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fixture_manifest.schema.json",
+  "title": "Fixture Manifest",
+  "type": "object",
+  "required": ["schema_version", "fixture_id", "source_profile", "expected_artifacts"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "fixture_id": { "type": "string" },
+    "source_profile": { "type": "string" },
+    "expected_artifacts": { "type": "array" },
+    "expected_severity_outcome": { "type": "string" },
+    "audit_assertions": { "type": "array" }
+  }
+}
