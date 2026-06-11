@@ -70,6 +70,25 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string LifecycleStatusText => ShellState.Session.LifecycleStatusText ?? "No active transaction lifecycle.";
 
+    public string HeaderTransactionText => string.IsNullOrWhiteSpace(TransactionId)
+        ? "Transaction not selected"
+        : TransactionId;
+
+    public string HeaderTaskNameText
+    {
+        get
+        {
+            var taskName = ShellState.Session.SelectedTransaction?.TaskName;
+            return string.IsNullOrWhiteSpace(taskName) ? "Task not selected" : taskName;
+        }
+    }
+
+    public string CurrentStepBadge => CurrentStep;
+
+    public string ScoreBadge => HasPreflightIssues ? $"{PreflightBlockers.Count + PreflightWarnings.Count} issue(s)" : "Score pending";
+
+    public string ModeBadge => "Local v1";
+
     public bool CanAddSourceFiles => false;
 
     public IReadOnlyList<SourceFileListItem> SourceFiles =>
@@ -77,9 +96,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
 
-    public bool CanRunPreflight => workflowSession.CanRunPreflight && !workflowSession.IsPreflightRunning;
+    public bool CanUseWorkflowActions => ShellState.Session.CanOpenParcelWorkflow;
 
-    public bool CanRunExtractionReview => workflowSession.CanRunExtractionReview;
+    public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunPreflight && !workflowSession.IsPreflightRunning;
+
+    public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
 
     public ICommand CreateCaseCommand => createCaseCommand;
 
@@ -120,6 +141,46 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public IReadOnlyList<PreflightCheck> PreflightWarnings => workflowSession.PreflightWarnings;
 
     public IReadOnlyList<PreflightCheck> PreflightPassedChecks => workflowSession.PreflightPassedChecks;
+
+    public IReadOnlyList<PreflightResultListItem> PreflightResults =>
+        PreflightBlockers.Select(check => new PreflightResultListItem("Block", check))
+            .Concat(PreflightWarnings.Select(check => new PreflightResultListItem("Warn", check)))
+            .Concat(PreflightPassedChecks.Select(check => new PreflightResultListItem("Pass", check)))
+            .ToArray();
+
+    public string PreflightBadge
+    {
+        get
+        {
+            if (workflowSession.IsPreflightRunning)
+            {
+                return "Processing";
+            }
+
+            if (PreflightBlockers.Count > 0)
+            {
+                return $"{PreflightBlockers.Count} blocker(s)";
+            }
+
+            if (PreflightWarnings.Count > 0)
+            {
+                return $"{PreflightWarnings.Count} warning(s)";
+            }
+
+            if (PreflightPassedChecks.Count > 0)
+            {
+                return "Passed";
+            }
+
+            return "Not processed";
+        }
+    }
+
+    public string SourceIntakeBadge => SourceFiles.Count > 0 && SourceFiles.All(item => item.SourceFile.Copied)
+        ? "Copied"
+        : "Pending";
+
+    private bool HasPreflightIssues => PreflightBlockers.Count + PreflightWarnings.Count > 0;
 
     public void CreateCase()
     {
@@ -258,7 +319,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private void ExecuteSourceFileAction(object? parameter, SourceFileAction action)
     {
-        if (parameter is not SourceFileListItem sourceFile)
+        if (!CanUseWorkflowActions || parameter is not SourceFileListItem sourceFile)
         {
             return;
         }
@@ -267,9 +328,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
-    private static bool CanExecuteSourceFileAction(object? parameter)
+    private bool CanExecuteSourceFileAction(object? parameter)
     {
-        return parameter is SourceFileListItem { SourceFile: { Copied: true, CopiedPath: not null } };
+        return CanUseWorkflowActions && parameter is SourceFileListItem { SourceFile: { Copied: true, CopiedPath: not null } };
     }
 
     private static string GetStepStateForIntake(WorkflowState state)
@@ -325,7 +386,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CurrentStep));
         NotifyPropertyChanged(nameof(StatusText));
         NotifyPropertyChanged(nameof(LifecycleStatusText));
+        NotifyPropertyChanged(nameof(HeaderTransactionText));
+        NotifyPropertyChanged(nameof(HeaderTaskNameText));
+        NotifyPropertyChanged(nameof(CurrentStepBadge));
+        NotifyPropertyChanged(nameof(ScoreBadge));
+        NotifyPropertyChanged(nameof(ModeBadge));
         NotifyPropertyChanged(nameof(SourceFiles));
+        NotifyPropertyChanged(nameof(SourceIntakeBadge));
+        NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
         NotifyPropertyChanged(nameof(WorkflowSteps));
@@ -335,6 +403,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(PreflightBlockers));
         NotifyPropertyChanged(nameof(PreflightWarnings));
         NotifyPropertyChanged(nameof(PreflightPassedChecks));
+        NotifyPropertyChanged(nameof(PreflightResults));
+        NotifyPropertyChanged(nameof(PreflightBadge));
         createCaseCommand.RaiseCanExecuteChanged();
         browseOutputLocationCommand.RaiseCanExecuteChanged();
         addSourceFilesCommand.RaiseCanExecuteChanged();
@@ -377,6 +447,38 @@ internal sealed record SourceFileListItem(SourceFileCopyResult SourceFile)
     public string FileLabel => SourceFile.FileName;
 
     public string SourceRelativePath => $"source/{SourceFile.FileName}";
+
+    public string RoleLabel => SourceFile.SourceRole switch
+    {
+        "computation_source" => "Computation",
+        "points_computation" => "Points",
+        "plan_map_reference" => "Plan",
+        "dwg_reference" => "DWG",
+        null or "" => "Source",
+        _ => SourceFile.SourceRole.Replace("_", " ")
+    };
+
+    public string RowStatus => SourceFile.Copied ? "Copied" : SourceFile.Status;
 }
 
 internal sealed record WorkflowLifecycleStep(string Name, string State);
+
+internal sealed record PreflightResultListItem(string Result, PreflightCheck Check)
+{
+    public string CheckName => Humanize(Check.CheckId);
+
+    public string Details => Check.Message;
+
+    public string State => Result.ToLowerInvariant();
+
+    private static string Humanize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Check";
+        }
+
+        var words = value.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(" ", words.Select(word => char.ToUpperInvariant(word[0]) + word[1..]));
+    }
+}

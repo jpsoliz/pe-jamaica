@@ -4,11 +4,10 @@
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     Title="Sidwell Co Login"
                     Width="360"
-                    Height="260"
+                    Height="230"
                     WindowStartupLocation="CenterOwner">
   <Grid Margin="14">
     <Grid.RowDefinitions>
-      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -21,47 +20,41 @@
       <ColumnDefinition Width="*" />
     </Grid.ColumnDefinitions>
 
-    <TextBlock Grid.ColumnSpan="2"
-               Margin="0,0,0,10"
-               Text="Sidwell Co Parcel Workflow"
-               FontSize="16"
-               FontWeight="SemiBold" />
-
-    <TextBlock Grid.Row="1"
+    <TextBlock Grid.Row="0"
                Text="Server"
                FontWeight="SemiBold"
                VerticalAlignment="Center" />
     <TextBox x:Name="ServerTextBox"
+             Grid.Row="0"
+             Grid.Column="1"
+             Margin="10,0,0,6" />
+
+    <TextBlock Grid.Row="1"
+               Text="User"
+               FontWeight="SemiBold"
+               VerticalAlignment="Center" />
+    <TextBox x:Name="UsernameTextBox"
              Grid.Row="1"
              Grid.Column="1"
              Margin="10,0,0,6" />
 
     <TextBlock Grid.Row="2"
-               Text="User"
-               FontWeight="SemiBold"
-               VerticalAlignment="Center" />
-    <TextBox x:Name="UsernameTextBox"
-             Grid.Row="2"
-             Grid.Column="1"
-             Margin="10,0,0,6" />
-
-    <TextBlock Grid.Row="3"
                Text="Password"
                FontWeight="SemiBold"
                VerticalAlignment="Center" />
     <PasswordBox x:Name="PasswordBox"
-                 Grid.Row="3"
+                 Grid.Row="2"
                  Grid.Column="1"
                  Margin="10,0,0,6" />
 
     <TextBlock x:Name="StatusTextBlock"
-               Grid.Row="4"
+               Grid.Row="3"
                Grid.ColumnSpan="2"
                Margin="0,4,0,0"
                Text="Not logged in."
                TextWrapping="Wrap" />
 
-    <StackPanel Grid.Row="6"
+    <StackPanel Grid.Row="5"
                 Grid.ColumnSpan="2"
                 HorizontalAlignment="Right"
                 Orientation="Horizontal">

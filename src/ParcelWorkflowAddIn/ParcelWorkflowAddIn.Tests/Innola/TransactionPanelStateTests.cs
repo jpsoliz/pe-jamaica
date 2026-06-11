@@ -19,6 +19,10 @@ internal static class TransactionPanelStateTests
         TestAssert.True(!panel.CanRefresh, "Refresh should be disabled while logged out.");
         TestAssert.True(!panel.CanLoadSelectedTransaction, "Load should be disabled while logged out.");
         TestAssert.Equal(0, panel.Rows.Count, "Logged-out panel should not show rows.");
+        TestAssert.Equal("User: not logged in", panel.ConnectionUserText, "Logged-out user footer mismatch.");
+        TestAssert.Equal("Server: not connected", panel.ConnectionServerText, "Logged-out server footer mismatch.");
+        TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logged-out mode footer mismatch.");
+        TestAssert.Equal("Records retrieved: not refreshed", panel.RetrievedRecordCountText, "Logged-out count footer mismatch.");
     }
 
     public static async Task LoggedInRefreshUsesSessionQueryAndShowsRows()
@@ -41,8 +45,12 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("parcel_workflow", service.LastQuery?.ProcessStep, "Query process step mismatch.");
         TestAssert.True(service.LastQuery!.Groups.Contains("survey"), "Query should include user groups.");
         TestAssert.Equal(2, panel.Rows.Count, "Panel row count mismatch.");
-        TestAssert.Equal("TR100000004", panel.Rows[0].TransactionNumber, "Default sort should be transaction number ascending.");
+        TestAssert.Equal("TR100000005", panel.Rows[0].TransactionNumber, "Default sort should show newest received transactions first.");
         TestAssert.Equal("2 available transactions.", panel.StatusText, "Refresh status mismatch.");
+        TestAssert.Equal("User: Test User", panel.ConnectionUserText, "Logged-in user footer mismatch.");
+        TestAssert.Equal("Server: https://eltrs.innola-solutions.com/", panel.ConnectionServerText, "Logged-in server footer mismatch.");
+        TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logged-in mode footer mismatch.");
+        TestAssert.Equal("Records retrieved: 2", panel.RetrievedRecordCountText, "Refresh count footer mismatch.");
     }
 
     public static async Task SearchSortAndSelectionUpdatePanelState()
@@ -177,11 +185,11 @@ internal static class TransactionPanelStateTests
             clock);
 
         await panel.RefreshAsync();
-        panel.SelectedRow = panel.Rows[0];
+        panel.SelectedRow = FindRow(panel, "TR100000004");
         await panel.StartSelectedTransactionAsync();
         var callsAfterStart = service.CallCount;
 
-        panel.SelectedRow = panel.Rows[1];
+        panel.SelectedRow = FindRow(panel, "TR100000005");
         panel.SearchText = "Prepare";
         panel.SortField = "Received";
         panel.SortDirection = "Descending";
@@ -189,8 +197,8 @@ internal static class TransactionPanelStateTests
 
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Locked panel should keep active row selected.");
         TestAssert.Equal(string.Empty, panel.SearchText, "Search should not change while active transaction is locked.");
-        TestAssert.Equal("Transaction no", panel.SortField, "Sort field should not change while locked.");
-        TestAssert.Equal("Ascending", panel.SortDirection, "Sort direction should not change while locked.");
+        TestAssert.Equal("Received", panel.SortField, "Sort field should not change while locked.");
+        TestAssert.Equal("Descending", panel.SortDirection, "Sort direction should not change while locked.");
         TestAssert.Equal(callsAfterStart, service.CallCount, "Refresh should not call transaction service while active transaction is locked.");
     }
 
@@ -282,11 +290,11 @@ internal static class TransactionPanelStateTests
         var panel = new TransactionPanelState(manager, service, "parcel_workflow", loader, clock);
 
         await panel.RefreshAsync();
-        panel.SelectedRow = panel.Rows[0];
+        panel.SelectedRow = FindRow(panel, "TR100000004");
         await panel.LoadSelectedTransactionAsync();
         var firstLoadedPath = manager.LoadedCaseFolderPath;
 
-        panel.SelectedRow = panel.Rows[1];
+        panel.SelectedRow = FindRow(panel, "TR100000005");
         await panel.LoadSelectedTransactionAsync();
 
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Loaded but unclaimed workflow should remain disabled after failed new load.");
@@ -314,11 +322,11 @@ internal static class TransactionPanelStateTests
         var panel = new TransactionPanelState(manager, service, "parcel_workflow", loader, coordinator, new FixedDecisionProvider(ActiveTransactionSwitchDecision.StayOnCurrentTransaction), clock);
 
         await panel.RefreshAsync();
-        panel.SelectedRow = panel.Rows[0];
+        panel.SelectedRow = FindRow(panel, "TR100000004");
         await panel.LoadSelectedTransactionAsync();
         await coordinator.StartOrClaimAsync();
 
-        panel.SelectedRow = panel.Rows[1];
+        panel.SelectedRow = FindRow(panel, "TR100000005");
         await panel.LoadSelectedTransactionAsync();
 
         TestAssert.Equal("TR100000004", manager.LoadedTransactionNumber, "Stay decision should preserve current loaded transaction.");
@@ -386,6 +394,10 @@ internal static class TransactionPanelStateTests
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after logout.");
         TestAssert.Equal(0, panel.Rows.Count, "Logout should clear panel rows.");
         TestAssert.Equal("Not logged in.", panel.StatusText, "Logout panel status mismatch.");
+        TestAssert.Equal("User: not logged in", panel.ConnectionUserText, "Logout user footer mismatch.");
+        TestAssert.Equal("Server: not connected", panel.ConnectionServerText, "Logout server footer mismatch.");
+        TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logout mode footer mismatch.");
+        TestAssert.Equal("Records retrieved: not refreshed", panel.RetrievedRecordCountText, "Logout count footer mismatch.");
     }
 
     private static InnolaSessionManager LoggedInManager()
@@ -447,6 +459,11 @@ internal static class TransactionPanelStateTests
             true,
             null,
             null);
+    }
+
+    private static InnolaTransactionRow FindRow(TransactionPanelState panel, string transactionNumber)
+    {
+        return panel.Rows.First(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
     }
 
     private sealed class FakeTransactionService : IInnolaTransactionService

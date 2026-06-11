@@ -21,14 +21,15 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> locallyCompletedTransactionNumbers = new(StringComparer.OrdinalIgnoreCase);
     private string selectedFilter = "All tasks";
     private string searchText = string.Empty;
-    private string sortField = "Transaction no";
-    private string sortDirection = "Ascending";
+    private string sortField = "Received";
+    private string sortDirection = "Descending";
     private InnolaTransactionRow? selectedRow;
     private bool isLoading;
     private bool refreshAfterLoginQueued;
     private string? savedTransactionNumber;
     private string statusText = "Not logged in.";
     private string? errorText;
+    private int? lastRetrievedRecordCount;
 
     public TransactionPanelState(
         InnolaSessionManager session,
@@ -87,7 +88,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public IReadOnlyList<string> Filters { get; } = new[] { "All tasks", "My tasks", "Group tasks" };
 
-    public IReadOnlyList<string> SortFields { get; } = new[] { "Transaction no", "Task name", "Received", "Status" };
+    public IReadOnlyList<string> SortFields { get; } = new[] { "Received", "Transaction no", "Task name", "Status" };
 
     public IReadOnlyList<string> SortDirections { get; } = new[] { "Ascending", "Descending" };
 
@@ -165,6 +166,35 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public string? LoadedCaseFolderPath => session.LoadedCaseFolderPath;
 
     public string SavedTransactionStatusText => "In Progress by current user";
+
+    public string ConnectionUserText
+    {
+        get
+        {
+            if (!IsLoggedIn || session.CurrentSession is null)
+            {
+                return "User: not logged in";
+            }
+
+            var user = session.CurrentUser;
+            var displayName = string.IsNullOrWhiteSpace(user?.DisplayName)
+                ? session.CurrentSession.Username
+                : user.DisplayName;
+            return $"User: {displayName}";
+        }
+    }
+
+    public string ConnectionServerText => IsLoggedIn && session.CurrentSession is not null
+        ? $"Server: {session.CurrentSession.ServerUrl}"
+        : "Server: not connected";
+
+    public string ConnectionModeText => $"Mode: {ShellState.TransactionMode}";
+
+    public string ClientCertificateText => ShellState.ClientCertificateStatus;
+
+    public string RetrievedRecordCountText => lastRetrievedRecordCount.HasValue
+        ? $"Records retrieved: {lastRetrievedRecordCount.Value}"
+        : "Records retrieved: not refreshed";
 
     public string StatusText
     {
@@ -249,7 +279,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         get => sortField;
         set
         {
-            var normalized = string.IsNullOrWhiteSpace(value) ? "Transaction no" : value;
+            var normalized = string.IsNullOrWhiteSpace(value) ? "Received" : value;
             if (IsTransactionPanelLocked)
             {
                 StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before sorting.";
@@ -272,7 +302,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         get => sortDirection;
         set
         {
-            var normalized = string.IsNullOrWhiteSpace(value) ? "Ascending" : value;
+            var normalized = string.IsNullOrWhiteSpace(value) ? "Descending" : value;
             if (IsTransactionPanelLocked)
             {
                 StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before sorting.";
@@ -359,6 +389,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             Rows.Clear();
             SelectedRow = null;
             ErrorText = null;
+            LastRetrievedRecordCount = null;
             StatusText = "Not logged in.";
             NotifyListState();
             return;
@@ -385,12 +416,29 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             {
                 ErrorText = result.ErrorMessage ?? "Could not refresh transactions. Try again.";
                 StatusText = "Could not refresh transactions. Try again.";
+                Debug.WriteLine(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Innola transaction refresh failed. User={0}; Server={1}; ErrorCategory={2}; ProcessStep={3}",
+                        currentSession.User.Username,
+                        currentSession.ServerUrl,
+                        result.ErrorCategory ?? "unknown",
+                        ProcessStep));
                 return;
             }
 
             var previousTransactionNumber = SelectedRow?.TransactionNumber;
             allRows.Clear();
             allRows.AddRange(result.Rows);
+            LastRetrievedRecordCount = result.Rows.Count;
+            Debug.WriteLine(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Innola transaction refresh succeeded. User={0}; Server={1}; Records={2}; ProcessStep={3}",
+                    currentSession.User.Username,
+                    currentSession.ServerUrl,
+                    LastRetrievedRecordCount,
+                    ProcessStep));
             ApplyView(previousTransactionNumber);
             StatusText = Rows.Count == 0
                 ? "No available transactions for this step."
@@ -720,6 +768,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             Rows.Clear();
             SelectedRow = null;
             ErrorText = null;
+            LastRetrievedRecordCount = null;
             StatusText = "Not logged in.";
             NotifyListState();
             return;
@@ -743,6 +792,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+        NotifyPropertyChanged(nameof(ConnectionUserText));
+        NotifyPropertyChanged(nameof(ConnectionServerText));
+        NotifyPropertyChanged(nameof(ConnectionModeText));
+        NotifyPropertyChanged(nameof(ClientCertificateText));
         NotifyCommandStates();
     }
 
@@ -923,6 +976,21 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private void NotifyPropertyChanged(string propertyName)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private int? LastRetrievedRecordCount
+    {
+        get => lastRetrievedRecordCount;
+        set
+        {
+            if (lastRetrievedRecordCount == value)
+            {
+                return;
+            }
+
+            lastRetrievedRecordCount = value;
+            NotifyPropertyChanged(nameof(RetrievedRecordCountText));
+        }
     }
 
     private static bool Contains(string? value, string query)

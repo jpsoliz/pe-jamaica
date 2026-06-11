@@ -57,13 +57,31 @@ public sealed record ProcessingEnvironmentSettings(
 
     private static string ResolveSettingsPath()
     {
-        var settingsPath = Path.Combine(AppContext.BaseDirectory, "Settings", "WorkflowSettings.json");
-        if (File.Exists(settingsPath))
+        foreach (var candidate in GetSettingsPathCandidates())
         {
-            return settingsPath;
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
         }
 
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Settings", "WorkflowSettings.json"));
+        return Path.Combine(GetAssemblyDirectory(), "Settings", "WorkflowSettings.json");
+    }
+
+    private static IEnumerable<string> GetSettingsPathCandidates()
+    {
+        var assemblyDirectory = GetAssemblyDirectory();
+        yield return Path.Combine(assemblyDirectory, "Settings", "WorkflowSettings.json");
+        yield return Path.GetFullPath(Path.Combine(assemblyDirectory, "..", "Settings", "WorkflowSettings.json"));
+        yield return Path.Combine(AppContext.BaseDirectory, "Settings", "WorkflowSettings.json");
+        yield return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Settings", "WorkflowSettings.json"));
+    }
+
+    private static string GetAssemblyDirectory()
+    {
+        var assemblyPath = typeof(ProcessingEnvironmentSettings).Assembly.Location;
+        var directory = string.IsNullOrWhiteSpace(assemblyPath) ? null : Path.GetDirectoryName(assemblyPath);
+        return string.IsNullOrWhiteSpace(directory) ? AppContext.BaseDirectory : directory;
     }
 
     private static string? ReadString(JsonElement element, string name)

@@ -11,7 +11,7 @@ internal static class InnolaAuthServiceTests
         var handler = new CapturingSequenceHttpMessageHandler(
             """
             {
-              "auth-token": "token-abc"
+              "access-token": "token-abc"
             }
             """,
             """
@@ -40,6 +40,7 @@ internal static class InnolaAuthServiceTests
         TestAssert.Equal(HttpMethod.Post, handler.Requests[0].Method, "Login should use POST.");
         TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.EndsWith("/api/rest/authenticate", StringComparison.Ordinal), "Login endpoint mismatch.");
         TestAssert.True(handler.Requests[0].Body.Contains("\"createSession\":true", StringComparison.Ordinal), "Login should request session creation.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"generateAccessToken\":true", StringComparison.Ordinal), "Login should request an API access token.");
         TestAssert.True(handler.Requests[0].Body.Contains("\"module\":\"default\"", StringComparison.Ordinal), "Login should include module.");
         TestAssert.True(handler.Requests[0].Body.Contains("\"version\":\"1\"", StringComparison.Ordinal), "Login should include version.");
         TestAssert.Equal(HttpMethod.Get, handler.Requests[1].Method, "Current user should use GET.");

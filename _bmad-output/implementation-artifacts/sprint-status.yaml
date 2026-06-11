@@ -60,7 +60,7 @@ development_status:
   2-6-validate-arcgis-pro-and-python-processing-environment: done
   2-7-enforce-transaction-execution-state-and-panel-locking: done
   2-8a-wire-live-innola-api-contracts-while-preserving-mock-mode: done
-  2-8-validate-dwg-readiness-when-present: backlog
+  2-8-validate-dwg-readiness-when-present: ready-for-dev
   2-9-configure-processing-and-credential-profiles: backlog
   2-10-display-preflight-results-and-gate-extraction: backlog
   epic-2-retrospective: optional

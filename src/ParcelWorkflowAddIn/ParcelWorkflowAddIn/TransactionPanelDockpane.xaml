@@ -78,13 +78,7 @@
         </Button>
       </ToolBar>
       <StackPanel>
-        <TextBlock Text="Transactions"
-                   FontFamily="Segoe UI"
-                   FontSize="16"
-                   FontWeight="SemiBold"
-                   Foreground="#1F2933" />
         <TextBlock Text="{Binding State.StatusText}"
-                   Margin="0,2,0,0"
                    FontSize="12"
                    Foreground="#52616B"
                    TextWrapping="Wrap" />
@@ -292,7 +286,12 @@
       </ListBox>
     </Border>
 
-    <StackPanel Grid.Row="3" Margin="0,8,0,0">
+    <Grid Grid.Row="3" Margin="0,8,0,0">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <StackPanel>
       <TextBlock Text="{Binding State.ErrorText}"
                  FontSize="12"
                  Foreground="#B42318"
@@ -311,6 +310,42 @@
           </Style>
         </TextBlock.Style>
       </TextBlock>
-    </StackPanel>
+      </StackPanel>
+
+      <Border Grid.Row="1"
+              Margin="0,8,0,0"
+              Padding="8,6"
+              BorderBrush="#C9D2D8"
+              BorderThickness="1"
+              Background="#F5F7F9">
+        <StackPanel>
+          <TextBlock Text="{Binding State.ConnectionUserText}"
+                     FontSize="11"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding State.ConnectionServerText}"
+                     Margin="0,2,0,0"
+                     FontSize="11"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding State.ConnectionModeText}"
+                     Margin="0,2,0,0"
+                     FontSize="11"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding State.ClientCertificateText}"
+                     Margin="0,2,0,0"
+                     FontSize="11"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding State.RetrievedRecordCountText}"
+                     Margin="0,2,0,0"
+                     FontSize="11"
+                     FontWeight="SemiBold"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </Grid>
   </Grid>
 </UserControl>

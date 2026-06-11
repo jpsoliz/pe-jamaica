@@ -4,8 +4,13 @@
   "visual_studio": "2022 17.13+",
   "target_framework": "net8.0-windows",
   "arcgis_python_executable": "C:\\JPFiles\\Dropbox\\Sidwell\\Development\\AI-Survey\\python-envs\\arcgispro-survey-ai\\python.exe",
-  "innola_server_url": "https://eltrs.innola-solutions.com/",
-  "innola_transaction_mode": "mock",
+  "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
+  "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
+  "innola_client_certificate_enabled": true,
+  "innola_client_certificate_store_location": "CurrentUser",
+  "innola_client_certificate_store_name": "My",
+  "innola_client_certificate_subject": "Jamaica eTitles Project Team",
+  "innola_client_certificate_thumbprint": "",
   "case_folder_output_root": ""
 }

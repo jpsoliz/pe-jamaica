@@ -10,7 +10,7 @@ public partial class LoginWindow : ProWindow
     public LoginWindow()
     {
         InitializeComponent();
-        ServerTextBox.Text = InnolaSettings.DefaultServerUrl;
+        ServerTextBox.Text = ShellState.ConfiguredServerUrl;
         StatusTextBlock.Text = ShellState.Session.StatusText;
     }
 

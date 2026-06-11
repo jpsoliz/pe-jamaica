@@ -34,6 +34,7 @@ public sealed class InnolaAuthService : IInnolaAuthService
             var authUrl = InnolaHttp.BuildUri(normalizedServer, $"{InnolaSettings.RestPath}{InnolaSettings.AuthenticationPath}");
             using var response = await httpClient.PostAsJsonAsync(authUrl, new LoginPasswordRequest(
                 true,
+                true,
                 username,
                 InnolaSettings.DefaultAuthModule,
                 password,
@@ -41,18 +42,18 @@ public sealed class InnolaAuthService : IInnolaAuthService
 
             if (!response.IsSuccessStatusCode)
             {
-                return InnolaLoginResult.Failure("Login failed. Check user name, password, and server.");
+                return InnolaLoginResult.Failure(GetLoginFailureMessage(response.StatusCode));
             }
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var loginPayload = ExtractLoginPayload(responseBody);
-            var currentUser = await GetCurrentUserAsync(normalizedServer, loginPayload.AccessToken, cancellationToken).ConfigureAwait(false);
             var accessToken = string.IsNullOrWhiteSpace(loginPayload.AccessToken)
                 ? InnolaHttp.SessionCookieAccessToken
                 : loginPayload.AccessToken;
+            var currentUser = await GetCurrentUserAsync(normalizedServer, accessToken, cancellationToken).ConfigureAwait(false);
             if (currentUser is null && string.IsNullOrWhiteSpace(loginPayload.AccessToken))
             {
-                return InnolaLoginResult.Failure("Login failed. Check user name, password, and server.");
+                return InnolaLoginResult.Failure("Login succeeded but no API token was returned.");
             }
 
             var user = new InnolaUserContext(
@@ -92,7 +93,7 @@ public sealed class InnolaAuthService : IInnolaAuthService
             : root;
 
         return new LoginPayload(
-            ExtractString(payloadRoot, "auth-token", "accessToken", "access_token", "token", "AccessToken") ?? string.Empty,
+            ExtractString(payloadRoot, "access-token", "auth-token", "accessToken", "access_token", "token", "AccessToken") ?? string.Empty,
             ExtractString(payloadRoot, "username", "userName", "login", "Login"),
             ExtractString(payloadRoot, "displayName", "fullName", "FullName", "name"),
             ExtractStringArray(payloadRoot, "groups", "Groups", "groupNames"),
@@ -191,6 +192,7 @@ public sealed class InnolaAuthService : IInnolaAuthService
 
     private sealed record LoginPasswordRequest(
         [property: JsonPropertyName("createSession")] bool CreateSession,
+        [property: JsonPropertyName("generateAccessToken")] bool GenerateAccessToken,
         [property: JsonPropertyName("login")] string Login,
         [property: JsonPropertyName("module")] string Module,
         [property: JsonPropertyName("password")] string Password,
@@ -208,4 +210,15 @@ public sealed class InnolaAuthService : IInnolaAuthService
         string DisplayName,
         IReadOnlyList<string> Groups,
         IReadOnlyList<string> Roles);
+
+    private static string GetLoginFailureMessage(System.Net.HttpStatusCode statusCode)
+    {
+        return statusCode switch
+        {
+            System.Net.HttpStatusCode.Unauthorized => "Login failed. User is not permitted for this Innola module.",
+            System.Net.HttpStatusCode.Forbidden => "Login failed. Check user name and password.",
+            System.Net.HttpStatusCode.BadRequest => "Login failed. The server rejected the login request.",
+            _ => $"Login failed. Server returned {(int)statusCode}."
+        };
+    }
 }

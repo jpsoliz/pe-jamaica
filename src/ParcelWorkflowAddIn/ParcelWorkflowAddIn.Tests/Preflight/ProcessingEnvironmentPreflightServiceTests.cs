@@ -136,6 +136,23 @@ internal static class ProcessingEnvironmentPreflightServiceTests
         TestAssert.True(result.PassedChecks.Any(check => check.CheckId == "arcgis_pro_version_compatible"), "Compatible 3.7 runtime should be recorded as passed.");
     }
 
+    public static void ArcGisProAssembly136IsCompatibleWithConfigured36Lane()
+    {
+        using var tempRoot = new TempDirectory();
+        var pythonPath = Path.Combine(tempRoot.Path, "python.exe");
+        File.WriteAllText(pythonPath, "fake");
+        var layout = CreateBareLayout(tempRoot.Path);
+        var service = new ProcessingEnvironmentPreflightService(
+            Settings(pythonPath),
+            new FakeProcessRunner(new ProcessRunResult(0, "package:arcpy:ok", string.Empty, false)),
+            new FakeArcGisProEnvironmentProvider("13.6.0.0"));
+
+        var result = service.RunAsync(layout).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Blockers.All(check => check.CheckId != "arcgis_pro_version_compatible"), "ArcGIS Pro SDK assembly version 13.6 should normalize to Pro 3.6.");
+        TestAssert.True(result.PassedChecks.Any(check => check.CheckId == "arcgis_pro_version_compatible" && check.Message.Contains("3.6.0.0", StringComparison.OrdinalIgnoreCase)), "Normalized Pro 3.6 version should be recorded as passed.");
+    }
+
     public static void ArcGisPro35IsNotCompatibleWithConfigured36Lane()
     {
         using var tempRoot = new TempDirectory();

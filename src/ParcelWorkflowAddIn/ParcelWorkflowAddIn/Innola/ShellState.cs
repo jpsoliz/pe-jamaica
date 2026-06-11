@@ -7,7 +7,7 @@ namespace ParcelWorkflowAddIn.Innola;
 internal static class ShellState
 {
     private static readonly InnolaTransactionSettings Settings = InnolaTransactionSettings.Load();
-    private static readonly HttpClient SharedInnolaHttpClient = new();
+    private static readonly HttpClient SharedInnolaHttpClient = InnolaHttpClientFactory.Create(Settings.ClientCertificate);
 
     public static InnolaSessionManager Session { get; } = new(CreateAuthService());
 
@@ -36,6 +36,14 @@ internal static class ShellState
         LifecycleAudit);
 
     public static string TransactionProcessStep { get; } = Settings.ProcessStep;
+
+    public static string ConfiguredServerUrl { get; } = Settings.ServerUrl;
+
+    public static string TransactionMode { get; } = Settings.Mode;
+
+    public static string ClientCertificateStatus => Settings.ClientCertificate.Enabled
+        ? $"Client certificate: {Settings.ClientCertificate.SubjectName ?? Settings.ClientCertificate.Thumbprint ?? "configured"}"
+        : "Client certificate: disabled";
 
     private static IInnolaAuthService CreateAuthService()
     {

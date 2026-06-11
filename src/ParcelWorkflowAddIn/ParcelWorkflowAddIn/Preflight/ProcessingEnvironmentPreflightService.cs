@@ -98,12 +98,13 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
             return;
         }
 
-        if (!IsDetectedArcGisVersionCompatible(detectedVersion, settings.ArcGisProSdkLane))
+        var normalizedDetectedVersion = NormalizeDetectedArcGisProVersion(detectedVersion);
+        if (!IsDetectedArcGisVersionCompatible(normalizedDetectedVersion, settings.ArcGisProSdkLane))
         {
             blockers.Add(PreflightCheck.BlockerForCategory(
                 "arcgis_pro",
                 "arcgis_pro_version_compatible",
-                $"Detected ArcGIS Pro version {Sanitize(detectedVersion)} is not compatible with the configured {settings.ArcGisProSdkLane} lane.",
+                $"Detected ArcGIS Pro version {DisplayDetectedArcGisVersion(detectedVersion, normalizedDetectedVersion)} is not compatible with the configured {settings.ArcGisProSdkLane} lane.",
                 null,
                 null,
                 "Use ArcGIS Pro 3.6/3.7 or rebuild/package for the detected lane."));
@@ -113,7 +114,7 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
         passed.Add(PreflightCheck.PassedForCategory(
             "arcgis_pro",
             "arcgis_pro_version_compatible",
-            $"Passed: detected ArcGIS Pro version {Sanitize(detectedVersion)} is compatible."));
+            $"Passed: detected ArcGIS Pro version {DisplayDetectedArcGisVersion(detectedVersion, normalizedDetectedVersion)} is compatible."));
     }
 
     private static bool IsDetectedArcGisVersionCompatible(string detectedVersion, string configuredLane)
@@ -125,6 +126,33 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
 
         return configuredLane.StartsWith("3.6", StringComparison.OrdinalIgnoreCase)
             && detectedVersion.StartsWith("3.7", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDetectedArcGisProVersion(string detectedVersion)
+    {
+        var sanitized = Sanitize(detectedVersion);
+        var match = Regex.Match(sanitized, @"^(?<major>\d+)\.(?<minor>\d+)(?<rest>(?:\.\d+)*)");
+        if (!match.Success)
+        {
+            return sanitized;
+        }
+
+        var major = int.Parse(match.Groups["major"].Value);
+        var minor = int.Parse(match.Groups["minor"].Value);
+        if (major >= 10 && minor is >= 0 and <= 9)
+        {
+            return $"3.{minor}{match.Groups["rest"].Value}";
+        }
+
+        return sanitized;
+    }
+
+    private static string DisplayDetectedArcGisVersion(string detectedVersion, string normalizedDetectedVersion)
+    {
+        var sanitized = Sanitize(detectedVersion);
+        return string.Equals(sanitized, normalizedDetectedVersion, StringComparison.OrdinalIgnoreCase)
+            ? normalizedDetectedVersion
+            : $"{normalizedDetectedVersion} (assembly {sanitized})";
     }
 
     private static void CheckWorkspaceAccess(CaseFolderLayout layout, List<PreflightCheck> blockers, List<PreflightCheck> passed)
