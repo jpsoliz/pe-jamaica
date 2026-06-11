@@ -8,17 +8,21 @@ internal static class InnolaAuthServiceTests
 {
     public static async Task LoginMapsUserAndGroupContextFromResponse()
     {
-        var http = new HttpClient(new FakeHttpMessageHandler("""
+        var handler = new CapturingSequenceHttpMessageHandler(
+            """
             {
-              "value": {
-                "accessToken": "token-abc",
-                "username": "jane.user",
-                "fullName": "Jane User",
-                "groups": ["survey", "qc"],
-                "roles": ["operator"]
-              }
+              "auth-token": "token-abc"
             }
-            """));
+            """,
+            """
+            {
+              "userName": "jane.user",
+              "fullName": "Jane User",
+              "groups": ["survey", "qc"],
+              "roles": ["operator"]
+            }
+            """);
+        var http = new HttpClient(handler);
         var service = new InnolaAuthService(http);
 
         var result = await service.LoginAsync("https://eltrs.innola-solutions.com/", "jane.user", "session-password");
@@ -32,6 +36,14 @@ internal static class InnolaAuthServiceTests
         TestAssert.True(result.Session.User.Groups.Contains("qc"), "QC group should be mapped.");
         TestAssert.Equal(1, result.Session.User.Roles.Count, "Role count mismatch.");
         TestAssert.Equal("operator", result.Session.User.Roles[0], "Role mismatch.");
+        TestAssert.Equal(2, handler.Requests.Count, "Auth should call login and current user details.");
+        TestAssert.Equal(HttpMethod.Post, handler.Requests[0].Method, "Login should use POST.");
+        TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.EndsWith("/api/rest/authenticate", StringComparison.Ordinal), "Login endpoint mismatch.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"createSession\":true", StringComparison.Ordinal), "Login should request session creation.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"module\":\"default\"", StringComparison.Ordinal), "Login should include module.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"version\":\"1\"", StringComparison.Ordinal), "Login should include version.");
+        TestAssert.Equal(HttpMethod.Get, handler.Requests[1].Method, "Current user should use GET.");
+        TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/rest/currentUserDetails", StringComparison.Ordinal), "Current user endpoint mismatch.");
     }
 
     public static async Task SessionManagerRaisesLoginChangeOnCallerContext()
@@ -93,6 +105,32 @@ internal static class InnolaAuthServiceTests
             return Task.FromResult(response);
         }
     }
+
+    private sealed class CapturingSequenceHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly Queue<string> responseBodies;
+
+        public CapturingSequenceHttpMessageHandler(params string[] responseBodies)
+        {
+            this.responseBodies = new Queue<string>(responseBodies);
+        }
+
+        public List<CapturedRequest> Requests { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(new CapturedRequest(
+                request.Method,
+                request.RequestUri!,
+                request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken)));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseBodies.Count == 0 ? "{}" : responseBodies.Dequeue(), Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string Body);
 
     private sealed class AsyncFakeAuthService : IInnolaAuthService
     {

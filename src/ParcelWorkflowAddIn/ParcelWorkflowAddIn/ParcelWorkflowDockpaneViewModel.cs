@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using System.Linq;
 using System.Windows.Input;
 
 namespace ParcelWorkflowAddIn;
@@ -21,6 +22,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealSourceFileCommand;
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
+    private readonly RelayCommand runExtractionReviewCommand;
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand saveProgressCommand;
     private readonly RelayCommand cancelProcessCommand;
@@ -32,13 +34,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         createCaseCommand = new RelayCommand(CreateCase);
         browseOutputLocationCommand = new RelayCommand(BrowseOutputLocation);
-        addSourceFilesCommand = new RelayCommand(AddSourceFilesFromDialog);
+        addSourceFilesCommand = new RelayCommand(AddSourceFilesFromDialog, () => CanAddSourceFiles);
         refreshInputProfileCommand = new RelayCommand(RefreshInputProfile);
         reopenCaseCommand = new RelayCommand(ReopenCaseFromDialog);
         openSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Open), CanExecuteSourceFileAction);
         revealSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Reveal), CanExecuteSourceFileAction);
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
-        runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync());
+        runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
+        runExtractionReviewCommand = new RelayCommand(PrepareExtractionReview, () => CanRunExtractionReview);
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         saveProgressCommand = new RelayCommand(async () => await SaveProgressAsync(), () => ShellState.Session.CanSaveProgress);
         cancelProcessCommand = new RelayCommand(CancelProcess, () => ShellState.Session.CanCancelActiveProcess);
@@ -67,7 +70,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string LifecycleStatusText => ShellState.Session.LifecycleStatusText ?? "No active transaction lifecycle.";
 
-    public IReadOnlyList<SourceFileCopyResult> SourceFiles => workflowSession.SourceFiles;
+    public bool CanAddSourceFiles => false;
+
+    public IReadOnlyList<SourceFileListItem> SourceFiles =>
+        workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
+
+    public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
+
+    public bool CanRunPreflight => workflowSession.CanRunPreflight && !workflowSession.IsPreflightRunning;
+
+    public bool CanRunExtractionReview => workflowSession.CanRunExtractionReview;
 
     public ICommand CreateCaseCommand => createCaseCommand;
 
@@ -86,6 +98,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RouteSourceFileToMapCommand => routeSourceFileToMapCommand;
 
     public ICommand RunPreflightCommand => runPreflightCommand;
+
+    public ICommand RunExtractionReviewCommand => runExtractionReviewCommand;
 
     public ICommand StartOrClaimTransactionCommand => startOrClaimTransactionCommand;
 
@@ -150,6 +164,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
         await running;
         RefreshWorkflowProperties();
+    }
+
+    private void PrepareExtractionReview()
+    {
+        workflowSession.SetValidationFailure("Extraction review is available after running Process.");
     }
 
     public async Task StartOrClaimTransactionAsync()
@@ -239,18 +258,63 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private void ExecuteSourceFileAction(object? parameter, SourceFileAction action)
     {
-        if (parameter is not SourceFileCopyResult sourceFile)
+        if (parameter is not SourceFileListItem sourceFile)
         {
             return;
         }
 
-        workflowSession.ExecuteSourceFileAction(sourceFile, action, Environment.UserName);
+        workflowSession.ExecuteSourceFileAction(sourceFile.SourceFile, action, Environment.UserName);
         RefreshWorkflowProperties();
     }
 
     private static bool CanExecuteSourceFileAction(object? parameter)
     {
-        return parameter is SourceFileCopyResult { Copied: true, CopiedPath: not null };
+        return parameter is SourceFileListItem { SourceFile: { Copied: true, CopiedPath: not null } };
+    }
+
+    private static string GetStepStateForIntake(WorkflowState state)
+    {
+        return state == WorkflowState.NoCase ? "pending" : "done";
+    }
+
+    private static string GetStepStateForPreflight(WorkflowState state)
+    {
+        return state switch
+        {
+            WorkflowState.NoCase => "pending",
+            WorkflowState.Intake => "active",
+            WorkflowState.PreflightRunning => "active",
+            WorkflowState.PreflightBlocked => "blocked",
+            WorkflowState.PreflightPassed => "done",
+            _ => "pending"
+        };
+    }
+
+    private static string GetStepStateForExtractionReview(WorkflowState state)
+    {
+        return state switch
+        {
+            WorkflowState.NoCase => "pending",
+            WorkflowState.Intake => "pending",
+            WorkflowState.PreflightRunning => "pending",
+            WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed => "active",
+            _ => "pending"
+        };
+    }
+
+    private IReadOnlyList<WorkflowLifecycleStep> BuildWorkflowSteps()
+    {
+        var currentState = workflowSession.CurrentState;
+
+        return new WorkflowLifecycleStep[]
+        {
+            new WorkflowLifecycleStep("Intake", GetStepStateForIntake(currentState)),
+            new WorkflowLifecycleStep("Preflight", GetStepStateForPreflight(currentState)),
+            new WorkflowLifecycleStep("Extraction Review", GetStepStateForExtractionReview(currentState)),
+            new WorkflowLifecycleStep("Validation", currentState == WorkflowState.NoCase ? "pending" : "pending"),
+            new WorkflowLifecycleStep("Outputs", currentState == WorkflowState.NoCase ? "pending" : "pending"),
+            new WorkflowLifecycleStep("Sync Ready", currentState == WorkflowState.NoCase ? "pending" : "pending")
+        };
     }
 
     private void RefreshWorkflowProperties()
@@ -262,6 +326,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(StatusText));
         NotifyPropertyChanged(nameof(LifecycleStatusText));
         NotifyPropertyChanged(nameof(SourceFiles));
+        NotifyPropertyChanged(nameof(CanRunPreflight));
+        NotifyPropertyChanged(nameof(CanRunExtractionReview));
+        NotifyPropertyChanged(nameof(WorkflowSteps));
         NotifyPropertyChanged(nameof(DetectedProfileLabel));
         NotifyPropertyChanged(nameof(IntakeIssues));
         NotifyPropertyChanged(nameof(AvailableArtifacts));
@@ -277,6 +344,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand.RaiseCanExecuteChanged();
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
+        runExtractionReviewCommand.RaiseCanExecuteChanged();
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         saveProgressCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
@@ -303,3 +371,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 }
+
+internal sealed record SourceFileListItem(SourceFileCopyResult SourceFile)
+{
+    public string FileLabel => SourceFile.FileName;
+
+    public string SourceRelativePath => $"source/{SourceFile.FileName}";
+}
+
+internal sealed record WorkflowLifecycleStep(string Name, string State);

@@ -529,6 +529,47 @@ So that I cannot accidentally switch transactions or corrupt the active Parcel W
 **And** Parcel Workflow is disabled
 **And** the Transaction Panel is unlocked and refreshed or restored.
 
+### Story 2.8A: Wire Live Innola API Contracts While Preserving Mock Mode
+
+As a cadastral technical staff user,
+I want the Sidwell Co add-in to use the verified live Innola workstation APIs while retaining mock mode,
+So that I can test the transaction workflow against the real dev server without losing deterministic dry-run behavior.
+
+**Acceptance Criteria:**
+
+**Given** `innola_transaction_mode` is `mock`
+**When** the user logs in, refreshes tasks, starts/stops/completes mock transactions, and loads mock attachments
+**Then** the existing mock behavior remains network-free
+**And** all current mock tests continue to pass.
+
+**Given** `innola_transaction_mode` is `live`
+**When** the user logs in
+**Then** the add-in posts the documented `LoginObject` shape to `POST /api/rest/authenticate`
+**And** accepts the documented `auth-token` response
+**And** initializes user context through `GET /api/rest/currentUserDetails` when available
+**And** keeps the password/token in memory only.
+
+**Given** the user is logged in in live mode
+**When** the Transaction Panel refreshes
+**Then** the add-in calls `GET /api/v4/rest/workflow/my-tasks`
+**And** maps the returned task/application/transaction payload to `InnolaTransactionRow`
+**And** continues applying configured local process-step availability filters.
+
+**Given** a live task row is selected
+**When** transaction detail is loaded
+**Then** the add-in calls `GET /api/v4/rest/workflow/tasks/{taskId}`
+**And** maps task/application/transaction metadata into the existing `InnolaTransactionDetail` contract.
+
+**Given** live task metadata exposes downloadable source identifiers
+**When** attachments are loaded
+**Then** the add-in downloads content through `GET /api/v4/rest/source/download`
+**And** when source identifiers are absent, the load fails with a clear non-secret metadata-unavailable message.
+
+**Given** a live transaction is started, stopped/saved, or completed
+**When** lifecycle actions run
+**Then** the add-in uses the documented workflow task endpoints for claim/start, transitions, completion, and release where configured
+**And** failed lifecycle responses preserve the previous valid transaction state.
+
 ### Story 2.8: Validate DWG Readiness When Present
 
 As a cadastral technical staff user,

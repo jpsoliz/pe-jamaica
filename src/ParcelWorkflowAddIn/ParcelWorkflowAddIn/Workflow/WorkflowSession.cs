@@ -88,6 +88,14 @@ public sealed class WorkflowSession
 
     public IReadOnlyList<PreflightCheck> PreflightPassedChecks => preflightPassedChecks;
 
+    public bool IsPreflightRunning => preflightRunActive;
+
+    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
+
+    public bool CanRunPreflight => CanRunPreflightState(CurrentState);
+
+    public bool CanRunExtractionReview => HasPreflightResult;
+
     public CaseFolderCreationResult CreateCase(string transactionId, string outputRoot, string? createdBy)
     {
         var result = caseFolderStore.CreateCase(outputRoot, transactionId, createdBy);
@@ -245,7 +253,7 @@ public sealed class WorkflowSession
                 new[] { StatusText });
         }
 
-        if (!CanRunPreflight() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        if (!CanRunPreflightStateInternal() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
             StatusText = "Create or reopen a Case Folder before running preflight.";
             var failedCheck = PreflightCheck.Blocker(
@@ -309,10 +317,14 @@ public sealed class WorkflowSession
         return CurrentState is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
     }
 
-    private bool CanRunPreflight()
+    private bool CanRunPreflightStateInternal()
     {
-        return !preflightRunActive
-            && (CurrentState is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed);
+        return !preflightRunActive && CanRunPreflightState(CurrentState);
+    }
+
+    private static bool CanRunPreflightState(WorkflowState state)
+    {
+        return state is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
     }
 
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)

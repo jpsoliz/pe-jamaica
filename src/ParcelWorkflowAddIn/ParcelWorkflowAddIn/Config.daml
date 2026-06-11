@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-             version="0.1.2"
+             version="0.1.3"
              desktopVersion="3.6">
     <Name>Parcel Workflow</Name>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
@@ -21,8 +21,9 @@
         <group id="ParcelWorkflow_Group" caption="Sidwell Co" appearsOnAddInTab="true">
           <button refID="ParcelWorkflow_LoginButton" />
           <button refID="ParcelWorkflow_TransactionPanelButton" />
-          <button refID="ParcelWorkflow_ConfigurationButton" />
           <button refID="ParcelWorkflow_ShowDockpaneButton" />
+          <separator />
+          <button refID="ParcelWorkflow_ConfigurationButton" />
           <button refID="ParcelWorkflow_AboutButton" />
         </group>
       </groups>

@@ -60,21 +60,25 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(row.IsLoadable, "Mapped row should be loadable.");
     }
 
-    public static async Task HttpTransactionServiceSendsUserGroupAndStepQuery()
+    public static async Task HttpTransactionServiceUsesWorkflowMyTasksEndpoint()
     {
         var handler = new CapturingHttpMessageHandler("""
-            {
-              "value": [
-                {
-                  "task_id": "task-1",
-                  "transaction_id": "100000004",
-                  "transaction_no": "TR100000004",
-                  "task_name": "Computation Check",
-                  "process_step": "parcel_workflow",
-                  "assigned_user": "tester"
+            [
+              {
+                "id": "task-1",
+                "name": "Computation Check",
+                "assignee": "tester",
+                "role": "ROLE_Survey",
+                "createTime": "2024-10-15T09:24:00-05:00",
+                "taskKey": "task_enterdata",
+                "transactionId": "100000004",
+                "transaction": {
+                  "id": "100000004",
+                  "transactionNo": "TR100000004",
+                  "status": "proc_status_created"
                 }
-              ]
-            }
+              }
+            ]
             """);
         var service = new InnolaTransactionService(new HttpClient(handler));
 
@@ -91,11 +95,13 @@ internal static class InnolaTransactionServiceTests
 
         TestAssert.True(result.Success, "HTTP service should map success response.");
         TestAssert.Equal(1, result.Rows.Count, "Row count mismatch.");
-        TestAssert.True(handler.LastUri?.AbsoluteUri.EndsWith("/api/rest/application/getmytasks", StringComparison.Ordinal) ?? false, "Task endpoint mismatch.");
+        TestAssert.Equal(HttpMethod.Get, handler.LastMethod, "Task list should use GET.");
+        TestAssert.True(handler.LastUri?.AbsoluteUri.EndsWith("/api/v4/rest/workflow/my-tasks", StringComparison.Ordinal) ?? false, "Task endpoint mismatch.");
         TestAssert.True(handler.LastAccessToken == "token-abc", "Access-Token header mismatch.");
-        TestAssert.True(handler.LastRequestBody.Contains("\"user\":\"tester\"", StringComparison.Ordinal), "Request should include user.");
-        TestAssert.True(handler.LastRequestBody.Contains("\"process_step\":\"parcel_workflow\"", StringComparison.Ordinal), "Request should include process step.");
-        TestAssert.True(handler.LastRequestBody.Contains("\"survey\"", StringComparison.Ordinal), "Request should include groups.");
+        TestAssert.Equal(string.Empty, handler.LastRequestBody, "Workflow my-tasks should not send the legacy request body.");
+        TestAssert.Equal("task-1", result.Rows[0].TaskId, "Task id mismatch.");
+        TestAssert.Equal("TR100000004", result.Rows[0].TransactionNumber, "Nested transaction number mismatch.");
+        TestAssert.Equal("ROLE_Survey", result.Rows[0].AssignedGroup, "Role should map as assigned group.");
     }
 
     public static async Task MockTransactionServiceRequiresSessionAndFiltersRows()
@@ -172,6 +178,8 @@ internal static class InnolaTransactionServiceTests
 
         public Uri? LastUri { get; private set; }
 
+        public HttpMethod? LastMethod { get; private set; }
+
         public string? LastAccessToken { get; private set; }
 
         public string LastRequestBody { get; private set; } = string.Empty;
@@ -179,6 +187,7 @@ internal static class InnolaTransactionServiceTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastUri = request.RequestUri;
+            LastMethod = request.Method;
             LastAccessToken = request.Headers.TryGetValues("Access-Token", out var values)
                 ? values.FirstOrDefault()
                 : null;

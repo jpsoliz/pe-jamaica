@@ -1,8 +1,5 @@
 using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -29,20 +26,10 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         try
         {
-            var requestUri = new Uri(new Uri(NormalizeServerUrl(query.ServerUrl)), $"{InnolaSettings.RestPath.TrimStart('/')}application/getmytasks");
-            using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
-            {
-                Content = JsonContent.Create(new GetMyTasksRequest(
-                    query.Username,
-                    query.Groups,
-                    query.ProcessStep,
-                    query.Filter,
-                    query.Search,
-                    query.SortField,
-                    query.SortDirection))
-            };
-            request.Headers.TryAddWithoutValidation("Access-Token", query.AccessToken);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", query.AccessToken);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/my-tasks"));
+            InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
 
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -102,22 +89,30 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
     private static InnolaTransactionRow? MapRow(JsonElement item, string defaultProcessStep)
     {
-        var transactionNumber = ReadString(item, "transaction_no", "transactionNo", "transactionNumber", "TransactionNo", "TransactionNumber");
-        var transactionId = ReadString(item, "transaction_id", "transactionId", "TransactionId", "id", "Id") ?? transactionNumber;
-        var taskId = ReadString(item, "task_id", "taskId", "TaskId", "workflow_task_id", "workflowTaskId") ?? transactionId;
-        var taskName = ReadString(item, "task_name", "taskName", "TaskName", "activity_name", "activityName", "name", "Name");
+        var nestedTransaction = TryObject(item, "transaction");
+        var nestedApplication = TryObject(item, "application");
+
+        var transactionNumber = ReadNested(nestedTransaction, "transaction_no", "transactionNo", "transactionNumber", "TransactionNo", "TransactionNumber")
+            ?? InnolaHttp.ReadString(item, "transaction_no", "transactionNo", "transactionNumber", "TransactionNo", "TransactionNumber")
+            ?? ReadNested(nestedApplication, "applicationNo", "application_no");
+        var transactionId = InnolaHttp.ReadString(item, "transaction_id", "transactionId", "TransactionId")
+            ?? ReadNested(nestedTransaction, "id", "Id")
+            ?? transactionNumber;
+        var taskId = InnolaHttp.ReadString(item, "task_id", "taskId", "TaskId", "workflow_task_id", "workflowTaskId", "id", "Id") ?? transactionId;
+        var taskName = InnolaHttp.ReadString(item, "task_name", "taskName", "TaskName", "activity_name", "activityName", "name", "Name");
 
         if (string.IsNullOrWhiteSpace(transactionNumber) || string.IsNullOrWhiteSpace(taskName))
         {
             return null;
         }
 
-        var processStep = ReadString(item, "process_step", "processStep", "step", "workflow_step", "workflowStep") ?? defaultProcessStep;
-        var statusText = ReadString(item, "status", "Status", "task_status", "taskStatus");
+        var explicitProcessStep = InnolaHttp.ReadString(item, "process_step", "processStep", "step", "workflow_step", "workflowStep");
+        var processStep = string.IsNullOrWhiteSpace(explicitProcessStep) ? defaultProcessStep : explicitProcessStep;
+        var statusText = InnolaHttp.ReadString(item, "status", "Status", "task_status", "taskStatus")
+            ?? ReadNested(nestedTransaction, "status", "Status");
         var status = ParseStatus(statusText);
         var isAvailable = ReadBool(item, true, "is_available", "isAvailable", "available", "Available");
         var isLoadable = ReadBool(item, true, "is_loadable", "isLoadable", "doable", "isTaskDoable", "canLoad");
-        var unavailableReason = ReadString(item, "unavailable_reason", "unavailableReason", "reason", "Reason");
 
         return new InnolaTransactionRow(
             taskId ?? string.Empty,
@@ -126,47 +121,33 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             taskName,
             processStep,
             status,
-            ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "owner", "createdBy"),
-            ReadString(item, "assigned_user", "assignedUser", "assignee", "Assignee", "user", "User"),
-            ReadString(item, "assigned_group", "assignedGroup", "group", "Group", "groupName"),
-            ReadDate(item, "received_at", "receivedAt", "assigned_at", "assignedAt", "created_at", "createdAt", "date", "Date"),
+            InnolaHttp.ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "owner", "createdBy"),
+            InnolaHttp.ReadString(item, "assigned_user", "assignedUser", "assignee", "Assignee", "user", "User"),
+            InnolaHttp.ReadString(item, "assigned_group", "assignedGroup", "group", "Group", "groupName", "role"),
+            InnolaHttp.ReadDate(item, "received_at", "receivedAt", "assigned_at", "assignedAt", "createTime", "created_at", "createdAt", "date", "Date")
+                ?? ReadNestedDate(nestedTransaction, "createDatetime", "createDate")
+                ?? ReadNestedDate(nestedApplication, "createDatetime", "createDate"),
             isAvailable,
             isLoadable,
-            unavailableReason,
-            ReadString(item, "browser_url", "browserUrl", "url", "Url"));
+            InnolaHttp.ReadString(item, "unavailable_reason", "unavailableReason", "reason", "Reason"),
+            InnolaHttp.ReadString(item, "browser_url", "browserUrl", "url", "Url"));
     }
 
-    private static string NormalizeServerUrl(string serverUrl)
+    private static JsonElement? TryObject(JsonElement element, string name)
     {
-        var trimmed = serverUrl.Trim();
-        if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmed = $"https://{trimmed}";
-        }
-
-        return trimmed.EndsWith("/", StringComparison.Ordinal) ? trimmed : $"{trimmed}/";
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Object
+            ? value
+            : null;
     }
 
-    private static string? ReadString(JsonElement element, params string[] names)
+    private static string? ReadNested(JsonElement? element, params string[] names)
     {
-        foreach (var name in names)
-        {
-            if (element.TryGetProperty(name, out var value))
-            {
-                if (value.ValueKind == JsonValueKind.String)
-                {
-                    return value.GetString();
-                }
+        return element.HasValue ? InnolaHttp.ReadString(element.Value, names) : null;
+    }
 
-                if (value.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
-                {
-                    return value.ToString();
-                }
-            }
-        }
-
-        return null;
+    private static DateTimeOffset? ReadNestedDate(JsonElement? element, params string[] names)
+    {
+        return element.HasValue ? InnolaHttp.ReadDate(element.Value, names) : null;
     }
 
     private static bool ReadBool(JsonElement element, bool defaultValue, params string[] names)
@@ -197,22 +178,6 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         return defaultValue;
     }
 
-    private static DateTimeOffset? ReadDate(JsonElement element, params string[] names)
-    {
-        var raw = ReadString(element, names);
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return null;
-        }
-
-        if (DateTimeOffset.TryParse(raw, out var parsed))
-        {
-            return parsed;
-        }
-
-        return null;
-    }
-
     private static InnolaTransactionStatus ParseStatus(string? status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -229,7 +194,9 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         }
 
         if (normalized.Equals("inprogress", StringComparison.OrdinalIgnoreCase)
-            || normalized.Equals("started", StringComparison.OrdinalIgnoreCase))
+            || normalized.Equals("started", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("processing", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("procstatusprocessing", StringComparison.OrdinalIgnoreCase))
         {
             return InnolaTransactionStatus.InProgress;
         }
@@ -246,13 +213,4 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         return InnolaTransactionStatus.Available;
     }
-
-    private sealed record GetMyTasksRequest(
-        [property: JsonPropertyName("user")] string User,
-        [property: JsonPropertyName("groups")] IReadOnlyList<string> Groups,
-        [property: JsonPropertyName("process_step")] string ProcessStep,
-        [property: JsonPropertyName("filter")] string? Filter,
-        [property: JsonPropertyName("search")] string? Search,
-        [property: JsonPropertyName("sort_field")] string? SortField,
-        [property: JsonPropertyName("sort_direction")] string? SortDirection);
 }

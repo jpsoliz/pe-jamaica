@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Windows.Input;
+using ArcGIS.Desktop.Framework;
 using ParcelWorkflowAddIn.Innola;
 
 namespace ParcelWorkflowAddIn;
@@ -493,7 +495,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 return;
             }
 
-            StatusText = result.StatusMessage ?? $"Loaded transaction: {SelectedRow.TransactionNumber}.";
+            StatusText = string.IsNullOrWhiteSpace(result.StatusMessage)
+                ? $"Loaded {SelectedRow.TransactionNumber}."
+                : $"Loaded {SelectedRow.TransactionNumber}: {result.StatusMessage}";
             NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         }
         finally
@@ -530,6 +534,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             {
                 SavedTransactionNumber = null;
                 RestoreSelectedRow(requestedTransactionNumber);
+                OpenParcelWorkflowDockpane(requestedTransactionNumber);
             }
         }
         finally
@@ -537,6 +542,61 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             IsLoading = false;
             NotifyListState();
             NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+        }
+    }
+
+    private void OpenParcelWorkflowDockpane(string requestedTransactionNumber)
+    {
+        const string autoOpenFailureMessage = "Transaction {0} loaded. Open Parcel Workflow manually from Transactions if required.";
+        OpenParcelWorkflowDockpane(requestedTransactionNumber, autoOpenFailureMessage, 1);
+    }
+
+    private void OpenParcelWorkflowDockpane(string requestedTransactionNumber, string? notFoundMessage = null, int attempt = 1)
+    {
+        notFoundMessage ??= $"Transaction {requestedTransactionNumber} loaded. Open Parcel Workflow manually if required.";
+        const int maxAttempts = 8;
+
+        try
+        {
+            var activate = () =>
+            {
+                var pane = FrameworkApplication.DockPaneManager.Find(ParcelWorkflowDockpaneViewModel.DockPaneId);
+                if (pane is null)
+                {
+                    if (attempt >= maxAttempts)
+                    {
+                        StatusText = string.Format(CultureInfo.CurrentCulture, notFoundMessage, requestedTransactionNumber);
+                    }
+                    else if (System.Windows.Application.Current is not null)
+                    {
+                        System.Windows.Application.Current.Dispatcher.InvokeAsync(
+                            () => OpenParcelWorkflowDockpane(requestedTransactionNumber, notFoundMessage, attempt + 1),
+                            System.Windows.Threading.DispatcherPriority.Background);
+                    }
+
+                    return;
+                }
+
+                pane.Activate();
+            };
+
+            if (System.Windows.Application.Current is null)
+            {
+                activate();
+            }
+            else
+            {
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(activate);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Best effort: keep transaction flow running even if UI cannot be activated in this context.
+            StatusText = string.Format(CultureInfo.CurrentCulture, notFoundMessage, requestedTransactionNumber);
+        }
+        catch (Exception)
+        {
+            StatusText = string.Format(CultureInfo.CurrentCulture, notFoundMessage, requestedTransactionNumber);
         }
     }
 

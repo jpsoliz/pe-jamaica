@@ -1,0 +1,122 @@
+using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Intake;
+using System.Net;
+using System.Text;
+
+namespace ParcelWorkflowAddIn.Tests.Innola;
+
+internal static class InnolaTransactionDetailServiceTests
+{
+    public static async Task LiveDetailMapsTaskMetadataAndDownloadsSource()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                {
+                  "id": "task-1",
+                  "name": "Computation Check",
+                  "assignee": "tester",
+                  "role": "ROLE_Survey",
+                  "transactionId": "tx-1",
+                  "transactionCode": "DM",
+                  "transaction": {
+                    "id": "tx-1",
+                    "transactionNo": "TR100000004",
+                    "transactionType": "DM"
+                  },
+                  "application": {
+                    "sources": [
+                      {
+                        "id": "source-1",
+                        "fileName": "plan_map.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "plan",
+                        "size": 4
+                      }
+                    ]
+                  }
+                }
+                """, "application/json"),
+            new Response("PDF!", "application/pdf"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = Session();
+        var selected = new SelectedInnolaTransaction("task-1", "tx-1", "TR100000004", "Computation Check", "parcel_workflow", DateTimeOffset.UtcNow);
+
+        var detail = await service.GetTransactionDetailAsync(session, selected);
+        var content = await service.GetAttachmentContentAsync(session, detail.Detail!, detail.Detail!.Attachments[0]);
+
+        TestAssert.True(detail.Success, "Detail should load.");
+        TestAssert.Equal("TR100000004", detail.Detail?.TransactionNumber, "Transaction number mismatch.");
+        TestAssert.Equal("DM", detail.Detail?.CaseType, "Case type mismatch.");
+        TestAssert.Equal(1, detail.Detail?.Attachments.Count ?? -1, "Attachment count mismatch.");
+        TestAssert.Equal(SourceRole.PlanMapReference, detail.Detail!.Attachments[0].SourceRole, "Source role mismatch.");
+        TestAssert.True(content.Success, "Attachment content should download.");
+        TestAssert.Equal(2, handler.Requests.Count, "Detail and download endpoints should be called.");
+        TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/tasks/task-1", StringComparison.Ordinal), "Detail endpoint mismatch.");
+        TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.Contains("/api/v4/rest/source/download?", StringComparison.Ordinal), "Download endpoint mismatch.");
+        TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.Contains("sourceId=source-1", StringComparison.Ordinal), "Download should use sourceId.");
+    }
+
+    public static async Task LiveDetailWithoutSourceIdentifiersFailsSafely()
+    {
+        var handler = new SequenceHandler(new Response("""
+            {
+              "id": "task-1",
+              "name": "Computation Check",
+              "transaction": {
+                "id": "tx-1",
+                "transactionNo": "TR100000004"
+              },
+              "application": {
+                "applicationNotes": []
+              }
+            }
+            """, "application/json"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+
+        var result = await service.GetTransactionDetailAsync(
+            Session(),
+            new SelectedInnolaTransaction("task-1", "tx-1", "TR100000004", "Computation Check", "parcel_workflow", DateTimeOffset.UtcNow));
+
+        TestAssert.True(!result.Success, "Detail should fail when no downloadable source metadata exists.");
+        TestAssert.Equal("attachment_metadata_unavailable", result.ErrorCode, "Error code mismatch.");
+        TestAssert.True(!result.ErrorMessage!.Contains("token", StringComparison.OrdinalIgnoreCase), "Error should not leak token.");
+    }
+
+    private static InnolaSession Session()
+    {
+        return new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null);
+    }
+
+    private sealed class SequenceHandler : HttpMessageHandler
+    {
+        private readonly Queue<Response> responses;
+
+        public SequenceHandler(params Response[] responses)
+        {
+            this.responses = new Queue<Response>(responses);
+        }
+
+        public List<CapturedRequest> Requests { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(new CapturedRequest(request.Method, request.RequestUri!));
+            var response = responses.Dequeue();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response.Body, Encoding.UTF8, response.ContentType)
+            });
+        }
+    }
+
+    private sealed record Response(string Body, string ContentType);
+
+    private sealed record CapturedRequest(HttpMethod Method, Uri Uri);
+}

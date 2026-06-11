@@ -1,11 +1,13 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Intake;
+using System.Net.Http;
 
 namespace ParcelWorkflowAddIn.Innola;
 
 internal static class ShellState
 {
     private static readonly InnolaTransactionSettings Settings = InnolaTransactionSettings.Load();
+    private static readonly HttpClient SharedInnolaHttpClient = new();
 
     public static InnolaSessionManager Session { get; } = new(CreateAuthService());
 
@@ -39,27 +41,27 @@ internal static class ShellState
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaAuthService()
-            : new InnolaAuthService();
+            : new InnolaAuthService(SharedInnolaHttpClient);
     }
 
     private static IInnolaTransactionService CreateTransactionService()
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaTransactionService()
-            : new InnolaTransactionService();
+            : new InnolaTransactionService(SharedInnolaHttpClient);
     }
 
     private static IInnolaTransactionDetailService CreateTransactionDetailService()
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaTransactionDetailService()
-            : new InnolaTransactionDetailService();
+            : new InnolaTransactionDetailService(SharedInnolaHttpClient);
     }
 
     private static IInnolaTransactionLifecycleService CreateTransactionLifecycleService()
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaTransactionLifecycleService()
-            : new InnolaTransactionLifecycleService();
+            : new InnolaTransactionLifecycleService(SharedInnolaHttpClient);
     }
 }

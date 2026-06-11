@@ -30,9 +30,14 @@ public sealed class InnolaAuthService : IInnolaAuthService
 
         try
         {
-            var normalizedServer = NormalizeServerUrl(serverUrl);
-            var authUrl = new Uri(new Uri(normalizedServer), $"{InnolaSettings.RestPath.TrimStart('/')}{InnolaSettings.AuthenticationPath}");
-            using var response = await httpClient.PostAsJsonAsync(authUrl, new LoginPasswordRequest(username, password), cancellationToken).ConfigureAwait(false);
+            var normalizedServer = InnolaHttp.NormalizeServerUrl(serverUrl);
+            var authUrl = InnolaHttp.BuildUri(normalizedServer, $"{InnolaSettings.RestPath}{InnolaSettings.AuthenticationPath}");
+            using var response = await httpClient.PostAsJsonAsync(authUrl, new LoginPasswordRequest(
+                true,
+                username,
+                InnolaSettings.DefaultAuthModule,
+                password,
+                InnolaSettings.DefaultAuthVersion), cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -41,22 +46,26 @@ public sealed class InnolaAuthService : IInnolaAuthService
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var loginPayload = ExtractLoginPayload(responseBody);
-            if (string.IsNullOrWhiteSpace(loginPayload.AccessToken))
+            var currentUser = await GetCurrentUserAsync(normalizedServer, loginPayload.AccessToken, cancellationToken).ConfigureAwait(false);
+            var accessToken = string.IsNullOrWhiteSpace(loginPayload.AccessToken)
+                ? InnolaHttp.SessionCookieAccessToken
+                : loginPayload.AccessToken;
+            if (currentUser is null && string.IsNullOrWhiteSpace(loginPayload.AccessToken))
             {
                 return InnolaLoginResult.Failure("Login failed. Check user name, password, and server.");
             }
 
             var user = new InnolaUserContext(
-                loginPayload.Username ?? username,
-                loginPayload.DisplayName ?? loginPayload.Username ?? username,
-                loginPayload.Groups,
-                loginPayload.Roles);
+                currentUser?.Username ?? loginPayload.Username ?? username,
+                currentUser?.DisplayName ?? loginPayload.DisplayName ?? loginPayload.Username ?? username,
+                currentUser?.Groups ?? loginPayload.Groups,
+                currentUser?.Roles ?? loginPayload.Roles);
             CurrentSession = new InnolaSession(
                 InnolaSessionStatus.LoggedIn,
                 normalizedServer,
                 username,
                 password,
-                loginPayload.AccessToken,
+                accessToken,
                 user,
                 null);
 
@@ -74,18 +83,6 @@ public sealed class InnolaAuthService : IInnolaAuthService
         return Task.CompletedTask;
     }
 
-    private static string NormalizeServerUrl(string serverUrl)
-    {
-        var trimmed = serverUrl.Trim();
-        if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmed = $"https://{trimmed}";
-        }
-
-        return trimmed.EndsWith("/", StringComparison.Ordinal) ? trimmed : $"{trimmed}/";
-    }
-
     private static LoginPayload ExtractLoginPayload(string responseBody)
     {
         using var document = JsonDocument.Parse(responseBody);
@@ -95,11 +92,58 @@ public sealed class InnolaAuthService : IInnolaAuthService
             : root;
 
         return new LoginPayload(
-            ExtractString(payloadRoot, "accessToken", "access_token", "token", "AccessToken") ?? string.Empty,
+            ExtractString(payloadRoot, "auth-token", "accessToken", "access_token", "token", "AccessToken") ?? string.Empty,
             ExtractString(payloadRoot, "username", "userName", "login", "Login"),
             ExtractString(payloadRoot, "displayName", "fullName", "FullName", "name"),
             ExtractStringArray(payloadRoot, "groups", "Groups", "groupNames"),
             ExtractStringArray(payloadRoot, "roles", "Roles", "roleNames"));
+    }
+
+    private async Task<LoginUserPayload?> GetCurrentUserAsync(string normalizedServer, string accessToken, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, InnolaHttp.BuildUri(normalizedServer, $"{InnolaSettings.RestPath}{InnolaSettings.CurrentUserDetailsPath}"));
+            InnolaHttp.ApplyAuthHeaders(request, accessToken);
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(responseBody);
+            var root = document.RootElement;
+            if (root.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            var payloadRoot = root.TryGetProperty("value", out var valueObject) && valueObject.ValueKind == JsonValueKind.Object
+                ? valueObject
+                : root;
+
+            if (payloadRoot.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var username = ExtractString(payloadRoot, "userName", "username", "login", "Login");
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                return null;
+            }
+
+            return new LoginUserPayload(
+                username,
+                ExtractString(payloadRoot, "fullName", "displayName", "name") ?? username,
+                ExtractStringArray(payloadRoot, "groups", "Groups", "groupNames"),
+                ExtractStringArray(payloadRoot, "roles", "Roles", "roleNames"));
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            return null;
+        }
     }
 
     private static string? ExtractString(JsonElement element, params string[] names)
@@ -146,13 +190,22 @@ public sealed class InnolaAuthService : IInnolaAuthService
     }
 
     private sealed record LoginPasswordRequest(
+        [property: JsonPropertyName("createSession")] bool CreateSession,
         [property: JsonPropertyName("login")] string Login,
-        [property: JsonPropertyName("password")] string Password);
+        [property: JsonPropertyName("module")] string Module,
+        [property: JsonPropertyName("password")] string Password,
+        [property: JsonPropertyName("version")] string Version);
 
     private sealed record LoginPayload(
         string AccessToken,
         string? Username,
         string? DisplayName,
+        IReadOnlyList<string> Groups,
+        IReadOnlyList<string> Roles);
+
+    private sealed record LoginUserPayload(
+        string Username,
+        string DisplayName,
         IReadOnlyList<string> Groups,
         IReadOnlyList<string> Roles);
 }

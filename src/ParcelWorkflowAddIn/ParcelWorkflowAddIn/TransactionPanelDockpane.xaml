@@ -150,11 +150,21 @@
             BorderBrush="#C9D2D8"
             BorderThickness="1"
             Background="#FFFFFF">
-      <ListBox ItemsSource="{Binding State.Rows}"
-               SelectedItem="{Binding State.SelectedRow, Mode=TwoWay}"
-               BorderThickness="0"
-               IsHitTestVisible="{Binding State.CanUseListControls}"
-               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+    <ListBox ItemsSource="{Binding State.Rows}"
+             SelectedItem="{Binding State.SelectedRow, Mode=TwoWay}"
+             IsEnabled="{Binding State.CanUseListControls}"
+             BorderThickness="0"
+             IsHitTestVisible="{Binding State.CanUseListControls}"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+      <ListBox.ItemContainerStyle>
+        <Style TargetType="ListBoxItem">
+          <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.72" />
+            </Trigger>
+          </Style.Triggers>
+        </Style>
+      </ListBox.ItemContainerStyle>
         <ListBox.InputBindings>
           <MouseBinding Gesture="LeftDoubleClick"
                         Command="{Binding State.StartTransactionCommand}" />
@@ -169,6 +179,11 @@
                 <Style TargetType="Border">
                   <Setter Property="Background" Value="#FFFFFF" />
                   <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsLoadable}"
+                                 Value="False">
+                      <Setter Property="Background" Value="#F5F7F9" />
+                      <Setter Property="Opacity" Value="0.72" />
+                    </DataTrigger>
                     <DataTrigger Value="True">
                       <DataTrigger.Binding>
                         <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
@@ -204,7 +219,8 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal">
-                  <TextBlock Text="{Binding TransactionNumber}"
+                <TextBlock Text="{Binding TransactionNumber}"
+                           FontWeight="SemiBold"
                              FontSize="12"
                              Foreground="#2B6CB0"
                              TextDecorations="Underline" />
