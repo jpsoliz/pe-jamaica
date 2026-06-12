@@ -333,7 +333,12 @@ internal static class ProcessingEnvironmentPreflightServiceTests
             this.result = result;
         }
 
-        public Task<ProcessRunResult> RunAsync(string executablePath, string arguments, TimeSpan timeout, CancellationToken cancellationToken = default)
+        public Task<ProcessRunResult> RunAsync(
+            string executablePath,
+            string arguments,
+            TimeSpan timeout,
+            IReadOnlyDictionary<string, string?>? environmentVariables = null,
+            CancellationToken cancellationToken = default)
         {
             return Task.FromResult(result);
         }

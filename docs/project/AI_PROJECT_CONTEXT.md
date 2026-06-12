@@ -57,6 +57,7 @@
 - `docs/toolchain.md`, `docs/INDEX.md`, `docs/README.md`
 - `_bmad-output/planning-artifacts/` (architecture/design/PRD/epic context)
 - `docs/project/AI_PROJECT_CONTEXT.md`
+- `docs/project/PROCESSING_ALIGNMENT.md`
 
 ### Operational state (changes frequently)
 - `docs/project-management/CURRENT_SPRINT.md`
@@ -74,4 +75,3 @@
 - Docs: uppercase file names for top-level coordination files (`CURRENT_SPRINT.md`, `DECISIONS.md`).
 - Code: explicit, typed service boundaries; status states are discrete and testable.
 - JSON: `snake_case` fields, explicit schema versioning, explicit approval hash/version for review approval.
-

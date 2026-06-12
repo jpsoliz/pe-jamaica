@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
@@ -151,7 +152,8 @@ internal static class WorkflowSessionTests
             new SourceFileActionAuditService(),
             new ManifestPreflightService(),
             new WorkflowRuleResolver(new WorkflowRuleRegistry(() => rules.Path), () => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)),
-            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"));
+            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Not used.")));
         var caseResult = session.CreateCase("100000206", tempRoot.Path, "tester");
         var computationPath = Path.Combine(caseResult.Layout!.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
         var planPath = Path.Combine(caseResult.Layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
@@ -247,6 +249,65 @@ internal static class WorkflowSessionTests
         TestAssert.True(result.Success, "Case without detected profile should reopen.");
         TestAssert.Equal("Detected profile: not refreshed", session.DetectedProfileLabel, "Missing detected profile label mismatch.");
         TestAssert.True(session.IntakeIssues.Any(issue => issue.Contains("Refresh Intake", StringComparison.OrdinalIgnoreCase)), "Missing detected profile should surface a refresh issue.");
+    }
+
+    public static void WorkflowSessionAllowsSourceActionsAfterReviewApproved()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var copiedPath = Path.Combine(created.Layout!.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        File.WriteAllText(copiedPath, "computation");
+        var manifest = ManifestSerializer.Read(created.Layout.ManifestPath);
+        ManifestSerializer.Write(
+            created.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    WorkflowState = WorkflowState.ReviewApproved.ToContractValue(),
+                    SourceFiles = new[]
+                    {
+                        new ManifestSourceFile("innola-attachment:computation", copiedPath, ".pdf", 10, "2026-06-12T00:00:00Z", "computation_source")
+                    }
+                }
+            });
+        var launcher = new FakeSourceFileLauncher();
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(launcher),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService());
+        session.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        var result = session.ExecuteSourceFileAction(session.SourceFiles[0], SourceFileAction.Open, "tester");
+
+        TestAssert.True(result.Success, "Copied source files should still open after review approval.");
+        TestAssert.Equal(copiedPath, launcher.OpenedPath, "Approved review should still allow source file preview/open actions.");
+    }
+
+    public static void WorkflowSessionReviewApprovedDoesNotAllowDraftExtractionRerun()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+        ManifestSerializer.Write(
+            created.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    WorkflowState = WorkflowState.ReviewApproved.ToContractValue()
+                }
+            });
+        var session = new WorkflowSession(store);
+
+        session.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        TestAssert.True(!session.CanRunExtractionReview, "Approved review should lock draft extraction rerun.");
     }
 
     public static void WorkflowSessionReportsReopenFailuresWithoutReplacingActiveCase()
@@ -502,6 +563,94 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("preflight_passed", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight passed.");
     }
 
+    public static void WorkflowSessionDraftExtractionCreatesReviewArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+                Directory.CreateDirectory(layout.WorkingDirectory);
+                File.WriteAllText(reviewArtifactPath, "{\"transaction_number\":\"100000206\",\"rows\":[]}");
+                return new WorkflowScriptExecutionResult(
+                    true,
+                    null,
+                    reviewArtifactPath,
+                    new[] { new AvailableArtifact("extraction_review_data.json", reviewArtifactPath) });
+            }));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Draft extraction should succeed.");
+        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Successful draft extraction should move to review pending.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Draft extraction should create extraction review artifact.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "extraction_review_data.json"), "Review artifact should be registered.");
+        TestAssert.Equal("Draft extraction complete: review artifact generated.", session.StatusText, "Draft extraction success status mismatch.");
+    }
+
+    public static void WorkflowSessionDraftExtractionFailureStaysContained()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Draft extraction failed.")));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Draft extraction failure should be reported.");
+        TestAssert.Equal(WorkflowState.ExtractionFailed, session.CurrentState, "Failure should move workflow to extraction failed.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Failure should not create review artifact.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Failure should not create output summary.");
+        TestAssert.Equal("Draft extraction failed.", session.StatusText, "Failure status should be preserved.");
+    }
+
+    public static void WorkflowSessionDraftExtractionRequiresPreflightPass()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => throw new InvalidOperationException("Should not be called.")));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
+        TestAssert.Equal("Run preflight successfully before starting extraction review.", session.StatusText, "Blocked extraction status mismatch.");
+    }
+
     public static void WorkflowSessionAddingSourceAfterPreflightInvalidatesPreflight()
     {
         using var tempRoot = new TempDirectory();
@@ -619,6 +768,21 @@ internal static class WorkflowSessionTests
         }
     }
 
+    private sealed class FakeWorkflowScriptExecutor : IWorkflowScriptExecutor
+    {
+        private readonly Func<CaseFolderLayout, ManifestDocument, WorkflowScriptExecutionResult> execute;
+
+        public FakeWorkflowScriptExecutor(Func<CaseFolderLayout, ManifestDocument, WorkflowScriptExecutionResult> execute)
+        {
+            this.execute = execute;
+        }
+
+        public Task<WorkflowScriptExecutionResult> ExecuteDraftExtractionAsync(CaseFolderLayout layout, ManifestDocument manifest, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(execute(layout, manifest));
+        }
+    }
+
     private static WorkflowSession CreateManifestOnlySession()
     {
         return new WorkflowSession(
@@ -628,5 +792,89 @@ internal static class WorkflowSessionTests
             new SourceFileActionService(),
             new SourceFileActionAuditService(),
             new ManifestPreflightService());
+    }
+
+    private static CaseFolderLayout CreateInnolaScenarioACase(CaseFolderStore store, string outputRoot)
+    {
+        var created = store.CreateCase(outputRoot, "100000206", "tester");
+        var layout = created.Layout!;
+        var computationPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        Directory.CreateDirectory(layout.SourceDirectory);
+        File.WriteAllText(computationPath, "computation");
+        File.WriteAllText(planPath, "plan");
+        var sourceFiles = new[]
+        {
+            new ManifestSourceFile("innola-attachment:computation", computationPath, ".pdf", 10, "2026-06-12T00:00:00Z", "computation_source"),
+            new ManifestSourceFile("innola-attachment:plan", planPath, ".pdf", 10, "2026-06-12T00:00:00Z", "plan_map_reference")
+        };
+        var scriptPlan = new WorkflowScriptPlan(
+            "1.0.0",
+            "scenario_a_two_pdf_v1",
+            "1.0.0",
+            "scenario_a_two_pdf",
+            "2026-06-12T00:00:00Z",
+            WorkflowRuleResolver.ComputeSourceManifestHash(sourceFiles),
+            new[]
+            {
+                new WorkflowScriptStep(
+                    "extract_points_from_computation",
+                    "extraction_adapter",
+                    "extract_points_from_computation_pdf",
+                    new[] { "computation_source" },
+                    new[] { "working/extraction_points.json" },
+                    new Dictionary<string, string> { ["provider"] = "local" },
+                    300,
+                    false,
+                    "local",
+                    "local"),
+                new WorkflowScriptStep(
+                    "ocr_plan_map_reference",
+                    "extraction_adapter",
+                    "ocr_plan_map_pdf",
+                    new[] { "plan_map_reference" },
+                    new[] { "working/plan_ocr.json" },
+                    new Dictionary<string, string> { ["provider"] = "local" },
+                    300,
+                    false,
+                    "local",
+                    "local")
+            });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = sourceFiles,
+                    DetectedProfile = new DetectedSourceInputProfile(
+                        "scenario_a",
+                        "Scenario A - computation + plan/map reference",
+                        "matched",
+                        "2026-06-12T00:00:00Z",
+                        Array.Empty<string>(),
+                        Array.Empty<string>()),
+                    InnolaTransaction = new ManifestInnolaTransaction(
+                        "txn-1",
+                        "100000206",
+                        "task-1",
+                        "Assign Computation Task",
+                        "parcel_workflow",
+                        "Plan Examination",
+                        null,
+                        "tester",
+                        "tester",
+                        "Super Group",
+                        null,
+                        null,
+                        "2026-06-12T00:00:00Z"),
+                    WorkflowProfile = "scenario_a_two_pdf",
+                    WorkflowRuleId = "scenario_a_two_pdf_v1",
+                    WorkflowRuleVersion = "1.0.0",
+                    ScriptPlan = scriptPlan
+                }
+            });
+        return layout;
     }
 }

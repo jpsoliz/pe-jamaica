@@ -268,6 +268,10 @@ public sealed partial class CaseFolderStore
         {
             layout.PreflightSummaryPath,
             Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            Path.Combine(layout.WorkingDirectory, "extraction_points.json"),
+            Path.Combine(layout.WorkingDirectory, "normalized_points.json"),
+            Path.Combine(layout.WorkingDirectory, "plan_ocr.json"),
+            Path.Combine(layout.WorkingDirectory, "dwg_context.json"),
             Path.Combine(layout.WorkingDirectory, "approved_review.json"),
             Path.Combine(layout.WorkingDirectory, "validation_summary.json"),
             Path.Combine(layout.OutputDirectory, "output_summary.json"),
@@ -296,6 +300,32 @@ public sealed partial class CaseFolderStore
         if (string.Equals(workflowState, WorkflowState.PreflightPassed.ToContractValue(), StringComparison.OrdinalIgnoreCase))
         {
             return WorkflowState.PreflightPassed;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ExtractionRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(new RecoverabilityIssue(
+                "interrupted_extraction",
+                "warning",
+                "Case was reopened from an interrupted extraction run. Retry extraction from the workflow pane.",
+                null,
+                false));
+            return WorkflowState.PreflightPassed;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ExtractionFailed.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ExtractionFailed;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ReviewPending.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ReviewPending;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ReviewApproved.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ReviewApproved;
         }
 
         if (string.Equals(workflowState, WorkflowState.PreflightRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))

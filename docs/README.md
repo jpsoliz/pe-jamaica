@@ -10,6 +10,7 @@ Use this folder as the primary onboarding and operational documentation source f
 - [docs/toolchain.md](toolchain.md) — build/run prerequisites and packaging workflow
 - [docs/project/AI_PROJECT_CONTEXT.md](project/AI_PROJECT_CONTEXT.md) — stable project context and conventions
 - [docs/project/ONBOARDING.md](project/ONBOARDING.md) — immediate onboarding checklist for new team/model handoff
+- [docs/project/PROCESSING_ALIGNMENT.md](project/PROCESSING_ALIGNMENT.md) — extraction/review/build alignment for transaction-driven processing
 - [docs/project-management/CURRENT_SPRINT.md](project-management/CURRENT_SPRINT.md) — current sprint status and next work
 - [docs/project-management/DECISIONS.md](project-management/DECISIONS.md)
 - [docs/retrospectives/LESSONS_LEARNED.md](retrospectives/LESSONS_LEARNED.md)

@@ -4,20 +4,37 @@ namespace ParcelWorkflowAddIn.Preflight;
 
 public sealed class ProcessRunner : IProcessRunner
 {
-    public async Task<ProcessRunResult> RunAsync(string executablePath, string arguments, TimeSpan timeout, CancellationToken cancellationToken = default)
+    public async Task<ProcessRunResult> RunAsync(
+        string executablePath,
+        string arguments,
+        TimeSpan timeout,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null,
+        CancellationToken cancellationToken = default)
     {
-        using var process = new Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = executablePath,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
+            FileName = executablePath,
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
         };
+
+        if (environmentVariables is not null)
+        {
+            foreach (var entry in environmentVariables)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Key))
+                {
+                    continue;
+                }
+
+                startInfo.Environment[entry.Key] = entry.Value ?? string.Empty;
+            }
+        }
+
+        using var process = new Process { StartInfo = startInfo };
 
         process.Start();
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
@@ -33,8 +50,23 @@ public sealed class ProcessRunner : IProcessRunner
             catch (InvalidOperationException)
             {
             }
+            catch (Exception)
+            {
+            }
 
-            return new ProcessRunResult(-1, string.Empty, string.Empty, TimedOut: true);
+            try
+            {
+                await Task.WhenAny(process.WaitForExitAsync(cancellationToken), Task.Delay(TimeSpan.FromMilliseconds(500))).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+
+            return new ProcessRunResult(
+                -1,
+                await outputTask.ConfigureAwait(false),
+                await errorTask.ConfigureAwait(false),
+                TimedOut: true);
         }
 
         return new ProcessRunResult(

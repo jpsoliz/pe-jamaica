@@ -2,6 +2,8 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.Workflow.Execution;
+using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.IO;
 using System.Text.Json;
@@ -18,6 +20,8 @@ public sealed class WorkflowSession
     private readonly ManifestPreflightService manifestPreflightService;
     private readonly WorkflowRuleResolver workflowRuleResolver;
     private readonly Func<WorkflowRuleSettings> getWorkflowRuleSettings;
+    private readonly IWorkflowScriptExecutor workflowScriptExecutor;
+    private readonly ExtractionReviewPersistenceService extractionReviewService;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -25,6 +29,7 @@ public sealed class WorkflowSession
     private readonly List<PreflightCheck> preflightWarnings = [];
     private readonly List<PreflightCheck> preflightPassedChecks = [];
     private bool preflightRunActive;
+    private bool extractionRunActive;
 
     public WorkflowSession(CaseFolderStore caseFolderStore)
         : this(caseFolderStore, new SourceFileCopyService(), new SourceInputProfileDetector())
@@ -66,7 +71,9 @@ public sealed class WorkflowSession
             sourceFileActionAuditService,
             manifestPreflightService,
             new WorkflowRuleResolver(),
-            WorkflowRuleSettingsLoader.Load)
+            WorkflowRuleSettingsLoader.Load,
+            new WorkflowScriptExecutor(),
+            new ExtractionReviewPersistenceService())
     {
     }
 
@@ -78,7 +85,33 @@ public sealed class WorkflowSession
         SourceFileActionAuditService sourceFileActionAuditService,
         ManifestPreflightService manifestPreflightService,
         WorkflowRuleResolver workflowRuleResolver,
-        Func<WorkflowRuleSettings> getWorkflowRuleSettings)
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        IWorkflowScriptExecutor workflowScriptExecutor)
+        : this(
+            caseFolderStore,
+            sourceFileCopyService,
+            sourceInputProfileDetector,
+            sourceFileActionService,
+            sourceFileActionAuditService,
+            manifestPreflightService,
+            workflowRuleResolver,
+            getWorkflowRuleSettings,
+            workflowScriptExecutor,
+            new ExtractionReviewPersistenceService())
+    {
+    }
+
+    public WorkflowSession(
+        CaseFolderStore caseFolderStore,
+        SourceFileCopyService sourceFileCopyService,
+        SourceInputProfileDetector sourceInputProfileDetector,
+        SourceFileActionService sourceFileActionService,
+        SourceFileActionAuditService sourceFileActionAuditService,
+        ManifestPreflightService manifestPreflightService,
+        WorkflowRuleResolver workflowRuleResolver,
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        IWorkflowScriptExecutor workflowScriptExecutor,
+        ExtractionReviewPersistenceService extractionReviewService)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -88,6 +121,8 @@ public sealed class WorkflowSession
         this.manifestPreflightService = manifestPreflightService;
         this.workflowRuleResolver = workflowRuleResolver;
         this.getWorkflowRuleSettings = getWorkflowRuleSettings;
+        this.workflowScriptExecutor = workflowScriptExecutor;
+        this.extractionReviewService = extractionReviewService;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -116,11 +151,13 @@ public sealed class WorkflowSession
 
     public bool IsPreflightRunning => preflightRunActive;
 
-    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
+    public bool IsExtractionRunning => extractionRunActive;
+
+    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved;
 
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
 
-    public bool CanRunExtractionReview => HasPreflightResult;
+    public bool CanRunExtractionReview => !extractionRunActive && CanRunExtractionReviewState(CurrentState);
 
     public void ResetToDefault(string statusText = "No active case")
     {
@@ -134,6 +171,7 @@ public sealed class WorkflowSession
         DetectedProfileLabel = "Detected profile: not refreshed";
         StatusText = statusText;
         preflightRunActive = false;
+        extractionRunActive = false;
     }
 
     public CaseFolderCreationResult CreateCase(string transactionId, string outputRoot, string? createdBy)
@@ -286,7 +324,7 @@ public sealed class WorkflowSession
 
     public SourceFileActionResult ExecuteSourceFileAction(SourceFileCopyResult sourceFile, SourceFileAction action, string? operatorId)
     {
-        if (!CanRunIntakeCommand() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        if (!CanUseSourceFileActions() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
             StatusText = "Create or reopen a Case Folder before using source file actions.";
             return SourceFileActionResult.Failed(action, sourceFile.CopiedPath, "blocked", StatusText);
@@ -302,6 +340,11 @@ public sealed class WorkflowSession
     public PreflightSummaryDocument RunManifestPreflight(string? operatorId)
     {
         return RunManifestPreflightAsync(operatorId).GetAwaiter().GetResult();
+    }
+
+    public Task<WorkflowScriptExecutionResult> RunDraftExtractionAsync(CancellationToken cancellationToken = default)
+    {
+        return RunDraftExtractionInternalAsync(cancellationToken);
     }
 
     public async Task<PreflightSummaryDocument> RunManifestPreflightAsync(string? operatorId, CancellationToken cancellationToken = default)
@@ -385,6 +428,11 @@ public sealed class WorkflowSession
         return CurrentState is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
     }
 
+    private bool CanUseSourceFileActions()
+    {
+        return CurrentState is not WorkflowState.NoCase;
+    }
+
     private bool CanRunPreflightStateInternal()
     {
         return !preflightRunActive && CanRunPreflightState(CurrentState);
@@ -393,6 +441,85 @@ public sealed class WorkflowSession
     private static bool CanRunPreflightState(WorkflowState state)
     {
         return state is WorkflowState.Intake or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed;
+    }
+
+    private static bool CanRunExtractionReviewState(WorkflowState state)
+    {
+        return state is WorkflowState.PreflightPassed or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending;
+    }
+
+    public ExtractionReviewDocument? LoadExtractionReview()
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            StatusText = "Create or reopen a Case Folder before opening extraction review.";
+            return null;
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        var document = extractionReviewService.Load(layout);
+        if (document is null)
+        {
+            StatusText = "Extraction review data is not available yet.";
+            return null;
+        }
+
+        if (CurrentState == WorkflowState.PreflightPassed || CurrentState == WorkflowState.ExtractionFailed)
+        {
+            SetWorkflowState(layout, WorkflowState.ReviewPending);
+        }
+
+        var summary = extractionReviewService.Summarize(document);
+        StatusText = summary.CanApprove
+            ? $"Review loaded: {summary.TotalRows} row(s), ready for save or approval."
+            : $"Review loaded: {summary.UnresolvedRows} unresolved and {summary.MissingRequiredRows} missing-value row(s) need attention.";
+        return document;
+    }
+
+    public ExtractionReviewSaveResult SaveExtractionReview(ExtractionReviewDocument document, string? operatorId)
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            return ExtractionReviewSaveResult.Failed("Create or reopen a Case Folder before saving review data.");
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        var saveResult = extractionReviewService.Save(layout, document, operatorId);
+        if (!saveResult.Success || saveResult.Document is null)
+        {
+            StatusText = saveResult.Message;
+            return saveResult;
+        }
+
+        UpsertAvailableArtifact(new AvailableArtifact("extraction_review_data.json", Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, Path.Combine(layout.WorkingDirectory, "approved_review.json"), StringComparison.OrdinalIgnoreCase) && !File.Exists(artifact.Path));
+        SetWorkflowState(layout, WorkflowState.ReviewPending);
+        StatusText = saveResult.Message;
+        return saveResult;
+    }
+
+    public ExtractionReviewApprovalResult ApproveExtractionReview(ExtractionReviewDocument document, string? operatorId)
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            return ExtractionReviewApprovalResult.Failed("Create or reopen a Case Folder before approving review data.", null);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        var approvalResult = extractionReviewService.Approve(layout, document, operatorId);
+        StatusText = approvalResult.Message;
+        if (!approvalResult.Success)
+        {
+            return approvalResult;
+        }
+
+        if (!string.IsNullOrWhiteSpace(approvalResult.ApprovedReviewPath))
+        {
+            UpsertAvailableArtifact(new AvailableArtifact("approved_review.json", approvalResult.ApprovedReviewPath));
+        }
+
+        SetWorkflowState(layout, WorkflowState.ReviewApproved);
+        return approvalResult;
     }
 
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)
@@ -406,6 +533,7 @@ public sealed class WorkflowSession
     {
         ClearPreflightResults();
         availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.PreflightSummaryPath, StringComparison.OrdinalIgnoreCase));
+        RemoveExtractionArtifacts(layout);
         if (File.Exists(layout.PreflightSummaryPath))
         {
             try
@@ -419,6 +547,81 @@ public sealed class WorkflowSession
         }
 
         SetWorkflowState(layout, WorkflowState.Intake);
+    }
+
+    private async Task<WorkflowScriptExecutionResult> RunDraftExtractionInternalAsync(CancellationToken cancellationToken)
+    {
+        if (extractionRunActive)
+        {
+            StatusText = "Extraction is already running.";
+            return WorkflowScriptExecutionResult.Failed(StatusText);
+        }
+
+        if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        {
+            StatusText = "Run preflight successfully before starting extraction review.";
+            return WorkflowScriptExecutionResult.Failed(StatusText);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        if (File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")))
+        {
+            var existingArtifact = new AvailableArtifact("extraction_review_data.json", Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
+            UpsertAvailableArtifact(existingArtifact);
+            if (CurrentState != WorkflowState.ReviewPending)
+            {
+                SetWorkflowState(layout, WorkflowState.ReviewPending);
+            }
+
+            StatusText = "Extraction review artifact is ready to open.";
+            return new WorkflowScriptExecutionResult(true, null, existingArtifact.Path, new[] { existingArtifact });
+        }
+
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+        }
+        catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
+        {
+            StatusText = "Extraction could not start because the manifest could not be read.";
+            return WorkflowScriptExecutionResult.Failed(StatusText);
+        }
+
+        extractionRunActive = true;
+        CurrentState = WorkflowState.ExtractionRunning;
+        StatusText = "Extraction running: generating draft review data.";
+
+        try
+        {
+            SetWorkflowState(layout, WorkflowState.ExtractionRunning);
+            var executionResult = await workflowScriptExecutor.ExecuteDraftExtractionAsync(layout, manifest, cancellationToken).ConfigureAwait(false);
+            if (!executionResult.Success)
+            {
+                SetWorkflowState(layout, WorkflowState.ExtractionFailed);
+                StatusText = executionResult.ErrorMessage ?? "Draft extraction failed.";
+                return executionResult;
+            }
+
+            foreach (var artifact in executionResult.Artifacts)
+            {
+                UpsertAvailableArtifact(artifact);
+            }
+
+            SetWorkflowState(layout, WorkflowState.ReviewPending);
+            StatusText = "Draft extraction complete: review artifact generated.";
+            return executionResult;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
+        {
+            SetWorkflowState(layout, WorkflowState.ExtractionFailed);
+            StatusText = $"Draft extraction failed: {exception.Message}";
+            return WorkflowScriptExecutionResult.Failed(StatusText);
+        }
+        finally
+        {
+            extractionRunActive = false;
+        }
     }
 
     private PreflightSummaryDocument BlockManifestPreflightFailure(CaseFolderLayout layout, string? operatorId, Exception exception)
@@ -508,6 +711,38 @@ public sealed class WorkflowSession
         }
 
         availableArtifacts.Add(artifact);
+    }
+
+    private void RemoveExtractionArtifacts(CaseFolderLayout layout)
+    {
+        var artifactPaths = new[]
+        {
+            Path.Combine(layout.WorkingDirectory, "CreateParcelFromFile_case.ini"),
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            Path.Combine(layout.WorkingDirectory, "extraction_points.json"),
+            Path.Combine(layout.WorkingDirectory, "normalized_points.json"),
+            Path.Combine(layout.WorkingDirectory, "plan_ocr.json"),
+            Path.Combine(layout.WorkingDirectory, "dwg_context.json"),
+            Path.Combine(layout.WorkingDirectory, "approved_review.json")
+        };
+
+        foreach (var artifactPath in artifactPaths)
+        {
+            availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, artifactPath, StringComparison.OrdinalIgnoreCase));
+            if (!File.Exists(artifactPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(artifactPath);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                intakeIssues.Add($"Extraction artifact could not be cleared: {exception.Message}");
+            }
+        }
     }
 
     private void ClearPreflightResults()

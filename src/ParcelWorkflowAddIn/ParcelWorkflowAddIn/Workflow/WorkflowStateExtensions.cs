@@ -11,6 +11,10 @@ public static class WorkflowStateExtensions
             WorkflowState.PreflightRunning => "preflight_running",
             WorkflowState.PreflightBlocked => "preflight_blocked",
             WorkflowState.PreflightPassed => "preflight_passed",
+            WorkflowState.ExtractionRunning => "extraction_running",
+            WorkflowState.ExtractionFailed => "extraction_failed",
+            WorkflowState.ReviewPending => "review_pending",
+            WorkflowState.ReviewApproved => "review_approved",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }
@@ -24,6 +28,10 @@ public static class WorkflowStateExtensions
             WorkflowState.PreflightRunning => "Preflight Running",
             WorkflowState.PreflightBlocked => "Preflight Blocked",
             WorkflowState.PreflightPassed => "Preflight Passed",
+            WorkflowState.ExtractionRunning => "Extraction Running",
+            WorkflowState.ExtractionFailed => "Extraction Failed",
+            WorkflowState.ReviewPending => "Review Pending",
+            WorkflowState.ReviewApproved => "Review Approved",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }

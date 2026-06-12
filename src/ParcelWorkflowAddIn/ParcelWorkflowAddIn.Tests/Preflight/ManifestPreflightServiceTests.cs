@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
@@ -46,11 +47,92 @@ internal static class ManifestPreflightServiceTests
                 Source("plan.pdf", ".pdf", "plan_map_reference")
             });
 
-        var summary = new ManifestPreflightService().Run(layout, "tester");
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(true, true, "probe-ok", null)))
+            .Run(layout, "tester");
 
         TestAssert.Equal("passed", summary.Payload.Status, "Scenario B manifest preflight should pass.");
         TestAssert.Equal(0, summary.Payload.Blockers.Count, "Valid Scenario B should have no blockers.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "dwg"), "DWG readiness checks should be included.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_source_signature"), "Scenario B should pass DWG signature check.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_source_sublayers"), "Scenario B should pass DWG sub-layer probe.");
+    }
+
+    public static void ManifestPreflightBlocksEmptyDwg()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[1].CopiedPath, Array.Empty<byte>());
+
+        var summary = new ManifestPreflightService().Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "Empty DWG should block preflight.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "dwg_source_non_empty"), "DWG non-empty blocker should be present.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.Category == "dwg"), "DWG category blocker should be present.");
+    }
+
+    public static void ManifestPreflightBlocksMalformedDwg()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("not-a-dwg"));
+
+        var summary = new ManifestPreflightService().Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "Malformed DWG should block preflight.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "dwg_source_signature"), "DWG signature blocker should be present.");
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_dwg_reference"), "Scenario B should pass DWG role check.");
+    }
+
+    public static void ManifestPreflightBlocksDwgWithoutReadableSublayers()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(
+                ProbeExecuted: true,
+                Success: false,
+                Message: "No readable CAD sub-layers found.",
+                Correction: "Replace with a DWG that contains features.")))
+            .Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "DWG with no readable sub-layers should block preflight.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "dwg_source_sublayers"), "DWG sub-layer blocker should be present.");
     }
 
     public static void ManifestPreflightBlocksMissingDetectedProfile()
@@ -286,7 +368,14 @@ internal static class ManifestPreflightServiceTests
             if (seed.CreateFile)
             {
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(copiedPath)!);
-                File.WriteAllText(copiedPath, seed.FileName);
+                if (string.Equals(seed.Extension, ".dwg", StringComparison.OrdinalIgnoreCase))
+                {
+                    File.WriteAllBytes(copiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+                }
+                else
+                {
+                    File.WriteAllText(copiedPath, seed.FileName);
+                }
             }
 
             return new ManifestSourceFile($"C:\\incoming\\{seed.FileName}", copiedPath, seed.Extension, 12, "2026-06-09T01:00:00Z", seed.SourceRole);
@@ -309,6 +398,21 @@ internal static class ManifestPreflightServiceTests
     internal static SourceSeed Source(string fileName, string extension, string role)
     {
         return new SourceSeed(fileName, extension, role, CopiedPath: null, CreateFile: true);
+    }
+
+    private sealed class FakeDwgReferenceReadinessInspector : IDwgReferenceReadinessInspector
+    {
+        private readonly DwgReferenceReadinessProbeResult result;
+
+        public FakeDwgReferenceReadinessInspector(DwgReferenceReadinessProbeResult result)
+        {
+            this.result = result;
+        }
+
+        public Task<DwgReferenceReadinessProbeResult> InspectAsync(string copiedPath, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(result);
+        }
     }
 
     internal sealed record SourceSeed(string FileName, string Extension, string SourceRole, string? CopiedPath, bool CreateFile);

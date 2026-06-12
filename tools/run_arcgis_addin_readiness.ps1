@@ -1,7 +1,8 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
-    [switch]$SkipPackage
+    [switch]$SkipPackage,
+    [switch]$WhatIf
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +17,11 @@ function Invoke-Step {
     )
 
     Write-Host "=> $Name"
+    if ($WhatIf) {
+        Write-Host "🔎 WhatIf: would execute step: $Name"
+        return
+    }
+
     & $Action
     if ($LASTEXITCODE -ne 0) {
         throw "$Name failed with exit code $LASTEXITCODE"
@@ -53,6 +59,12 @@ try {
         Invoke-Step 'package_addin.ps1' {
             & (Join-Path $PSScriptRoot 'package_addin.ps1') -Root $root -Configuration $Configuration | Tee-Object -FilePath $log -Append
         }
+    }
+
+    if ($WhatIf) {
+        Write-Host ''
+        Write-Host 'WhatIf summary: no external commands were executed.'
+        return
     }
 
     Write-Host ''

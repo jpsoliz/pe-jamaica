@@ -81,6 +81,14 @@ Use this as the permanent, append-only decision log for product, architecture, a
   - **Rationale:** Keeps future transaction/script routing configurable and audit-friendly while preserving the boundary that Story 2.11 plans scripts but does not execute extraction.
   - **Impacts:** `WorkflowRules/*`, `WorkflowRules.json`, `ManifestDocument`, `InnolaTransactionLoadService`, `WorkflowSession.RefreshInputProfile`, preflight gating.
 
+- **DEC-2026-012** — 2026-06-12 — **Do not execute Python extraction in current Story 2 scope**
+  - **Owner:** Team / current model
+  - **Status:** Accepted
+  - **Decision:** Keep Epic 2 focused on stable queue/login/preflight/rule-resolution/state gating and defer actual `CreateParcelFromFile.py` execution to a follow-up story.
+  - **Rationale:** The resolved `script_plan` currently has no adapter implementation; attempting execution now would mix scope and reduce predictability while validating live/queue integration.
+  - **Alternatives considered:** execute extraction immediately in 2.11, rejected due to insufficient adapter abstraction and higher regression risk.
+  - **Impacts:** `WorkflowSession` remains non-executing until Story 2.12, `ParcelWorkflowDockpaneViewModel` extraction-open behavior stays artifact-driven.
+
 ## Pending / follow-up decisions
 
 - **DEC-2026-007** — 2026-06-xx — **Credential storage strategy beyond v1**

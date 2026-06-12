@@ -46,3 +46,19 @@ src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Debug\net8.0-windows\ParcelWorkf
 ```
 
 The Esri packaging target also invokes `RegisterAddIn.exe` for the generated package when ArcGIS Pro is installed.
+
+## Known Windows SDK metadata access issue
+
+If build or package fails with:
+
+`Access to the path 'C:\Users\<user>\AppData\Local\Microsoft SDKs' is denied.`
+
+run from an elevated PowerShell:
+
+```powershell
+$path = "C:\Users\$env:USERNAME\AppData\Local\Microsoft SDKs"
+takeown /f $path /r /d y
+icacls $path /grant "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" /T
+```
+
+Then retry the readiness/package command.

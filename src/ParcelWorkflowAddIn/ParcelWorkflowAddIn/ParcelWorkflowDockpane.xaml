@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ParcelWorkflowAddIn"
+             xmlns:effects="clr-namespace:System.Windows.Media.Effects;assembly=PresentationCore"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
@@ -50,6 +51,20 @@
       <Setter Property="Padding" Value="4,1" />
       <Setter Property="Margin" Value="0,0,0,0" />
     </Style>
+    <Style x:Key="SectionHeaderBorderStyle" TargetType="Border">
+      <Setter Property="Background" Value="#FBFCFD" />
+      <Setter Property="BorderBrush" Value="#E1E8ED" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Effect">
+        <Setter.Value>
+          <effects:DropShadowEffect BlurRadius="6"
+                                    ShadowDepth="1"
+                                    Direction="270"
+                                    Opacity="0.10"
+                                    Color="#000000" />
+        </Setter.Value>
+      </Setter>
+    </Style>
   </UserControl.Resources>
 
   <DockPanel LastChildFill="True">
@@ -66,6 +81,7 @@
         <TextBlock Text="{Binding HeaderTaskNameText}"
                    Margin="0,2,0,0"
                    FontSize="12"
+                   FontWeight="SemiBold"
                    Foreground="#52616B"
                    TextWrapping="Wrap" />
         <WrapPanel Margin="0,8,0,0">
@@ -115,21 +131,72 @@
                   <DataTrigger Binding="{Binding State}" Value="active">
                     <Setter Property="BorderBrush" Value="#1F6B75" />
                     <Setter Property="BorderThickness" Value="3,1,1,1" />
+                    <Setter Property="Background" Value="#EAF2F8" />
                   </DataTrigger>
                   <DataTrigger Binding="{Binding State}" Value="done">
                     <Setter Property="BorderBrush" Value="#2F7D4F" />
                     <Setter Property="BorderThickness" Value="3,1,1,1" />
+                    <Setter Property="Background" Value="#EAF8EC" />
                   </DataTrigger>
                   <DataTrigger Binding="{Binding State}" Value="blocked">
                     <Setter Property="BorderBrush" Value="#B42318" />
                     <Setter Property="BorderThickness" Value="3,1,1,1" />
+                    <Setter Property="Background" Value="#FDEBEB" />
                   </DataTrigger>
                 </Style.Triggers>
               </Style>
             </Border.Style>
-            <TextBlock Text="{Binding Name}"
-                       FontSize="11"
-                       TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal"
+                        VerticalAlignment="Center">
+              <TextBlock Text="{Binding Icon}"
+                         FontSize="11"
+                         FontFamily="Segoe UI Symbol"
+                         Margin="0,0,5,0"
+                         VerticalAlignment="Center">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="#52616B" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding State}" Value="pending">
+                        <Setter Property="Foreground" Value="#8A96A2" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="done">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="active">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="blocked">
+                        <Setter Property="Foreground" Value="#B42318" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <TextBlock Text="{Binding Name}"
+                         FontSize="11"
+                         TextWrapping="Wrap">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="#52616B" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding State}" Value="pending">
+                        <Setter Property="Foreground" Value="#8A96A2" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="done">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="active">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="blocked">
+                        <Setter Property="Foreground" Value="#B42318" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </StackPanel>
           </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
@@ -176,24 +243,25 @@
       <StackPanel Margin="12,4,12,10">
         <Border Style="{StaticResource CardBorderStyle}">
           <StackPanel>
-            <DockPanel Background="#FFFFFF"
-                       Margin="0"
-                       LastChildFill="False"
-                       Height="36">
-              <TextBlock Text="Source Intake"
-                         Style="{StaticResource SectionHeaderTextStyle}"
-                         Margin="10,0,0,0" />
-              <Border DockPanel.Dock="Right"
-                      Style="{StaticResource SmallPillBorderStyle}"
-                      Background="#2F7D4F"
-                      BorderBrush="#2F7D4F"
-                      Margin="0,8,10,8">
-                <TextBlock Text="{Binding SourceIntakeBadge}"
-                           FontSize="11"
-                           Foreground="#FFFFFF"
-                           FontWeight="SemiBold" />
-              </Border>
-            </DockPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Margin="0"
+                         LastChildFill="False"
+                         Height="36">
+                <TextBlock Text="Source Intake"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#2F7D4F"
+                        BorderBrush="#2F7D4F"
+                        Margin="0,8,10,8">
+                  <TextBlock Text="{Binding SourceIntakeBadge}"
+                             FontSize="11"
+                             Foreground="#FFFFFF"
+                             FontWeight="SemiBold" />
+                </Border>
+              </DockPanel>
+            </Border>
             <Border BorderBrush="#C9D2D8"
                     BorderThickness="0,1,0,0">
               <Grid Margin="10,8,10,4">
@@ -269,194 +337,470 @@
 
         <Border Style="{StaticResource CardBorderStyle}">
           <StackPanel>
-            <DockPanel Height="36"
-                       LastChildFill="False">
-              <TextBlock Text="Preflight"
-                         Style="{StaticResource SectionHeaderTextStyle}"
-                         Margin="10,0,0,0" />
-              <StackPanel DockPanel.Dock="Right"
-                          Orientation="Horizontal"
-                          Margin="0,6,10,6">
-                <Border Style="{StaticResource SmallPillBorderStyle}"
-                        Background="#F6E6BF"
-                        BorderBrush="#B7791F">
-                  <TextBlock Text="{Binding PreflightBadge}"
-                             FontSize="11"
-                             Foreground="#1F2933" />
-                </Border>
-                <Button Content="Process"
-                        Command="{Binding RunPreflightCommand}"
-                        IsEnabled="{Binding CanRunPreflight}"
-                        Style="{StaticResource SmallButtonStyle}" />
-              </StackPanel>
-            </DockPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Preflight"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Background="#F6E6BF"
+                          BorderBrush="#B7791F">
+                    <TextBlock Text="{Binding PreflightBadge}"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                  <Button Content="Process"
+                          Command="{Binding RunPreflightCommand}"
+                          IsEnabled="{Binding CanRunPreflight}"
+                          Style="{StaticResource SmallButtonStyle}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
 
             <Border BorderBrush="#C9D2D8"
                     BorderThickness="0,1,0,0"
-                    Padding="10"
-                    Visibility="{Binding HasPreflightResults, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    Padding="10">
+              <StackPanel>
+                <DockPanel LastChildFill="False">
+                  <TextBlock Text="{Binding PreflightSummaryText}"
+                             FontSize="12"
+                             FontWeight="SemiBold"
+                             Foreground="#1F2933"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center" />
+                  <Button DockPanel.Dock="Right"
+                          Content="{Binding PreflightToggleText}"
+                          Command="{Binding TogglePreflightDetailsCommand}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="8,0,0,0"
+                          Visibility="{Binding HasPreflightResults, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </DockPanel>
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding PreflightCollapsedHint}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding HasPreflightResults, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <Border Margin="0,8,0,0"
+                        Padding="8"
+                        Background="#FEF3F2"
+                        BorderBrush="#B42318"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Visibility="{Binding PreflightDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <StackPanel>
+                    <Grid Background="#F3F6F7"
+                          MinHeight="26">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="Result"
+                                 FontSize="11"
+                                 FontWeight="SemiBold"
+                                 Foreground="#52616B"
+                                 Margin="6,6,0,4" />
+                      <TextBlock Grid.Column="1"
+                                 Text="Check"
+                                 FontSize="11"
+                                 FontWeight="SemiBold"
+                                 Foreground="#52616B"
+                                 Margin="6,6,0,4" />
+                      <TextBlock Grid.Column="2"
+                                 Text="Details"
+                                 FontSize="11"
+                                 FontWeight="SemiBold"
+                                 Foreground="#52616B"
+                                 Margin="6,6,0,4" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding PreflightResults}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border BorderBrush="#EEF2F4"
+                                  BorderThickness="0,0,0,1"
+                                  Padding="0,5">
+                            <Grid>
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="72" />
+                                <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="*" />
+                              </Grid.ColumnDefinitions>
+                              <StackPanel Orientation="Horizontal"
+                                          Margin="6,0,0,0">
+                                <Border Width="4"
+                                        Height="18"
+                                        CornerRadius="2"
+                                        Margin="0,0,6,0">
+                                  <Border.Style>
+                                    <Style TargetType="Border">
+                                      <Setter Property="Background" Value="#2F7D4F" />
+                                      <Style.Triggers>
+                                        <DataTrigger Binding="{Binding State}" Value="warn">
+                                          <Setter Property="Background" Value="#B7791F" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding State}" Value="block">
+                                          <Setter Property="Background" Value="#B42318" />
+                                        </DataTrigger>
+                                      </Style.Triggers>
+                                    </Style>
+                                  </Border.Style>
+                                </Border>
+                                <TextBlock Text="{Binding Result}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center" />
+                              </StackPanel>
+                              <TextBlock Grid.Column="1"
+                                         Text="{Binding CheckName}"
+                                         FontSize="11"
+                                         TextWrapping="Wrap"
+                                         Margin="6,0,6,0" />
+                              <TextBlock Grid.Column="2"
+                                         Text="{Binding Details}"
+                                         FontSize="11"
+                                         TextWrapping="Wrap"
+                                         Foreground="#1F2933"
+                                         Margin="6,0,0,0" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Extraction Review"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#F6E6BF"
+                        BorderBrush="#B7791F"
+                        Margin="0,8,10,8">
+                  <TextBlock Text="{Binding ExtractionReviewBadge}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
               <StackPanel>
                 <Grid Background="#F3F6F7"
-                      MinHeight="26">
+                      MinHeight="30">
                   <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="72" />
-                    <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                   </Grid.ColumnDefinitions>
-                  <TextBlock Text="Result"
-                             FontSize="11"
-                             FontWeight="SemiBold"
+                  <TextBlock Text="{Binding ExtractionReviewHelpText}"
+                             FontSize="12"
                              Foreground="#52616B"
-                             Margin="6,6,0,4" />
-                  <TextBlock Grid.Column="1"
-                             Text="Check"
-                             FontSize="11"
-                             FontWeight="SemiBold"
-                             Foreground="#52616B"
-                             Margin="6,6,0,4" />
-                  <TextBlock Grid.Column="2"
-                             Text="Details"
-                             FontSize="11"
-                             FontWeight="SemiBold"
-                             Foreground="#52616B"
-                             Margin="6,6,0,4" />
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center"
+                             Margin="6,0,8,0" />
+                  <Button Grid.Column="1"
+                          Content="{Binding ExtractionReviewActionLabel}"
+                          Command="{Binding RunExtractionReviewCommand}"
+                          IsEnabled="{Binding CanRunExtractionReview}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="0,3,4,3" />
                 </Grid>
-                <ItemsControl ItemsSource="{Binding PreflightResults}">
+
+                <Border Margin="0,10,0,0"
+                        Background="#F7F8FA"
+                        BorderBrush="#E1E8ED"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10"
+                        Visibility="{Binding HasLoadedReviewData, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <StackPanel>
+                    <DockPanel LastChildFill="False">
+                      <StackPanel>
+                        <TextBlock Text="{Binding ReviewWorkspaceTitle}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="#1F2933"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ReviewSummaryText}"
+                                   Margin="0,2,0,0"
+                                   FontSize="11"
+                                   Foreground="#52616B"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                      <StackPanel DockPanel.Dock="Right"
+                                  Orientation="Horizontal">
+                        <Border Style="{StaticResource SmallPillBorderStyle}"
+                                Background="#EEF4FF"
+                                BorderBrush="#9DB7E8"
+                                Margin="0,0,6,0">
+                          <TextBlock Text="{Binding ReviewBadgeText}"
+                                     FontSize="11"
+                                     Foreground="#1F2933" />
+                        </Border>
+                        <Button Content="{Binding ReviewDetailsToggleText}"
+                                Command="{Binding ToggleReviewDetailsCommand}"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Margin="0,0,6,0" />
+                        <Button Content="Add point"
+                                Command="{Binding AddManualPointCommand}"
+                                Style="{StaticResource SmallButtonStyle}" />
+                      </StackPanel>
+                    </DockPanel>
+
+                    <TextBlock Margin="0,8,0,8"
+                               Text="{Binding ReviewGateText}"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="0.95*" />
+                        <ColumnDefinition Width="1.25*" />
+                      </Grid.ColumnDefinitions>
+                      <Border Grid.Column="0"
+                              Margin="0,0,8,0"
+                              Padding="10"
+                              Background="#FFFFFF"
+                              BorderBrush="#D8E1E7"
+                              BorderThickness="1"
+                              CornerRadius="4">
+                        <StackPanel>
+                          <TextBlock Text="Source Document"
+                                     FontSize="12"
+                                     FontWeight="SemiBold"
+                                     Foreground="#1F2933" />
+                          <TextBlock Margin="0,8,0,0"
+                                     Text="{Binding SelectedReviewSourceTitle}"
+                                     FontSize="12"
+                                     FontWeight="SemiBold"
+                                     Foreground="#1F2933"
+                                     TextWrapping="Wrap" />
+                          <TextBlock Margin="0,4,0,0"
+                                     Text="{Binding SelectedReviewSourceMode}"
+                                     FontSize="11"
+                                     Foreground="#52616B" />
+                          <TextBlock Margin="0,4,0,0"
+                                     Text="{Binding SelectedReviewSourcePath}"
+                                     FontSize="11"
+                                     Foreground="#52616B"
+                                     TextWrapping="Wrap" />
+                          <Border Margin="0,10,0,0"
+                                  Padding="8"
+                                  Background="#F3F6F7"
+                                  BorderBrush="#E1E8ED"
+                                  BorderThickness="1"
+                                  CornerRadius="4">
+                            <TextBlock Text="{Binding SelectedReviewSourceGuidance}"
+                                       FontSize="11"
+                                       Foreground="#52616B"
+                                       TextWrapping="Wrap" />
+                          </Border>
+                          <StackPanel Margin="0,10,0,0"
+                                      Orientation="Horizontal">
+                            <Button Content="Open source"
+                                    Command="{Binding OpenReviewSourceCommand}"
+                                    Style="{StaticResource SmallButtonStyle}"
+                                    Margin="0,0,6,0" />
+                            <Button Content="Reveal"
+                                    Command="{Binding RevealReviewSourceCommand}"
+                                    Style="{StaticResource SmallButtonStyle}" />
+                          </StackPanel>
+                          <StackPanel Visibility="{Binding ReviewDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Border Margin="0,10,0,0"
+                                    Padding="8"
+                                    Background="#EEF4FF"
+                                    BorderBrush="#C7D7F3"
+                                    BorderThickness="1"
+                                    CornerRadius="4">
+                              <TextBlock Text="This stage keeps the source file and point edits paired in one workspace. Use the associated viewer for zoom/pan while editing the compact point table."
+                                         FontSize="11"
+                                         Foreground="#1F2933"
+                                         TextWrapping="Wrap" />
+                            </Border>
+                            <Border Margin="0,10,0,0"
+                                    Padding="8"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#E1E8ED"
+                                    BorderThickness="1"
+                                    CornerRadius="4">
+                              <StackPanel>
+                                <TextBlock Text="{Binding SelectedReviewRowDetailsTitle}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#1F2933" />
+                                <TextBlock Margin="0,6,0,0"
+                                           Text="{Binding SelectedReviewRowDetailsText}"
+                                           FontSize="11"
+                                           Foreground="#52616B"
+                                           TextWrapping="Wrap" />
+                              </StackPanel>
+                            </Border>
+                          </StackPanel>
+                        </StackPanel>
+                      </Border>
+
+                      <Border Grid.Column="1"
+                              Padding="0"
+                              Background="#FFFFFF"
+                              BorderBrush="#D8E1E7"
+                              BorderThickness="1"
+                              CornerRadius="4">
+                        <DataGrid ItemsSource="{Binding ReviewRows}"
+                                  SelectedItem="{Binding SelectedReviewRow, Mode=TwoWay}"
+                                  IsReadOnly="{Binding IsReviewLocked}"
+                                  AutoGenerateColumns="False"
+                                  HeadersVisibility="Column"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  RowHeaderWidth="0"
+                                  GridLinesVisibility="Horizontal"
+                                  MinHeight="280"
+                                  FontSize="11">
+                          <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                              <Setter Property="Background" Value="#FFFFFF" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Unresolved}" Value="True">
+                                  <Setter Property="Background" Value="#FFF1F1" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsManual}" Value="True">
+                                  <Setter Property="Background" Value="#F2F7FF" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsEdited}" Value="True">
+                                  <Setter Property="Background" Value="#EDF7F1" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGrid.RowStyle>
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Point"
+                                                Binding="{Binding PointIdentifier, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="90" />
+                            <DataGridTextColumn Header="Easting"
+                                                Binding="{Binding Easting, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="100" />
+                            <DataGridTextColumn Header="Northing"
+                                                Binding="{Binding Northing, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="100" />
+                            <DataGridTextColumn Header="Status"
+                                                Binding="{Binding ExtractionStatus, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="110" />
+                            <DataGridTextColumn Header="Length"
+                                                Binding="{Binding Length, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="90" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </Border>
+                    </Grid>
+
+                    <DockPanel Margin="0,8,0,0"
+                               LastChildFill="False">
+                      <TextBlock Text="Save updates the working review dataset in place. Approval still requires all unresolved and missing-value blockers to be cleared."
+                                 FontSize="11"
+                                 Foreground="#52616B"
+                                 TextWrapping="Wrap"
+                                 VerticalAlignment="Center" />
+                      <StackPanel DockPanel.Dock="Right"
+                                  Orientation="Horizontal">
+                        <Button Content="Save review"
+                                Command="{Binding SaveReviewCommand}"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Margin="0,0,6,0" />
+                        <Button Content="Approve review"
+                                Command="{Binding ApproveReviewCommand}"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Background="#1F6B75"
+                                BorderBrush="#1F6B75"
+                                Foreground="#FFFFFF"
+                                FontWeight="SemiBold" />
+                      </StackPanel>
+                    </DockPanel>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Output Stage Preview"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Margin="0,0,6,0">
+                    <TextBlock Text="Secondary"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                  <Button Content="{Binding OutputPreviewToggleText}"
+                          Command="{Binding ToggleOutputPreviewCommand}"
+                          Style="{StaticResource SmallButtonStyle}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding OutputPreviewSummaryText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+                <Border Margin="0,8,0,0"
+                        Padding="8"
+                        Background="#F7F8FA"
+                        BorderBrush="#E1E8ED"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Visibility="{Binding OutputPreviewExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <TextBlock Text="{Binding OutputPreviewBodyText}"
+                             FontSize="11"
+                             Foreground="#52616B"
+                             TextWrapping="Wrap" />
+                </Border>
+                <ItemsControl ItemsSource="{Binding AvailableArtifacts}"
+                              Margin="0,8,0,0"
+                              Visibility="{Binding OutputPreviewExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <Border BorderBrush="#EEF2F4"
-                              BorderThickness="0,0,0,1"
-                              Padding="0,5">
-                        <Grid>
-                          <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="72" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="*" />
-                          </Grid.ColumnDefinitions>
-                          <StackPanel Orientation="Horizontal"
-                                      Margin="6,0,0,0">
-                            <Border Width="4"
-                                    Height="18"
-                                    CornerRadius="2"
-                                    Margin="0,0,6,0">
-                              <Border.Style>
-                                <Style TargetType="Border">
-                                  <Setter Property="Background" Value="#2F7D4F" />
-                                  <Style.Triggers>
-                                    <DataTrigger Binding="{Binding State}" Value="warn">
-                                      <Setter Property="Background" Value="#B7791F" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding State}" Value="block">
-                                      <Setter Property="Background" Value="#B42318" />
-                                    </DataTrigger>
-                                  </Style.Triggers>
-                                </Style>
-                              </Border.Style>
-                            </Border>
-                            <TextBlock Text="{Binding Result}"
-                                       FontSize="12"
-                                       VerticalAlignment="Center" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="1"
-                                     Text="{Binding CheckName}"
-                                     FontSize="11"
-                                     TextWrapping="Wrap"
-                                     Margin="6,0,6,0" />
-                          <TextBlock Grid.Column="2"
-                                     Text="{Binding Details}"
-                                     FontSize="11"
-                                     TextWrapping="Wrap"
-                                     Foreground="#1F2933"
-                                     Margin="6,0,0,0" />
-                        </Grid>
-                      </Border>
+                      <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding ArtifactName}"
+                                   FontSize="12"
+                                   Foreground="#1F2933" />
+                        <TextBlock Grid.Column="1"
+                                   Text="case artifact"
+                                   Style="{StaticResource CaptionTextStyle}" />
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </StackPanel>
-            </Border>
-          </StackPanel>
-        </Border>
-
-        <Border Style="{StaticResource CardBorderStyle}">
-          <StackPanel>
-            <DockPanel Height="36"
-                       LastChildFill="False">
-              <TextBlock Text="Extraction Review"
-                         Style="{StaticResource SectionHeaderTextStyle}"
-                         Margin="10,0,0,0" />
-              <Border DockPanel.Dock="Right"
-                      Style="{StaticResource SmallPillBorderStyle}"
-                      Background="#F6E6BF"
-                      BorderBrush="#B7791F"
-                      Margin="0,8,10,8">
-                <TextBlock Text="Not started"
-                           FontSize="11"
-                           Foreground="#1F2933" />
-              </Border>
-            </DockPanel>
-            <Border BorderBrush="#C9D2D8"
-                    BorderThickness="0,1,0,0"
-                    Padding="10">
-              <Grid Background="#F3F6F7"
-                    MinHeight="30">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="Extraction review is enabled after Process completes."
-                           FontSize="12"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap"
-                           VerticalAlignment="Center"
-                           Margin="6,0,8,0" />
-                <Button Grid.Column="1"
-                        Content="Open"
-                        Command="{Binding RunExtractionReviewCommand}"
-                        IsEnabled="{Binding CanRunExtractionReview}"
-                        Style="{StaticResource SmallButtonStyle}"
-                        Margin="0,3,4,3" />
-              </Grid>
-            </Border>
-          </StackPanel>
-        </Border>
-
-        <Border Style="{StaticResource CardBorderStyle}">
-          <StackPanel>
-            <DockPanel Height="36"
-                       LastChildFill="False">
-              <TextBlock Text="Output Package Preview"
-                         Style="{StaticResource SectionHeaderTextStyle}"
-                         Margin="10,0,0,0" />
-              <Border DockPanel.Dock="Right"
-                      Style="{StaticResource SmallPillBorderStyle}"
-                      Margin="0,8,10,8">
-                <TextBlock Text="Not generated"
-                           FontSize="11"
-                           Foreground="#1F2933" />
-              </Border>
-            </DockPanel>
-            <Border BorderBrush="#C9D2D8"
-                    BorderThickness="0,1,0,0"
-                    Padding="10">
-              <ItemsControl ItemsSource="{Binding AvailableArtifacts}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Grid Margin="0,0,0,6">
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Text="{Binding ArtifactName}"
-                                 FontSize="12"
-                                 Foreground="#1F2933" />
-                      <TextBlock Grid.Column="1"
-                                 Text="case artifact"
-                                 Style="{StaticResource CaptionTextStyle}" />
-                    </Grid>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
             </Border>
           </StackPanel>
         </Border>

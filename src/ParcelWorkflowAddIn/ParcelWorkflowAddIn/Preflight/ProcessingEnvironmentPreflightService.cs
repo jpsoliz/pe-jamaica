@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using ParcelWorkflowAddIn.CaseFolders;
 
@@ -6,7 +7,7 @@ namespace ParcelWorkflowAddIn.Preflight;
 
 public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironmentPreflightService
 {
-    private static readonly TimeSpan PythonProbeTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan PythonProbeTimeout = TimeSpan.FromSeconds(30);
     private readonly ProcessingEnvironmentSettings settings;
     private readonly IProcessRunner processRunner;
     private readonly IArcGisProEnvironmentProvider arcGisProEnvironmentProvider;
@@ -207,10 +208,20 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var importScript = BuildPythonProbeScript(packages);
+        Debug.WriteLine($"Innola Python preflight: running import probe. Python={settings.PythonExecutable}; Timeout={PythonProbeTimeout.TotalSeconds:F0}s; Packages={string.Join(',', packages)}.");
+        var pythonProbeClock = Stopwatch.StartNew();
         ProcessRunResult result;
         try
         {
-            result = await processRunner.RunAsync(settings.PythonExecutable, $"-c \"{EscapeArgument(importScript)}\"", PythonProbeTimeout, cancellationToken).ConfigureAwait(false);
+            result = await processRunner.RunAsync(
+                settings.PythonExecutable,
+                $"-c \"{EscapeArgument(importScript)}\"",
+                PythonProbeTimeout,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            pythonProbeClock.Stop();
+            Debug.WriteLine($"Innola Python preflight: import probe completed in {pythonProbeClock.ElapsedMilliseconds} ms (exit={result.ExitCode}, timedOut={result.TimedOut}). OutputLen={result.StandardOutput?.Length ?? 0}, ErrorLen={result.StandardError?.Length ?? 0}.");
+            Debug.WriteLine($"Innola Python preflight: probe output:\n{Sanitize(result.StandardOutput ?? string.Empty)}");
+            LogPythonProbePackageTimings(result.StandardOutput ?? string.Empty);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -226,10 +237,15 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
 
         if (result.TimedOut)
         {
+            var timedOutPackage = TryGetLastCheckedPackage(result.StandardOutput ?? string.Empty);
+            var timeoutDetail = timedOutPackage is null
+                ? "No package check completed before timeout."
+                : $"Last package seen before timeout: {timedOutPackage}.";
+            Debug.WriteLine($"Innola Python preflight timed out. Python={settings.PythonExecutable}; Output={Sanitize(result.StandardOutput ?? string.Empty)}; {timeoutDetail}");
             blockers.Add(PreflightCheck.BlockerForCategory(
                 "python",
                 "python_probe_timeout",
-                "Python environment check timed out.",
+                $"Python environment check timed out. {timeoutDetail}",
                 settings.PythonExecutable,
                 null,
                 "Close conflicting Python processes or repair the configured environment."));
@@ -257,7 +273,7 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
         foreach (var package in packages)
         {
             var checkId = $"python_package_{NormalizeCheckId(package)}_available";
-            if (ProbeOutputMarksPackageAvailable(result.StandardOutput, package))
+            if (ProbeOutputMarksPackageAvailable(result.StandardOutput ?? string.Empty, package))
             {
                 passed.Add(PreflightCheck.PassedForCategory(
                     "python",
@@ -324,21 +340,96 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
     private static string BuildPythonProbeScript(IReadOnlyList<string> packages)
     {
         var imports = string.Join(",", packages.Select(package => $"'{package.Replace("'", string.Empty)}'"));
-        return "import importlib,sys\n"
+        return "import importlib,time,sys\n"
             + "print('python_version_available')\n"
             + $"mods=[{imports}]\n"
             + "for m in mods:\n"
+            + "    print('python_probe_package:'+m+':checking')\n"
+            + "    start=time.perf_counter()\n"
             + "    try:\n"
             + "        importlib.import_module(m)\n"
+            + "        elapsed=(time.perf_counter()-start)*1000\n"
+            + "        print('python_probe_package:'+m+':ok:'+str(round(elapsed,3)) )\n"
             + "        print('package:'+m+':ok')\n"
             + "    except Exception:\n"
+            + "        elapsed=(time.perf_counter()-start)*1000\n"
+            + "        print('python_probe_package:'+m+':missing:'+str(round(elapsed,3)) )\n"
             + "        print('package:'+m+':missing')\n";
     }
 
     private static bool ProbeOutputMarksPackageAvailable(string output, string package)
     {
         return output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Any(line => string.Equals(line.Trim(), $"package:{package}:ok", StringComparison.OrdinalIgnoreCase));
+            .Any(line =>
+            {
+                var trimmed = line.Trim();
+                return string.Equals(trimmed, $"package:{package}:ok", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(trimmed, $"python_probe_package:{package}:ok", StringComparison.OrdinalIgnoreCase)
+                    || trimmed.StartsWith($"python_probe_package:{package}:ok:", StringComparison.OrdinalIgnoreCase);
+            });
+    }
+
+    private static void LogPythonProbePackageTimings(string output)
+    {
+        foreach (var entry in ParsePythonProbePackageTimings(output))
+        {
+            var elapsed = entry.ElapsedMilliseconds.HasValue
+                ? $"{entry.ElapsedMilliseconds.Value:F3} ms"
+                : "n/a";
+            Debug.WriteLine($"Innola Python preflight: package probe timing package='{entry.Package}' status='{entry.Status}' elapsed_ms='{elapsed}'.");
+        }
+    }
+
+    private static IEnumerable<(string Package, string Status, double? ElapsedMilliseconds)> ParsePythonProbePackageTimings(string output)
+    {
+        var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("python_probe_package:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parts = trimmed.Split(':');
+            if (parts.Length < 3)
+            {
+                continue;
+            }
+
+            var packageName = parts[1];
+            var status = parts[2];
+            if (string.Equals(status, "checking", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            double? elapsedMs = null;
+            if (parts.Length >= 4 && double.TryParse(parts[3], out var parsedElapsed))
+            {
+                elapsedMs = parsedElapsed;
+            }
+
+            yield return (packageName, status, elapsedMs);
+        }
+    }
+
+    private static string? TryGetLastCheckedPackage(string output)
+    {
+        var markerPrefix = "python_probe_package:";
+        foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Reverse())
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith(markerPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parts = trimmed.Split(':');
+            return parts.Length >= 2 ? parts[1] : null;
+        }
+
+        return null;
     }
 
     private static string EscapeArgument(string value)

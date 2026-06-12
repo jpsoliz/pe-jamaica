@@ -16,6 +16,32 @@ Sid-jamaica is an ArcGIS Pro add-in for parcel workflow processing with Innola t
    - `dotnet build` checks only after environment readiness
    - `PowerShell -ExecutionPolicy Bypass -File .\tools\package_addin.ps1 -Configuration Debug` (requires ArcGIS Pro SDK + Visual Studio MSBuild path)
 
+### Build recovery note (known environment blocker)
+
+Recent workstation runs can fail in readiness or packaging with this error:
+
+`Access to the path 'C:\Users\<user>\AppData\Local\Microsoft SDKs' is denied.`
+
+If that happens:
+
+1. Open an **elevated PowerShell** (Run as Administrator).
+2. Fix permissions for the exact path:
+
+```powershell
+$path = "C:\Users\$env:USERNAME\AppData\Local\Microsoft SDKs"
+takeown /f $path /r /d y
+icacls $path /grant "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" /T
+```
+
+3. Retry readiness:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\tools\run_arcgis_addin_readiness.ps1 -Configuration Debug
+```
+
+If the issue persists, capture the full log from:
+`%TEMP%\pe-jamaica-readiness-YYYYMMDD-HHMMSS.log` and escalate before rerunning repeatedly.
+
 ## Model/handoff handoff checklist
 
 Before switching AI models or handing off to another developer:

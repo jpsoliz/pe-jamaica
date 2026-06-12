@@ -6,5 +6,9 @@ public enum WorkflowState
     Intake,
     PreflightRunning,
     PreflightBlocked,
-    PreflightPassed
+    PreflightPassed,
+    ExtractionRunning,
+    ExtractionFailed,
+    ReviewPending,
+    ReviewApproved
 }

@@ -32,14 +32,16 @@ public sealed class ManifestPreflightService
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly Func<string> createRunId;
     private readonly IProcessingEnvironmentPreflightService environmentPreflightService;
+    private readonly IDwgReferenceReadinessInspector dwgReadinessInspector;
+    private const int MinimumDwgFileSizeBytes = 1;
 
     public ManifestPreflightService()
-        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService())
+        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector())
     {
     }
 
     public ManifestPreflightService(Func<DateTimeOffset> getUtcNow, Func<string> createRunId)
-        : this(getUtcNow, createRunId, new NoOpProcessingEnvironmentPreflightService())
+        : this(getUtcNow, createRunId, new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector())
     {
     }
 
@@ -47,10 +49,20 @@ public sealed class ManifestPreflightService
         Func<DateTimeOffset> getUtcNow,
         Func<string> createRunId,
         IProcessingEnvironmentPreflightService environmentPreflightService)
+        : this(getUtcNow, createRunId, environmentPreflightService, new NoOpDwgReferenceReadinessInspector())
+    {
+    }
+
+    public ManifestPreflightService(
+        Func<DateTimeOffset> getUtcNow,
+        Func<string> createRunId,
+        IProcessingEnvironmentPreflightService environmentPreflightService,
+        IDwgReferenceReadinessInspector dwgReadinessInspector)
     {
         this.getUtcNow = getUtcNow;
         this.createRunId = createRunId;
         this.environmentPreflightService = environmentPreflightService;
+        this.dwgReadinessInspector = dwgReadinessInspector;
     }
 
     public static ManifestPreflightService CreateDefault()
@@ -58,7 +70,8 @@ public sealed class ManifestPreflightService
         return new ManifestPreflightService(
             () => DateTimeOffset.UtcNow,
             () => $"preflight-{Guid.NewGuid():N}",
-            new ProcessingEnvironmentPreflightService());
+            new ProcessingEnvironmentPreflightService(),
+            new ArcPyDwgReferenceReadinessInspector(new ProcessRunner()));
     }
 
     public PreflightSummaryDocument Run(CaseFolderLayout layout, string? createdBy)
@@ -85,7 +98,7 @@ public sealed class ManifestPreflightService
         }
         else
         {
-            EvaluateProfile(manifest, layout, blockers, passed);
+            await EvaluateProfile(manifest, layout, blockers, passed, cancellationToken).ConfigureAwait(false);
         }
 
         EvaluateScriptPlan(manifest, layout, blockers, passed);
@@ -111,11 +124,12 @@ public sealed class ManifestPreflightService
         return summary;
     }
 
-    private static void EvaluateProfile(
+    private async Task EvaluateProfile(
         ManifestDocument manifest,
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        CancellationToken cancellationToken)
     {
         var profile = manifest.Payload.DetectedProfile!;
         if (profile.ProfileCode == SourceInputProfile.UnsupportedIntake)
@@ -141,7 +155,7 @@ public sealed class ManifestPreflightService
 
         foreach (var role in RequiredRoles(profile.ProfileCode))
         {
-            EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, passed);
+            await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, passed, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -191,12 +205,13 @@ public sealed class ManifestPreflightService
             null));
     }
 
-    private static void EvaluateRequiredRole(
+    private async Task EvaluateRequiredRole(
         IReadOnlyList<ManifestSourceFile> sources,
         CaseFolderLayout layout,
         string role,
         List<PreflightCheck> blockers,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        CancellationToken cancellationToken)
     {
         var source = sources.FirstOrDefault(item => string.Equals(item.SourceRole, role, StringComparison.OrdinalIgnoreCase));
         if (source is null)
@@ -216,15 +231,16 @@ public sealed class ManifestPreflightService
             source.CopiedPath,
             role));
 
-        ValidateCopiedSource(layout, source, role, blockers, passed);
+        await ValidateCopiedSource(layout, source, role, blockers, passed, cancellationToken).ConfigureAwait(false);
     }
 
-    private static void ValidateCopiedSource(
+    private async Task ValidateCopiedSource(
         CaseFolderLayout layout,
         ManifestSourceFile source,
         string role,
         List<PreflightCheck> blockers,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(source.CopiedPath))
         {
@@ -325,6 +341,112 @@ public sealed class ManifestPreflightService
             $"Passed: {RoleDisplayName(role)} copied file is readable.",
             copiedPath,
             role));
+
+        if (string.Equals(role, SourceRole.DwgReference, StringComparison.OrdinalIgnoreCase))
+        {
+            await ValidateDwgReadiness(source, copiedPath, blockers, passed, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ValidateDwgReadiness(
+        ManifestSourceFile source,
+        string copiedPath,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> passed,
+        CancellationToken cancellationToken)
+    {
+        passed.Add(PreflightCheck.PassedForCategory(
+            "dwg",
+            "dwg_source_present",
+            $"Passed: DWG source was detected for role {source.SourceRole}.",
+            copiedPath,
+            source.SourceRole));
+
+        var fileInfo = new FileInfo(copiedPath);
+        if (fileInfo.Length < MinimumDwgFileSizeBytes)
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(
+                "dwg",
+                "dwg_source_non_empty",
+                "DWG source file is empty.",
+                copiedPath,
+                source.SourceRole,
+                "Upload a non-empty DWG source file."));
+            return;
+        }
+
+        passed.Add(PreflightCheck.PassedForCategory(
+            "dwg",
+            "dwg_source_readable",
+            "Passed: DWG source file is non-empty and readable.",
+            copiedPath,
+            source.SourceRole));
+
+        if (!IsLikelyDwgFile(copiedPath))
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(
+                "dwg",
+                "dwg_source_signature",
+                "DWG source file does not appear to be a valid DWG.",
+                copiedPath,
+                source.SourceRole,
+                "Upload a valid DWG reference file."));
+            return;
+        }
+
+        passed.Add(PreflightCheck.PassedForCategory(
+            "dwg",
+            "dwg_source_signature",
+            "Passed: DWG source signature is present.",
+            copiedPath,
+            source.SourceRole));
+
+        var probeResult = await dwgReadinessInspector.InspectAsync(copiedPath, cancellationToken).ConfigureAwait(false);
+        if (!probeResult.ProbeExecuted)
+        {
+            return;
+        }
+
+        if (!probeResult.Success)
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(
+                "dwg",
+                "dwg_source_sublayers",
+                probeResult.Message ?? "DWG source has no readable CAD sub-layers.",
+                copiedPath,
+                source.SourceRole,
+                probeResult.Correction));
+            return;
+        }
+
+        passed.Add(PreflightCheck.PassedForCategory(
+            "dwg",
+            "dwg_source_sublayers",
+            "Passed: DWG source contains readable CAD sub-layers.",
+            copiedPath,
+            source.SourceRole));
+    }
+
+    private static bool IsLikelyDwgFile(string copiedPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(copiedPath);
+            var maxSignatureBytes = (int)Math.Min(stream.Length, 64L);
+            var buffer = new byte[maxSignatureBytes];
+            var read = stream.Read(buffer, 0, buffer.Length);
+            if (read < 4)
+            {
+                return false;
+            }
+
+            var signature = Encoding.ASCII.GetString(buffer, 0, read).ToUpperInvariant();
+            return signature.Contains("AC1", StringComparison.Ordinal) || signature.Contains("ACAD", StringComparison.Ordinal);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static IReadOnlyList<string> RequiredRoles(string profileCode)

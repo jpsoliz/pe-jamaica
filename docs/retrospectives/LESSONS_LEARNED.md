@@ -39,6 +39,17 @@ Capture sprint-level learnings that affect future planning, implementation behav
 
 - Use this file as sprint-agnostic memory; older lessons should remain and be linked to later retrospectives.
 
+## Handoff Learnings (2026-06-12)
+
+### What we observed
+- Script execution is not yet connected to resolved `script_plan`, so post-preflight actions are currently review-only; this is why extraction review “open” appears unavailable until an explicit adapter writes artifacts.
+
+### What to improve
+- For this phase, treat external Python integration (`CreateParcelFromFile.py`) as a story-owned integration contract: generate per-case INI, run review mode command, and validate output artifact before exposing extraction actions.
+
+### Action item
+- Add Story 2.12 acceptance checks: `working/extraction_review_data.json` exists, is parseable, and reflects current transaction source attachments.
+
 ## Handoff Learnings (2026-06-11)
 
 ### What we observed

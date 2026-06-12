@@ -200,9 +200,23 @@ internal static class CaseFolderStoreTests
 
         var result = store.ReopenCaseFolder(created.Layout.RootDirectory);
 
-        TestAssert.True(result.Success, "Readable future-state manifest should reopen conservatively.");
-        TestAssert.Equal(WorkflowState.Intake, result.ResolvedState, "Unknown state should resolve to supported intake fallback.");
-        TestAssert.True(result.RecoverabilityIssues.Any(issue => issue.Code == "unsupported_workflow_state"), "Unsupported workflow state should be reported.");
+        TestAssert.True(result.Success, "Readable review-pending manifest should reopen successfully.");
+        TestAssert.Equal(WorkflowState.ReviewPending, result.ResolvedState, "Review pending state should now be supported.");
+        TestAssert.True(!result.RecoverabilityIssues.Any(issue => issue.Code == "unsupported_workflow_state"), "Supported review pending state should not be reported as unsupported.");
+    }
+
+    public static void ReopenCaseFolderSupportsReviewApprovedState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "review_approved" } });
+
+        var result = store.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        TestAssert.True(result.Success, "Readable review-approved manifest should reopen successfully.");
+        TestAssert.Equal(WorkflowState.ReviewApproved, result.ResolvedState, "Review approved state should resume correctly.");
     }
 
     private static bool IsSnakeCase(string value)
