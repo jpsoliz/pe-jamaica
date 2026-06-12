@@ -5,6 +5,7 @@ using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Preflight;
 
@@ -87,6 +88,8 @@ public sealed class ManifestPreflightService
             EvaluateProfile(manifest, layout, blockers, passed);
         }
 
+        EvaluateScriptPlan(manifest, layout, blockers, passed);
+
         var environmentResult = await environmentPreflightService.RunAsync(layout, cancellationToken).ConfigureAwait(false);
         blockers.AddRange(environmentResult.Blockers);
         warnings.AddRange(environmentResult.Warnings);
@@ -140,6 +143,52 @@ public sealed class ManifestPreflightService
         {
             EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, passed);
         }
+    }
+
+    private static void EvaluateScriptPlan(
+        ManifestDocument manifest,
+        CaseFolderLayout layout,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> passed)
+    {
+        if (manifest.Payload.InnolaTransaction is null)
+        {
+            return;
+        }
+
+        if (manifest.Payload.ScriptPlan is null
+            || string.IsNullOrWhiteSpace(manifest.Payload.WorkflowRuleId)
+            || string.IsNullOrWhiteSpace(manifest.Payload.WorkflowProfile))
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(
+                "workflow_rule",
+                "workflow_rule_resolved",
+                "No workflow rule matches the transaction type and copied source files.",
+                layout.ManifestPath,
+                null,
+                "Review transaction type and attached source file roles, then reload the transaction."));
+            return;
+        }
+
+        var currentHash = WorkflowRuleResolver.ComputeSourceManifestHash(manifest.Payload.SourceFiles);
+        if (!string.Equals(currentHash, manifest.Payload.ScriptPlan.SourceManifestHash, StringComparison.OrdinalIgnoreCase))
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(
+                "workflow_rule",
+                "script_plan_current",
+                "Script plan is stale for the current source files.",
+                layout.ManifestPath,
+                null,
+                "Refresh intake or reload the transaction to resolve a new script plan."));
+            return;
+        }
+
+        passed.Add(PreflightCheck.PassedForCategory(
+            "workflow_rule",
+            "workflow_rule_resolved",
+            $"Passed: workflow rule {manifest.Payload.WorkflowRuleId} resolved.",
+            layout.ManifestPath,
+            null));
     }
 
     private static void EvaluateRequiredRole(

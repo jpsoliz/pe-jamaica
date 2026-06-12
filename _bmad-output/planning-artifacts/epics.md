@@ -620,6 +620,23 @@ So that I know whether I can proceed to extraction or must fix intake/setup issu
 **And** the transaction header shows the current state and last written artifact
 **And** preflight results can be reopened after closing and reopening the Case Folder.
 
+### Story 2.11: Workflow Rule Resolution and Script Plan Manifest
+
+As a cadastral technical staff user,
+I want the add-in to resolve a workflow rule from the selected Innola transaction type and attached source files,
+So that the Parcel Workflow knows which processing scripts will run, with which parameters, before extraction begins.
+
+**Acceptance Criteria:**
+
+**Given** a transaction has been loaded into a local Case Folder
+**When** intake/profile refresh completes
+**Then** the add-in resolves a workflow rule from transaction type, process step, detected source roles, file extensions, and configured processing mode
+**And** a two-PDF Scenario A transaction selects the computation-PDF plus plan/map-PDF script plan
+**And** a Scenario B transaction selects a DWG-aware script plan when DWG is present
+**And** no matching rule creates a clear preflight blocker without running extraction
+**And** the resolved rule/profile and ordered script plan are persisted in `manifest.json`
+**And** the script plan contains only safe configuration/profile references, never API keys, passwords, tokens, or certificate secrets.
+
 ## Epic 3: Extraction & Review Before Geometry
 
 Goal: Cadastral staff can run extraction using optional AI/OCR/local/manual profiles, review extracted points/segments/metadata, correct or add data, mark unresolved items, and approve review data before geometry/output generation.

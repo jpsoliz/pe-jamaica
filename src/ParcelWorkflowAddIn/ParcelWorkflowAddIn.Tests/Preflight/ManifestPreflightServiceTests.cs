@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Preflight;
 
@@ -184,6 +185,94 @@ internal static class ManifestPreflightServiceTests
         TestAssert.Equal(firstHash, secondHash, "Preflight source_manifest_hash should ignore workflow state transitions.");
     }
 
+    public static void ManifestPreflightBlocksInnolaTransactionWithoutScriptPlan()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                Source("BELLEV029GEOLANCOMSHEET.pdf", ".pdf", "computation_source"),
+                Source("BELLEV029GEOLAN20230811.pdf", ".pdf", "plan_map_reference")
+            });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with { Payload = manifest.Payload with { InnolaTransaction = InnolaTransaction() } });
+
+        var summary = new ManifestPreflightService().Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "Innola transactions without a script plan should block.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "workflow_rule_resolved"), "Missing workflow rule blocker should be present.");
+    }
+
+    public static void ManifestPreflightBlocksStaleScriptPlan()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                Source("BELLEV029GEOLANCOMSHEET.pdf", ".pdf", "computation_source"),
+                Source("BELLEV029GEOLAN20230811.pdf", ".pdf", "plan_map_reference")
+            });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var plan = ScriptPlan("sha256:stale", sources);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    InnolaTransaction = InnolaTransaction(),
+                    WorkflowProfile = plan.WorkflowProfile,
+                    WorkflowRuleId = plan.RuleId,
+                    WorkflowRuleVersion = plan.RuleVersion,
+                    ScriptPlan = plan
+                }
+            });
+
+        var summary = new ManifestPreflightService().Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "Stale script plans should block.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "script_plan_current"), "Stale script plan blocker should be present.");
+    }
+
+    public static void ManifestPreflightPassesCurrentScriptPlan()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                Source("BELLEV029GEOLANCOMSHEET.pdf", ".pdf", "computation_source"),
+                Source("BELLEV029GEOLAN20230811.pdf", ".pdf", "plan_map_reference")
+            });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var plan = ScriptPlan(WorkflowRuleResolver.ComputeSourceManifestHash(sources), sources);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    InnolaTransaction = InnolaTransaction(),
+                    WorkflowProfile = plan.WorkflowProfile,
+                    WorkflowRuleId = plan.RuleId,
+                    WorkflowRuleVersion = plan.RuleVersion,
+                    ScriptPlan = plan
+                }
+            });
+
+        var summary = new ManifestPreflightService().Run(layout, "tester");
+
+        TestAssert.Equal("passed", summary.Payload.Status, "Current script plan should pass the manifest preflight layer.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "workflow_rule_resolved"), "Workflow rule passed check should be present.");
+    }
+
     internal static (CaseFolderLayout Layout, IReadOnlyList<ManifestSourceFile> Sources) CreateCaseWithSources(
         string outputRoot,
         string profileCode,
@@ -223,6 +312,54 @@ internal static class ManifestPreflightServiceTests
     }
 
     internal sealed record SourceSeed(string FileName, string Extension, string SourceRole, string? CopiedPath, bool CreateFile);
+
+    private static ManifestInnolaTransaction InnolaTransaction()
+    {
+        return new ManifestInnolaTransaction(
+            "txn-1",
+            "100000206",
+            "task-1",
+            "Assign Computation Task",
+            "parcel_workflow",
+            "Plan Examination",
+            null,
+            "tester",
+            "tester",
+            "Super Group",
+            null,
+            null,
+            "2026-06-09T03:00:00Z");
+    }
+
+    private static WorkflowScriptPlan ScriptPlan(string sourceManifestHash, IReadOnlyList<ManifestSourceFile> sources)
+    {
+        _ = sources;
+        return new WorkflowScriptPlan(
+            "1.0.0",
+            "scenario_a_two_pdf_v1",
+            "1.0.0",
+            "scenario_a_two_pdf",
+            "2026-06-09T03:00:00Z",
+            sourceManifestHash,
+            new[]
+            {
+                new WorkflowScriptStep(
+                    "extract_points_from_computation",
+                    "extraction_adapter",
+                    "extract_points_from_computation_pdf",
+                    new[] { "computation_source" },
+                    new[] { "working/extraction_points.json" },
+                    new Dictionary<string, string>
+                    {
+                        ["provider"] = "local_or_openai_ocr",
+                        ["openai_key_env"] = "OPENAI_API_KEY"
+                    },
+                    300,
+                    true,
+                    "openai",
+                    "local")
+            });
+    }
 
     private static void AssertNoDownstreamArtifacts(CaseFolderLayout layout)
     {

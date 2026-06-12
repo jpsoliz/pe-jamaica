@@ -1,0 +1,179 @@
+{
+  "schema_version": "1.0.0",
+  "rules": [
+    {
+      "rule_id": "scenario_a_two_pdf_v1",
+      "rule_version": "1.0.0",
+      "workflow_profile": "scenario_a_two_pdf",
+      "detected_profiles": [
+        "scenario_a"
+      ],
+      "transaction_types": [
+        "Plan Examination",
+        "Computation Check"
+      ],
+      "process_steps": [
+        "parcel_workflow"
+      ],
+      "required_sources": [
+        {
+          "role": "computation_source",
+          "extensions": [
+            ".pdf",
+            ".tif",
+            ".tiff",
+            ".png",
+            ".jpg",
+            ".jpeg"
+          ]
+        },
+        {
+          "role": "plan_map_reference",
+          "extensions": [
+            ".pdf",
+            ".tif",
+            ".tiff",
+            ".png",
+            ".jpg",
+            ".jpeg"
+          ]
+        }
+      ],
+      "script_plan": [
+        {
+          "step_name": "extract_points_from_computation",
+          "adapter": "extraction_adapter",
+          "script": "extract_points_from_computation_pdf",
+          "input_roles": [
+            "computation_source"
+          ],
+          "output_artifacts": [
+            "working/extraction_points.json"
+          ],
+          "parameters": {
+            "provider": "local_or_openai_ocr",
+            "ocr_engine": "{settings.ocr_engine}",
+            "openai_model": "{settings.openai_model}",
+            "openai_key_env": "{settings.openai_api_key_environment_variable}",
+            "credential_profile": "{settings.credential_profile}"
+          },
+          "timeout_seconds": 300
+        },
+        {
+          "step_name": "ocr_plan_map_reference",
+          "adapter": "extraction_adapter",
+          "script": "ocr_plan_map_pdf",
+          "input_roles": [
+            "plan_map_reference"
+          ],
+          "output_artifacts": [
+            "working/plan_ocr.json"
+          ],
+          "parameters": {
+            "provider": "local_or_openai_ocr",
+            "ocr_engine": "{settings.ocr_engine}",
+            "openai_model": "{settings.openai_model}",
+            "openai_key_env": "{settings.openai_api_key_environment_variable}",
+            "credential_profile": "{settings.credential_profile}"
+          },
+          "timeout_seconds": 300
+        }
+      ]
+    },
+    {
+      "rule_id": "scenario_b_points_dwg_plan_v1",
+      "rule_version": "1.0.0",
+      "workflow_profile": "scenario_b_points_dwg_plan",
+      "detected_profiles": [
+        "scenario_b"
+      ],
+      "transaction_types": [
+        "Plan Examination",
+        "Computation Check"
+      ],
+      "process_steps": [
+        "parcel_workflow"
+      ],
+      "required_sources": [
+        {
+          "role": "points_computation",
+          "extensions": [
+            ".pdf",
+            ".txt",
+            ".csv"
+          ]
+        },
+        {
+          "role": "dwg_reference",
+          "extensions": [
+            ".dwg"
+          ]
+        },
+        {
+          "role": "plan_map_reference",
+          "extensions": [
+            ".pdf",
+            ".tif",
+            ".tiff",
+            ".png",
+            ".jpg",
+            ".jpeg"
+          ]
+        }
+      ],
+      "script_plan": [
+        {
+          "step_name": "normalize_points_computation",
+          "adapter": "extraction_adapter",
+          "script": "normalize_points_computation_source",
+          "input_roles": [
+            "points_computation"
+          ],
+          "output_artifacts": [
+            "working/normalized_points.json"
+          ],
+          "parameters": {
+            "provider": "local_or_openai_ocr",
+            "ocr_engine": "{settings.ocr_engine}",
+            "credential_profile": "{settings.credential_profile}"
+          },
+          "timeout_seconds": 300
+        },
+        {
+          "step_name": "inspect_dwg_reference",
+          "adapter": "extraction_adapter",
+          "script": "inspect_dwg_reference",
+          "input_roles": [
+            "dwg_reference"
+          ],
+          "output_artifacts": [
+            "working/dwg_context.json"
+          ],
+          "parameters": {
+            "provider": "local_arcgis"
+          },
+          "timeout_seconds": 300
+        },
+        {
+          "step_name": "ocr_plan_map_reference",
+          "adapter": "extraction_adapter",
+          "script": "ocr_plan_map_pdf",
+          "input_roles": [
+            "plan_map_reference"
+          ],
+          "output_artifacts": [
+            "working/plan_ocr.json"
+          ],
+          "parameters": {
+            "provider": "local_or_openai_ocr",
+            "ocr_engine": "{settings.ocr_engine}",
+            "openai_model": "{settings.openai_model}",
+            "openai_key_env": "{settings.openai_api_key_environment_variable}",
+            "credential_profile": "{settings.credential_profile}"
+          },
+          "timeout_seconds": 300
+        }
+      ]
+    }
+  ]
+}

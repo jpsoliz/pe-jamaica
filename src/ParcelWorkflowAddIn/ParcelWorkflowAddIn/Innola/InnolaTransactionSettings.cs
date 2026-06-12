@@ -50,6 +50,11 @@ public sealed record InnolaTransactionSettings(
 
     public static string SettingsPath => Path.Combine(GetAssemblyDirectory(), "Settings", "WorkflowSettings.json");
 
+    public static string ResolveActiveSettingsPath()
+    {
+        return ResolveSettingsPath();
+    }
+
     private static string ResolveSettingsPath()
     {
         foreach (var candidate in GetSettingsPathCandidates())
@@ -105,14 +110,18 @@ public sealed record InnolaClientCertificateSettings(
     string StoreLocation,
     string StoreName,
     string? SubjectName,
-    string? Thumbprint)
+    string? Thumbprint,
+    bool AllowInvalidServerCertificate,
+    bool CheckCertificateRevocationList)
 {
     public static InnolaClientCertificateSettings Default { get; } = new(
         true,
         "CurrentUser",
         "My",
         "Jamaica eTitles Project Team",
-        null);
+        null,
+        false,
+        false);
 
     public static InnolaClientCertificateSettings FromJson(JsonElement root)
     {
@@ -121,7 +130,16 @@ public sealed record InnolaClientCertificateSettings(
         var storeName = ReadString(root, "innola_client_certificate_store_name") ?? Default.StoreName;
         var subject = ReadString(root, "innola_client_certificate_subject") ?? Default.SubjectName;
         var thumbprint = ReadString(root, "innola_client_certificate_thumbprint") ?? Default.Thumbprint;
-        return new InnolaClientCertificateSettings(enabled, storeLocation, storeName, subject, thumbprint);
+        var allowInvalidServerCertificate = ReadBool(root, "innola_allow_invalid_server_certificate") ?? Default.AllowInvalidServerCertificate;
+        var checkCertificateRevocationList = ReadBool(root, "innola_check_certificate_revocation_list") ?? Default.CheckCertificateRevocationList;
+        return new InnolaClientCertificateSettings(
+            enabled,
+            storeLocation,
+            storeName,
+            subject,
+            thumbprint,
+            allowInvalidServerCertificate,
+            checkCertificateRevocationList);
     }
 
     private static string? ReadString(JsonElement element, string name)

@@ -1,5 +1,4 @@
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -33,7 +32,6 @@ internal static class InnolaHttp
         }
 
         request.Headers.TryAddWithoutValidation("Access-Token", accessToken);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
     }
 
     public static string SafeRetryMessage(string? message, string fallback)

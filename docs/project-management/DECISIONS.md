@@ -60,6 +60,27 @@ Use this as the permanent, append-only decision log for product, architecture, a
   - **Rationale:** De-risks validation and allows deterministic testing.
   - **Impacts:** `src/ParcelWorkflowAddIn/Innola/*` services and session bootstrap.
 
+- **DEC-2026-009** — 2026-06-11 — **Use explicit token auth plus client certificate for live Innola desktop calls**
+  - **Owner:** Team + current model
+  - **Status:** Accepted
+  - **Decision:** ArcGIS Pro desktop live API calls use explicit access-token/bearer authentication and attach the configured Windows client certificate for environments that require certificate authentication.
+  - **Rationale:** Browser-only session/cookie authentication is unreliable for the desktop add-in; production Innola access requires certificate selection before authenticator login.
+  - **Impacts:** `WorkflowSettings.json`, `InnolaAuthService`, `InnolaHttpClientFactory`, live transaction/task services.
+
+- **DEC-2026-010** — 2026-06-11 — **Treat Innola task list as eligible queue, not global transaction search**
+  - **Owner:** Team + current model
+  - **Status:** Accepted
+  - **Decision:** The add-in should use the Innola available-task queue for the authenticated user role/group and should not assume it can retrieve all transactions globally.
+  - **Rationale:** Swagger describes `/api/v4/rest/workflow/my-tasks` as tasks assigned to or claimable by the current user through role/group permissions.
+  - **Impacts:** Transaction panel expectations, live diagnostics, future admin/debug queue design.
+
+- **DEC-2026-011** — 2026-06-12 — **Resolve workflow rules from JSON and persist script plans in Case Folder manifest**
+  - **Owner:** Team + current model
+  - **Status:** Accepted
+  - **Decision:** Workflow script selection is driven by `Settings/WorkflowRules.json`; the add-in resolves a rule from transaction type/process step/source roles and persists a versioned `script_plan` in the Case Folder manifest.
+  - **Rationale:** Keeps future transaction/script routing configurable and audit-friendly while preserving the boundary that Story 2.11 plans scripts but does not execute extraction.
+  - **Impacts:** `WorkflowRules/*`, `WorkflowRules.json`, `ManifestDocument`, `InnolaTransactionLoadService`, `WorkflowSession.RefreshInputProfile`, preflight gating.
+
 ## Pending / follow-up decisions
 
 - **DEC-2026-007** — 2026-06-xx — **Credential storage strategy beyond v1**
@@ -70,7 +91,8 @@ Use this as the permanent, append-only decision log for product, architecture, a
 
 - **DEC-2026-008** — 2026-06-11 — **No new decision in this handoff window**
   - **Owner:** Current model / transition steward
-  - **Status:** Accepted
+  - **Status:** Superseded
+  - **Revision 2026-06-11:** Superseded by DEC-2026-009 and DEC-2026-010 after live Innola certificate and queue-scope findings.
   - **Decision:** No architectural or scope decisions were added before handoff; maintain current constraints and continue stories 2-8/2-9/2-10.
   - **Rationale:** Session focused on process continuity, onboarding standardization, and handoff readiness.
   - **Impacts:** `docs/project-management/*.md`, `docs/project/ONBOARDING.md`.

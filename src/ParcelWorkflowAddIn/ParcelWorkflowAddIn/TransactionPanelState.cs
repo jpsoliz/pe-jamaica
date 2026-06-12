@@ -2,14 +2,19 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Windows.Input;
 using ArcGIS.Desktop.Framework;
+using Microsoft.Win32;
+using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
 
 namespace ParcelWorkflowAddIn;
 
 public sealed class TransactionPanelState : INotifyPropertyChanged
 {
+    public static TimeSpan RefreshTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
     private readonly InnolaSessionManager session;
     private readonly IInnolaTransactionService transactionService;
     private readonly InnolaTransactionLoadService? transactionLoadService;
@@ -75,7 +80,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StartTransactionCommand = new RelayCommand(async () => await StartSelectedTransactionAsync(), () => CanStartTransaction);
         StopTaskCommand = new RelayCommand(async () => await SaveCurrentTransactionAsync(), () => CanStopTask);
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
-        AddDocumentCommand = new RelayCommand(ShowAddDocumentNotConfigured, () => CanAddDocument);
+        AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         session.SessionChanged += (_, _) => HandleSessionChanged();
         RefreshSessionState();
@@ -401,6 +406,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         try
         {
             var currentSession = session.CurrentSession;
+            using var timeout = new CancellationTokenSource(RefreshTimeout);
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
                 currentSession.ServerUrl,
                 currentSession.AccessToken,
@@ -410,12 +417,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 SelectedFilter,
                 SearchText,
                 SortField,
-                SortDirection), cancellationToken);
+                SortDirection), linkedCancellation.Token);
 
             if (!result.Success)
             {
-                ErrorText = result.ErrorMessage ?? "Could not refresh transactions. Try again.";
-                StatusText = "Could not refresh transactions. Try again.";
+                ErrorText = FormatRefreshFailure(result);
+                StatusText = ErrorText;
                 Debug.WriteLine(
                     string.Format(
                         CultureInfo.InvariantCulture,
@@ -444,11 +451,25 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 ? "No available transactions for this step."
                 : $"{Rows.Count} available transaction{(Rows.Count == 1 ? string.Empty : "s")}.";
         }
+        catch (OperationCanceledException)
+        {
+            ErrorText = "Transaction refresh timed out. Try again.";
+            StatusText = ErrorText;
+            Debug.WriteLine("Innola transaction refresh timed out.");
+        }
         finally
         {
             IsLoading = false;
             NotifyListState();
         }
+    }
+
+    private static string FormatRefreshFailure(InnolaTransactionListResult result)
+    {
+        var message = result.ErrorMessage ?? "Could not refresh transactions. Try again.";
+        return string.IsNullOrWhiteSpace(result.ErrorCategory)
+            ? message
+            : $"{message} ({result.ErrorCategory})";
     }
 
     public void LoadSelectedTransaction()
@@ -724,23 +745,71 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = folder,
-                UseShellExecute = true
-            });
-            StatusText = $"Opened documents for {session.LoadedTransactionNumber}.";
+            var layout = CaseFolderLayout.FromRootDirectory(folder);
+            var window = new TransactionDocumentsWindow(session.LoadedTransactionNumber ?? "Transaction", layout);
+            window.Show();
+            StatusText = $"Viewing local source and output files for {session.LoadedTransactionNumber}.";
         }
-        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or IOException or UnauthorizedAccessException)
         {
-            ErrorText = "Could not open the transaction documents folder.";
+            ErrorText = "Could not open the transaction documents list.";
             StatusText = ErrorText;
         }
     }
 
-    private void ShowAddDocumentNotConfigured()
+    private void ChooseAndAddDocuments()
     {
-        StatusText = "Add document to Innola is not configured yet. Add local source files from Parcel Workflow.";
+        var dialog = new OpenFileDialog
+        {
+            Title = "Add document to transaction",
+            Multiselect = true,
+            Filter = "Supported source files (*.pdf;*.dwg;*.txt;*.csv;*.tif;*.tiff;*.png;*.jpg;*.jpeg)|*.pdf;*.dwg;*.txt;*.csv;*.tif;*.tiff;*.png;*.jpg;*.jpeg|All files (*.*)|*.*"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            AddDocumentsToLoadedTransaction(dialog.FileNames);
+        }
+    }
+
+    public void AddDocumentsToLoadedTransaction(IReadOnlyList<string> sourcePaths)
+    {
+        var folder = session.LoadedCaseFolderPath;
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            StatusText = "Load a transaction before adding documents.";
+            return;
+        }
+
+        if (sourcePaths.Count == 0)
+        {
+            StatusText = "No documents selected.";
+            return;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(folder);
+            var result = new SourceFileCopyService(() => clock().ToUniversalTime()).CopySourceFiles(layout, sourcePaths);
+            var copied = result.Results.Count(item => item.Copied);
+            var failures = result.Results.Where(item => !item.Copied).Select(item => item.Message).Distinct().ToArray();
+            if (copied > 0)
+            {
+                ErrorText = failures.Length == 0 ? null : string.Join(" ", failures);
+                StatusText = failures.Length == 0
+                    ? $"Added {copied} document{(copied == 1 ? string.Empty : "s")} to {session.LoadedTransactionNumber}."
+                    : $"Added {copied} document{(copied == 1 ? string.Empty : "s")}; {failures.Length} failed.";
+                return;
+            }
+
+            ErrorText = failures.Length == 0 ? "No documents were added." : string.Join(" ", failures);
+            StatusText = ErrorText;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            ErrorText = "Could not add documents to the transaction.";
+            StatusText = ErrorText;
+        }
     }
 
     private void ApplyLifecycleResult(InnolaTransactionLoadResult result, string successStatus)

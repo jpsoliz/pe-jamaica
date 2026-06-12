@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Contracts;
 
@@ -27,7 +28,7 @@ public sealed record ManifestDocument(
             createdAt.UtcDateTime.ToString("O"),
             createdBy,
             null,
-            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null, null),
+            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null, null, null, null, null, null),
             Array.Empty<string>(),
             Array.Empty<string>());
     }
@@ -39,7 +40,11 @@ public sealed record ManifestPayload(
     [property: JsonPropertyName("detected_profile")] DetectedSourceInputProfile? DetectedProfile,
     [property: JsonPropertyName("innola_transaction")] ManifestInnolaTransaction? InnolaTransaction = null,
     [property: JsonPropertyName("attachment_provenance")] IReadOnlyList<ManifestAttachmentProvenance>? AttachmentProvenance = null,
-    [property: JsonPropertyName("innola_lifecycle")] ManifestInnolaLifecycle? InnolaLifecycle = null);
+    [property: JsonPropertyName("innola_lifecycle")] ManifestInnolaLifecycle? InnolaLifecycle = null,
+    [property: JsonPropertyName("workflow_profile")] string? WorkflowProfile = null,
+    [property: JsonPropertyName("workflow_rule_id")] string? WorkflowRuleId = null,
+    [property: JsonPropertyName("workflow_rule_version")] string? WorkflowRuleVersion = null,
+    [property: JsonPropertyName("script_plan")] WorkflowScriptPlan? ScriptPlan = null);
 
 public sealed record ManifestSourceFile(
     [property: JsonPropertyName("original_path")] string OriginalPath,

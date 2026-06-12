@@ -3,6 +3,7 @@ using System.Net.Http;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -13,6 +14,8 @@ public sealed class InnolaTransactionLoadService
     private readonly CaseFolderStore caseFolderStore;
     private readonly AttachmentSourceFileWriter attachmentWriter;
     private readonly SourceInputProfileDetector profileDetector;
+    private readonly WorkflowRuleResolver workflowRuleResolver;
+    private readonly Func<WorkflowRuleSettings> getWorkflowRuleSettings;
     private readonly Func<string> getOutputRoot;
     private readonly Func<DateTimeOffset> getUtcNow;
 
@@ -24,12 +27,37 @@ public sealed class InnolaTransactionLoadService
         SourceInputProfileDetector profileDetector,
         Func<string> getOutputRoot,
         Func<DateTimeOffset>? getUtcNow = null)
+        : this(
+            sessionManager,
+            detailService,
+            caseFolderStore,
+            attachmentWriter,
+            profileDetector,
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            getOutputRoot,
+            getUtcNow)
+    {
+    }
+
+    public InnolaTransactionLoadService(
+        InnolaSessionManager sessionManager,
+        IInnolaTransactionDetailService detailService,
+        CaseFolderStore caseFolderStore,
+        AttachmentSourceFileWriter attachmentWriter,
+        SourceInputProfileDetector profileDetector,
+        WorkflowRuleResolver workflowRuleResolver,
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        Func<string> getOutputRoot,
+        Func<DateTimeOffset>? getUtcNow = null)
     {
         this.sessionManager = sessionManager;
         this.detailService = detailService;
         this.caseFolderStore = caseFolderStore;
         this.attachmentWriter = attachmentWriter;
         this.profileDetector = profileDetector;
+        this.workflowRuleResolver = workflowRuleResolver;
+        this.getWorkflowRuleSettings = getWorkflowRuleSettings;
         this.getOutputRoot = getOutputRoot;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
@@ -154,6 +182,12 @@ public sealed class InnolaTransactionLoadService
         }
 
         var detectedProfile = profileDetector.Detect(sourceFiles);
+        var ruleResolution = workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
+            detail.CaseType,
+            detail.ProcessStep,
+            detectedProfile,
+            sourceFiles,
+            getWorkflowRuleSettings()));
         var updatedManifest = manifest with
         {
             Payload = manifest.Payload with
@@ -175,7 +209,11 @@ public sealed class InnolaTransactionLoadService
                     detail.OwnerUser,
                     detail.ClaimStatus,
                     loadedAt),
-                AttachmentProvenance = provenance
+                AttachmentProvenance = provenance,
+                WorkflowProfile = ruleResolution.ScriptPlan?.WorkflowProfile,
+                WorkflowRuleId = ruleResolution.ScriptPlan?.RuleId,
+                WorkflowRuleVersion = ruleResolution.ScriptPlan?.RuleVersion,
+                ScriptPlan = ruleResolution.ScriptPlan
             }
         };
 
@@ -194,7 +232,9 @@ public sealed class InnolaTransactionLoadService
         }
 
         sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt);
-        var status = $"Loaded {detail.TransactionNumber} into Case Folder: {layout.RootDirectory}";
+        var status = ruleResolution.Success
+            ? $"Loaded {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
+            : $"Loaded {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}";
         return InnolaTransactionLoadResult.Succeeded(layout, detectedProfile, status);
     }
 

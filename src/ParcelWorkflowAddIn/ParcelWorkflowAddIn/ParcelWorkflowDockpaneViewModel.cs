@@ -148,6 +148,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             .Concat(PreflightPassedChecks.Select(check => new PreflightResultListItem("Pass", check)))
             .ToArray();
 
+    public bool HasPreflightResults => PreflightResults.Count > 0;
+
     public string PreflightBadge
     {
         get
@@ -257,14 +259,26 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public void CancelProcess()
     {
         var result = ShellState.LifecycleCoordinator.CancelActiveProcess();
-        workflowSession.SetValidationFailure(result.StatusMessage ?? result.ErrorMessage ?? "Current process cancelled locally.");
+        if (result.Success)
+        {
+            ResetWorkflowView(result.StatusMessage ?? "Current process cancelled locally.");
+            return;
+        }
+
+        workflowSession.SetValidationFailure(result.ErrorMessage ?? "Could not cancel the current process.");
         RefreshWorkflowProperties();
     }
 
     public async Task CompleteTransactionAsync()
     {
         var result = await ShellState.LifecycleCoordinator.CompleteAsync();
-        workflowSession.SetValidationFailure(result.StatusMessage ?? result.ErrorMessage ?? "Complete is blocked.");
+        if (result.Success)
+        {
+            ResetWorkflowView(result.StatusMessage ?? "Transaction completed.");
+            return;
+        }
+
+        workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
         RefreshWorkflowProperties();
     }
 
@@ -404,6 +418,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(PreflightWarnings));
         NotifyPropertyChanged(nameof(PreflightPassedChecks));
         NotifyPropertyChanged(nameof(PreflightResults));
+        NotifyPropertyChanged(nameof(HasPreflightResults));
         NotifyPropertyChanged(nameof(PreflightBadge));
         createCaseCommand.RaiseCanExecuteChanged();
         browseOutputLocationCommand.RaiseCanExecuteChanged();
@@ -426,6 +441,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var loadedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath;
         if (string.IsNullOrWhiteSpace(loadedCaseFolderPath))
         {
+            if (workflowSession.CurrentState != WorkflowState.NoCase
+                || !string.IsNullOrWhiteSpace(transactionId)
+                || !string.IsNullOrWhiteSpace(outputLocation))
+            {
+                ResetWorkflowView(ShellState.Session.LifecycleStatusText ?? "No active case");
+            }
+
             return;
         }
 
@@ -438,6 +460,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         workflowSession.ReopenCaseFolder(loadedCaseFolderPath);
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
+        RefreshWorkflowProperties();
+    }
+
+    private void ResetWorkflowView(string statusText)
+    {
+        workflowSession.ResetToDefault(statusText);
+        transactionId = null;
+        outputLocation = null;
         RefreshWorkflowProperties();
     }
 }

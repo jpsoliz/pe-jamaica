@@ -9,6 +9,7 @@
              Background="#F7F8FA"
              FontFamily="Segoe UI">
   <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
     <Style x:Key="CardBorderStyle" TargetType="Border">
       <Setter Property="Background" Value="#FFFFFF" />
       <Setter Property="BorderBrush" Value="#C9D2D8" />
@@ -292,7 +293,8 @@
 
             <Border BorderBrush="#C9D2D8"
                     BorderThickness="0,1,0,0"
-                    Padding="10">
+                    Padding="10"
+                    Visibility="{Binding HasPreflightResults, Converter={StaticResource BooleanToVisibilityConverter}}">
               <StackPanel>
                 <Grid Background="#F3F6F7"
                       MinHeight="26">

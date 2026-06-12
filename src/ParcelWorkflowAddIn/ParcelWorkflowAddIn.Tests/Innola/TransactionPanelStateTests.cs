@@ -1,5 +1,6 @@
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
@@ -160,6 +161,37 @@ internal static class TransactionPanelStateTests
         TestAssert.True(panel.CanStopTask, "Stop should be enabled after start.");
         TestAssert.True(panel.CanCompleteTask, "Complete should be enabled after start.");
         TestAssert.True(panel.CanViewDocuments, "Documents should be enabled after load/start.");
+    }
+
+    public static async Task AddDocumentsCopiesFilesIntoLoadedTransaction()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock);
+        var extraDocument = Path.Combine(tempRoot.Path, "extra-plan.pdf");
+        File.WriteAllText(extraDocument, "%PDF-1.4 extra plan");
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+        panel.AddDocumentsToLoadedTransaction(new[] { extraDocument });
+
+        TestAssert.True(panel.StatusText.Contains("Added 1 document", StringComparison.OrdinalIgnoreCase), "Add document status mismatch.");
+        var manifest = ManifestSerializer.Read(Path.Combine(manager.LoadedCaseFolderPath!, "manifest.json"));
+        TestAssert.True(manifest.Payload.SourceFiles.Any(source => Path.GetFileName(source.CopiedPath) == "extra-plan.pdf"), "Added document should be copied into manifest source files.");
+        TestAssert.True(File.Exists(Path.Combine(manager.LoadedCaseFolderPath!, "source", "extra-plan.pdf")), "Added document should be copied into source folder.");
     }
 
     public static async Task ActiveTransactionLocksSelectionSearchSortAndRefresh()
@@ -347,8 +379,8 @@ internal static class TransactionPanelStateTests
 
         await panel.RefreshAsync();
 
-        TestAssert.Equal("Could not refresh transactions. Try again.", panel.ErrorText, "Error text mismatch.");
-        TestAssert.Equal("Could not refresh transactions. Try again.", panel.StatusText, "Status text mismatch.");
+        TestAssert.Equal("Could not refresh transactions. Try again. (bad-response)", panel.ErrorText, "Error text mismatch.");
+        TestAssert.Equal("Could not refresh transactions. Try again. (bad-response)", panel.StatusText, "Status text mismatch.");
         TestAssert.True(!panel.ErrorText!.Contains("secret-password", StringComparison.Ordinal), "Password must not leak to error text.");
         TestAssert.True(!panel.ErrorText.Contains("token", StringComparison.OrdinalIgnoreCase), "Token must not leak to error text.");
         TestAssert.Equal(1, panel.Rows.Count, "Failed refresh should preserve previous valid rows.");
@@ -373,6 +405,28 @@ internal static class TransactionPanelStateTests
 
         TestAssert.True(!panel.IsLoading, "Panel should leave loading state after refresh completes.");
         TestAssert.True(panel.CanUseListControls, "List controls should re-enable after rows load.");
+    }
+
+    public static async Task RefreshTimeoutReleasesDisabledControls()
+    {
+        var originalTimeout = TransactionPanelState.RefreshTimeout;
+        TransactionPanelState.RefreshTimeout = TimeSpan.FromMilliseconds(20);
+        try
+        {
+            var service = new CancellableDelayedTransactionService();
+            var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+            await panel.RefreshAsync();
+
+            TestAssert.True(!panel.IsLoading, "Refresh timeout should release loading state.");
+            TestAssert.True(panel.CanRefresh, "Refresh should be enabled again after timeout.");
+            TestAssert.Equal("Transaction refresh timed out. Try again.", panel.StatusText, "Timeout status mismatch.");
+            TestAssert.Equal("Transaction refresh timed out. Try again.", panel.ErrorText, "Timeout error mismatch.");
+        }
+        finally
+        {
+            TransactionPanelState.RefreshTimeout = originalTimeout;
+        }
     }
 
     public static async Task LogoutClearsSelectedTransactionRowsAndKeepsParcelWorkflowDisabled()
@@ -451,6 +505,7 @@ internal static class TransactionPanelStateTests
             taskName,
             "parcel_workflow",
             InnolaTransactionStatus.Available,
+            "Plan Examination",
             "John Johnson",
             assignedGroup == "tester" ? "tester" : null,
             assignedGroup,
@@ -515,6 +570,15 @@ internal static class TransactionPanelStateTests
             {
                 Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
             }));
+        }
+    }
+
+    private sealed class CancellableDelayedTransactionService : IInnolaTransactionService
+    {
+        public async Task<InnolaTransactionListResult> GetAvailableTransactionsAsync(InnolaTransactionQuery query, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+            return InnolaTransactionListResult.Succeeded(Array.Empty<InnolaTransactionRow>());
         }
     }
 

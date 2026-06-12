@@ -6,4 +6,5 @@ public sealed record SelectedInnolaTransaction(
     string TransactionNumber,
     string TaskName,
     string ProcessStep,
-    DateTimeOffset SelectedAt);
+    DateTimeOffset SelectedAt,
+    string? ApplicationId = null);

@@ -1,3 +1,5 @@
+using System.Net.Http;
+
 namespace ParcelWorkflowAddIn.Innola;
 
 public sealed class InnolaSessionManager
@@ -115,7 +117,32 @@ public sealed class InnolaSessionManager
         StatusText = "Logging in.";
         OnSessionChanged();
 
-        var result = await authService.LoginAsync(serverUrl, username, password, cancellationToken);
+        InnolaLoginResult result;
+        try
+        {
+            result = await authService.LoginAsync(serverUrl, username, password, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Status = InnolaSessionStatus.LoggedOut;
+            CurrentSession = null;
+            IsTransactionLoaded = false;
+            SelectedTransaction = null;
+            StatusText = "Login timed out. Check server, certificate, and network.";
+            OnSessionChanged();
+            return InnolaLoginResult.Failure(StatusText);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
+        {
+            Status = InnolaSessionStatus.LoggedOut;
+            CurrentSession = null;
+            IsTransactionLoaded = false;
+            SelectedTransaction = null;
+            StatusText = "Login failed. Check server, certificate, and network.";
+            OnSessionChanged();
+            return InnolaLoginResult.Failure(StatusText);
+        }
+
         if (!result.Success || result.Session is null)
         {
             Status = InnolaSessionStatus.LoggedOut;
@@ -161,7 +188,8 @@ public sealed class InnolaSessionManager
             row.TransactionNumber,
             row.TaskName,
             row.ProcessStep,
-            selectedAt);
+            selectedAt,
+            row.ApplicationId);
         ClearLoadedTransactionCore();
         OnSessionChanged();
     }

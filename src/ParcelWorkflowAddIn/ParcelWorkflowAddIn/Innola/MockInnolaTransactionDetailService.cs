@@ -88,9 +88,7 @@ public sealed class MockInnolaTransactionDetailService : IInnolaTransactionDetai
             new[]
             {
                 Attachment("att-computation", "computation.pdf", ".pdf", "application/pdf", SourceRole.ComputationSource, "computation", 64, "sha256:mock-computation"),
-                Attachment("att-plan", "plan_map.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 64, "sha256:mock-plan"),
-                Attachment("att-points", "survey_points.csv", ".csv", "text/csv", SourceRole.PointsComputation, "points", 32, "sha256:mock-points"),
-                Attachment("att-dwg", "reference.dwg", ".dwg", "application/acad", SourceRole.DwgReference, "dwg", 16, "sha256:mock-dwg")
+                Attachment("att-plan", "plan_map.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 64, "sha256:mock-plan")
             });
     }
 
@@ -122,9 +120,7 @@ public sealed class MockInnolaTransactionDetailService : IInnolaTransactionDetai
         return new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
         {
             ["att-computation"] = Encoding.UTF8.GetBytes("%PDF-1.4\n% mock computation\n"),
-            ["att-plan"] = Encoding.UTF8.GetBytes("%PDF-1.4\n% mock plan map\n"),
-            ["att-points"] = Encoding.UTF8.GetBytes("point_id,x,y\n1,100.0,200.0\n"),
-            ["att-dwg"] = Encoding.UTF8.GetBytes("MOCK-DWG-CONTENT")
+            ["att-plan"] = Encoding.UTF8.GetBytes("%PDF-1.4\n% mock plan map\n")
         };
     }
 }

@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.WorkflowRules;
 using System.IO;
 using System.Text.Json;
 
@@ -15,6 +16,8 @@ public sealed class WorkflowSession
     private readonly SourceFileActionService sourceFileActionService;
     private readonly SourceFileActionAuditService sourceFileActionAuditService;
     private readonly ManifestPreflightService manifestPreflightService;
+    private readonly WorkflowRuleResolver workflowRuleResolver;
+    private readonly Func<WorkflowRuleSettings> getWorkflowRuleSettings;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -55,6 +58,27 @@ public sealed class WorkflowSession
         SourceFileActionService sourceFileActionService,
         SourceFileActionAuditService sourceFileActionAuditService,
         ManifestPreflightService manifestPreflightService)
+        : this(
+            caseFolderStore,
+            sourceFileCopyService,
+            sourceInputProfileDetector,
+            sourceFileActionService,
+            sourceFileActionAuditService,
+            manifestPreflightService,
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load)
+    {
+    }
+
+    public WorkflowSession(
+        CaseFolderStore caseFolderStore,
+        SourceFileCopyService sourceFileCopyService,
+        SourceInputProfileDetector sourceInputProfileDetector,
+        SourceFileActionService sourceFileActionService,
+        SourceFileActionAuditService sourceFileActionAuditService,
+        ManifestPreflightService manifestPreflightService,
+        WorkflowRuleResolver workflowRuleResolver,
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -62,6 +86,8 @@ public sealed class WorkflowSession
         this.sourceFileActionService = sourceFileActionService;
         this.sourceFileActionAuditService = sourceFileActionAuditService;
         this.manifestPreflightService = manifestPreflightService;
+        this.workflowRuleResolver = workflowRuleResolver;
+        this.getWorkflowRuleSettings = getWorkflowRuleSettings;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -95,6 +121,20 @@ public sealed class WorkflowSession
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
 
     public bool CanRunExtractionReview => HasPreflightResult;
+
+    public void ResetToDefault(string statusText = "No active case")
+    {
+        CurrentState = WorkflowState.NoCase;
+        TransactionId = null;
+        CaseFolderPath = null;
+        sourceFiles.Clear();
+        intakeIssues.Clear();
+        availableArtifacts.Clear();
+        ClearPreflightResults();
+        DetectedProfileLabel = "Detected profile: not refreshed";
+        StatusText = statusText;
+        preflightRunActive = false;
+    }
 
     public CaseFolderCreationResult CreateCase(string transactionId, string outputRoot, string? createdBy)
     {
@@ -170,9 +210,17 @@ public sealed class WorkflowSession
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         var profile = sourceInputProfileDetector.Detect(manifest.Payload.SourceFiles);
+        var ruleResolution = ResolveWorkflowRule(manifest, profile);
         var updatedManifest = manifest with
         {
-            Payload = manifest.Payload with { DetectedProfile = profile }
+            Payload = manifest.Payload with
+            {
+                DetectedProfile = profile,
+                WorkflowProfile = ruleResolution?.ScriptPlan?.WorkflowProfile,
+                WorkflowRuleId = ruleResolution?.ScriptPlan?.RuleId,
+                WorkflowRuleVersion = ruleResolution?.ScriptPlan?.RuleVersion,
+                ScriptPlan = ruleResolution?.ScriptPlan
+            }
         };
         ManifestSerializer.Write(layout.ManifestPath, updatedManifest);
         InvalidatePreflight(layout);
@@ -180,11 +228,31 @@ public sealed class WorkflowSession
         DetectedProfileLabel = profile.DisplayLabel;
         intakeIssues.Clear();
         intakeIssues.AddRange(profile.Issues);
+        if (ruleResolution is { Success: false } && !string.IsNullOrWhiteSpace(ruleResolution.ErrorMessage))
+        {
+            intakeIssues.Add(ruleResolution.ErrorMessage);
+        }
+
         StatusText = profile.Status == "matched"
             ? $"Detected profile: {profile.DisplayLabel}."
             : profile.DisplayLabel;
 
         return profile;
+    }
+
+    private WorkflowRuleResolutionResult? ResolveWorkflowRule(ManifestDocument manifest, DetectedSourceInputProfile profile)
+    {
+        if (manifest.Payload.InnolaTransaction is null)
+        {
+            return null;
+        }
+
+        return workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
+            manifest.Payload.InnolaTransaction.CaseType,
+            manifest.Payload.InnolaTransaction.ProcessStep,
+            profile,
+            manifest.Payload.SourceFiles,
+            getWorkflowRuleSettings()));
     }
 
     public CaseFolderReopenResult ReopenCaseFolder(string caseFolderPath)

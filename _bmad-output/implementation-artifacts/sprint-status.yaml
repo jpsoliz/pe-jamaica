@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-06-11
+# last_updated: 2026-06-12
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-06-11
+last_updated: 2026-06-12
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -63,6 +63,7 @@ development_status:
   2-8-validate-dwg-readiness-when-present: ready-for-dev
   2-9-configure-processing-and-credential-profiles: backlog
   2-10-display-preflight-results-and-gate-extraction: backlog
+  2-11-workflow-rule-resolution-and-script-plan-manifest: done
   epic-2-retrospective: optional
 
   epic-3: backlog

@@ -7,6 +7,8 @@ namespace ParcelWorkflowAddIn;
 
 public partial class LoginWindow : ProWindow
 {
+    private static readonly TimeSpan LoginTimeout = TimeSpan.FromSeconds(30);
+
     public LoginWindow()
     {
         InitializeComponent();
@@ -21,7 +23,8 @@ public partial class LoginWindow : ProWindow
 
         try
         {
-            var result = await ShellState.Session.LoginAsync(ServerTextBox.Text, UsernameTextBox.Text, PasswordBox.Password);
+            using var timeout = new CancellationTokenSource(LoginTimeout);
+            var result = await ShellState.Session.LoginAsync(ServerTextBox.Text, UsernameTextBox.Text, PasswordBox.Password, timeout.Token);
             StatusTextBlock.Text = ShellState.Session.StatusText;
 
             if (result.Success)
@@ -29,6 +32,14 @@ public partial class LoginWindow : ProWindow
                 FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId)?.Activate();
                 DialogResult = true;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            StatusTextBlock.Text = "Login timed out. Check server, certificate, and network.";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.Net.Http.HttpRequestException)
+        {
+            StatusTextBlock.Text = "Login failed. Check server, certificate, and network.";
         }
         finally
         {

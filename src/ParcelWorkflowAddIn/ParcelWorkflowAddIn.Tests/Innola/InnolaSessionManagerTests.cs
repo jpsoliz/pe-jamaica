@@ -63,6 +63,20 @@ internal static class InnolaSessionManagerTests
         TestAssert.Equal("Login failed. Check user name, password, and server.", manager.StatusText, "Failed login message mismatch.");
     }
 
+    public static async Task TimedOutLoginReturnsToLoggedOutAndReEnablesLogin()
+    {
+        var manager = new InnolaSessionManager(new CanceledAuthService());
+
+        var result = await manager.LoginAsync("https://eltrs.innola-solutions.com/", "tester", "secret-password");
+
+        TestAssert.True(!result.Success, "Timed-out login should fail safely.");
+        TestAssert.True(!manager.IsLoggedIn, "Timed-out login should not create a session.");
+        TestAssert.Equal(InnolaSessionStatus.LoggedOut, manager.Status, "Timed-out login should return to logged out.");
+        TestAssert.True(manager.CanOpenLogin, "Login should be available again after timeout.");
+        TestAssert.True(!manager.CanOpenTransactionPanel, "Transaction panel should remain gated after timeout.");
+        TestAssert.Equal("Login timed out. Check server, certificate, and network.", manager.StatusText, "Timeout status mismatch.");
+    }
+
     public static async Task LogoutClearsSessionSecretsAndDisablesGates()
     {
         var manager = LoggedInManager();
@@ -166,6 +180,21 @@ internal static class InnolaSessionManagerTests
         public Task LogoutAsync(CancellationToken cancellationToken = default)
         {
             CurrentSession = null;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CanceledAuthService : IInnolaAuthService
+    {
+        public InnolaSession? CurrentSession => null;
+
+        public Task<InnolaLoginResult> LoginAsync(string serverUrl, string username, string password, CancellationToken cancellationToken = default)
+        {
+            throw new OperationCanceledException();
+        }
+
+        public Task LogoutAsync(CancellationToken cancellationToken = default)
+        {
             return Task.CompletedTask;
         }
     }

@@ -50,3 +50,30 @@ Capture sprint-level learnings that affect future planning, implementation behav
 
 ### Action item
 - Add a one-command handoff macro/checklist so future transitions are consistently executed in under 60 seconds.
+
+## Live Innola Integration Learnings (2026-06-11)
+
+### What we observed
+- Production Innola access may require both a Windows client certificate and explicit access-token authentication for ArcGIS Pro desktop calls.
+- The Innola task endpoint is an eligible queue for the authenticated user's role/group, not a guaranteed all-transactions search.
+- User queue parity must be diagnosed with raw returned count vs visible count before changing filters.
+
+### What to improve
+- Add a temporary diagnostics surface for live transaction retrieval: raw records, visible records, hidden by process step, hidden by status/loadable/availability.
+- Keep role/group names in handoff notes when testing production queues; current target is role `Plan Reviewer (Computation)` and group `Super Group`.
+
+### Action item
+- Before Story 2-8 resumes, implement live queue diagnostics and verify whether mismatched records are filtered locally or not returned by Innola.
+
+## Workflow Rule Planning Learnings (2026-06-12)
+
+### What we observed
+- Resolving script plans from transaction metadata/source roles is safer when the result is persisted in the Case Folder manifest and checked again during preflight.
+- Intake refresh and transaction load must share the same rule-resolution behavior; otherwise reopened or refreshed cases can drift from the selected transaction.
+- Secret redaction must happen after settings-token substitution, not only before.
+
+### What to improve
+- Future execution stories should consume the persisted `script_plan` rather than re-deriving script routing from scattered conditionals.
+
+### Action item
+- In Story 2-8, validate DWG readiness against the resolved script plan and keep extraction execution deferred to Epic 3.

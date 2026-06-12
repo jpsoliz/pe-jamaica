@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
 using ParcelWorkflowAddIn.Intake;
@@ -39,6 +40,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                Debug.WriteLine($"Innola transaction detail failed. TaskId={selectedTransaction.TaskId}; Status={response.StatusCode}.");
                 return InnolaTransactionDetailResult.Failure("Could not load transaction. Try again.", response.StatusCode.ToString());
             }
 
@@ -47,12 +49,28 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             var taskRoot = ResolveTaskRoot(document.RootElement);
             if (!taskRoot.HasValue)
             {
+                Debug.WriteLine($"Innola transaction detail did not include a task object. TaskId={selectedTransaction.TaskId}.");
                 return InnolaTransactionDetailResult.Failure("Transaction details were not found.", "not_found");
             }
 
             var detail = MapDetail(taskRoot.Value, selectedTransaction);
+            Debug.WriteLine(
+                $"Innola transaction detail mapped. TaskId={detail.TaskId}; TransactionNumber={detail.TransactionNumber}; TransactionId={detail.TransactionId}; ApplicationId={selectedTransaction.ApplicationId ?? "(none)"}; InlineAttachments={detail.Attachments.Count}.");
             if (detail.Attachments.Count == 0)
             {
+                var sourceAttachments = await GetScanningApplicationSourceAttachmentsAsync(session, selectedTransaction, detail, cancellationToken).ConfigureAwait(false);
+                if (sourceAttachments.Count == 0)
+                {
+                    sourceAttachments = await GetTransactionSourceAttachmentsAsync(session, selectedTransaction, detail, cancellationToken).ConfigureAwait(false);
+                }
+
+                detail = detail with { Attachments = sourceAttachments };
+            }
+
+            if (detail.Attachments.Count == 0)
+            {
+                Debug.WriteLine(
+                    $"Innola transaction detail has no attachment metadata after source fallback. TaskId={detail.TaskId}; TransactionNumber={detail.TransactionNumber}; LookupIds={string.Join(",", SourceLookupIds(selectedTransaction, detail))}.");
                 return InnolaTransactionDetailResult.Failure("Attachment metadata unavailable for this transaction.", "attachment_metadata_unavailable");
             }
 
@@ -77,27 +95,138 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
 
         try
         {
-            var uri = InnolaHttp.BuildUri(
-                session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}");
+            var path = queryName.Equals("bodyId", StringComparison.OrdinalIgnoreCase)
+                ? $"{InnolaSettings.V4RestPath}source/download?bodyId={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}"
+                : queryName.Equals("scanSourceId", StringComparison.OrdinalIgnoreCase)
+                    ? $"{InnolaSettings.RestPath}scanning/source/{Uri.EscapeDataString(queryValue)}/body"
+                : $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}";
+            var uri = InnolaHttp.BuildUri(session.ServerUrl, path);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+            Debug.WriteLine($"Innola attachment download starting. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Reference={attachment.ServiceReference}; Path={path}.");
 
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                Debug.WriteLine($"Innola attachment download failed. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Status={response.StatusCode}.");
                 return InnolaAttachmentContentResult.Failure("Could not load attachment. Try again.", response.StatusCode.ToString());
             }
 
             var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            Debug.WriteLine($"Innola attachment download completed. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Bytes={content.Length}.");
             return content.Length == 0
                 ? InnolaAttachmentContentResult.Failure("Attachment content was not found.", "not_found")
                 : InnolaAttachmentContentResult.Succeeded(content);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
+            Debug.WriteLine($"Innola attachment download failed. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Error={exception.GetType().Name}.");
             return InnolaAttachmentContentResult.Failure("Could not load attachment. Try again.", exception.GetType().Name);
         }
+    }
+
+    private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetScanningApplicationSourceAttachmentsAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        InnolaTransactionDetail detail,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(selectedTransaction.ApplicationId))
+        {
+            Debug.WriteLine($"Innola scanning application source lookup skipped. TaskId={detail.TaskId}; ApplicationId=(none).");
+            return Array.Empty<InnolaAttachmentMetadata>();
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                InnolaHttp.BuildUri(
+                    session.ServerUrl,
+                    $"{InnolaSettings.RestPath}scanning/application/{Uri.EscapeDataString(selectedTransaction.ApplicationId)}"));
+            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                Debug.WriteLine($"Innola scanning application source lookup failed. ApplicationId={selectedTransaction.ApplicationId}; Status={response.StatusCode}.");
+                return Array.Empty<InnolaAttachmentMetadata>();
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(responseBody);
+            var attachments = ExtractAttachments(document.RootElement);
+            Debug.WriteLine($"Innola scanning application source lookup completed. ApplicationId={selectedTransaction.ApplicationId}; AttachmentCount={attachments.Count}.");
+            return attachments;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            Debug.WriteLine($"Innola scanning application source lookup failed. ApplicationId={selectedTransaction.ApplicationId}; Error={exception.GetType().Name}.");
+            return Array.Empty<InnolaAttachmentMetadata>();
+        }
+    }
+
+    private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetTransactionSourceAttachmentsAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        InnolaTransactionDetail detail,
+        CancellationToken cancellationToken)
+    {
+        var lookupIds = SourceLookupIds(selectedTransaction, detail).ToArray();
+        Debug.WriteLine($"Innola source metadata fallback starting. TaskId={detail.TaskId}; LookupIds={string.Join(",", lookupIds)}.");
+        foreach (var transactionId in lookupIds)
+        {
+            var attachments = await GetTransactionSourceAttachmentsAsync(session, transactionId, cancellationToken).ConfigureAwait(false);
+            if (attachments.Count > 0)
+            {
+                return attachments;
+            }
+        }
+
+        return Array.Empty<InnolaAttachmentMetadata>();
+    }
+
+    private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetTransactionSourceAttachmentsAsync(
+        InnolaSession session,
+        string transactionId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                InnolaHttp.BuildUri(
+                    session.ServerUrl,
+                    $"{InnolaSettings.RestPath}administrative/ladmobjects/getbytransaction?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
+            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                Debug.WriteLine($"Innola source metadata lookup failed. LookupId={transactionId}; Status={response.StatusCode}.");
+                return Array.Empty<InnolaAttachmentMetadata>();
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(responseBody);
+            var attachments = ExtractAttachments(document.RootElement);
+            Debug.WriteLine($"Innola source metadata lookup completed. LookupId={transactionId}; AttachmentCount={attachments.Count}.");
+            return attachments;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            Debug.WriteLine($"Innola source metadata lookup failed. LookupId={transactionId}; Error={exception.GetType().Name}.");
+            return Array.Empty<InnolaAttachmentMetadata>();
+        }
+    }
+
+    private static IEnumerable<string> SourceLookupIds(SelectedInnolaTransaction selectedTransaction, InnolaTransactionDetail detail)
+    {
+        var ids = new[] { detail.TransactionId, selectedTransaction.TransactionId, selectedTransaction.ApplicationId };
+        return ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     private static JsonElement? ResolveTaskRoot(JsonElement root)
@@ -134,7 +263,6 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             ?? selected.TransactionId;
         var transactionNumber = ReadNested(transaction, "transactionNo", "transaction_no", "transactionNumber")
             ?? InnolaHttp.ReadString(task, "transactionNo", "transaction_no")
-            ?? ReadNested(application, "applicationNo", "application_no")
             ?? selected.TransactionNumber;
         var taskName = InnolaHttp.ReadString(task, "name", "taskName", "task_name") ?? selected.TaskName;
         var caseType = InnolaHttp.ReadString(task, "transactionCode", "processKey")
@@ -170,7 +298,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
-            if (IsAttachmentContainer(parentName) && TryMapAttachment(element) is { } attachment)
+            if ((IsAttachmentContainer(parentName) || LooksLikeAttachment(element)) && TryMapAttachment(element) is { } attachment)
             {
                 attachments.Add(attachment);
             }
@@ -198,15 +326,30 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
                 || name.Contains("file", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool LooksLikeAttachment(JsonElement element)
+    {
+        return element.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.Object
+            || element.TryGetProperty("bodyId", out _)
+            || element.TryGetProperty("fileBodyId", out _)
+            || element.TryGetProperty("fileName", out _)
+            || element.TryGetProperty("documentName", out _);
+    }
+
     private static InnolaAttachmentMetadata? TryMapAttachment(JsonElement element)
     {
-        var fileName = InnolaHttp.ReadString(element, "fileName", "filename", "name", "documentName", "originalName");
-        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(Path.GetExtension(fileName)))
+        var body = TryObject(element, "body");
+        var fileName = InnolaHttp.ReadString(element, "fileName", "filename", "name", "documentName", "originalName")
+            ?? ReadNested(body, "name", "Name", "fileName", "filename");
+        var bodyExtension = ReadNested(body, "extension", "Extension");
+        if (!string.IsNullOrWhiteSpace(fileName)
+            && string.IsNullOrWhiteSpace(Path.GetExtension(fileName))
+            && !string.IsNullOrWhiteSpace(bodyExtension))
         {
-            return null;
+            fileName = $"{fileName}.{bodyExtension.TrimStart('.')}";
         }
 
-        var bodyId = InnolaHttp.ReadString(element, "bodyId", "fileBodyId");
+        var bodyId = InnolaHttp.ReadString(element, "bodyId", "fileBodyId")
+            ?? ReadNested(body, "id", "Id", "@id");
         var sourceUid = InnolaHttp.ReadString(element, "sourceUid", "uid");
         var sourceId = InnolaHttp.ReadString(element, "sourceId", "id");
         var serviceReference = !string.IsNullOrWhiteSpace(bodyId)
@@ -214,25 +357,57 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             : !string.IsNullOrWhiteSpace(sourceUid)
                 ? $"source-uid:{sourceUid}"
                 : !string.IsNullOrWhiteSpace(sourceId)
-                    ? $"source-id:{sourceId}"
+                    ? $"scan-source-id:{sourceId}"
                     : null;
         if (string.IsNullOrWhiteSpace(serviceReference))
         {
             return null;
         }
 
-        var category = InnolaHttp.ReadString(element, "category", "type", "sourceType", "documentType");
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(Path.GetExtension(fileName)))
+        {
+            fileName = BuildFallbackSourceFileName(element, body, sourceId, sourceUid);
+        }
+
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(Path.GetExtension(fileName)))
+        {
+            return null;
+        }
+
+        var category = InnolaHttp.ReadString(element, "category", "type", "sourceType", "documentType", "tags", "sourceNo", "description");
+        var mimeType = InnolaHttp.ReadString(element, "mimeType", "contentType")
+            ?? ReadNested(body, "type", "mimeType", "contentType");
+        var size = ReadLong(element, "size", "fileSize", "length")
+            ?? ReadNestedLong(body, "size", "fileSize", "length");
         return new InnolaAttachmentMetadata(
             serviceReference,
             fileName,
             Path.GetExtension(fileName).ToLowerInvariant(),
-            InnolaHttp.ReadString(element, "mimeType", "contentType"),
+            mimeType,
             InferSourceRole(fileName, category),
             category,
-            ReadLong(element, "size", "fileSize", "length"),
+            size,
             InnolaHttp.ReadString(element, "checksum", "hash"),
             serviceReference,
             true);
+    }
+
+    private static string? BuildFallbackSourceFileName(JsonElement element, JsonElement? body, string? sourceId, string? sourceUid)
+    {
+        var extension = InnolaHttp.ReadString(element, "extension")
+            ?? ReadNested(body, "extension", "Extension");
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = "pdf";
+        }
+
+        var rawName = InnolaHttp.ReadString(element, "sourceNo", "documentNo", "referenceNo")
+            ?? ReadNested(body, "name", "Name")
+            ?? sourceUid
+            ?? sourceId
+            ?? "source";
+        var safeName = string.Concat(rawName.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim();
+        return string.IsNullOrWhiteSpace(safeName) ? null : $"{safeName}.{extension.TrimStart('.')}";
     }
 
     private static bool TryParseServiceReference(string serviceReference, out string queryName, out string queryValue)
@@ -251,6 +426,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             "body-id" => "bodyId",
             "source-id" => "sourceId",
             "source-uid" => "sourceUid",
+            "scan-source-id" => "scanSourceId",
             _ => string.Empty
         };
 
@@ -271,14 +447,22 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return SourceRole.PointsComputation;
         }
 
-        if (text.Contains("plan", StringComparison.Ordinal) || text.Contains("map", StringComparison.Ordinal))
-        {
-            return SourceRole.PlanMapReference;
-        }
-
-        if (text.Contains("comput", StringComparison.Ordinal))
+        if (text.Contains("comput", StringComparison.Ordinal)
+            || text.Contains("comsheet", StringComparison.Ordinal)
+            || text.Contains("comp sheet", StringComparison.Ordinal)
+            || text.Contains("calculation", StringComparison.Ordinal)
+            || text.Contains("coordinate", StringComparison.Ordinal))
         {
             return SourceRole.ComputationSource;
+        }
+
+        if (text.Contains("plan", StringComparison.Ordinal)
+            || text.Contains("map", StringComparison.Ordinal)
+            || text.Contains("geolan", StringComparison.Ordinal)
+            || text.Contains("geo lan", StringComparison.Ordinal)
+            || text.Contains("survey plan", StringComparison.Ordinal))
+        {
+            return SourceRole.PlanMapReference;
         }
 
         return extension is ".pdf" or ".tif" or ".tiff" or ".png" or ".jpg" or ".jpeg"
@@ -302,5 +486,10 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         var raw = InnolaHttp.ReadString(element, names);
         return long.TryParse(raw, out var value) ? value : null;
+    }
+
+    private static long? ReadNestedLong(JsonElement? element, params string[] names)
+    {
+        return element.HasValue ? ReadLong(element.Value, names) : null;
     }
 }

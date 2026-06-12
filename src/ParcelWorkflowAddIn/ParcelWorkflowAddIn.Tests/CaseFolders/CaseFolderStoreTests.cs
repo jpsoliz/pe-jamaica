@@ -46,6 +46,18 @@ internal static class CaseFolderStoreTests
         TestAssert.Equal("TR100000004", ManifestSerializer.Read(result.Layout.ManifestPath).TransactionId, "Manifest should preserve Innola transaction number.");
     }
 
+    public static void CreateCaseAcceptsLiveInnolaNumericTransactionNumber()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-live-innola");
+
+        var result = store.CreateCase(tempRoot.Path, "100000206", "tester");
+
+        TestAssert.True(result.Success, "Live Innola numeric transaction number should be accepted as a safe Case Folder id.");
+        TestAssert.True(Directory.Exists(result.Layout!.RootDirectory), "Live Innola Case Folder should exist.");
+        TestAssert.Equal("100000206", ManifestSerializer.Read(result.Layout.ManifestPath).TransactionId, "Manifest should preserve live Innola transaction number.");
+    }
+
     public static void CreateCaseRejectsDuplicateTransactionFolder()
     {
         using var tempRoot = new TempDirectory();

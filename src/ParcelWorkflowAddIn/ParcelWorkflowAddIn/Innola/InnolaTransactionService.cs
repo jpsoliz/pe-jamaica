@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -26,25 +27,84 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/my-tasks"));
-            InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            var workflowResult = await GetWorkflowMyTasksAsync(query, cancellationToken).ConfigureAwait(false);
+            if (!workflowResult.Success || workflowResult.Rows.Count > 0)
             {
-                return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", response.StatusCode.ToString());
+                return workflowResult;
             }
 
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var rows = MapRows(responseBody, query.ProcessStep);
-            return InnolaTransactionListResult.Succeeded(rows);
+            var searchResult = await SearchApplicationMyTasksAsync(query, cancellationToken).ConfigureAwait(false);
+            return searchResult.Success ? searchResult : workflowResult;
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
             return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", exception.GetType().Name);
         }
+    }
+
+    private async Task<InnolaTransactionListResult> GetWorkflowMyTasksAsync(InnolaTransactionQuery query, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/my-tasks"));
+        InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", response.StatusCode.ToString());
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return InnolaTransactionListResult.Succeeded(MapRows(responseBody, query.ProcessStep));
+    }
+
+    private async Task<InnolaTransactionListResult> SearchApplicationMyTasksAsync(InnolaTransactionQuery query, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
+        InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
+        request.Content = CreateApplicationSearchContent(
+            """
+            {"start":0,"limit":50,"text":null,"criterias":[],"orderAsc":true,"orderBy":"assignee_text","page":1}
+            """);
+
+        var result = await SendApplicationSearchAsync(request, query.ProcessStep, cancellationToken).ConfigureAwait(false);
+        if (result.Success || !string.Equals(result.ErrorCategory, "InternalServerError", StringComparison.OrdinalIgnoreCase))
+        {
+            return result;
+        }
+
+        using var retryRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
+        InnolaHttp.ApplyAuthHeaders(retryRequest, query.AccessToken);
+        retryRequest.Content = CreateApplicationSearchContent(
+            """
+            {"start":0,"limit":50,"text":null,"criterias":[],"page":1}
+            """);
+        return await SendApplicationSearchAsync(retryRequest, query.ProcessStep, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static StringContent CreateApplicationSearchContent(string json)
+    {
+        return new StringContent(json, Encoding.UTF8, "application/json");
+    }
+
+    private async Task<InnolaTransactionListResult> SendApplicationSearchAsync(
+        HttpRequestMessage request,
+        string processStep,
+        CancellationToken cancellationToken)
+    {
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", response.StatusCode.ToString());
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return InnolaTransactionListResult.Succeeded(MapRows(responseBody, processStep));
     }
 
     public static IReadOnlyList<InnolaTransactionRow> MapRows(string responseBody, string processStep)
@@ -62,7 +122,7 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             return root.EnumerateArray().ToArray();
         }
 
-        foreach (var name in new[] { "value", "data", "items", "tasks", "rows", "result" })
+        foreach (var name in new[] { "value", "data", "items", "tasks", "rows", "records", "Records", "result" })
         {
             if (!root.TryGetProperty(name, out var value))
             {
@@ -98,6 +158,8 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         var transactionId = InnolaHttp.ReadString(item, "transaction_id", "transactionId", "TransactionId")
             ?? ReadNested(nestedTransaction, "id", "Id")
             ?? transactionNumber;
+        var applicationId = InnolaHttp.ReadString(item, "application_id", "applicationId", "ApplicationId")
+            ?? ReadNested(nestedApplication, "id", "Id");
         var taskId = InnolaHttp.ReadString(item, "task_id", "taskId", "TaskId", "workflow_task_id", "workflowTaskId", "id", "Id") ?? transactionId;
         var taskName = InnolaHttp.ReadString(item, "task_name", "taskName", "TaskName", "activity_name", "activityName", "name", "Name");
 
@@ -108,7 +170,7 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         var explicitProcessStep = InnolaHttp.ReadString(item, "process_step", "processStep", "step", "workflow_step", "workflowStep");
         var processStep = string.IsNullOrWhiteSpace(explicitProcessStep) ? defaultProcessStep : explicitProcessStep;
-        var statusText = InnolaHttp.ReadString(item, "status", "Status", "task_status", "taskStatus")
+        var statusText = InnolaHttp.ReadString(item, "status", "Status", "task_status", "taskStatus", "tr_status_text", "trStatusText")
             ?? ReadNested(nestedTransaction, "status", "Status");
         var status = ParseStatus(statusText);
         var isAvailable = ReadBool(item, true, "is_available", "isAvailable", "available", "Available");
@@ -121,16 +183,20 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             taskName,
             processStep,
             status,
-            InnolaHttp.ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "owner", "createdBy"),
-            InnolaHttp.ReadString(item, "assigned_user", "assignedUser", "assignee", "Assignee", "user", "User"),
-            InnolaHttp.ReadString(item, "assigned_group", "assignedGroup", "group", "Group", "groupName", "role"),
-            InnolaHttp.ReadDate(item, "received_at", "receivedAt", "assigned_at", "assignedAt", "createTime", "created_at", "createdAt", "date", "Date")
+            InnolaHttp.ReadString(item, "transaction_type_text", "transactionTypeText", "transaction_type", "transactionType")
+                ?? ReadNested(nestedTransaction, "transactionTypeText", "transactionType", "type")
+                ?? ReadNested(nestedApplication, "transactionTypeText", "transactionType", "type"),
+            CleanDisplayValue(InnolaHttp.ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "applicant_name", "applicantName", "owner", "createdBy")),
+            InnolaHttp.ReadString(item, "assigned_user", "assignedUser", "assignee_text", "assigneeText", "assignee", "Assignee", "user", "User"),
+            InnolaHttp.ReadString(item, "assigned_group", "assignedGroup", "group", "Group", "groupName", "role", "roles_text", "rolesText", "roles"),
+            InnolaHttp.ReadDate(item, "received_at", "receivedAt", "assigned_at", "assignedAt", "task_create_date", "taskCreateDate", "createTime", "created_at", "createdAt", "date", "Date")
                 ?? ReadNestedDate(nestedTransaction, "createDatetime", "createDate")
                 ?? ReadNestedDate(nestedApplication, "createDatetime", "createDate"),
             isAvailable,
             isLoadable,
             InnolaHttp.ReadString(item, "unavailable_reason", "unavailableReason", "reason", "Reason"),
-            InnolaHttp.ReadString(item, "browser_url", "browserUrl", "url", "Url"));
+            InnolaHttp.ReadString(item, "browser_url", "browserUrl", "url", "Url"),
+            applicationId);
     }
 
     private static JsonElement? TryObject(JsonElement element, string name)
@@ -148,6 +214,17 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
     private static DateTimeOffset? ReadNestedDate(JsonElement? element, params string[] names)
     {
         return element.HasValue ? InnolaHttp.ReadDate(element.Value, names) : null;
+    }
+
+    private static string? CleanDisplayValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var cleaned = value.Split(new[] { "::::", ":::" }, StringSplitOptions.None)[0].Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? value.Trim() : cleaned;
     }
 
     private static bool ReadBool(JsonElement element, bool defaultValue, params string[] names)

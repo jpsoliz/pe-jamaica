@@ -114,14 +114,14 @@ public sealed class SourceInputProfileDetector
             return new ClassifiedSourceFile(sourceFile, SourceRole.PointsComputation);
         }
 
-        if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "plan", "map"))
-        {
-            return new ClassifiedSourceFile(sourceFile, SourceRole.PlanMapReference);
-        }
-
-        if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "computation", "comput", "coord", "point"))
+        if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "computation", "comput", "comsheet", "comp sheet", "calculation", "coord", "coordinate", "point"))
         {
             return new ClassifiedSourceFile(sourceFile, SourceRole.ComputationSource);
+        }
+
+        if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "plan", "map", "geolan", "geo lan", "survey plan"))
+        {
+            return new ClassifiedSourceFile(sourceFile, SourceRole.PlanMapReference);
         }
 
         if (ImageDocumentExtensions.Contains(extension))

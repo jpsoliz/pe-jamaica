@@ -7,6 +7,7 @@ public sealed record InnolaTransactionRow(
     string TaskName,
     string ProcessStep,
     InnolaTransactionStatus Status,
+    string? TransactionType,
     string? ResponsibleParty,
     string? AssignedUser,
     string? AssignedGroup,
@@ -14,13 +15,16 @@ public sealed record InnolaTransactionRow(
     bool IsAvailable,
     bool IsLoadable,
     string? UnavailableReason,
-    string? BrowserUrl)
+    string? BrowserUrl,
+    string? ApplicationId = null)
 {
     public string DisplayParty => FirstNonEmpty(ResponsibleParty, AssignedUser, AssignedGroup, "Unassigned");
 
     public string DisplayAssignment => FirstNonEmpty(AssignedUser, AssignedGroup, "Available");
 
     public string DisplayTimestamp => ReceivedAt?.ToLocalTime().ToString("dd/MMM/yyyy HH:mm") ?? string.Empty;
+
+    public string DisplayTransactionType => string.IsNullOrWhiteSpace(TransactionType) ? "Transaction" : TransactionType;
 
     public string DisplayStatus => Status switch
     {

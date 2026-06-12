@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -41,6 +42,22 @@ internal static class WorkflowSessionTests
 
         TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Validation failure should not change workflow state.");
         TestAssert.Equal("Transaction ID and output location are required.", session.StatusText, "Validation failure should update status text.");
+    }
+
+    public static void WorkflowSessionResetClearsLoadedCaseState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(store);
+        session.CreateCase("TR-SMD-0000001", tempRoot.Path, "tester");
+
+        session.ResetToDefault("Current process cancelled locally.");
+
+        TestAssert.Equal(WorkflowState.NoCase, session.CurrentState, "Reset should return workflow to default state.");
+        TestAssert.Equal(null, session.TransactionId, "Reset should clear transaction id.");
+        TestAssert.Equal(null, session.CaseFolderPath, "Reset should clear case folder path.");
+        TestAssert.Equal(0, session.SourceFiles.Count, "Reset should clear source files.");
+        TestAssert.Equal("Current process cancelled locally.", session.StatusText, "Reset should keep the supplied status.");
     }
 
     public static void WorkflowSessionRejectsSourceFilesWithoutActiveCase()
@@ -119,6 +136,64 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(3, updatedManifest.Payload.SourceFiles.Count, "Profile persistence must preserve source files.");
         TestAssert.Equal("Scenario B - points/computation + DWG + plan/map reference", session.DetectedProfileLabel, "Session detected profile label mismatch.");
         TestAssert.Equal(0, session.IntakeIssues.Count, "Scenario B should not expose intake issues.");
+    }
+
+    public static void WorkflowSessionRefreshInputProfileResolvesInnolaWorkflowRule()
+    {
+        using var tempRoot = new TempDirectory();
+        using var rules = TempFile.FromExisting(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Settings", "WorkflowRules.json"));
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 9, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(() => new DateTimeOffset(2026, 6, 9, 1, 2, 3, TimeSpan.Zero)),
+            new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero)),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(new WorkflowRuleRegistry(() => rules.Path), () => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)),
+            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"));
+        var caseResult = session.CreateCase("100000206", tempRoot.Path, "tester");
+        var computationPath = Path.Combine(caseResult.Layout!.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var planPath = Path.Combine(caseResult.Layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        File.WriteAllText(computationPath, "computation");
+        File.WriteAllText(planPath, "plan");
+        var manifest = ManifestSerializer.Read(caseResult.Layout.ManifestPath);
+        ManifestSerializer.Write(
+            caseResult.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = new[]
+                    {
+                        new ManifestSourceFile("innola-attachment:computation", computationPath, ".pdf", 10, "2026-06-09T01:00:00Z", "computation_source"),
+                        new ManifestSourceFile("innola-attachment:plan", planPath, ".pdf", 10, "2026-06-09T01:00:00Z", "plan_map_reference")
+                    },
+                    InnolaTransaction = new ManifestInnolaTransaction(
+                        "txn-1",
+                        "100000206",
+                        "task-1",
+                        "Assign Computation Task",
+                        "parcel_workflow",
+                        "Plan Examination",
+                        null,
+                        "tester",
+                        "tester",
+                        "Super Group",
+                        null,
+                        null,
+                        "2026-06-09T01:00:00Z")
+                }
+            });
+
+        var profile = session.RefreshInputProfile();
+
+        var updatedManifest = ManifestSerializer.Read(caseResult.Layout.ManifestPath);
+        TestAssert.Equal("scenario_a", profile.ProfileCode, "Profile refresh should detect Scenario A.");
+        TestAssert.Equal("scenario_a_two_pdf", updatedManifest.Payload.WorkflowProfile, "Refresh should persist workflow profile.");
+        TestAssert.Equal("scenario_a_two_pdf_v1", updatedManifest.Payload.WorkflowRuleId, "Refresh should persist workflow rule id.");
+        TestAssert.True(updatedManifest.Payload.ScriptPlan is not null, "Refresh should persist script plan.");
+        TestAssert.Equal(2, updatedManifest.Payload.ScriptPlan!.Steps.Count, "Refresh should persist planned Scenario A steps.");
     }
 
     public static void WorkflowSessionReopensValidCaseFolder()

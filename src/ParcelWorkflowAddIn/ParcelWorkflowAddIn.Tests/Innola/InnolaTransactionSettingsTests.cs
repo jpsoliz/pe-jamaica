@@ -14,7 +14,9 @@ internal static class InnolaTransactionSettingsTests
               "innola_client_certificate_store_location": "CurrentUser",
               "innola_client_certificate_store_name": "My",
               "innola_client_certificate_subject": "Jamaica eTitles Project Team",
-              "innola_client_certificate_thumbprint": "45AF05AA01"
+              "innola_client_certificate_thumbprint": "45AF05AA01",
+              "innola_allow_invalid_server_certificate": true,
+              "innola_check_certificate_revocation_list": false
             }
             """);
 
@@ -25,5 +27,7 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal("My", settings.StoreName, "Store name mismatch.");
         TestAssert.Equal("Jamaica eTitles Project Team", settings.SubjectName, "Subject mismatch.");
         TestAssert.Equal("45AF05AA01", settings.Thumbprint, "Thumbprint mismatch.");
+        TestAssert.True(settings.AllowInvalidServerCertificate, "Dev server certificate bypass mismatch.");
+        TestAssert.True(!settings.CheckCertificateRevocationList, "Revocation check mismatch.");
     }
 }

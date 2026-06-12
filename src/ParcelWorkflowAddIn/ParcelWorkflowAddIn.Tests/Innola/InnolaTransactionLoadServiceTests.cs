@@ -2,6 +2,8 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Tests;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -25,9 +27,9 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.Equal("TR100000004", manifest.TransactionId, "Manifest transaction id mismatch.");
         TestAssert.Equal("task-100000004", manifest.Payload.InnolaTransaction!.TaskId, "Innola task id mismatch.");
         TestAssert.Equal("tester", manifest.Payload.InnolaTransaction.SelectedUser, "Selected user mismatch.");
-        TestAssert.Equal(4, manifest.Payload.AttachmentProvenance!.Count, "Attachment provenance count mismatch.");
-        TestAssert.True(manifest.Payload.SourceFiles.Count >= 4, "Source files should include copied attachments.");
-        TestAssert.Equal(SourceInputProfile.ScenarioB, manifest.Payload.DetectedProfile!.ProfileCode, "Profile should detect scenario B.");
+        TestAssert.Equal(2, manifest.Payload.AttachmentProvenance!.Count, "Attachment provenance count mismatch.");
+        TestAssert.True(manifest.Payload.SourceFiles.Count >= 2, "Source files should include copied attachments.");
+        TestAssert.Equal(SourceInputProfile.ScenarioA, manifest.Payload.DetectedProfile!.ProfileCode, "Profile should detect scenario A.");
         TestAssert.True(manifest.Payload.AttachmentProvenance.All(item => File.Exists(item.CopiedPath)), "Copied attachment paths should exist.");
 
         var caseText = File.ReadAllText(manifest.Payload.AttachmentProvenance[0].CopiedPath);
@@ -179,7 +181,7 @@ internal static class InnolaTransactionLoadServiceTests
 
         TestAssert.True(first.Success && second.Success, "Existing same transaction Case Folder should reopen.");
         var manifest = ManifestSerializer.Read(second.Layout!.ManifestPath);
-        TestAssert.Equal(4, manifest.Payload.AttachmentProvenance!.Count, "Reopen should not duplicate provenance.");
+        TestAssert.Equal(2, manifest.Payload.AttachmentProvenance!.Count, "Reopen should not duplicate provenance.");
     }
 
     public static async Task ExistingCaseFolderMismatchBlocksLoad()
@@ -218,6 +220,37 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled.");
     }
 
+    public static async Task SuccessfulLoadPersistsWorkflowRuleAndScriptPlan()
+    {
+        using var tempRoot = new TempDirectory();
+        using var rules = TempFile.FromExisting(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Settings", "WorkflowRules.json"));
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var attachments = new[]
+        {
+            new InnolaAttachmentMetadata("att-computation", "BELLEV029GEOLANCOMSHEET.pdf", ".pdf", "application/pdf", SourceRole.ComputationSource, "computation", 4, null, "mock-attachment:att-computation", true),
+            new InnolaAttachmentMetadata("att-plan", "BELLEV029GEOLAN20230811.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-plan", true)
+        };
+        var service = LoadService(
+            manager,
+            new CountingDetailService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments)),
+            tempRoot.Path,
+            new WorkflowRuleResolver(new WorkflowRuleRegistry(() => rules.Path), () => FixedNow()));
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, "Load should succeed.");
+        var manifest = ManifestSerializer.Read(result.Layout!.ManifestPath);
+        TestAssert.Equal("scenario_a_two_pdf", manifest.Payload.WorkflowProfile, "Workflow profile should be persisted.");
+        TestAssert.Equal("scenario_a_two_pdf_v1", manifest.Payload.WorkflowRuleId, "Workflow rule id should be persisted.");
+        TestAssert.Equal("1.0.0", manifest.Payload.WorkflowRuleVersion, "Workflow rule version should be persisted.");
+        TestAssert.True(manifest.Payload.ScriptPlan is not null, "Script plan should be persisted.");
+        TestAssert.Equal(2, manifest.Payload.ScriptPlan!.Steps.Count, "Script plan should include both Scenario A steps.");
+        var manifestText = File.ReadAllText(result.Layout.ManifestPath);
+        TestAssert.True(!manifestText.Contains("token-abc", StringComparison.OrdinalIgnoreCase), "Manifest must not contain access token.");
+        TestAssert.True(!manifestText.Contains("secret-password", StringComparison.OrdinalIgnoreCase), "Manifest must not contain session password.");
+    }
+
     public static void ManifestWithoutInnolaMetadataDeserializes()
     {
         using var tempRoot = new TempDirectory();
@@ -233,7 +266,8 @@ internal static class InnolaTransactionLoadServiceTests
     private static InnolaTransactionLoadService LoadService(
         InnolaSessionManager manager,
         IInnolaTransactionDetailService detailService,
-        string outputRoot)
+        string outputRoot,
+        WorkflowRuleResolver? workflowRuleResolver = null)
     {
         return new InnolaTransactionLoadService(
             manager,
@@ -241,6 +275,8 @@ internal static class InnolaTransactionLoadServiceTests
             new CaseFolderStore(() => FixedNow(), () => "run-load"),
             new AttachmentSourceFileWriter(() => FixedNow()),
             new SourceInputProfileDetector(() => FixedNow()),
+            workflowRuleResolver ?? new WorkflowRuleResolver(),
+            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
             () => outputRoot,
             () => FixedNow());
     }
@@ -268,6 +304,7 @@ internal static class InnolaTransactionLoadServiceTests
             taskName,
             "parcel_workflow",
             InnolaTransactionStatus.Available,
+            "Plan Examination",
             "John Johnson",
             "tester",
             "survey",

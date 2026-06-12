@@ -26,7 +26,7 @@ public sealed partial class CaseFolderStore
     {
         if (!IsValidTransactionId(transactionId))
         {
-            return CaseFolderCreationResult.Failed("Transaction ID must use the TR-SMD-0000001 or TR100000004 format.");
+            return CaseFolderCreationResult.Failed("Transaction ID must use a safe Sidwell or Innola transaction format, such as TR-SMD-0000001, TR100000004, or 100000206.");
         }
 
         if (string.IsNullOrWhiteSpace(outputRoot))
@@ -329,6 +329,6 @@ public sealed partial class CaseFolderStore
         return WorkflowState.Intake;
     }
 
-    [GeneratedRegex("^(TR-SMD-[0-9]{7}|TR[0-9]{9})$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^(TR-SMD-[0-9]{7}|TR[0-9]{9}|[0-9]{9})$", RegexOptions.CultureInvariant)]
     private static partial Regex TransactionIdPattern();
 }

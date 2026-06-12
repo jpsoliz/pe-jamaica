@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography.X509Certificates;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -7,14 +8,25 @@ internal static class InnolaHttpClientFactory
 {
     public static HttpClient Create(InnolaClientCertificateSettings certificateSettings)
     {
-        var handler = new HttpClientHandler();
+        var handler = new HttpClientHandler
+        {
+            CheckCertificateRevocationList = certificateSettings.CheckCertificateRevocationList
+        };
+
+        if (certificateSettings.AllowInvalidServerCertificate)
+        {
+            handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+        }
+
         if (TryFindCertificate(certificateSettings, out var certificate))
         {
             handler.ClientCertificateOptions = ClientCertificateOption.Manual;
             handler.ClientCertificates.Add(certificate);
         }
 
-        return new HttpClient(handler);
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        return client;
     }
 
     private static bool TryFindCertificate(InnolaClientCertificateSettings settings, out X509Certificate2 certificate)

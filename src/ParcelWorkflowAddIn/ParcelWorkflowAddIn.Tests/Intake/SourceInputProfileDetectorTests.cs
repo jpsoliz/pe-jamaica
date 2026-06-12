@@ -72,6 +72,22 @@ internal static class SourceInputProfileDetectorTests
         TestAssert.Equal("matched", profile.Status, "CSV/DWG/plan should match Scenario B.");
     }
 
+    public static void InfersLiveTwoPdfComputationAndPlanFilenames()
+    {
+        var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));
+        var sources = new[]
+        {
+            Source("BELLEV029GEOLANCOMSHEET.pdf", ".pdf", null),
+            Source("BELLEV029GEOLAN20230811.pdf", ".pdf", null)
+        };
+
+        var profile = detector.Detect(sources);
+
+        TestAssert.Equal("scenario_a", profile.ProfileCode, "Live two-PDF transaction should match Scenario A.");
+        TestAssert.Equal("matched", profile.Status, "Live two-PDF transaction should not remain incomplete.");
+        TestAssert.Equal(0, profile.MissingRoles.Count, "Live two-PDF transaction should not have missing roles.");
+    }
+
     public static void DetectsUnsupportedIntakeWithoutClaimingScenario()
     {
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));

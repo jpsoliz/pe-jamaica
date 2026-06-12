@@ -204,6 +204,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             "Computation Check",
             "parcel_workflow",
             InnolaTransactionStatus.Available,
+            "Plan Examination",
             "John Johnson",
             "tester",
             "survey",

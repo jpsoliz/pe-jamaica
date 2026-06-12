@@ -1,5 +1,5 @@
 using System.Net.Http;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -32,13 +32,11 @@ public sealed class InnolaAuthService : IInnolaAuthService
         {
             var normalizedServer = InnolaHttp.NormalizeServerUrl(serverUrl);
             var authUrl = InnolaHttp.BuildUri(normalizedServer, $"{InnolaSettings.RestPath}{InnolaSettings.AuthenticationPath}");
-            using var response = await httpClient.PostAsJsonAsync(authUrl, new LoginPasswordRequest(
-                true,
-                true,
-                username,
-                InnolaSettings.DefaultAuthModule,
-                password,
-                InnolaSettings.DefaultAuthVersion), cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Post, authUrl)
+            {
+                Content = CreateLoginContent(username, password)
+            };
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -71,6 +69,10 @@ public sealed class InnolaAuthService : IInnolaAuthService
                 null);
 
             return InnolaLoginResult.Succeeded(CurrentSession);
+        }
+        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return InnolaLoginResult.Failure("Login timed out. Check server, certificate, and network.");
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
@@ -197,6 +199,18 @@ public sealed class InnolaAuthService : IInnolaAuthService
         [property: JsonPropertyName("module")] string Module,
         [property: JsonPropertyName("password")] string Password,
         [property: JsonPropertyName("version")] string Version);
+
+    private static StringContent CreateLoginContent(string username, string password)
+    {
+        var request = new LoginPasswordRequest(
+            true,
+            true,
+            username,
+            InnolaSettings.DefaultAuthModule,
+            password,
+            InnolaSettings.DefaultAuthVersion);
+        return new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+    }
 
     private sealed record LoginPayload(
         string AccessToken,
