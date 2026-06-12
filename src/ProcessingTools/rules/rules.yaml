@@ -1,2 +1,15 @@
-# Validation rules are implemented in later stories.
-rules: []
+rule_profile: sidwell_validation_v1
+rule_version: 1.0.0
+rules:
+  - id: approved_review_snapshot_current
+    severity: critical
+  - id: review_rows_present
+    severity: high
+  - id: review_rows_resolved
+    severity: high
+  - id: required_coordinates_present
+    severity: high
+  - id: coordinates_numeric
+    severity: high
+  - id: unique_point_identifiers
+    severity: warning

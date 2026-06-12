@@ -340,6 +340,50 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
+                <TextBlock Text="Validation"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Background="#F6E6BF"
+                          BorderBrush="#B7791F"
+                          Margin="0,0,6,0">
+                    <TextBlock Text="{Binding ValidationBadge}"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                  <Button Content="Run"
+                          Command="{Binding RunValidationCommand}"
+                          IsEnabled="{Binding CanRunValidation}"
+                          Style="{StaticResource SmallButtonStyle}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding ValidationSummaryText}"
+                           FontSize="11"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap" />
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding ValidationHelpText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
                 <TextBlock Text="Preflight"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />

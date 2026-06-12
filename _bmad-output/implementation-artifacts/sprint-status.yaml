@@ -75,8 +75,8 @@ development_status:
   3-5-approve-extraction-review-data: backlog
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-run-validation-on-approved-review-data: backlog
+  epic-4: in-progress
+  4-1-run-validation-on-approved-review-data: review
   4-2-display-validation-findings-by-severity: backlog
   4-3-gate-output-generation-based-on-validation-result: backlog
   4-4-route-case-to-manual-process-by-user-decision: backlog

@@ -328,6 +328,27 @@ public sealed partial class CaseFolderStore
             return WorkflowState.ReviewApproved;
         }
 
+        if (string.Equals(workflowState, WorkflowState.ValidationRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(new RecoverabilityIssue(
+                "interrupted_validation",
+                "warning",
+                "Case was reopened from an interrupted validation run. Re-run validation from the workflow pane.",
+                null,
+                false));
+            return WorkflowState.ReviewApproved;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ValidationBlocked.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ValidationBlocked;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.ValidationPassed.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ValidationPassed;
+        }
+
         if (string.Equals(workflowState, WorkflowState.PreflightRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))
         {
             issues.Add(new RecoverabilityIssue(

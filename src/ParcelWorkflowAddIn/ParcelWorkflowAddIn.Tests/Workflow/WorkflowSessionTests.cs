@@ -5,7 +5,10 @@ using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Execution;
+using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
+using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -751,6 +754,80 @@ internal static class WorkflowSessionTests
         TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Reopen must not create output artifact.");
     }
 
+    public static void WorkflowSessionValidationPassWritesSummaryAndState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateValidationSession(store, new FakeValidationExecutionService(blocked: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Validation should succeed for current approved review data.");
+        TestAssert.Equal(WorkflowState.ValidationPassed, session.CurrentState, "Passed validation should move workflow to validation passed.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "validation_summary.json")), "Validation should create validation summary artifact.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "validation_summary.json"), "Validation summary should be registered.");
+        TestAssert.Equal("Validation passed: output stage is now eligible.", session.StatusText, "Validation pass status mismatch.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Validation should not create output summary.");
+    }
+
+    public static void WorkflowSessionValidationBlockedMovesWorkflowToBlockedState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateValidationSession(store, new FakeValidationExecutionService(blocked: true));
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Blocked validation should still complete and write a summary.");
+        TestAssert.Equal(WorkflowState.ValidationBlocked, session.CurrentState, "Blocking findings should move workflow to validation blocked.");
+        TestAssert.Equal("Validation blocked: blocking findings require correction before outputs.", session.StatusText, "Validation blocked status mismatch.");
+    }
+
+    public static void WorkflowSessionValidationRejectsStaleApprovalAndReturnsToReview()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var reviewService = new ExtractionReviewPersistenceService();
+        var review = reviewService.Load(layout)!;
+        review.Rows[0].Easting = "9999.0";
+        reviewService.Save(layout, review, "tester");
+        var staleValidationPath = Path.Combine(layout.WorkingDirectory, "validation_summary.json");
+        File.WriteAllText(staleValidationPath, "{\"schema_version\":\"1.0.0\"}");
+        var session = CreateValidationSession(store, new FakeValidationExecutionService(blocked: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Stale approved review should block validation.");
+        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Stale approval should return workflow to review pending.");
+        TestAssert.True(!File.Exists(staleValidationPath), "Stale validation summary should be cleared.");
+        TestAssert.True(session.StatusText.Contains("approve the review again", StringComparison.OrdinalIgnoreCase), "User guidance should instruct re-approval.");
+    }
+
+    public static void WorkflowSessionReopenRestoresValidationStateAndArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var validationService = new FakeValidationExecutionService(blocked: false);
+        var firstSession = CreateValidationSession(store, validationService);
+        firstSession.ReopenCaseFolder(layout.RootDirectory);
+        firstSession.RunValidationAsync("tester").GetAwaiter().GetResult();
+        var reopenSession = CreateValidationSession(store, validationService);
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Case with validation summary should reopen.");
+        TestAssert.Equal(WorkflowState.ValidationPassed, reopenSession.CurrentState, "Reopen should restore validation passed state.");
+        TestAssert.True(reopenSession.CurrentValidationSummary is not null, "Reopen should restore validation summary document.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "validation_summary.json"), "Reopen should expose validation summary artifact.");
+    }
+
     private sealed class FakeSourceFileLauncher : ISourceFileLauncher
     {
         public string? OpenedPath { get; private set; }
@@ -783,6 +860,47 @@ internal static class WorkflowSessionTests
         }
     }
 
+    private sealed class FakeValidationExecutionService : IValidationExecutionService
+    {
+        private readonly bool blocked;
+
+        public FakeValidationExecutionService(bool blocked)
+        {
+            this.blocked = blocked;
+        }
+
+        public Task<ValidationExecutionResult> RunAsync(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, CancellationToken cancellationToken = default)
+        {
+            var summary = new ValidationSummaryDocument(
+                "1.0.0",
+                manifest.TransactionId,
+                "validation-test",
+                "2026-06-12T00:00:00Z",
+                operatorId,
+                manifest.Payload.ScriptPlan?.SourceManifestHash ?? string.Empty,
+                new ValidationSummaryPayload(
+                    blocked ? "blocked" : "passed",
+                    "sidwell_validation_v1",
+                    "1.0.0",
+                    new ValidationFindingCounts(0, blocked ? 1 : 0, 0, 0, blocked ? 0 : 1),
+                    new[]
+                    {
+                        new ValidationFinding(
+                            "review_rows_resolved",
+                            blocked ? "Unresolved rows remain." : "Review rows are resolved.",
+                            blocked ? "high" : "passed",
+                            blocked ? "failed" : "passed",
+                            null,
+                            blocked ? "Resolve rows and approve again." : null)
+                    }),
+                Array.Empty<string>(),
+                Array.Empty<string>());
+            var summaryPath = Path.Combine(layout.WorkingDirectory, "validation_summary.json");
+            File.WriteAllText(summaryPath, System.Text.Json.JsonSerializer.Serialize(summary));
+            return Task.FromResult(new ValidationExecutionResult(true, null, summaryPath, summary));
+        }
+    }
+
     private static WorkflowSession CreateManifestOnlySession()
     {
         return new WorkflowSession(
@@ -792,6 +910,23 @@ internal static class WorkflowSessionTests
             new SourceFileActionService(),
             new SourceFileActionAuditService(),
             new ManifestPreflightService());
+    }
+
+    private static WorkflowSession CreateValidationSession(CaseFolderStore store, IValidationExecutionService validationExecutionService)
+    {
+        return new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Not used.")),
+            new ExtractionReviewPersistenceService(),
+            validationExecutionService,
+            new ValidationSummaryPersistenceService());
     }
 
     private static CaseFolderLayout CreateInnolaScenarioACase(CaseFolderStore store, string outputRoot)
@@ -875,6 +1010,47 @@ internal static class WorkflowSessionTests
                     ScriptPlan = scriptPlan
                 }
             });
+        return layout;
+    }
+
+    private static CaseFolderLayout CreateApprovedReviewCase(CaseFolderStore store, string outputRoot)
+    {
+        var layout = CreateInnolaScenarioACase(store, outputRoot);
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+        var reviewDocument = new ExtractionReviewDocument
+        {
+            SchemaVersion = "1.0.0",
+            TransactionNumber = "100000206",
+            ExtractionSource = "draft",
+            RootMetadata = new JsonObject()
+        };
+        reviewDocument.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "row-001",
+            PointIdentifier = "P1",
+            Easting = "1000.0",
+            Northing = "2000.0",
+            Length = "10.0",
+            ExtractionStatus = "Verified",
+            SourceEvidence = "Sheet 1",
+            RowProvenance = "extracted",
+            OriginalValues = new ExtractionReviewOriginalValues
+            {
+                PointIdentifier = "P1",
+                Easting = "1000.0",
+                Northing = "2000.0",
+                Length = "10.0",
+                ExtractionStatus = "Verified",
+                SourceEvidence = "Sheet 1"
+            }
+        });
+        var reviewService = new ExtractionReviewPersistenceService();
+        var saved = reviewService.Save(layout, reviewDocument, "tester");
+        reviewService.Approve(layout, saved.Document!, "tester");
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ReviewApproved.ToContractValue() } });
         return layout;
     }
 }

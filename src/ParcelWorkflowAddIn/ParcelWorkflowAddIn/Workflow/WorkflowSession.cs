@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.IO;
 using System.Text.Json;
@@ -22,6 +23,8 @@ public sealed class WorkflowSession
     private readonly Func<WorkflowRuleSettings> getWorkflowRuleSettings;
     private readonly IWorkflowScriptExecutor workflowScriptExecutor;
     private readonly ExtractionReviewPersistenceService extractionReviewService;
+    private readonly IValidationExecutionService validationExecutionService;
+    private readonly ValidationSummaryPersistenceService validationSummaryPersistenceService;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -30,6 +33,8 @@ public sealed class WorkflowSession
     private readonly List<PreflightCheck> preflightPassedChecks = [];
     private bool preflightRunActive;
     private bool extractionRunActive;
+    private bool validationRunActive;
+    private ValidationSummaryDocument? currentValidationSummary;
 
     public WorkflowSession(CaseFolderStore caseFolderStore)
         : this(caseFolderStore, new SourceFileCopyService(), new SourceInputProfileDetector())
@@ -73,7 +78,9 @@ public sealed class WorkflowSession
             new WorkflowRuleResolver(),
             WorkflowRuleSettingsLoader.Load,
             new WorkflowScriptExecutor(),
-            new ExtractionReviewPersistenceService())
+            new ExtractionReviewPersistenceService(),
+            new ValidationAdapterExecutionService(),
+            new ValidationSummaryPersistenceService())
     {
     }
 
@@ -97,7 +104,9 @@ public sealed class WorkflowSession
             workflowRuleResolver,
             getWorkflowRuleSettings,
             workflowScriptExecutor,
-            new ExtractionReviewPersistenceService())
+            new ExtractionReviewPersistenceService(),
+            new ValidationAdapterExecutionService(),
+            new ValidationSummaryPersistenceService())
     {
     }
 
@@ -111,7 +120,9 @@ public sealed class WorkflowSession
         WorkflowRuleResolver workflowRuleResolver,
         Func<WorkflowRuleSettings> getWorkflowRuleSettings,
         IWorkflowScriptExecutor workflowScriptExecutor,
-        ExtractionReviewPersistenceService extractionReviewService)
+        ExtractionReviewPersistenceService extractionReviewService,
+        IValidationExecutionService validationExecutionService,
+        ValidationSummaryPersistenceService validationSummaryPersistenceService)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -123,6 +134,8 @@ public sealed class WorkflowSession
         this.getWorkflowRuleSettings = getWorkflowRuleSettings;
         this.workflowScriptExecutor = workflowScriptExecutor;
         this.extractionReviewService = extractionReviewService;
+        this.validationExecutionService = validationExecutionService;
+        this.validationSummaryPersistenceService = validationSummaryPersistenceService;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -153,11 +166,17 @@ public sealed class WorkflowSession
 
     public bool IsExtractionRunning => extractionRunActive;
 
-    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved;
+    public bool IsValidationRunning => validationRunActive;
+
+    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed;
 
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
 
     public bool CanRunExtractionReview => !extractionRunActive && CanRunExtractionReviewState(CurrentState);
+
+    public bool CanRunValidation => !validationRunActive && CanRunValidationState(CurrentState);
+
+    public ValidationSummaryDocument? CurrentValidationSummary => currentValidationSummary;
 
     public void ResetToDefault(string statusText = "No active case")
     {
@@ -172,6 +191,8 @@ public sealed class WorkflowSession
         StatusText = statusText;
         preflightRunActive = false;
         extractionRunActive = false;
+        validationRunActive = false;
+        currentValidationSummary = null;
     }
 
     public CaseFolderCreationResult CreateCase(string transactionId, string outputRoot, string? createdBy)
@@ -315,6 +336,7 @@ public sealed class WorkflowSession
         intakeIssues.AddRange(result.RecoverabilityIssues.Select(issue => issue.Message));
         DetectedProfileLabel = result.Manifest.Payload.DetectedProfile?.DisplayLabel ?? "Detected profile: not refreshed";
         LoadPreflightResults(result.Layout);
+        currentValidationSummary = LoadValidationSummary(result.Layout, result.ResolvedState);
         StatusText = result.RecoverabilityIssues.Count == 0
             ? "Case reopened"
             : "Case reopened with recoverability issues.";
@@ -448,6 +470,11 @@ public sealed class WorkflowSession
         return state is WorkflowState.PreflightPassed or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending;
     }
 
+    private static bool CanRunValidationState(WorkflowState state)
+    {
+        return state is WorkflowState.ReviewApproved or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed;
+    }
+
     public ExtractionReviewDocument? LoadExtractionReview()
     {
         if (string.IsNullOrWhiteSpace(CaseFolderPath))
@@ -491,6 +518,7 @@ public sealed class WorkflowSession
             return saveResult;
         }
 
+        RemoveValidationArtifacts(layout);
         UpsertAvailableArtifact(new AvailableArtifact("extraction_review_data.json", Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
         availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, Path.Combine(layout.WorkingDirectory, "approved_review.json"), StringComparison.OrdinalIgnoreCase) && !File.Exists(artifact.Path));
         SetWorkflowState(layout, WorkflowState.ReviewPending);
@@ -518,8 +546,73 @@ public sealed class WorkflowSession
             UpsertAvailableArtifact(new AvailableArtifact("approved_review.json", approvalResult.ApprovedReviewPath));
         }
 
+        RemoveValidationArtifacts(layout);
         SetWorkflowState(layout, WorkflowState.ReviewApproved);
         return approvalResult;
+    }
+
+    public async Task<ValidationExecutionResult> RunValidationAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (validationRunActive)
+        {
+            StatusText = "Validation is already running.";
+            return ValidationExecutionResult.Failed(StatusText);
+        }
+
+        if (!CanRunValidationState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        {
+            StatusText = "Approve the current review before starting validation.";
+            return ValidationExecutionResult.Failed(StatusText);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+        }
+        catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
+        {
+            StatusText = "Validation could not start because the manifest could not be read.";
+            return ValidationExecutionResult.Failed(StatusText);
+        }
+
+        var staleApprovalError = EnsureCurrentApproval(layout);
+        if (!string.IsNullOrWhiteSpace(staleApprovalError))
+        {
+            SetWorkflowState(layout, WorkflowState.ReviewPending);
+            StatusText = staleApprovalError;
+            return ValidationExecutionResult.Failed(staleApprovalError);
+        }
+
+        validationRunActive = true;
+        currentValidationSummary = null;
+        SetWorkflowState(layout, WorkflowState.ValidationRunning);
+        StatusText = "Validation running: evaluating approved review data.";
+
+        try
+        {
+            var result = await validationExecutionService.RunAsync(layout, manifest, operatorId, cancellationToken).ConfigureAwait(false);
+            if (!result.Success || result.Summary is null || string.IsNullOrWhiteSpace(result.SummaryPath))
+            {
+                SetWorkflowState(layout, WorkflowState.ValidationBlocked);
+                StatusText = result.ErrorMessage ?? "Validation failed.";
+                return result.Success ? ValidationExecutionResult.Failed(StatusText) : result;
+            }
+
+            currentValidationSummary = result.Summary;
+            UpsertAvailableArtifact(new AvailableArtifact("validation_summary.json", result.SummaryPath));
+            var blocked = validationSummaryPersistenceService.IsBlocked(result.Summary);
+            SetWorkflowState(layout, blocked ? WorkflowState.ValidationBlocked : WorkflowState.ValidationPassed);
+            StatusText = blocked
+                ? "Validation blocked: blocking findings require correction before outputs."
+                : "Validation passed: output stage is now eligible.";
+            return result;
+        }
+        finally
+        {
+            validationRunActive = false;
+        }
     }
 
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)
@@ -534,6 +627,7 @@ public sealed class WorkflowSession
         ClearPreflightResults();
         availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.PreflightSummaryPath, StringComparison.OrdinalIgnoreCase));
         RemoveExtractionArtifacts(layout);
+        RemoveValidationArtifacts(layout);
         if (File.Exists(layout.PreflightSummaryPath))
         {
             try
@@ -743,6 +837,87 @@ public sealed class WorkflowSession
                 intakeIssues.Add($"Extraction artifact could not be cleared: {exception.Message}");
             }
         }
+    }
+
+    private void RemoveValidationArtifacts(CaseFolderLayout layout)
+    {
+        currentValidationSummary = null;
+        var validationPath = Path.Combine(layout.WorkingDirectory, validationSummaryPersistenceService.ValidationArtifactFileName);
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, validationPath, StringComparison.OrdinalIgnoreCase));
+        if (!File.Exists(validationPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(validationPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Validation artifact could not be cleared: {exception.Message}");
+        }
+    }
+
+    private ValidationSummaryDocument? LoadValidationSummary(CaseFolderLayout layout, WorkflowState reopenedState)
+    {
+        if (reopenedState is not WorkflowState.ValidationBlocked and not WorkflowState.ValidationPassed)
+        {
+            return null;
+        }
+
+        try
+        {
+            return validationSummaryPersistenceService.Load(layout);
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Validation summary could not be read: {exception.Message}");
+            return null;
+        }
+    }
+
+    private string? EnsureCurrentApproval(CaseFolderLayout layout)
+    {
+        var approvedPath = Path.Combine(layout.WorkingDirectory, "approved_review.json");
+        if (!File.Exists(approvedPath))
+        {
+            RemoveValidationArtifacts(layout);
+            return "Validation requires a current approved review snapshot. Please approve the review again before validation.";
+        }
+
+        var reviewDocument = extractionReviewService.Load(layout);
+        if (reviewDocument is null)
+        {
+            RemoveValidationArtifacts(layout);
+            return "Validation requires extraction review data. Reload extraction review and approve it again.";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(approvedPath));
+            var root = document.RootElement;
+            var approvedHash = ReadJsonString(root, "review_hash") ?? ReadJsonString(root, "review_data_hash");
+            if (string.IsNullOrWhiteSpace(approvedHash) || !string.Equals(approvedHash, reviewDocument.ReviewHash, StringComparison.OrdinalIgnoreCase))
+            {
+                RemoveValidationArtifacts(layout);
+                return "Validation blocked: review data changed after approval. Save any edits, then approve the review again.";
+            }
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or NotSupportedException)
+        {
+            RemoveValidationArtifacts(layout);
+            return $"Validation blocked: approved review snapshot could not be verified. {exception.Message}";
+        }
+
+        return null;
+    }
+
+    private static string? ReadJsonString(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
     }
 
     private void ClearPreflightResults()

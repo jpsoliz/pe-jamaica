@@ -219,6 +219,24 @@ internal static class CaseFolderStoreTests
         TestAssert.Equal(WorkflowState.ReviewApproved, result.ResolvedState, "Review approved state should resume correctly.");
     }
 
+    public static void ReopenCaseFolderSupportsValidationStates()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "validation_blocked" } });
+        var blocked = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(blocked.Success, "Validation blocked manifest should reopen.");
+        TestAssert.Equal(WorkflowState.ValidationBlocked, blocked.ResolvedState, "Validation blocked state should resume correctly.");
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "validation_passed" } });
+        var passed = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(passed.Success, "Validation passed manifest should reopen.");
+        TestAssert.Equal(WorkflowState.ValidationPassed, passed.ResolvedState, "Validation passed state should resume correctly.");
+    }
+
     private static bool IsSnakeCase(string value)
     {
         return value.All(character => char.IsLower(character) || char.IsDigit(character) || character == '_');

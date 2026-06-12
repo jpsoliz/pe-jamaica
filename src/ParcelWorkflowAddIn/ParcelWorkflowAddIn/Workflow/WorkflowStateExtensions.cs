@@ -15,6 +15,9 @@ public static class WorkflowStateExtensions
             WorkflowState.ExtractionFailed => "extraction_failed",
             WorkflowState.ReviewPending => "review_pending",
             WorkflowState.ReviewApproved => "review_approved",
+            WorkflowState.ValidationRunning => "validation_running",
+            WorkflowState.ValidationBlocked => "validation_blocked",
+            WorkflowState.ValidationPassed => "validation_passed",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }
@@ -32,6 +35,9 @@ public static class WorkflowStateExtensions
             WorkflowState.ExtractionFailed => "Extraction Failed",
             WorkflowState.ReviewPending => "Review Pending",
             WorkflowState.ReviewApproved => "Review Approved",
+            WorkflowState.ValidationRunning => "Validation Running",
+            WorkflowState.ValidationBlocked => "Validation Blocked",
+            WorkflowState.ValidationPassed => "Validation Passed",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }

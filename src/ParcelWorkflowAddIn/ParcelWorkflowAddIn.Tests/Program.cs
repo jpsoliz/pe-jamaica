@@ -19,6 +19,7 @@ var tests = new (string Name, Action Run)[]
     ("case folder reopen reports missing copied source files", CaseFolderStoreTests.ReopenCaseFolderReportsMissingCopiedSourceFiles),
     ("case folder reopen reports unknown workflow state", CaseFolderStoreTests.ReopenCaseFolderReportsUnknownWorkflowState),
     ("case folder reopen supports review approved state", CaseFolderStoreTests.ReopenCaseFolderSupportsReviewApprovedState),
+    ("case folder reopen supports validation states", CaseFolderStoreTests.ReopenCaseFolderSupportsValidationStates),
     ("source file copy copies accepted files and updates manifest", SourceFileCopyServiceTests.CopySourceFilesCopiesAcceptedFilesAndUpdatesManifest),
     ("source file copy rejects unsupported extensions", SourceFileCopyServiceTests.CopySourceFilesRejectsUnsupportedExtensions),
     ("source file copy does not overwrite duplicate filenames", SourceFileCopyServiceTests.CopySourceFilesDoesNotOverwriteDuplicateFileNames),
@@ -97,6 +98,11 @@ var tests = new (string Name, Action Run)[]
     ("workflow session refreshing profile after preflight invalidates preflight", WorkflowSessionTests.WorkflowSessionRefreshingProfileAfterPreflightInvalidatesPreflight),
     ("workflow session run manifest preflight handles corrupt manifest", WorkflowSessionTests.WorkflowSessionRunManifestPreflightHandlesCorruptManifest),
     ("workflow session reopens preflight artifact without downstream commands", WorkflowSessionTests.WorkflowSessionReopensPreflightArtifactWithoutDownstreamCommands)
+    ,
+    ("workflow session validation pass writes summary and state", WorkflowSessionTests.WorkflowSessionValidationPassWritesSummaryAndState),
+    ("workflow session validation blocked moves workflow to blocked state", WorkflowSessionTests.WorkflowSessionValidationBlockedMovesWorkflowToBlockedState),
+    ("workflow session validation rejects stale approval and returns to review", WorkflowSessionTests.WorkflowSessionValidationRejectsStaleApprovalAndReturnsToReview),
+    ("workflow session reopen restores validation state and artifact", WorkflowSessionTests.WorkflowSessionReopenRestoresValidationStateAndArtifact)
     ,
     ("review persistence saves edited row and preserves originals", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsOverrides),
     ("review persistence saves manual row", ExtractionReviewPersistenceServiceTests.ManualPointSavePersistsAsManualRow),

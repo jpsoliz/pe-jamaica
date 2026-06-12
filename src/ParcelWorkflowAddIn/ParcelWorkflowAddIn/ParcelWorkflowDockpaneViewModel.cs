@@ -31,6 +31,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
     private readonly RelayCommand runExtractionReviewCommand;
+    private readonly RelayCommand runValidationCommand;
     private readonly RelayCommand addManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
     private readonly RelayCommand approveReviewCommand;
@@ -64,6 +65,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
         runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
         runExtractionReviewCommand = new RelayCommand(async () => await RunOrOpenExtractionReviewAsync(), () => CanRunExtractionReview);
+        runValidationCommand = new RelayCommand(async () => await RunValidationAsync(), () => CanRunValidation);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
         approveReviewCommand = new RelayCommand(ApproveReview, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
@@ -153,6 +155,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RunPreflightCommand => runPreflightCommand;
 
     public ICommand RunExtractionReviewCommand => runExtractionReviewCommand;
+
+    public ICommand RunValidationCommand => runValidationCommand;
 
     public ICommand AddManualPointCommand => addManualPointCommand;
 
@@ -260,6 +264,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionRunning => "Processing",
             WorkflowState.ExtractionFailed => "Blocked",
             WorkflowState.ReviewApproved => "Approved",
+            WorkflowState.ValidationRunning => "Approved",
+            WorkflowState.ValidationBlocked => "Approved",
+            WorkflowState.ValidationPassed => "Approved",
             WorkflowState.ReviewPending => "Ready",
             WorkflowState.PreflightPassed when HasExtractionReviewArtifact(workflowSession) => "Ready",
             WorkflowState.PreflightPassed => "Ready to run",
@@ -276,6 +283,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionRunning => "Draft extraction is running from the current script plan.",
             WorkflowState.ExtractionFailed => "Draft extraction failed. Review the status line, then try again.",
             WorkflowState.ReviewApproved => "Review data is approved. The review workspace is now read-only for this case state.",
+            WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Review data is approved. Validation now owns the next workflow gate and review remains read-only.",
             WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Draft review data is ready to inspect and correct before parcel build.",
             WorkflowState.PreflightPassed => "Extraction review will generate draft review data from the selected transaction files.",
             WorkflowState.PreflightBlocked => "Extraction review is unavailable until preflight blockers are resolved.",
@@ -356,7 +364,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReviewDetailsToggleText => ReviewDetailsExpanded ? "Hide details" : "Show details";
 
-    public bool IsReviewApproved => workflowSession.CurrentState == WorkflowState.ReviewApproved;
+    public bool IsReviewApproved => IsReviewLockedState(workflowSession.CurrentState);
 
     public bool IsReviewLocked => IsReviewApproved;
 
@@ -409,7 +417,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? "Not loaded"
             : reviewDirty
                 ? "Unsaved"
-                : workflowSession.CurrentState == WorkflowState.ReviewApproved
+                : IsReviewApproved
                     ? "Approved"
                     : "Loaded";
 
@@ -427,7 +435,48 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string OutputPreviewBodyText =>
         HasOutputArtifacts
             ? "Generated case artifacts are available for inspection before final transaction completion."
-            : "This is a planned output-stage workspace. It will preview generated deliverables such as geometry outputs, validation summaries, and package metadata. In the current implementation, review approval is the last completed workflow step before transaction-level Save or Approve.";
+            : workflowSession.CurrentState == WorkflowState.ValidationPassed
+                ? "Validation passed. This output-stage workspace will preview generated deliverables such as geometry outputs, validation summaries, and package metadata once output generation is implemented."
+                : "Output preview stays unavailable until validation passes. This stage will later preview generated deliverables such as geometry outputs, validation summaries, and package metadata.";
+
+    public bool CanRunValidation => CanUseWorkflowActions && workflowSession.CanRunValidation;
+
+    public string ValidationBadge =>
+        workflowSession.CurrentState switch
+        {
+            WorkflowState.ValidationRunning => "Processing",
+            WorkflowState.ValidationBlocked => "Blocked",
+            WorkflowState.ValidationPassed => "Passed",
+            WorkflowState.ReviewApproved => "Ready",
+            _ => "Not started"
+        };
+
+    public string ValidationSummaryText
+    {
+        get
+        {
+            var summary = workflowSession.CurrentValidationSummary;
+            if (summary is null)
+            {
+                return workflowSession.CurrentState == WorkflowState.ReviewApproved
+                    ? "Approved review data is ready for validation."
+                    : "Validation has not produced a summary yet.";
+            }
+
+            var counts = summary.Payload.FindingCounts;
+            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.";
+        }
+    }
+
+    public string ValidationHelpText =>
+        workflowSession.CurrentState switch
+        {
+            WorkflowState.ValidationRunning => "Validation is running against the approved review snapshot.",
+            WorkflowState.ValidationBlocked => "Validation completed with blocking findings. Review the validation summary before output generation.",
+            WorkflowState.ValidationPassed => "Validation passed. The output stage is now eligible when output generation is implemented.",
+            WorkflowState.ReviewApproved => "Run validation on the approved review data before outputs.",
+            _ => "Validation becomes available after extraction review is approved."
+        };
 
     private bool HasPreflightIssues => PreflightBlockers.Count + PreflightWarnings.Count > 0;
 
@@ -669,6 +718,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    private async Task RunValidationAsync()
+    {
+        var validationTask = workflowSession.RunValidationAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        await validationTask.ConfigureAwait(true);
+        RefreshWorkflowProperties();
+    }
+
     private void TogglePreflightDetails()
     {
         preflightDetailsExpanded = !preflightDetailsExpanded;
@@ -884,6 +941,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionFailed => "done",
             WorkflowState.ReviewPending => "done",
             WorkflowState.ReviewApproved => "done",
+            WorkflowState.ValidationRunning => "done",
+            WorkflowState.ValidationBlocked => "done",
+            WorkflowState.ValidationPassed => "done",
             _ => "pending"
         };
     }
@@ -900,8 +960,34 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionFailed => "blocked",
             WorkflowState.ReviewPending => "done",
             WorkflowState.ReviewApproved => "done",
+            WorkflowState.ValidationRunning => "done",
+            WorkflowState.ValidationBlocked => "done",
+            WorkflowState.ValidationPassed => "done",
             WorkflowState.PreflightPassed when hasReviewArtifact => "done",
             WorkflowState.PreflightPassed => "active",
+            _ => "pending"
+        };
+    }
+
+    private static string GetStepStateForValidation(WorkflowState state)
+    {
+        return state switch
+        {
+            WorkflowState.ValidationRunning => "active",
+            WorkflowState.ValidationBlocked => "blocked",
+            WorkflowState.ValidationPassed => "done",
+            WorkflowState.ReviewApproved => "active",
+            WorkflowState.NoCase or WorkflowState.Intake or WorkflowState.PreflightRunning or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending => "pending",
+            _ => "pending"
+        };
+    }
+
+    private static string GetStepStateForOutputs(WorkflowState state)
+    {
+        return state switch
+        {
+            WorkflowState.ValidationPassed => "active",
+            WorkflowState.ValidationBlocked => "pending",
             _ => "pending"
         };
     }
@@ -930,7 +1016,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         var currentState = workflowSession.CurrentState;
         var extractionState = GetStepStateForExtractionReview(currentState, HasExtractionReviewArtifact(workflowSession));
-        var validationState = currentState == WorkflowState.ReviewApproved ? "done" : "pending";
+        var validationState = GetStepStateForValidation(currentState);
+        var outputState = GetStepStateForOutputs(currentState);
 
         return new WorkflowLifecycleStep[]
         {
@@ -938,9 +1025,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             new WorkflowLifecycleStep("Preflight", GetStepStateForPreflight(currentState), GetLifecycleStepIcon(GetStepStateForPreflight(currentState))),
             new WorkflowLifecycleStep("Extraction Review", extractionState, GetLifecycleStepIcon(extractionState)),
             new WorkflowLifecycleStep("Validation", validationState, GetLifecycleStepIcon(validationState)),
-            new WorkflowLifecycleStep("Outputs", "pending", GetLifecycleStepIcon("pending")),
+            new WorkflowLifecycleStep("Outputs", outputState, GetLifecycleStepIcon(outputState)),
             new WorkflowLifecycleStep("Ready to Complete", "pending", GetLifecycleStepIcon("pending"))
         };
+    }
+
+    private static bool IsReviewLockedState(WorkflowState state)
+    {
+        return state is WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed;
     }
 
     private static string GetLifecycleStepIcon(string state) =>
@@ -1015,6 +1107,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
+        NotifyPropertyChanged(nameof(CanRunValidation));
         NotifyPropertyChanged(nameof(WorkflowSteps));
         NotifyPropertyChanged(nameof(DetectedProfileLabel));
         NotifyPropertyChanged(nameof(IntakeIssues));
@@ -1043,6 +1136,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(OutputPreviewSummaryText));
         NotifyPropertyChanged(nameof(HasOutputArtifacts));
         NotifyPropertyChanged(nameof(OutputPreviewBodyText));
+        NotifyPropertyChanged(nameof(ValidationBadge));
+        NotifyPropertyChanged(nameof(ValidationSummaryText));
+        NotifyPropertyChanged(nameof(ValidationHelpText));
         createCaseCommand.RaiseCanExecuteChanged();
         browseOutputLocationCommand.RaiseCanExecuteChanged();
         addSourceFilesCommand.RaiseCanExecuteChanged();
@@ -1053,6 +1149,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
         runExtractionReviewCommand.RaiseCanExecuteChanged();
+        runValidationCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();
         approveReviewCommand.RaiseCanExecuteChanged();

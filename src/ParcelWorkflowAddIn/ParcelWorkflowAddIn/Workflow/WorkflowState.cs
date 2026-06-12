@@ -10,5 +10,8 @@ public enum WorkflowState
     ExtractionRunning,
     ExtractionFailed,
     ReviewPending,
-    ReviewApproved
+    ReviewApproved,
+    ValidationRunning,
+    ValidationBlocked,
+    ValidationPassed
 }
