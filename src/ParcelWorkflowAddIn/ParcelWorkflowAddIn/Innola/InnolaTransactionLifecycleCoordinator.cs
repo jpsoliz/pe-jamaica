@@ -8,22 +8,28 @@ namespace ParcelWorkflowAddIn.Innola;
 public sealed class InnolaTransactionLifecycleCoordinator
 {
     private readonly InnolaSessionManager sessionManager;
+    private readonly IInnolaTransactionDetailService detailService;
     private readonly IInnolaTransactionLifecycleService lifecycleService;
     private readonly ITransactionCompletionReadinessService readinessService;
     private readonly WorkflowLifecycleAuditService auditService;
+    private readonly CaseResumePackageService resumePackageService;
     private readonly Func<DateTimeOffset> getUtcNow;
 
     public InnolaTransactionLifecycleCoordinator(
         InnolaSessionManager sessionManager,
+        IInnolaTransactionDetailService detailService,
         IInnolaTransactionLifecycleService lifecycleService,
         ITransactionCompletionReadinessService readinessService,
         WorkflowLifecycleAuditService auditService,
+        CaseResumePackageService resumePackageService,
         Func<DateTimeOffset>? getUtcNow = null)
     {
         this.sessionManager = sessionManager;
+        this.detailService = detailService;
         this.lifecycleService = lifecycleService;
         this.readinessService = readinessService;
         this.auditService = auditService;
+        this.resumePackageService = resumePackageService;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -83,7 +89,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 completedBy: null,
                 completedAt: null,
                 lastErrorCategory: null);
-            return InnolaTransactionLoadResult.Succeeded(CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!), null, "Transaction is in progress.");
+            return InnolaTransactionLoadResult.Succeeded(CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!), null, sessionManager.WasRestoredFromResumePackage, "Transaction is in progress.");
         }
         catch (Exception exception) when (IsExpectedAdapterFailure(exception))
         {
@@ -115,12 +121,57 @@ public sealed class InnolaTransactionLifecycleCoordinator
 
             sessionManager.MarkProgressSaved(now, "Progress saved. Transaction remains in progress.");
             UpdateManifestAndAudit("transaction_save_progress", "succeeded", "Progress saved. Transaction remains in progress.", null, "in_progress", lastSavedAt: now);
-            return InnolaTransactionLoadResult.Succeeded(CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!), null, "Progress saved. Transaction remains in progress.");
+            return InnolaTransactionLoadResult.Succeeded(CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!), null, sessionManager.WasRestoredFromResumePackage, "Progress saved. Transaction remains in progress.");
         }
         catch (Exception exception) when (IsExpectedAdapterFailure(exception))
         {
             sessionManager.RestoreTransactionState(snapshot);
             return InnolaTransactionLoadResult.Failure("Could not save progress. Try again.");
+        }
+    }
+
+    public async Task<InnolaTransactionLoadResult> SaveAndCloseAsync(CancellationToken cancellationToken = default)
+    {
+        var validation = ValidateActiveTransaction(requireOwner: true);
+        if (validation is not null)
+        {
+            return InnolaTransactionLoadResult.Failure(validation);
+        }
+
+        var snapshot = sessionManager.CaptureTransactionState();
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!);
+            var uploadResult = await UploadCasePackageAsync(
+                layout,
+                sessionManager.SelectedTransaction!,
+                InnolaResumePackageConventions.BuildResumeAttachmentFileName,
+                ShellState.ResumeAttachmentSourceType,
+                cancellationToken);
+            if (!uploadResult.Success)
+            {
+                return InnolaTransactionLoadResult.Failure(uploadResult.ErrorMessage ?? "Could not upload saved resume package. Try again.");
+            }
+
+            var lifecycleResult = await SaveProgressAsync(cancellationToken);
+            if (!lifecycleResult.Success)
+            {
+                return lifecycleResult;
+            }
+
+            UpdateManifestAndAudit(
+                "transaction_saved_for_resume",
+                "succeeded",
+                "Resume package uploaded and transaction saved for later resume.",
+                null,
+                status: "in_progress");
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Succeeded(layout, null, true, "Suspended. Resume package uploaded and case is ready to reopen later.");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or TaskCanceledException)
+        {
+            sessionManager.RestoreTransactionState(snapshot);
+            return InnolaTransactionLoadResult.Failure("Could not save and close transaction. Try again.");
         }
     }
 
@@ -133,10 +184,11 @@ public sealed class InnolaTransactionLifecycleCoordinator
         }
 
         var layout = CaseFolderLayout.FromRootDirectory(sessionManager.LoadedCaseFolderPath!);
+        var wasRestoredFromResumePackage = sessionManager.WasRestoredFromResumePackage;
         var now = NowString();
-        UpdateManifestAndAudit("transaction_cancelled_locally", "succeeded", "Current process cancelled locally. Innola task was not completed.", null, "cancelled", cancelledAt: now);
-        sessionManager.MarkTransactionCancelled(now, "Current process cancelled locally.");
-        return InnolaTransactionLoadResult.Succeeded(layout, null, "Current process cancelled locally.");
+        UpdateManifestAndAudit("transaction_cancelled_locally", "succeeded", "Cancelled locally. Innola task was not completed.", null, "cancelled", cancelledAt: now);
+        sessionManager.MarkTransactionCancelled(now, "Cancelled locally.");
+        return InnolaTransactionLoadResult.Succeeded(layout, null, wasRestoredFromResumePackage, "Cancelled locally.");
     }
 
     public void RecordSwitchDecision(string action, string status, string? message = null, string? errorCategory = null)
@@ -186,6 +238,17 @@ public sealed class InnolaTransactionLifecycleCoordinator
         var now = NowString();
         try
         {
+            var packageUpload = await UploadCasePackageAsync(
+                layout,
+                sessionManager.SelectedTransaction!,
+                InnolaResumePackageConventions.BuildCompletedAttachmentFileName,
+                ShellState.CompletedAttachmentSourceType,
+                cancellationToken);
+            if (!packageUpload.Success)
+            {
+                return InnolaTransactionLoadResult.Failure(packageUpload.ErrorMessage ?? "Could not upload completed case package. Try again.");
+            }
+
             var result = await lifecycleService.CompleteAsync(CreateRequest("complete"), cancellationToken);
             if (!result.Success)
             {
@@ -196,14 +259,62 @@ public sealed class InnolaTransactionLifecycleCoordinator
             }
 
             var completedBy = sessionManager.CurrentUser!.Username;
-            UpdateManifestAndAudit("transaction_complete_succeeded", "succeeded", "Transaction completed.", null, "completed", completionReady: true, completionReadyReason: "ready", completedBy: completedBy, completedAt: now);
-            sessionManager.MarkTransactionCompleted(now, "Transaction completed.");
-            return InnolaTransactionLoadResult.Succeeded(layout, null, "Transaction completed.");
+            var wasRestoredFromResumePackage = sessionManager.WasRestoredFromResumePackage;
+            UpdateManifestAndAudit("transaction_complete_succeeded", "succeeded", "Completed. Final package uploaded and transaction closed.", null, "completed", completionReady: true, completionReadyReason: "ready", completedBy: completedBy, completedAt: now);
+            sessionManager.MarkTransactionCompleted(now, "Completed. Final package uploaded and transaction closed.");
+            return InnolaTransactionLoadResult.Succeeded(layout, null, wasRestoredFromResumePackage, "Completed. Final package uploaded and transaction closed.");
         }
         catch (Exception exception) when (IsExpectedAdapterFailure(exception))
         {
             sessionManager.RestoreTransactionState(snapshot);
             return InnolaTransactionLoadResult.Failure("Could not complete transaction. Try again.");
+        }
+    }
+
+    private async Task<InnolaAttachmentUploadResult> UploadCasePackageAsync(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        Func<string, string> attachmentNameBuilder,
+        string sourceType,
+        CancellationToken cancellationToken)
+    {
+        string? packagePath = null;
+        try
+        {
+            var package = resumePackageService.Build(layout, transaction, sessionManager.CurrentUser?.Username);
+            if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath) || string.IsNullOrWhiteSpace(package.ContentType))
+            {
+                return InnolaAttachmentUploadResult.Failure(package.ErrorMessage ?? "Resume package could not be created.");
+            }
+
+            packagePath = package.PackagePath;
+            var content = await File.ReadAllBytesAsync(package.PackagePath, cancellationToken);
+            return await detailService.UploadAttachmentAsync(
+                sessionManager.CurrentSession!,
+                transaction,
+                attachmentNameBuilder(transaction.TransactionNumber),
+                package.ContentType,
+                content,
+                sourceType,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or TaskCanceledException)
+        {
+            return InnolaAttachmentUploadResult.Failure("Could not package case state for upload.", exception.GetType().Name);
+        }
+        finally
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(packagePath) && File.Exists(packagePath))
+                {
+                    File.Delete(packagePath);
+                }
+            }
+            catch (Exception)
+            {
+                // Best effort cleanup.
+            }
         }
     }
 

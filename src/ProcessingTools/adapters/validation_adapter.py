@@ -11,6 +11,7 @@ import json
 import sys
 import uuid
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ from typing import Any
 def _read_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _read_rules_metadata(path: Path | None) -> tuple[str, str]:
@@ -78,6 +83,8 @@ def build_summary(
     review_data: dict[str, Any],
     operator_id: str | None,
     rules_path: Path | None,
+    source_root: Path | None,
+    dwg_context_path: Path | None,
 ) -> dict[str, Any]:
     rule_profile, rule_version = _read_rules_metadata(rules_path)
     transaction_id = manifest.get("transaction_id") or review_data.get("transaction_number") or ""
@@ -249,15 +256,57 @@ def build_summary(
         )
 
     source_files = (manifest.get("payload") or {}).get("source_files") or []
+    available_source_files = []
+    if source_root is not None and source_root.exists():
+        available_source_files = sorted(path.name for path in source_root.iterdir() if path.is_file())
+
+    if available_source_files:
+        findings.append(
+            _finding(
+                "source_inputs_available",
+                "Source input files are available to validation.",
+                "passed",
+                "passed",
+                ", ".join(available_source_files[:10]),
+                None,
+            )
+        )
+    else:
+        findings.append(
+            _finding(
+                "source_inputs_available",
+                "Validation could not confirm any local source input files.",
+                "warning",
+                "failed",
+                str(source_root) if source_root is not None else "source_root_unset",
+                "Verify transaction attachments were copied into the case source folder before validation.",
+            )
+        )
+        warnings.append("Validation did not find local source files under the case source folder.")
+
     has_dwg = any(str(file_item.get("file_type", "")).lower() == ".dwg" for file_item in source_files)
     if has_dwg:
+        dwg_context_loaded = False
+        dwg_context_evidence = "dwg_reference_detected=true"
+        if dwg_context_path is not None and dwg_context_path.exists():
+            try:
+                dwg_context_document = _read_json(dwg_context_path)
+                dwg_context_loaded = True
+                dwg_context_evidence = (
+                    f"dwg_reference_detected=true; "
+                    f"context_keys={','.join(sorted(dwg_context_document.keys())[:10]) or 'none'}"
+                )
+            except json.JSONDecodeError:
+                warnings.append("DWG context file exists but could not be parsed; validation continued without parsed DWG context.")
+                dwg_context_evidence = "dwg_reference_detected=true; context_parse=failed"
+
         findings.append(
             _finding(
                 "dwg_context_optional",
                 "DWG reference is present for downstream validation context.",
                 "info",
                 "passed",
-                "dwg_reference_detected=true",
+                dwg_context_evidence if dwg_context_loaded else f"{dwg_context_evidence}; context_loaded=false",
                 None,
             )
         )
@@ -286,7 +335,7 @@ def build_summary(
         "schema_version": "1.0.0",
         "transaction_id": transaction_id,
         "run_id": f"validation-{uuid.uuid4().hex}",
-        "created_at": approved_review.get("approved_at") or review_data.get("review_saved_at") or "",
+        "created_at": _utc_now_iso(),
         "created_by": operator_id or approved_review.get("approved_by"),
         "source_manifest_hash": manifest_hash,
         "payload": {
@@ -312,6 +361,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--approved-review", required=True)
     parser.add_argument("--review-data", required=True)
+    parser.add_argument("--source-root", default="")
+    parser.add_argument("--dwg-context", default="")
     parser.add_argument("--output", required=True)
     parser.add_argument("--operator", default="")
     parser.add_argument("--rules", default="")
@@ -320,6 +371,8 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path = Path(args.manifest)
     approved_review_path = Path(args.approved_review)
     review_data_path = Path(args.review_data)
+    source_root = Path(args.source_root) if args.source_root else None
+    dwg_context_path = Path(args.dwg_context) if args.dwg_context else None
     output_path = Path(args.output)
     rules_path = Path(args.rules) if args.rules else None
 
@@ -329,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
         _read_json(review_data_path),
         args.operator or None,
         rules_path,
+        source_root,
+        dwg_context_path,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -184,6 +184,56 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.Equal(2, manifest.Payload.AttachmentProvenance!.Count, "Reopen should not duplicate provenance.");
     }
 
+    public static async Task ResumePackageRestoresSavedWorkflowState()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detailService = new MockInnolaTransactionDetailService();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, detailService, tempRoot.Path);
+
+        var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial load should succeed.");
+
+        var layout = first.Layout!;
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with
+        {
+            Payload = manifest.Payload with
+            {
+                WorkflowState = "review_approved"
+            }
+        });
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, "approved_review.json"), "{\"review_data_hash\":\"abc\"}");
+
+        var resumeService = new CaseResumePackageService(() => FixedNow(), () => "test");
+        var package = resumeService.Build(layout, manager.SelectedTransaction!, "tester");
+        TestAssert.True(package.Success, "Resume package should build.");
+        var packageBytes = await File.ReadAllBytesAsync(package.PackagePath!);
+        var upload = await detailService.UploadAttachmentAsync(
+            manager.CurrentSession!,
+            manager.SelectedTransaction!,
+            package.AttachmentFileName!,
+            package.ContentType!,
+            packageBytes,
+            InnolaResumePackageConventions.ResumeSourceType);
+        TestAssert.True(upload.Success, "Resume package should upload to mock detail service.");
+
+        Directory.Delete(layout.RootDirectory, recursive: true);
+        manager.ClearLoadedTransaction();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+
+        var second = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(second.Success, "Load from resume package should succeed.");
+        TestAssert.True(second.StatusMessage!.Contains("Restored from saved case", StringComparison.OrdinalIgnoreCase), "Status should indicate saved-case restore.");
+        var reopenedSession = new global::ParcelWorkflowAddIn.Workflow.WorkflowSession(new CaseFolderStore());
+        var reopen = reopenedSession.ReopenCaseFolder(second.Layout!.RootDirectory);
+        TestAssert.True(reopen.Success, "Restored case folder should reopen.");
+        TestAssert.Equal(global::ParcelWorkflowAddIn.Workflow.WorkflowState.ReviewApproved, reopen.ResolvedState, "Saved workflow state should be restored.");
+        TestAssert.True(File.Exists(Path.Combine(second.Layout.WorkingDirectory, "approved_review.json")), "Saved review artifact should be restored.");
+    }
+
     public static async Task ExistingCaseFolderMismatchBlocksLoad()
     {
         using var tempRoot = new TempDirectory();
@@ -277,6 +327,7 @@ internal static class InnolaTransactionLoadServiceTests
             new SourceInputProfileDetector(() => FixedNow()),
             workflowRuleResolver ?? new WorkflowRuleResolver(),
             () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => outputRoot,
             () => FixedNow());
     }
@@ -380,6 +431,18 @@ internal static class InnolaTransactionLoadServiceTests
         {
             return Task.FromResult(InnolaAttachmentContentResult.Succeeded(new byte[] { 1, 2, 3, 4 }));
         }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
+        }
     }
 
     private sealed class FailingSecondAttachmentService : IInnolaTransactionDetailService
@@ -411,6 +474,18 @@ internal static class InnolaTransactionLoadServiceTests
                 ? InnolaAttachmentContentResult.Succeeded(new byte[] { 1, 2, 3, 4 })
                 : InnolaAttachmentContentResult.Failure("Attachment content was not found.", "not_found"));
         }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
+        }
     }
 
     private sealed class ThrowingDetailService : IInnolaTransactionDetailService
@@ -427,6 +502,18 @@ internal static class InnolaTransactionLoadServiceTests
             InnolaSession session,
             InnolaTransactionDetail detail,
             InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Should not be called.");
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Should not be called.");

@@ -237,6 +237,24 @@ internal static class CaseFolderStoreTests
         TestAssert.Equal(WorkflowState.ValidationPassed, passed.ResolvedState, "Validation passed state should resume correctly.");
     }
 
+    public static void ReopenCaseFolderSupportsOutputStates()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "output_running" } });
+        var running = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(running.Success, "Output running manifest should reopen.");
+        TestAssert.Equal(WorkflowState.ValidationPassed, running.ResolvedState, "Interrupted output generation should recover to validation passed.");
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "output_created" } });
+        var createdState = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(createdState.Success, "Output created manifest should reopen.");
+        TestAssert.Equal(WorkflowState.OutputCreated, createdState.ResolvedState, "Output created state should resume correctly.");
+    }
+
     private static bool IsSnakeCase(string value)
     {
         return value.All(character => char.IsLower(character) || char.IsDigit(character) || character == '_');

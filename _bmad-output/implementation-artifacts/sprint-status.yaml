@@ -76,9 +76,11 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: in-progress
-  4-1-run-validation-on-approved-review-data: review
+  4-1-run-validation-on-approved-review-data: done
+  4-2a-redesign-parcel-workflow-into-stage-focused-workspace: review
+  4-2b-add-embedded-source-viewer-for-pdf-tiff-image-verification: review
   4-2-display-validation-findings-by-severity: backlog
-  4-3-gate-output-generation-based-on-validation-result: backlog
+  4-3-save-and-resume-transaction-cases-through-innola-resume-package: ready-for-dev
   4-4-route-case-to-manual-process-by-user-decision: backlog
   4-5-return-from-validation-to-review-for-corrections: backlog
   epic-4-retrospective: optional

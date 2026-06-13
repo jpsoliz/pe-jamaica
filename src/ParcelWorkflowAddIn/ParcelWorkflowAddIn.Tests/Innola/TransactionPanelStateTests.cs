@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -121,7 +122,7 @@ internal static class TransactionPanelStateTests
 
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Panel load should keep Parcel Workflow disabled until Start claims the task.");
         TestAssert.True(Directory.Exists(manager.LoadedCaseFolderPath!), "Panel load should create a Case Folder.");
-        TestAssert.True(panel.StatusText.Contains("Loaded TR100000004", StringComparison.OrdinalIgnoreCase), "Panel load status should confirm loaded transaction.");
+        TestAssert.True(panel.StatusText.Contains("Opened new case", StringComparison.OrdinalIgnoreCase), "Panel load status should confirm opened case state.");
         TestAssert.Equal(manager.LoadedCaseFolderPath, panel.LoadedCaseFolderPath, "Panel should expose loaded Case Folder path.");
         TestAssert.True(panel.CanStartTransaction, "Loaded selected transaction should be ready to start.");
         TestAssert.True(!panel.CanStopTask, "Stop should remain disabled before start.");
@@ -479,6 +480,9 @@ internal static class TransactionPanelStateTests
             new CaseFolderStore(clock, () => "run-panel-load"),
             new AttachmentSourceFileWriter(clock),
             new SourceInputProfileDetector(clock),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(clock, () => "test"),
             () => outputRoot,
             clock);
     }
@@ -490,9 +494,11 @@ internal static class TransactionPanelStateTests
     {
         return new InnolaTransactionLifecycleCoordinator(
             manager,
+            new MockInnolaTransactionDetailService(),
             new MockInnolaTransactionLifecycleService(),
             readinessService ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(clock),
+            new CaseResumePackageService(clock, () => "test"),
             clock);
     }
 
@@ -620,6 +626,18 @@ internal static class TransactionPanelStateTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(InnolaAttachmentContentResult.Succeeded(new byte[] { 1, 2, 3, 4 }));
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
         }
     }
 

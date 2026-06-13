@@ -1,6 +1,7 @@
 using System.IO;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using ParcelWorkflowAddIn.Intake;
 
@@ -125,6 +126,68 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         }
     }
 
+    public async Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(session.ServerUrl) || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", "unauthorized");
+        }
+
+        try
+        {
+            var route = NormalizeUploadRoute(ShellState.AttachmentUploadRoute);
+            var bindingMode = NormalizeBindingMode(ShellState.AttachmentUploadBindingMode);
+            var query = BuildUploadQuery(selectedTransaction, sourceType, bindingMode);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                InnolaHttp.BuildUri(
+                    session.ServerUrl,
+                    $"{InnolaSettings.RestPath}{route}{query}"));
+            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+
+            using var formData = new MultipartFormDataContent();
+            using var fileContent = new ByteArrayContent(content);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            formData.Add(fileContent, "file", fileName);
+
+            if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
+            {
+                formData.Add(new StringContent(sourceType), "sourceType");
+                formData.Add(new StringContent(selectedTransaction.TaskId), "taskId");
+                if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
+                {
+                    formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
+                }
+            }
+            request.Content = formData;
+
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var responseBody = await SafeReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={response.StatusCode}; Body={responseBody}.");
+                return InnolaAttachmentUploadResult.Failure(
+                    $"Could not upload saved resume package ({response.StatusCode}). Try again.",
+                    response.StatusCode.ToString());
+            }
+
+            Debug.WriteLine($"Innola attachment upload completed. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}.");
+            return InnolaAttachmentUploadResult.Succeeded();
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={exception.GetType().Name}.");
+            return InnolaAttachmentUploadResult.Failure("Could not upload saved resume package. Try again.", exception.GetType().Name);
+        }
+    }
+
     private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetScanningApplicationSourceAttachmentsAsync(
         InnolaSession session,
         SelectedInnolaTransaction selectedTransaction,
@@ -164,6 +227,74 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             Debug.WriteLine($"Innola scanning application source lookup failed. ApplicationId={selectedTransaction.ApplicationId}; Error={exception.GetType().Name}.");
             return Array.Empty<InnolaAttachmentMetadata>();
         }
+    }
+
+    private static async Task<string> SafeReadResponseBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return SanitizeDiagnostic(body);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return $"(response body unavailable: {exception.GetType().Name})";
+        }
+    }
+
+    private static string SanitizeDiagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "(empty)";
+        }
+
+        var sanitized = value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        if (sanitized.Length > 400)
+        {
+            sanitized = sanitized[..400] + "...";
+        }
+
+        return sanitized;
+    }
+
+    private static string NormalizeUploadRoute(string? route)
+    {
+        var normalized = string.IsNullOrWhiteSpace(route)
+            ? "scanning/source/attach"
+            : route.Trim().TrimStart('/');
+        return normalized;
+    }
+
+    private static AttachmentUploadBindingMode NormalizeBindingMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "query_only" => AttachmentUploadBindingMode.QueryOnly,
+            "form_only" => AttachmentUploadBindingMode.FormOnly,
+            _ => AttachmentUploadBindingMode.QueryAndForm
+        };
+    }
+
+    private static string BuildUploadQuery(SelectedInnolaTransaction selectedTransaction, string sourceType, AttachmentUploadBindingMode bindingMode)
+    {
+        if (bindingMode is AttachmentUploadBindingMode.FormOnly)
+        {
+            return string.Empty;
+        }
+
+        return $"?sourceType={Uri.EscapeDataString(sourceType)}&taskId={Uri.EscapeDataString(selectedTransaction.TaskId)}";
+    }
+
+    private enum AttachmentUploadBindingMode
+    {
+        QueryOnly,
+        FormOnly,
+        QueryAndForm
     }
 
     private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetTransactionSourceAttachmentsAsync(

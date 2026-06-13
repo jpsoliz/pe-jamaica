@@ -12,4 +12,13 @@ public interface IInnolaTransactionDetailService
         InnolaTransactionDetail detail,
         InnolaAttachmentMetadata attachment,
         CancellationToken cancellationToken = default);
+
+    Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        CancellationToken cancellationToken = default);
 }

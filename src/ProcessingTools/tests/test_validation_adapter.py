@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from adapters import validation_adapter
@@ -15,6 +16,9 @@ class ValidationAdapterTests(unittest.TestCase):
             review_path = temp_path / "extraction_review_data.json"
             output_path = temp_path / "validation_summary.json"
             rules_path = temp_path / "rules.yaml"
+            source_root = temp_path / "source"
+            source_root.mkdir()
+            (source_root / "computation.pdf").write_text("source", encoding="utf-8")
 
             manifest_path.write_text(
                 json.dumps(
@@ -55,6 +59,8 @@ class ValidationAdapterTests(unittest.TestCase):
                     str(approved_path),
                     "--review-data",
                     str(review_path),
+                    "--source-root",
+                    str(source_root),
                     "--output",
                     str(output_path),
                     "--operator",
@@ -69,6 +75,8 @@ class ValidationAdapterTests(unittest.TestCase):
             self.assertEqual("passed", summary["payload"]["status"])
             self.assertEqual("sidwell_validation_v1", summary["payload"]["rule_profile"])
             self.assertEqual(0, summary["payload"]["finding_counts"]["high"])
+            self.assertIn("source_inputs_available", {item["rule_id"] for item in summary["payload"]["findings"]})
+            datetime.fromisoformat(summary["created_at"].replace("Z", "+00:00"))
 
     def test_validation_adapter_writes_blocked_summary_for_stale_review(self):
         with tempfile.TemporaryDirectory() as temp_dir:

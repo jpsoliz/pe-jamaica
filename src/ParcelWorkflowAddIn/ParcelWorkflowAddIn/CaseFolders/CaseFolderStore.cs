@@ -280,8 +280,14 @@ public sealed partial class CaseFolderStore
         };
 
         return candidates
-            .Where(File.Exists)
+            .Where(path => File.Exists(path) || Directory.Exists(path))
             .Select(path => new AvailableArtifact(Path.GetFileName(path), path))
+            .Concat(Directory.Exists(layout.OutputDirectory)
+                ? Directory.GetDirectories(layout.OutputDirectory, "*.gdb", SearchOption.TopDirectoryOnly)
+                    .Select(path => new AvailableArtifact(Path.GetFileName(path), path))
+                : Array.Empty<AvailableArtifact>())
+            .GroupBy(artifact => artifact.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
             .ToArray();
     }
 
@@ -347,6 +353,22 @@ public sealed partial class CaseFolderStore
         if (string.Equals(workflowState, WorkflowState.ValidationPassed.ToContractValue(), StringComparison.OrdinalIgnoreCase))
         {
             return WorkflowState.ValidationPassed;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.OutputRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add(new RecoverabilityIssue(
+                "interrupted_output_generation",
+                "warning",
+                "Case was reopened from an interrupted output generation run. Run Outputs again from the workflow pane.",
+                null,
+                false));
+            return WorkflowState.ValidationPassed;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.OutputCreated.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.OutputCreated;
         }
 
         if (string.Equals(workflowState, WorkflowState.PreflightRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))

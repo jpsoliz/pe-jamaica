@@ -1,8 +1,466 @@
-"""Output generation adapter placeholder.
-
-Future story 5.1 owns implementation.
-"""
+import argparse
+import json
+import math
+import os
+import shutil
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 
 def run(input_json_path, output_json_path):
-    raise NotImplementedError("Output adapter is implemented in a later story.")
+    raise NotImplementedError("Output adapter is implemented through its CLI entrypoint.")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load_arcpy():
+    try:
+        import arcpy  # type: ignore
+
+        return arcpy
+    except Exception:
+        return None
+
+
+def _review_rows(review_data: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = review_data.get("rows")
+    return rows if isinstance(rows, list) else []
+
+
+def _parse_coordinate(value: Any) -> float | None:
+    if value is None:
+        return None
+
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _normalize_text(value: Any, limit: int) -> str:
+    text = "" if value is None else str(value).strip()
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+
+    if limit <= 3:
+        return text[:limit]
+
+    return text[: limit - 3] + "..."
+
+
+def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, row in enumerate(_review_rows(review_data), start=1):
+        if bool(row.get("review_unresolved")):
+            continue
+
+        point_id = (
+            row.get("review_point_identifier")
+            or row.get("point_identifier")
+            or row.get("point_id")
+            or row.get("point_no")
+            or row.get("point_number")
+            or f"P-{index:03d}"
+        )
+        easting = _parse_coordinate(row.get("review_easting") or row.get("easting"))
+        northing = _parse_coordinate(row.get("review_northing") or row.get("northing"))
+        if easting is None or northing is None:
+            continue
+
+        normalized.append(
+            {
+                "row_id": _normalize_text(row.get("row_id") or f"row-{index:03d}", 64),
+                "point_identifier": _normalize_text(point_id, 64),
+                "easting": easting,
+                "northing": northing,
+                "length": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 128),
+                "status": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
+                "source_evidence": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
+            }
+        )
+
+    return normalized
+
+
+def _polyline_segments(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    for index in range(len(points) - 1):
+        start = points[index]
+        end = points[index + 1]
+        segments.append(
+            {
+                "segment_index": index + 1,
+                "start_point": start["point_identifier"],
+                "end_point": end["point_identifier"],
+                "start": (start["easting"], start["northing"]),
+                "end": (end["easting"], end["northing"]),
+                "length": end.get("length") or "",
+            }
+        )
+    return segments
+
+
+def _polygon_points(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    if len(points) < 3:
+        return []
+
+    coords = [(float(point["easting"]), float(point["northing"])) for point in points]
+    cleaned = _dedupe_consecutive_points(coords)
+    if len(cleaned) < 3:
+        return []
+
+    if cleaned[0] != cleaned[-1]:
+        cleaned.append(cleaned[0])
+
+    unique_vertices = {coord for coord in cleaned[:-1]}
+    if len(unique_vertices) < 3:
+        return []
+
+    if math.isclose(abs(_ring_area(cleaned)), 0.0, abs_tol=1e-9):
+        return []
+
+    return cleaned
+
+
+def _dedupe_consecutive_points(coords: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    deduped: list[tuple[float, float]] = []
+    for coord in coords:
+        if not deduped or deduped[-1] != coord:
+            deduped.append(coord)
+    return deduped
+
+
+def _ring_area(coords: list[tuple[float, float]]) -> float:
+    if len(coords) < 4:
+        return 0.0
+
+    area = 0.0
+    for index in range(len(coords) - 1):
+        x1, y1 = coords[index]
+        x2, y2 = coords[index + 1]
+        area += (x1 * y2) - (x2 * y1)
+    return area / 2.0
+
+
+def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]], polygon_coords: list[tuple[float, float]]) -> dict[str, Any]:
+    features: list[dict[str, Any]] = []
+
+    for point in points:
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [point["easting"], point["northing"]]},
+                "properties": {
+                    "row_id": point["row_id"],
+                    "point_identifier": point["point_identifier"],
+                    "status": point["status"],
+                    "length": point["length"],
+                    "source_evidence": point["source_evidence"],
+                },
+            }
+        )
+
+    for segment in segments:
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": [list(segment["start"]), list(segment["end"])]},
+                "properties": {
+                    "segment_index": segment["segment_index"],
+                    "start_point": segment["start_point"],
+                    "end_point": segment["end_point"],
+                    "length": segment["length"],
+                },
+            }
+        )
+
+    if polygon_coords:
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": [[list(coord) for coord in polygon_coords]]},
+                "properties": {"name": "parcel_polygon"},
+            }
+        )
+
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _ensure_empty(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    elif path.exists():
+        path.unlink()
+
+
+def _copy_template_gdb(template_gdb: Path, target_gdb: Path) -> None:
+    if target_gdb.exists():
+        shutil.rmtree(target_gdb, ignore_errors=True)
+    shutil.copytree(template_gdb, target_gdb)
+
+
+def _create_outputs_with_arcpy(
+    arcpy,
+    target_gdb: Path,
+    template_gdb: Path | None,
+    points: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    polygon_coords: list[tuple[float, float]],
+) -> tuple[dict[str, str | None], list[str]]:
+    output_dir = target_gdb.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    warnings: list[str] = []
+
+    if template_gdb is not None and template_gdb.exists() and template_gdb.suffix.lower() == ".gdb":
+        _copy_template_gdb(template_gdb, target_gdb)
+    else:
+        if target_gdb.exists():
+            shutil.rmtree(target_gdb, ignore_errors=True)
+        arcpy.management.CreateFileGDB(str(output_dir), target_gdb.name)
+
+    spatial_reference = arcpy.SpatialReference(3448)
+    point_fc = target_gdb / "parcel_points"
+    line_fc = target_gdb / "parcel_lines"
+    polygon_fc = target_gdb / "parcel_polygon"
+
+    for dataset_path in (point_fc, line_fc, polygon_fc):
+        if arcpy.Exists(str(dataset_path)):
+            arcpy.management.Delete(str(dataset_path))
+
+    arcpy.management.CreateFeatureclass(str(target_gdb), point_fc.name, "POINT", spatial_reference=spatial_reference)
+    arcpy.management.AddField(str(point_fc), "point_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "status_txt", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "length_txt", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "source_txt", "TEXT", field_length=1024)
+    arcpy.management.AddField(str(point_fc), "row_id", "TEXT", field_length=64)
+
+    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "status_txt", "length_txt", "source_txt", "row_id"]) as cursor:
+        for point in points:
+            cursor.insertRow(
+                [
+                    (point["easting"], point["northing"]),
+                    _normalize_text(point["point_identifier"], 64),
+                    _normalize_text(point["status"], 64),
+                    _normalize_text(point["length"], 128),
+                    _normalize_text(point["source_evidence"], 1024),
+                    _normalize_text(point["row_id"], 64),
+                ]
+            )
+
+    created_line_fc: str | None = None
+    created_polygon_fc: str | None = None
+
+    if segments:
+        arcpy.management.CreateFeatureclass(str(target_gdb), line_fc.name, "POLYLINE", spatial_reference=spatial_reference)
+        arcpy.management.AddField(str(line_fc), "start_pt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "end_pt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "length_txt", "TEXT", field_length=128)
+        arcpy.management.AddField(str(line_fc), "seg_index", "LONG")
+
+        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "start_pt", "end_pt", "length_txt", "seg_index"]) as cursor:
+            for segment in segments:
+                array = arcpy.Array([arcpy.Point(*segment["start"]), arcpy.Point(*segment["end"])])
+                cursor.insertRow(
+                    [
+                        arcpy.Polyline(array, spatial_reference),
+                        _normalize_text(segment["start_point"], 64),
+                        _normalize_text(segment["end_point"], 64),
+                        _normalize_text(segment["length"], 128),
+                        segment["segment_index"],
+                    ]
+                )
+        created_line_fc = str(line_fc)
+
+    if polygon_coords:
+        try:
+            arcpy.management.CreateFeatureclass(str(target_gdb), polygon_fc.name, "POLYGON", spatial_reference=spatial_reference)
+            arcpy.management.AddField(str(polygon_fc), "name", "TEXT", field_length=64)
+
+            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "name"]) as cursor:
+                array = arcpy.Array([arcpy.Point(*coord) for coord in polygon_coords])
+                polygon_geometry = arcpy.Polygon(array, spatial_reference)
+                if getattr(polygon_geometry, "isEmpty", False):
+                    raise RuntimeError("ArcPy returned an empty polygon geometry.")
+
+                cursor.insertRow([polygon_geometry, "parcel_polygon"])
+            created_polygon_fc = str(polygon_fc)
+        except Exception as exc:
+            warnings.append(f"polygon_generation_skipped: {exc}")
+            if arcpy.Exists(str(polygon_fc)):
+                arcpy.management.Delete(str(polygon_fc))
+
+    return ({
+        "point_fc": str(point_fc),
+        "line_fc": created_line_fc,
+        "polygon_fc": created_polygon_fc,
+    }, warnings)
+
+
+def _create_outputs_filesystem_fallback(
+    target_gdb: Path,
+    points: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    polygon_coords: list[tuple[float, float]],
+) -> tuple[dict[str, str | None], list[str]]:
+    target_gdb.mkdir(parents=True, exist_ok=True)
+    (target_gdb / "_sidwell_test_mode.txt").write_text("filesystem fallback", encoding="utf-8")
+
+    point_fc = target_gdb / "parcel_points"
+    line_fc = target_gdb / "parcel_lines"
+    polygon_fc = target_gdb / "parcel_polygon"
+
+    point_fc.write_text(json.dumps(points, indent=2), encoding="utf-8")
+    if segments:
+        line_fc.write_text(json.dumps(segments, indent=2), encoding="utf-8")
+    if polygon_coords:
+        polygon_fc.write_text(json.dumps(polygon_coords, indent=2), encoding="utf-8")
+
+    return ({
+        "point_fc": str(point_fc),
+        "line_fc": str(line_fc) if segments else None,
+        "polygon_fc": str(polygon_fc) if polygon_coords else None,
+    }, [])
+
+
+def _build_summary(
+    manifest: dict[str, Any],
+    approved_review: dict[str, Any],
+    output_summary_path: Path,
+    result_gdb_path: Path,
+    geojson_path: Path,
+    layer_paths: dict[str, str | None],
+    points: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    polygon_coords: list[tuple[float, float]],
+    operator_id: str | None,
+    template_project_path: str | None,
+    template_gdb_path: str | None,
+    warnings: list[str],
+) -> dict[str, Any]:
+    artifact_paths = [str(geojson_path)]
+    map_layer_paths = [
+        layer_paths.get("point_fc"),
+        layer_paths.get("line_fc"),
+        layer_paths.get("polygon_fc"),
+    ]
+
+    payload = {
+        "status": "created",
+        "result_gdb_path": str(result_gdb_path),
+        "artifact_paths": artifact_paths,
+        "map_layer_paths": [path for path in map_layer_paths if path],
+        "point_feature_class_path": layer_paths.get("point_fc"),
+        "line_feature_class_path": layer_paths.get("line_fc"),
+        "polygon_feature_class_path": layer_paths.get("polygon_fc"),
+        "point_count": len(points),
+        "line_count": len(segments),
+        "polygon_count": 1 if polygon_coords else 0,
+        "template_project_path": template_project_path or None,
+        "template_gdb_path": template_gdb_path or None,
+    }
+
+    return {
+        "schema_version": "1.0.0",
+        "transaction_id": manifest.get("transaction_id") or approved_review.get("transaction_number") or "",
+        "run_id": f"output-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        "created_at": _utc_now(),
+        "created_by": operator_id or approved_review.get("approved_by"),
+        "source_manifest_hash": ((manifest.get("payload") or {}).get("script_plan") or {}).get("source_manifest_hash", ""),
+        "payload": payload,
+        "warnings": warnings,
+        "errors": [],
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Generate transaction output geodatabase from approved review data.")
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--approved-review", required=True)
+    parser.add_argument("--review-data", required=True)
+    parser.add_argument("--output-root", required=True)
+    parser.add_argument("--output-summary", required=True)
+    parser.add_argument("--operator")
+    parser.add_argument("--template-project")
+    parser.add_argument("--template-gdb")
+    args = parser.parse_args(argv)
+
+    manifest_path = Path(args.manifest)
+    approved_review_path = Path(args.approved_review)
+    review_data_path = Path(args.review_data)
+    output_root = Path(args.output_root)
+    output_summary_path = Path(args.output_summary)
+    template_gdb_path = Path(args.template_gdb) if args.template_gdb else None
+
+    manifest = _read_json(manifest_path)
+    approved_review = _read_json(approved_review_path)
+    review_data = _read_json(review_data_path)
+
+    approved_hash = approved_review.get("review_hash")
+    review_hash = review_data.get("review_hash")
+    if approved_hash and review_hash and str(approved_hash).strip().lower() != str(review_hash).strip().lower():
+        raise RuntimeError("Approved review hash does not match current review data.")
+
+    points = _normalize_points(review_data)
+    if not points:
+        raise RuntimeError("Approved review data does not contain any usable point rows for output generation.")
+
+    segments = _polyline_segments(points)
+    polygon_coords = _polygon_points(points)
+    transaction_number = review_data.get("transaction_number") or approved_review.get("transaction_number") or manifest.get("transaction_id") or "transaction"
+    result_gdb_path = output_root / f"{transaction_number}_parcel_output.gdb"
+    geojson_path = output_root / "extracted_geometry.geojson"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    arcpy = _load_arcpy()
+    if arcpy is not None:
+        layer_paths, warnings = _create_outputs_with_arcpy(arcpy, result_gdb_path, template_gdb_path, points, segments, polygon_coords)
+    elif os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", "").strip() == "1":
+        layer_paths, warnings = _create_outputs_filesystem_fallback(result_gdb_path, points, segments, polygon_coords)
+    else:
+        raise RuntimeError("ArcPy is not available for output generation.")
+
+    effective_polygon_coords = polygon_coords if layer_paths.get("polygon_fc") else []
+    _write_json(geojson_path, _build_geojson(points, segments, effective_polygon_coords))
+    summary = _build_summary(
+        manifest,
+        approved_review,
+        output_summary_path,
+        result_gdb_path,
+        geojson_path,
+        layer_paths,
+        points,
+        segments,
+        effective_polygon_coords,
+        args.operator,
+        args.template_project,
+        args.template_gdb,
+        warnings,
+    )
+    _write_json(output_summary_path, summary)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"Output generation failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)

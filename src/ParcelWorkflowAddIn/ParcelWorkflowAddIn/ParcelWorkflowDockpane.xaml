@@ -11,6 +11,7 @@
              FontFamily="Segoe UI">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
     <Style x:Key="CardBorderStyle" TargetType="Border">
       <Setter Property="Background" Value="#FFFFFF" />
       <Setter Property="BorderBrush" Value="#C9D2D8" />
@@ -18,16 +19,19 @@
       <Setter Property="CornerRadius" Value="4" />
       <Setter Property="Margin" Value="0,0,0,10" />
     </Style>
+
     <Style x:Key="SectionHeaderTextStyle" TargetType="TextBlock">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="#1F2933" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
+
     <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="#52616B" />
     </Style>
+
     <Style x:Key="PillBorderStyle" TargetType="Border">
       <Setter Property="Background" Value="#F3F6F7" />
       <Setter Property="BorderBrush" Value="#C9D2D8" />
@@ -36,6 +40,7 @@
       <Setter Property="Padding" Value="6,2" />
       <Setter Property="Margin" Value="0,0,6,0" />
     </Style>
+
     <Style x:Key="CompactButtonStyle" TargetType="Button">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Padding" Value="8,4" />
@@ -43,14 +48,17 @@
       <Setter Property="BorderBrush" Value="#C9D2D8" />
       <Setter Property="Background" Value="#FFFFFF" />
     </Style>
+
     <Style x:Key="SmallButtonStyle" TargetType="Button" BasedOn="{StaticResource CompactButtonStyle}">
       <Setter Property="Padding" Value="7,2" />
       <Setter Property="MinHeight" Value="22" />
     </Style>
+
     <Style x:Key="SmallPillBorderStyle" TargetType="Border" BasedOn="{StaticResource PillBorderStyle}">
       <Setter Property="Padding" Value="4,1" />
       <Setter Property="Margin" Value="0,0,0,0" />
     </Style>
+
     <Style x:Key="SectionHeaderBorderStyle" TargetType="Border">
       <Setter Property="Background" Value="#FBFCFD" />
       <Setter Property="BorderBrush" Value="#E1E8ED" />
@@ -214,8 +222,8 @@
                 DockPanel.Dock="Left" />
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal">
-          <Button Content="Save"
-                  Command="{Binding SaveProgressCommand}"
+          <Button Content="Suspend"
+                  Command="{Binding SuspendTransactionCommand}"
                   Style="{StaticResource CompactButtonStyle}"
                   Margin="0,0,6,0" />
           <Button Content="Approve"
@@ -241,12 +249,29 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="12,4,12,10">
-        <Border Style="{StaticResource CardBorderStyle}">
+        <Border Style="{StaticResource CardBorderStyle}"
+                Background="#EEF4FF"
+                BorderBrush="#C7D7F3">
+          <DockPanel Margin="10,8">
+            <TextBlock Text="Active stage workspace"
+                       Style="{StaticResource SectionHeaderTextStyle}" />
+            <Border DockPanel.Dock="Right"
+                    Style="{StaticResource SmallPillBorderStyle}"
+                    Background="#E7F2FB"
+                    BorderBrush="#2B6CB0">
+              <TextBlock Text="{Binding CurrentStepBadge}"
+                         FontSize="11"
+                         Foreground="#1D4F91" />
+            </Border>
+          </DockPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsIntakeStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
-              <DockPanel Margin="0"
-                         LastChildFill="False"
-                         Height="36">
+              <DockPanel Height="36"
+                         LastChildFill="False">
                 <TextBlock Text="Source Intake"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
@@ -263,36 +288,20 @@
               </DockPanel>
             </Border>
             <Border BorderBrush="#C9D2D8"
-                    BorderThickness="0,1,0,0">
-              <Grid Margin="10,8,10,4">
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="82" />
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <TextBlock Text="Scenario"
-                           Style="{StaticResource CaptionTextStyle}"
-                           FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1"
-                           Text="{Binding DetectedProfileLabel}"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding IntakeSummaryText}"
                            FontSize="12"
+                           FontWeight="SemiBold"
                            Foreground="#1F2933"
-                           TextWrapping="Wrap"
-                           Margin="0,0,8,0" />
-                <Button Grid.Column="2"
-                        Content="Change"
-                        IsEnabled="False"
-                        Style="{StaticResource SmallButtonStyle}" />
-
-                <ItemsControl Grid.Row="1"
-                              Grid.ColumnSpan="3"
-                              Margin="0,8,0,0"
+                           TextWrapping="Wrap" />
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding IntakeDetailText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+                <ItemsControl Margin="0,10,0,0"
                               ItemsSource="{Binding SourceFiles}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -330,56 +339,13 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
-              </Grid>
-            </Border>
-          </StackPanel>
-        </Border>
-
-        <Border Style="{StaticResource CardBorderStyle}">
-          <StackPanel>
-            <Border Style="{StaticResource SectionHeaderBorderStyle}">
-              <DockPanel Height="36"
-                         LastChildFill="False">
-                <TextBlock Text="Validation"
-                           Style="{StaticResource SectionHeaderTextStyle}"
-                           Margin="10,0,0,0" />
-                <StackPanel DockPanel.Dock="Right"
-                            Orientation="Horizontal"
-                            Margin="0,6,10,6">
-                  <Border Style="{StaticResource SmallPillBorderStyle}"
-                          Background="#F6E6BF"
-                          BorderBrush="#B7791F"
-                          Margin="0,0,6,0">
-                    <TextBlock Text="{Binding ValidationBadge}"
-                               FontSize="11"
-                               Foreground="#1F2933" />
-                  </Border>
-                  <Button Content="Run"
-                          Command="{Binding RunValidationCommand}"
-                          IsEnabled="{Binding CanRunValidation}"
-                          Style="{StaticResource SmallButtonStyle}" />
-                </StackPanel>
-              </DockPanel>
-            </Border>
-            <Border BorderBrush="#C9D2D8"
-                    BorderThickness="0,1,0,0"
-                    Padding="10">
-              <StackPanel>
-                <TextBlock Text="{Binding ValidationSummaryText}"
-                           FontSize="11"
-                           Foreground="#1F2933"
-                           TextWrapping="Wrap" />
-                <TextBlock Margin="0,6,0,0"
-                           Text="{Binding ValidationHelpText}"
-                           FontSize="11"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource CardBorderStyle}">
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsPreflightStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
@@ -404,7 +370,6 @@
                 </StackPanel>
               </DockPanel>
             </Border>
-
             <Border BorderBrush="#C9D2D8"
                     BorderThickness="0,1,0,0"
                     Padding="10">
@@ -427,101 +392,74 @@
                            Text="{Binding PreflightCollapsedHint}"
                            FontSize="11"
                            Foreground="#52616B"
-                           TextWrapping="Wrap"
-                           Visibility="{Binding HasPreflightResults, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                <Border Margin="0,8,0,0"
-                        Padding="8"
-                        Background="#FEF3F2"
-                        BorderBrush="#B42318"
+                           TextWrapping="Wrap" />
+                <Border Margin="0,10,0,0"
+                        Background="#FFFFFF"
+                        BorderBrush="#E1E8ED"
                         BorderThickness="1"
                         CornerRadius="4"
+                        Padding="8"
                         Visibility="{Binding PreflightDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <StackPanel>
-                    <Grid Background="#F3F6F7"
-                          MinHeight="26">
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="72" />
-                        <ColumnDefinition Width="110" />
-                        <ColumnDefinition Width="*" />
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Text="Result"
-                                 FontSize="11"
-                                 FontWeight="SemiBold"
-                                 Foreground="#52616B"
-                                 Margin="6,6,0,4" />
-                      <TextBlock Grid.Column="1"
-                                 Text="Check"
-                                 FontSize="11"
-                                 FontWeight="SemiBold"
-                                 Foreground="#52616B"
-                                 Margin="6,6,0,4" />
-                      <TextBlock Grid.Column="2"
-                                 Text="Details"
-                                 FontSize="11"
-                                 FontWeight="SemiBold"
-                                 Foreground="#52616B"
-                                 Margin="6,6,0,4" />
-                    </Grid>
-                    <ItemsControl ItemsSource="{Binding PreflightResults}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                          <Border BorderBrush="#EEF2F4"
-                                  BorderThickness="0,0,0,1"
-                                  Padding="0,5">
-                            <Grid>
-                              <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="72" />
-                                <ColumnDefinition Width="110" />
-                                <ColumnDefinition Width="*" />
-                              </Grid.ColumnDefinitions>
-                              <StackPanel Orientation="Horizontal"
-                                          Margin="6,0,0,0">
-                                <Border Width="4"
-                                        Height="18"
-                                        CornerRadius="2"
-                                        Margin="0,0,6,0">
-                                  <Border.Style>
-                                    <Style TargetType="Border">
-                                      <Setter Property="Background" Value="#2F7D4F" />
-                                      <Style.Triggers>
-                                        <DataTrigger Binding="{Binding State}" Value="warn">
-                                          <Setter Property="Background" Value="#B7791F" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding State}" Value="block">
-                                          <Setter Property="Background" Value="#B42318" />
-                                        </DataTrigger>
-                                      </Style.Triggers>
-                                    </Style>
-                                  </Border.Style>
-                                </Border>
-                                <TextBlock Text="{Binding Result}"
-                                           FontSize="12"
-                                           VerticalAlignment="Center" />
-                              </StackPanel>
-                              <TextBlock Grid.Column="1"
-                                         Text="{Binding CheckName}"
-                                         FontSize="11"
-                                         TextWrapping="Wrap"
-                                         Margin="6,0,6,0" />
-                              <TextBlock Grid.Column="2"
-                                         Text="{Binding Details}"
-                                         FontSize="11"
-                                         TextWrapping="Wrap"
-                                         Foreground="#1F2933"
-                                         Margin="6,0,0,0" />
-                            </Grid>
-                          </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </StackPanel>
+                  <ItemsControl ItemsSource="{Binding PreflightResults}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="#EEF2F4"
+                                BorderThickness="0,0,0,1"
+                                Padding="0,6">
+                          <Grid>
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="74" />
+                              <ColumnDefinition Width="150" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal"
+                                        VerticalAlignment="Center">
+                              <Border Width="12"
+                                      Height="12"
+                                      CornerRadius="2"
+                                      Margin="0,0,6,0">
+                                <Border.Style>
+                                  <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#2F7D4F" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding State}" Value="warn">
+                                        <Setter Property="Background" Value="#B7791F" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding State}" Value="block">
+                                        <Setter Property="Background" Value="#B42318" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </Border.Style>
+                              </Border>
+                              <TextBlock Text="{Binding Result}"
+                                         FontSize="12"
+                                         VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding CheckName}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="6,0,6,0" />
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding Details}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Foreground="#1F2933"
+                                       Margin="6,0,0,0" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
                 </Border>
               </StackPanel>
             </Border>
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource CardBorderStyle}">
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsExtractionReviewStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
@@ -624,32 +562,127 @@
                               BorderThickness="1"
                               CornerRadius="4">
                         <StackPanel>
-                          <TextBlock Text="Source Document"
+                          <DockPanel LastChildFill="False">
+                            <TextBlock Text="Source Document"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1F2933" />
+                            <Border DockPanel.Dock="Right"
+                                    Style="{StaticResource SmallPillBorderStyle}"
+                                    Background="#EEF4FF"
+                                    BorderBrush="#9DB7E8">
+                              <TextBlock Text="{Binding ReviewViewerLoadState}"
+                                         FontSize="11"
+                                         Foreground="#1F2933" />
+                            </Border>
+                          </DockPanel>
+                          <TextBlock Margin="0,8,0,0"
+                                     Text="Active review source"
                                      FontSize="12"
                                      FontWeight="SemiBold"
                                      Foreground="#1F2933" />
-                          <TextBlock Margin="0,8,0,0"
-                                     Text="{Binding SelectedReviewSourceTitle}"
+                          <ComboBox Margin="0,6,0,0"
+                                    ItemsSource="{Binding ReviewSourceOptions}"
+                                    SelectedItem="{Binding SelectedReviewSource, Mode=TwoWay}"
+                                    DisplayMemberPath="FileLabel"
+                                    FontSize="11" />
+                          <TextBlock Margin="0,4,0,0"
+                                     Text="{Binding ReviewViewerFileTitle}"
                                      FontSize="12"
                                      FontWeight="SemiBold"
                                      Foreground="#1F2933"
                                      TextWrapping="Wrap" />
                           <TextBlock Margin="0,4,0,0"
-                                     Text="{Binding SelectedReviewSourceMode}"
+                                     Text="{Binding ReviewViewerRoleLabel}"
+                                     FontSize="11"
+                                     Foreground="#52616B" />
+                          <TextBlock Margin="0,2,0,0"
+                                     Text="{Binding ReviewViewerModeLabel}"
                                      FontSize="11"
                                      Foreground="#52616B" />
                           <TextBlock Margin="0,4,0,0"
-                                     Text="{Binding SelectedReviewSourcePath}"
+                                     Text="{Binding ReviewViewerDisplayPath}"
                                      FontSize="11"
                                      Foreground="#52616B"
                                      TextWrapping="Wrap" />
+                          <Border Margin="0,10,0,0"
+                                  MinHeight="220"
+                                  Padding="8"
+                                  Background="#F8FAFB"
+                                  BorderBrush="#D8E1E7"
+                                  BorderThickness="1"
+                                  CornerRadius="4">
+                            <Grid>
+                              <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                              </Grid.RowDefinitions>
+                              <DockPanel Grid.Row="0"
+                                         LastChildFill="False"
+                                         Margin="0,0,0,8">
+                                <TextBlock Text="Embedded verification viewer"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="#1F2933" />
+                                <StackPanel DockPanel.Dock="Right"
+                                            Orientation="Horizontal">
+                                  <Button Content="{Binding ReviewViewerFitToggleText}"
+                                          Command="{Binding ToggleReviewViewerFitCommand}"
+                                          IsEnabled="{Binding CanToggleReviewViewerFit}"
+                                          Style="{StaticResource SmallButtonStyle}"
+                                          Margin="0,0,6,0" />
+                                  <Button Content="Reload"
+                                          Command="{Binding ReloadReviewViewerCommand}"
+                                          Style="{StaticResource SmallButtonStyle}" />
+                                </StackPanel>
+                              </DockPanel>
+                              <Grid Grid.Row="1">
+                                <Border Background="#FFFFFF"
+                                        BorderBrush="#E1E8ED"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Visibility="{Binding ReviewViewerUsesImage, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                                VerticalScrollBarVisibility="Auto">
+                                    <Image Source="{Binding ReviewViewerImageSource}"
+                                           Stretch="{Binding ReviewViewerImageStretch}" />
+                                  </ScrollViewer>
+                                </Border>
+                                <Border Background="#FFFFFF"
+                                        BorderBrush="#E1E8ED"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Visibility="{Binding ReviewViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  <WebBrowser x:Name="ReviewPdfBrowser" />
+                                </Border>
+                                <Border Background="#FFFFFF"
+                                        BorderBrush="#E1E8ED"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="10"
+                                        Visibility="{Binding ReviewViewerShowsFallback, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                  <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Embedded viewer fallback"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="#1F2933" />
+                                    <TextBlock Margin="0,6,0,0"
+                                               Text="{Binding ReviewViewerFallbackMessage}"
+                                               FontSize="11"
+                                               Foreground="#52616B"
+                                               TextWrapping="Wrap" />
+                                  </StackPanel>
+                                </Border>
+                              </Grid>
+                            </Grid>
+                          </Border>
                           <Border Margin="0,10,0,0"
                                   Padding="8"
                                   Background="#F3F6F7"
                                   BorderBrush="#E1E8ED"
                                   BorderThickness="1"
                                   CornerRadius="4">
-                            <TextBlock Text="{Binding SelectedReviewSourceGuidance}"
+                            <TextBlock Text="{Binding ReviewViewerGuidance}"
                                        FontSize="11"
                                        Foreground="#52616B"
                                        TextWrapping="Wrap" />
@@ -671,7 +704,7 @@
                                     BorderBrush="#C7D7F3"
                                     BorderThickness="1"
                                     CornerRadius="4">
-                              <TextBlock Text="This stage keeps the source file and point edits paired in one workspace. Use the associated viewer for zoom/pan while editing the compact point table."
+                              <TextBlock Text="This stage keeps the source document and point edits paired in one workspace. Use the embedded viewer for verification and keep Open source / Reveal as fallback tools."
                                          FontSize="11"
                                          Foreground="#1F2933"
                                          TextWrapping="Wrap" />
@@ -699,7 +732,6 @@
                       </Border>
 
                       <Border Grid.Column="1"
-                              Padding="0"
                               Background="#FFFFFF"
                               BorderBrush="#D8E1E7"
                               BorderThickness="1"
@@ -781,7 +813,54 @@
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource CardBorderStyle}">
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsValidationStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Validation"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Background="#F6E6BF"
+                          BorderBrush="#B7791F"
+                          Margin="0,0,6,0">
+                    <TextBlock Text="{Binding ValidationBadge}"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                  <Button Content="Run"
+                          Command="{Binding RunValidationCommand}"
+                          IsEnabled="{Binding CanRunValidation}"
+                          Style="{StaticResource SmallButtonStyle}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding ValidationSummaryText}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap" />
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding ValidationHelpText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsOutputsStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
@@ -794,10 +873,15 @@
                             Margin="0,6,10,6">
                   <Border Style="{StaticResource SmallPillBorderStyle}"
                           Margin="0,0,6,0">
-                    <TextBlock Text="Secondary"
+                    <TextBlock Text="{Binding OutputBadge}"
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
+                  <Button Content="Run"
+                          Command="{Binding RunOutputsCommand}"
+                          IsEnabled="{Binding CanRunOutputs}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="0,0,6,0" />
                   <Button Content="{Binding OutputPreviewToggleText}"
                           Command="{Binding ToggleOutputPreviewCommand}"
                           Style="{StaticResource SmallButtonStyle}" />
@@ -824,7 +908,7 @@
                              Foreground="#52616B"
                              TextWrapping="Wrap" />
                 </Border>
-                <ItemsControl ItemsSource="{Binding AvailableArtifacts}"
+                <ItemsControl ItemsSource="{Binding OutputArtifacts}"
                               Margin="0,8,0,0"
                               Visibility="{Binding OutputPreviewExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
                   <ItemsControl.ItemTemplate>
@@ -848,8 +932,197 @@
             </Border>
           </StackPanel>
         </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding HasReadyToCompleteStage, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Ready to Complete"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Background="#EEF4FF"
+                          BorderBrush="#9DB7E8">
+                    <TextBlock Text="{Binding ReadyToCompleteBadge}"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding ReadyToCompleteSummaryText}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap" />
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding ReadyToCompleteHelpText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowIntakeSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding IntakeSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Source Intake"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#2F7D4F"
+                        BorderBrush="#2F7D4F">
+                  <TextBlock Text="{Binding SourceIntakeBadge}"
+                             FontSize="11"
+                             Foreground="#FFFFFF"
+                             FontWeight="SemiBold" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding IntakeSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding IntakeDetailText}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Preflight"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#F6E6BF"
+                        BorderBrush="#B7791F">
+                  <TextBlock Text="{Binding PreflightBadge}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding PreflightSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding PreflightCollapsedHint}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowExtractionSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding ExtractionSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Extraction Review"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#EEF4FF"
+                        BorderBrush="#9DB7E8">
+                  <TextBlock Text="{Binding ReviewBadgeText}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding ReviewSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding ReviewGateText}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowValidationSummaryCard, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding ValidationSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Validation"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#F6E6BF"
+                        BorderBrush="#B7791F">
+                  <TextBlock Text="{Binding ValidationBadge}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding ValidationSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding ValidationHelpText}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowOutputsSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding OutputsSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Outputs"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}">
+                  <TextBlock Text="{Binding OutputPreviewSummaryText}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding OutputPreviewBodyText}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
       </StackPanel>
     </ScrollViewer>
-
   </DockPanel>
 </UserControl>

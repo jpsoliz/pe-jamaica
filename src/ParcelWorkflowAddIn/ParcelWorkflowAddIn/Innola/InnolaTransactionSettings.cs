@@ -8,6 +8,10 @@ public sealed record InnolaTransactionSettings(
     string Mode,
     string ProcessStep,
     string CaseFolderOutputRoot,
+    string AttachmentUploadRoute,
+    string AttachmentUploadBindingMode,
+    string ResumeAttachmentSourceType,
+    string CompletedAttachmentSourceType,
     InnolaClientCertificateSettings ClientCertificate)
 {
     public static InnolaTransactionSettings Default { get; } = new(
@@ -15,6 +19,10 @@ public sealed record InnolaTransactionSettings(
         "mock",
         "parcel_workflow",
         DefaultCaseFolderOutputRoot(),
+        "scanning/source/attach",
+        "query_and_form",
+        InnolaResumePackageConventions.ResumeSourceType,
+        InnolaResumePackageConventions.CompletedSourceType,
         InnolaClientCertificateSettings.Default);
 
     public static InnolaTransactionSettings Load()
@@ -34,12 +42,20 @@ public sealed record InnolaTransactionSettings(
             var mode = ReadString(root, "innola_transaction_mode") ?? Default.Mode;
             var processStep = ReadString(root, "innola_process_step") ?? Default.ProcessStep;
             var outputRoot = ReadString(root, "case_folder_output_root");
+            var attachmentUploadRoute = ReadString(root, "innola_attachment_upload_route") ?? Default.AttachmentUploadRoute;
+            var attachmentUploadBindingMode = ReadString(root, "innola_attachment_upload_binding_mode") ?? Default.AttachmentUploadBindingMode;
+            var resumeAttachmentSourceType = ReadString(root, "innola_resume_attachment_source_type") ?? Default.ResumeAttachmentSourceType;
+            var completedAttachmentSourceType = ReadString(root, "innola_completed_attachment_source_type") ?? Default.CompletedAttachmentSourceType;
             var certificate = InnolaClientCertificateSettings.FromJson(root);
             return new InnolaTransactionSettings(
                 InnolaHttp.NormalizeServerUrl(serverUrl),
                 mode,
                 processStep,
                 string.IsNullOrWhiteSpace(outputRoot) ? Default.CaseFolderOutputRoot : ExpandPath(outputRoot),
+                string.IsNullOrWhiteSpace(attachmentUploadRoute) ? Default.AttachmentUploadRoute : attachmentUploadRoute,
+                string.IsNullOrWhiteSpace(attachmentUploadBindingMode) ? Default.AttachmentUploadBindingMode : attachmentUploadBindingMode,
+                string.IsNullOrWhiteSpace(resumeAttachmentSourceType) ? Default.ResumeAttachmentSourceType : resumeAttachmentSourceType,
+                string.IsNullOrWhiteSpace(completedAttachmentSourceType) ? Default.CompletedAttachmentSourceType : completedAttachmentSourceType,
                 certificate);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or UriFormatException)

@@ -33,6 +33,8 @@ public sealed class InnolaSessionManager
 
     public string? LoadedAt { get; private set; }
 
+    public bool WasRestoredFromResumePackage { get; private set; }
+
     public InnolaTransactionLifecycleStatus LifecycleStatus { get; private set; } = InnolaTransactionLifecycleStatus.None;
 
     public string? LifecycleOwnerUser { get; private set; }
@@ -215,6 +217,7 @@ public sealed class InnolaSessionManager
             LoadedTransactionNumber,
             LoadedCaseFolderPath,
             LoadedAt,
+            WasRestoredFromResumePackage,
             LifecycleStatus,
             LifecycleOwnerUser,
             LifecycleOwnerDisplayName,
@@ -232,6 +235,7 @@ public sealed class InnolaSessionManager
         LoadedTransactionNumber = snapshot.LoadedTransactionNumber;
         LoadedCaseFolderPath = snapshot.LoadedCaseFolderPath;
         LoadedAt = snapshot.LoadedAt;
+        WasRestoredFromResumePackage = snapshot.WasRestoredFromResumePackage;
         LifecycleStatus = snapshot.LifecycleStatus;
         LifecycleOwnerUser = snapshot.LifecycleOwnerUser;
         LifecycleOwnerDisplayName = snapshot.LifecycleOwnerDisplayName;
@@ -243,7 +247,7 @@ public sealed class InnolaSessionManager
         OnSessionChanged();
     }
 
-    public void MarkTransactionLoaded(string transactionNumber, string caseFolderPath, string loadedAt)
+    public void MarkTransactionLoaded(string transactionNumber, string caseFolderPath, string loadedAt, bool wasRestoredFromResumePackage)
     {
         if (!IsLoggedIn || SelectedTransaction is null)
         {
@@ -256,6 +260,7 @@ public sealed class InnolaSessionManager
         LoadedTransactionNumber = transactionNumber;
         LoadedCaseFolderPath = caseFolderPath;
         LoadedAt = loadedAt;
+        WasRestoredFromResumePackage = wasRestoredFromResumePackage;
         LifecycleStatus = InnolaTransactionLifecycleStatus.Loaded;
         LifecycleOwnerUser = null;
         LifecycleOwnerDisplayName = null;
@@ -263,7 +268,9 @@ public sealed class InnolaSessionManager
         LastSavedAt = null;
         CompletedAt = null;
         CancelledAt = null;
-        LifecycleStatusText = $"Loaded transaction {transactionNumber}.";
+        LifecycleStatusText = wasRestoredFromResumePackage
+            ? $"Restored from saved case: {transactionNumber}."
+            : $"Opened new case: {transactionNumber}.";
         OnSessionChanged();
     }
 
@@ -402,6 +409,7 @@ public sealed class InnolaSessionManager
         LoadedTransactionNumber = null;
         LoadedCaseFolderPath = null;
         LoadedAt = null;
+        WasRestoredFromResumePackage = false;
         LifecycleStatus = InnolaTransactionLifecycleStatus.None;
         LifecycleOwnerUser = null;
         LifecycleOwnerDisplayName = null;
@@ -419,6 +427,7 @@ public sealed record InnolaTransactionStateSnapshot(
     string? LoadedTransactionNumber,
     string? LoadedCaseFolderPath,
     string? LoadedAt,
+    bool WasRestoredFromResumePackage,
     InnolaTransactionLifecycleStatus LifecycleStatus,
     string? LifecycleOwnerUser,
     string? LifecycleOwnerDisplayName,

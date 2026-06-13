@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-06-12
 
 # Story 4.1: Run Validation on Approved Review Data
 
-Status: review
+Status: done
 
 ## Story
 
@@ -63,6 +63,12 @@ so that rule findings and validation gates are recorded before any local output 
   - [x] Run `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`.
   - [x] Run `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore`.
   - [x] Run `tools\package_addin.ps1`.
+
+### Review Findings
+
+- [x] [Review][Patch] Validation errors can escape to the UI and leave the workflow in an inconsistent state [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/WorkflowSession.cs:595]
+- [x] [Review][Patch] Validation does not actually consume source inputs or DWG-derived context despite the story contract [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Validation/ValidationAdapterExecutionService.cs:53]
+- [x] [Review][Patch] `validation_summary.json` records approval/save time instead of the validation run timestamp [src/ProcessingTools/adapters/validation_adapter.py:289]
 
 ## Dev Notes
 

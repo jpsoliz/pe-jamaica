@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using ParcelWorkflowAddIn.Intake;
 
@@ -5,8 +6,8 @@ namespace ParcelWorkflowAddIn.Innola;
 
 public sealed class MockInnolaTransactionDetailService : IInnolaTransactionDetailService
 {
-    private readonly IReadOnlyDictionary<string, InnolaTransactionDetail> details;
-    private readonly IReadOnlyDictionary<string, byte[]> contentByAttachmentId;
+    private readonly Dictionary<string, InnolaTransactionDetail> details;
+    private readonly Dictionary<string, byte[]> contentByAttachmentId;
 
     public MockInnolaTransactionDetailService()
         : this(CreateDefaultDetails(), CreateDefaultContent())
@@ -18,7 +19,7 @@ public sealed class MockInnolaTransactionDetailService : IInnolaTransactionDetai
         IReadOnlyDictionary<string, byte[]> contentByAttachmentId)
     {
         this.details = details.ToDictionary(detail => detail.TaskId, StringComparer.OrdinalIgnoreCase);
-        this.contentByAttachmentId = contentByAttachmentId;
+        this.contentByAttachmentId = new Dictionary<string, byte[]>(contentByAttachmentId, StringComparer.OrdinalIgnoreCase);
     }
 
     public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
@@ -53,6 +54,50 @@ public sealed class MockInnolaTransactionDetailService : IInnolaTransactionDetai
         return contentByAttachmentId.TryGetValue(attachment.AttachmentId, out var content)
             ? Task.FromResult(InnolaAttachmentContentResult.Succeeded(content))
             : Task.FromResult(InnolaAttachmentContentResult.Failure("Attachment content was not found.", "not_found"));
+    }
+
+    public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", "unauthorized"));
+        }
+
+        if (!details.TryGetValue(selectedTransaction.TaskId, out var detail))
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Failure("Transaction details were not found.", "not_found"));
+        }
+
+        var updatedAttachments = detail.Attachments
+            .Where(attachment => !attachment.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var removed in detail.Attachments.Where(attachment => attachment.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase)))
+        {
+            contentByAttachmentId.Remove(removed.AttachmentId);
+        }
+
+        var attachmentId = $"resume-{Guid.NewGuid():N}";
+        contentByAttachmentId[attachmentId] = content;
+        updatedAttachments.Add(new InnolaAttachmentMetadata(
+            attachmentId,
+            fileName,
+            Path.GetExtension(fileName).ToLowerInvariant(),
+            contentType,
+            null,
+            sourceType,
+            content.LongLength,
+            null,
+            $"mock-attachment:{attachmentId}",
+            false));
+        details[selectedTransaction.TaskId] = detail with { Attachments = updatedAttachments };
+        return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
     }
 
     private static IReadOnlyList<InnolaTransactionDetail> CreateDefaultDetails()

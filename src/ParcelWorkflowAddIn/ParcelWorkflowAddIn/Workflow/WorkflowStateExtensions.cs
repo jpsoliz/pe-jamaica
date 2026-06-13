@@ -18,6 +18,8 @@ public static class WorkflowStateExtensions
             WorkflowState.ValidationRunning => "validation_running",
             WorkflowState.ValidationBlocked => "validation_blocked",
             WorkflowState.ValidationPassed => "validation_passed",
+            WorkflowState.OutputRunning => "output_running",
+            WorkflowState.OutputCreated => "output_created",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }
@@ -38,6 +40,8 @@ public static class WorkflowStateExtensions
             WorkflowState.ValidationRunning => "Validation Running",
             WorkflowState.ValidationBlocked => "Validation Blocked",
             WorkflowState.ValidationPassed => "Validation Passed",
+            WorkflowState.OutputRunning => "Output Running",
+            WorkflowState.OutputCreated => "Output Created",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }

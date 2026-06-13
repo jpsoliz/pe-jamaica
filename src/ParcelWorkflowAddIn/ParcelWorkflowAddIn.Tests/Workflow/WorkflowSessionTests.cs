@@ -5,6 +5,7 @@ using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Execution;
+using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -787,6 +788,21 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("Validation blocked: blocking findings require correction before outputs.", session.StatusText, "Validation blocked status mismatch.");
     }
 
+    public static void WorkflowSessionValidationExceptionBecomesBlockedFailure()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateValidationSession(store, new ThrowingValidationExecutionService());
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Validation exception should be converted into a failed result.");
+        TestAssert.Equal(WorkflowState.ValidationBlocked, session.CurrentState, "Validation exception should leave workflow in blocked state.");
+        TestAssert.True(session.StatusText.Contains("Validation failed:", StringComparison.OrdinalIgnoreCase), "Validation exception should surface a readable failure status.");
+    }
+
     public static void WorkflowSessionValidationRejectsStaleApprovalAndReturnsToReview()
     {
         using var tempRoot = new TempDirectory();
@@ -826,6 +842,76 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.ValidationPassed, reopenSession.CurrentState, "Reopen should restore validation passed state.");
         TestAssert.True(reopenSession.CurrentValidationSummary is not null, "Reopen should restore validation summary document.");
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "validation_summary.json"), "Reopen should expose validation summary artifact.");
+    }
+
+    public static void WorkflowSessionOutputGenerationCreatesArtifactsAndAdvancesState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Outputs should succeed for a validated approved review case.");
+        TestAssert.Equal(WorkflowState.OutputCreated, session.CurrentState, "Successful outputs should move workflow to output created.");
+        TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Outputs should create output summary.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "output_summary.json"), "Output summary should be registered.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase)), "Generated geodatabase should be registered.");
+        TestAssert.True(session.CurrentOutputSummary is not null, "Output summary should be loaded into session state.");
+        TestAssert.Equal("Outputs created: local geometry is ready for map review.", session.StatusText, "Output success status mismatch.");
+    }
+
+    public static void WorkflowSessionOutputGenerationRequiresValidationPass()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Outputs should be blocked until validation passes.");
+        TestAssert.Equal(WorkflowState.ReviewApproved, session.CurrentState, "Blocked outputs should not change workflow state.");
+        TestAssert.Equal("Validation must pass before output generation can start.", session.StatusText, "Blocked outputs status mismatch.");
+    }
+
+    public static void WorkflowSessionOutputFailureReturnsToValidationPassed()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: true));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Output failure should be surfaced.");
+        TestAssert.Equal(WorkflowState.ValidationPassed, session.CurrentState, "Failed outputs should return workflow to validation passed.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Failed outputs should not leave output summary behind.");
+    }
+
+    public static void WorkflowSessionReopenRestoresOutputCreatedStateAndArtifacts()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Case with outputs should reopen.");
+        TestAssert.Equal(WorkflowState.OutputCreated, reopenSession.CurrentState, "Reopen should restore output-created state.");
+        TestAssert.True(reopenSession.CurrentOutputSummary is not null, "Reopen should restore output summary.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "output_summary.json"), "Reopen should expose output summary artifact.");
     }
 
     private sealed class FakeSourceFileLauncher : ISourceFileLauncher
@@ -901,6 +987,63 @@ internal static class WorkflowSessionTests
         }
     }
 
+    private sealed class ThrowingValidationExecutionService : IValidationExecutionService
+    {
+        public Task<ValidationExecutionResult> RunAsync(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Injected validation failure.");
+        }
+    }
+
+    private sealed class FakeOutputExecutionService : IOutputExecutionService
+    {
+        private readonly bool shouldFail;
+
+        public FakeOutputExecutionService(bool shouldFail)
+        {
+            this.shouldFail = shouldFail;
+        }
+
+        public Task<OutputExecutionResult> RunAsync(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, CancellationToken cancellationToken = default)
+        {
+            if (shouldFail)
+            {
+                return Task.FromResult(OutputExecutionResult.Failed("Injected output failure."));
+            }
+
+            Directory.CreateDirectory(layout.OutputDirectory);
+            var gdbPath = Path.Combine(layout.OutputDirectory, $"{manifest.TransactionId}_parcel_output.gdb");
+            Directory.CreateDirectory(gdbPath);
+            var geoJsonPath = Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson");
+            File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"features\":[]}");
+            var summary = new OutputSummaryDocument(
+                "1.0.0",
+                manifest.TransactionId,
+                "output-test",
+                "2026-06-12T00:00:00Z",
+                operatorId,
+                manifest.Payload.ScriptPlan?.SourceManifestHash ?? string.Empty,
+                new OutputSummaryPayload(
+                    "created",
+                    gdbPath,
+                    new[] { geoJsonPath },
+                    new[] { Path.Combine(gdbPath, "parcel_points") },
+                    Path.Combine(gdbPath, "parcel_points"),
+                    Path.Combine(gdbPath, "parcel_lines"),
+                    Path.Combine(gdbPath, "parcel_polygon"),
+                    3,
+                    2,
+                    1,
+                    null,
+                    null),
+                Array.Empty<string>(),
+                Array.Empty<string>());
+            var summaryPath = Path.Combine(layout.OutputDirectory, "output_summary.json");
+            File.WriteAllText(summaryPath, System.Text.Json.JsonSerializer.Serialize(summary));
+            return Task.FromResult(new OutputExecutionResult(true, null, summaryPath, summary));
+        }
+    }
+
     private static WorkflowSession CreateManifestOnlySession()
     {
         return new WorkflowSession(
@@ -927,6 +1070,25 @@ internal static class WorkflowSessionTests
             new ExtractionReviewPersistenceService(),
             validationExecutionService,
             new ValidationSummaryPersistenceService());
+    }
+
+    private static WorkflowSession CreateOutputSession(CaseFolderStore store, IOutputExecutionService outputExecutionService)
+    {
+        return new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Not used.")),
+            new ExtractionReviewPersistenceService(),
+            new FakeValidationExecutionService(blocked: false),
+            new ValidationSummaryPersistenceService(),
+            outputExecutionService,
+            new OutputSummaryPersistenceService());
     }
 
     private static CaseFolderLayout CreateInnolaScenarioACase(CaseFolderStore store, string outputRoot)
@@ -1041,6 +1203,46 @@ internal static class WorkflowSessionTests
                 PointIdentifier = "P1",
                 Easting = "1000.0",
                 Northing = "2000.0",
+                Length = "10.0",
+                ExtractionStatus = "Verified",
+                SourceEvidence = "Sheet 1"
+            }
+        });
+        reviewDocument.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "row-002",
+            PointIdentifier = "P2",
+            Easting = "1010.0",
+            Northing = "2000.0",
+            Length = "10.0",
+            ExtractionStatus = "Verified",
+            SourceEvidence = "Sheet 1",
+            RowProvenance = "extracted",
+            OriginalValues = new ExtractionReviewOriginalValues
+            {
+                PointIdentifier = "P2",
+                Easting = "1010.0",
+                Northing = "2000.0",
+                Length = "10.0",
+                ExtractionStatus = "Verified",
+                SourceEvidence = "Sheet 1"
+            }
+        });
+        reviewDocument.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "row-003",
+            PointIdentifier = "P3",
+            Easting = "1010.0",
+            Northing = "2010.0",
+            Length = "10.0",
+            ExtractionStatus = "Verified",
+            SourceEvidence = "Sheet 1",
+            RowProvenance = "extracted",
+            OriginalValues = new ExtractionReviewOriginalValues
+            {
+                PointIdentifier = "P3",
+                Easting = "1010.0",
+                Northing = "2010.0",
                 Length = "10.0",
                 ExtractionStatus = "Verified",
                 SourceEvidence = "Sheet 1"

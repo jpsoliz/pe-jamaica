@@ -7,6 +7,10 @@
   "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
+  "innola_attachment_upload_route": "scanning/source/attach",
+  "innola_attachment_upload_binding_mode": "query_and_form",
+  "innola_resume_attachment_source_type": "sidwell_resume_package",
+  "innola_completed_attachment_source_type": "sidwell_completed_package",
   "innola_client_certificate_enabled": true,
   "innola_client_certificate_store_location": "CurrentUser",
   "innola_client_certificate_store_name": "My",
@@ -18,5 +22,10 @@
   "openai_enabled": false,
   "openai_model": "gpt-4.1-mini",
   "openai_api_key_environment_variable": "OPENAI_API_KEY",
+  "output_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\output_adapter.py",
+  "output_template_project_path": "",
+  "output_template_gdb_path": "",
+  "validation_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\validation_adapter.py",
+  "validation_rules_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\rules\\rules.yaml",
   "case_folder_output_root": ""
 }

@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
+using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -25,6 +26,8 @@ public sealed class WorkflowSession
     private readonly ExtractionReviewPersistenceService extractionReviewService;
     private readonly IValidationExecutionService validationExecutionService;
     private readonly ValidationSummaryPersistenceService validationSummaryPersistenceService;
+    private readonly IOutputExecutionService outputExecutionService;
+    private readonly OutputSummaryPersistenceService outputSummaryPersistenceService;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -34,7 +37,9 @@ public sealed class WorkflowSession
     private bool preflightRunActive;
     private bool extractionRunActive;
     private bool validationRunActive;
+    private bool outputRunActive;
     private ValidationSummaryDocument? currentValidationSummary;
+    private OutputSummaryDocument? currentOutputSummary;
 
     public WorkflowSession(CaseFolderStore caseFolderStore)
         : this(caseFolderStore, new SourceFileCopyService(), new SourceInputProfileDetector())
@@ -80,7 +85,9 @@ public sealed class WorkflowSession
             new WorkflowScriptExecutor(),
             new ExtractionReviewPersistenceService(),
             new ValidationAdapterExecutionService(),
-            new ValidationSummaryPersistenceService())
+            new ValidationSummaryPersistenceService(),
+            new OutputAdapterExecutionService(),
+            new OutputSummaryPersistenceService())
     {
     }
 
@@ -106,7 +113,9 @@ public sealed class WorkflowSession
             workflowScriptExecutor,
             new ExtractionReviewPersistenceService(),
             new ValidationAdapterExecutionService(),
-            new ValidationSummaryPersistenceService())
+            new ValidationSummaryPersistenceService(),
+            new OutputAdapterExecutionService(),
+            new OutputSummaryPersistenceService())
     {
     }
 
@@ -123,6 +132,39 @@ public sealed class WorkflowSession
         ExtractionReviewPersistenceService extractionReviewService,
         IValidationExecutionService validationExecutionService,
         ValidationSummaryPersistenceService validationSummaryPersistenceService)
+        : this(
+            caseFolderStore,
+            sourceFileCopyService,
+            sourceInputProfileDetector,
+            sourceFileActionService,
+            sourceFileActionAuditService,
+            manifestPreflightService,
+            workflowRuleResolver,
+            getWorkflowRuleSettings,
+            workflowScriptExecutor,
+            extractionReviewService,
+            validationExecutionService,
+            validationSummaryPersistenceService,
+            new OutputAdapterExecutionService(),
+            new OutputSummaryPersistenceService())
+    {
+    }
+
+    public WorkflowSession(
+        CaseFolderStore caseFolderStore,
+        SourceFileCopyService sourceFileCopyService,
+        SourceInputProfileDetector sourceInputProfileDetector,
+        SourceFileActionService sourceFileActionService,
+        SourceFileActionAuditService sourceFileActionAuditService,
+        ManifestPreflightService manifestPreflightService,
+        WorkflowRuleResolver workflowRuleResolver,
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        IWorkflowScriptExecutor workflowScriptExecutor,
+        ExtractionReviewPersistenceService extractionReviewService,
+        IValidationExecutionService validationExecutionService,
+        ValidationSummaryPersistenceService validationSummaryPersistenceService,
+        IOutputExecutionService outputExecutionService,
+        OutputSummaryPersistenceService outputSummaryPersistenceService)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -136,6 +178,8 @@ public sealed class WorkflowSession
         this.extractionReviewService = extractionReviewService;
         this.validationExecutionService = validationExecutionService;
         this.validationSummaryPersistenceService = validationSummaryPersistenceService;
+        this.outputExecutionService = outputExecutionService;
+        this.outputSummaryPersistenceService = outputSummaryPersistenceService;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -168,7 +212,9 @@ public sealed class WorkflowSession
 
     public bool IsValidationRunning => validationRunActive;
 
-    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed;
+    public bool IsOutputRunning => outputRunActive;
+
+    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed or WorkflowState.OutputRunning or WorkflowState.OutputCreated;
 
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
 
@@ -176,7 +222,11 @@ public sealed class WorkflowSession
 
     public bool CanRunValidation => !validationRunActive && CanRunValidationState(CurrentState);
 
+    public bool CanRunOutputs => !outputRunActive && CanRunOutputState(CurrentState);
+
     public ValidationSummaryDocument? CurrentValidationSummary => currentValidationSummary;
+
+    public OutputSummaryDocument? CurrentOutputSummary => currentOutputSummary;
 
     public void ResetToDefault(string statusText = "No active case")
     {
@@ -192,7 +242,9 @@ public sealed class WorkflowSession
         preflightRunActive = false;
         extractionRunActive = false;
         validationRunActive = false;
+        outputRunActive = false;
         currentValidationSummary = null;
+        currentOutputSummary = null;
     }
 
     public CaseFolderCreationResult CreateCase(string transactionId, string outputRoot, string? createdBy)
@@ -337,6 +389,7 @@ public sealed class WorkflowSession
         DetectedProfileLabel = result.Manifest.Payload.DetectedProfile?.DisplayLabel ?? "Detected profile: not refreshed";
         LoadPreflightResults(result.Layout);
         currentValidationSummary = LoadValidationSummary(result.Layout, result.ResolvedState);
+        currentOutputSummary = LoadOutputSummary(result.Layout, result.ResolvedState);
         StatusText = result.RecoverabilityIssues.Count == 0
             ? "Case reopened"
             : "Case reopened with recoverability issues.";
@@ -475,6 +528,11 @@ public sealed class WorkflowSession
         return state is WorkflowState.ReviewApproved or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed;
     }
 
+    private static bool CanRunOutputState(WorkflowState state)
+    {
+        return state is WorkflowState.ValidationPassed;
+    }
+
     public ExtractionReviewDocument? LoadExtractionReview()
     {
         if (string.IsNullOrWhiteSpace(CaseFolderPath))
@@ -519,6 +577,7 @@ public sealed class WorkflowSession
         }
 
         RemoveValidationArtifacts(layout);
+        RemoveOutputArtifacts(layout);
         UpsertAvailableArtifact(new AvailableArtifact("extraction_review_data.json", Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
         availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, Path.Combine(layout.WorkingDirectory, "approved_review.json"), StringComparison.OrdinalIgnoreCase) && !File.Exists(artifact.Path));
         SetWorkflowState(layout, WorkflowState.ReviewPending);
@@ -547,6 +606,7 @@ public sealed class WorkflowSession
         }
 
         RemoveValidationArtifacts(layout);
+        RemoveOutputArtifacts(layout);
         SetWorkflowState(layout, WorkflowState.ReviewApproved);
         return approvalResult;
     }
@@ -609,9 +669,116 @@ public sealed class WorkflowSession
                 : "Validation passed: output stage is now eligible.";
             return result;
         }
+        catch (OperationCanceledException)
+        {
+            SetWorkflowState(layout, WorkflowState.ValidationBlocked);
+            StatusText = "Validation cancelled before completion.";
+            return ValidationExecutionResult.Failed(StatusText);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or JsonException
+            or ArgumentException)
+        {
+            SetWorkflowState(layout, WorkflowState.ValidationBlocked);
+            StatusText = $"Validation failed: {exception.Message}";
+            return ValidationExecutionResult.Failed(StatusText);
+        }
         finally
         {
             validationRunActive = false;
+        }
+    }
+
+    public async Task<OutputExecutionResult> RunOutputsAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (outputRunActive)
+        {
+            StatusText = "Outputs are already running.";
+            return OutputExecutionResult.Failed(StatusText);
+        }
+
+        if (!CanRunOutputState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        {
+            StatusText = "Validation must pass before output generation can start.";
+            return OutputExecutionResult.Failed(StatusText);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        var staleApprovalError = EnsureCurrentApproval(layout);
+        if (!string.IsNullOrWhiteSpace(staleApprovalError))
+        {
+            SetWorkflowState(layout, WorkflowState.ReviewPending);
+            StatusText = staleApprovalError;
+            return OutputExecutionResult.Failed(staleApprovalError);
+        }
+
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            StatusText = "Outputs could not start because the manifest could not be read.";
+            return OutputExecutionResult.Failed(StatusText);
+        }
+
+        outputRunActive = true;
+        currentOutputSummary = null;
+        SetWorkflowState(layout, WorkflowState.OutputRunning);
+        StatusText = "Outputs running: creating transaction geometry and local geodatabase.";
+
+        try
+        {
+            var result = await outputExecutionService.RunAsync(layout, manifest, operatorId, cancellationToken).ConfigureAwait(false);
+            if (!result.Success || result.Summary is null || string.IsNullOrWhiteSpace(result.SummaryPath))
+            {
+                SetWorkflowState(layout, WorkflowState.ValidationPassed);
+                StatusText = result.ErrorMessage ?? "Output generation failed.";
+                return result.Success ? OutputExecutionResult.Failed(StatusText) : result;
+            }
+
+            currentOutputSummary = result.Summary;
+            foreach (var artifactPath in outputSummaryPersistenceService.GetArtifactPaths(layout, result.Summary))
+            {
+                if (File.Exists(artifactPath) || Directory.Exists(artifactPath))
+                {
+                    UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(artifactPath), artifactPath));
+                }
+            }
+
+            SetWorkflowState(layout, WorkflowState.OutputCreated);
+            StatusText = "Outputs created: local geometry is ready for map review.";
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            SetWorkflowState(layout, WorkflowState.ValidationPassed);
+            StatusText = "Output generation cancelled before completion.";
+            return OutputExecutionResult.Failed(StatusText);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or JsonException
+            or ArgumentException)
+        {
+            SetWorkflowState(layout, WorkflowState.ValidationPassed);
+            StatusText = $"Output generation failed: {exception.Message}";
+            return OutputExecutionResult.Failed(StatusText);
+        }
+        finally
+        {
+            outputRunActive = false;
         }
     }
 
@@ -628,6 +795,7 @@ public sealed class WorkflowSession
         availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.PreflightSummaryPath, StringComparison.OrdinalIgnoreCase));
         RemoveExtractionArtifacts(layout);
         RemoveValidationArtifacts(layout);
+        RemoveOutputArtifacts(layout);
         if (File.Exists(layout.PreflightSummaryPath))
         {
             try
@@ -859,9 +1027,56 @@ public sealed class WorkflowSession
         }
     }
 
+    private void RemoveOutputArtifacts(CaseFolderLayout layout)
+    {
+        currentOutputSummary = null;
+        var candidateFiles = new[]
+        {
+            Path.Combine(layout.OutputDirectory, outputSummaryPersistenceService.OutputArtifactFileName),
+            Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson")
+        };
+
+        foreach (var candidateFile in candidateFiles)
+        {
+            availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, candidateFile, StringComparison.OrdinalIgnoreCase));
+            if (!File.Exists(candidateFile))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(candidateFile);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                intakeIssues.Add($"Output artifact could not be cleared: {exception.Message}");
+            }
+        }
+
+        if (Directory.Exists(layout.OutputDirectory))
+        {
+            foreach (var gdbDirectory in Directory.GetDirectories(layout.OutputDirectory, "*.gdb", SearchOption.TopDirectoryOnly))
+            {
+                availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, gdbDirectory, StringComparison.OrdinalIgnoreCase));
+                try
+                {
+                    Directory.Delete(gdbDirectory, recursive: true);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+                {
+                    intakeIssues.Add($"Output geodatabase could not be cleared: {exception.Message}");
+                }
+            }
+        }
+    }
+
     private ValidationSummaryDocument? LoadValidationSummary(CaseFolderLayout layout, WorkflowState reopenedState)
     {
-        if (reopenedState is not WorkflowState.ValidationBlocked and not WorkflowState.ValidationPassed)
+        if (reopenedState is not WorkflowState.ValidationBlocked
+            and not WorkflowState.ValidationPassed
+            and not WorkflowState.OutputRunning
+            and not WorkflowState.OutputCreated)
         {
             return null;
         }
@@ -877,12 +1092,31 @@ public sealed class WorkflowSession
         }
     }
 
+    private OutputSummaryDocument? LoadOutputSummary(CaseFolderLayout layout, WorkflowState reopenedState)
+    {
+        if (reopenedState is not WorkflowState.OutputCreated)
+        {
+            return null;
+        }
+
+        try
+        {
+            return outputSummaryPersistenceService.Load(layout);
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Output summary could not be read: {exception.Message}");
+            return null;
+        }
+    }
+
     private string? EnsureCurrentApproval(CaseFolderLayout layout)
     {
         var approvedPath = Path.Combine(layout.WorkingDirectory, "approved_review.json");
         if (!File.Exists(approvedPath))
         {
             RemoveValidationArtifacts(layout);
+            RemoveOutputArtifacts(layout);
             return "Validation requires a current approved review snapshot. Please approve the review again before validation.";
         }
 
@@ -890,6 +1124,7 @@ public sealed class WorkflowSession
         if (reviewDocument is null)
         {
             RemoveValidationArtifacts(layout);
+            RemoveOutputArtifacts(layout);
             return "Validation requires extraction review data. Reload extraction review and approve it again.";
         }
 
@@ -901,12 +1136,14 @@ public sealed class WorkflowSession
             if (string.IsNullOrWhiteSpace(approvedHash) || !string.Equals(approvedHash, reviewDocument.ReviewHash, StringComparison.OrdinalIgnoreCase))
             {
                 RemoveValidationArtifacts(layout);
+                RemoveOutputArtifacts(layout);
                 return "Validation blocked: review data changed after approval. Save any edits, then approve the review again.";
             }
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or NotSupportedException)
         {
             RemoveValidationArtifacts(layout);
+            RemoveOutputArtifacts(layout);
             return $"Validation blocked: approved review snapshot could not be verified. {exception.Message}";
         }
 

@@ -13,5 +13,7 @@ public enum WorkflowState
     ReviewApproved,
     ValidationRunning,
     ValidationBlocked,
-    ValidationPassed
+    ValidationPassed,
+    OutputRunning,
+    OutputCreated
 }

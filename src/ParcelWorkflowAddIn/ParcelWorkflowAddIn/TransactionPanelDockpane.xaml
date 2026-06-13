@@ -57,7 +57,7 @@
         </Button>
         <Button Style="{StaticResource ToolbarButton}"
                 Command="{Binding State.StopTaskCommand}"
-                ToolTip="Stop task and save progress">
+                ToolTip="Suspend task and save it for later resume">
           <Image Source="Images\TaskList\StopTask_16.png" Width="16" Height="16" />
         </Button>
         <Separator Width="1" Margin="2,0" />

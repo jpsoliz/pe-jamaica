@@ -1,5 +1,6 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 using System.Net.Http;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -21,25 +22,40 @@ internal static class ShellState
 
     public static WorkflowLifecycleAuditService LifecycleAudit { get; } = new();
 
+    public static CaseResumePackageService ResumePackages { get; } = new();
+
     public static InnolaTransactionLoadService TransactionLoader { get; } = new(
         Session,
         TransactionDetails,
         new CaseFolderStore(),
         new AttachmentSourceFileWriter(),
         new SourceInputProfileDetector(),
+        new WorkflowRuleResolver(),
+        WorkflowRuleSettingsLoader.Load,
+        ResumePackages,
         () => Settings.CaseFolderOutputRoot);
 
     public static InnolaTransactionLifecycleCoordinator LifecycleCoordinator { get; } = new(
         Session,
+        TransactionDetails,
         TransactionLifecycle,
         CompletionReadiness,
-        LifecycleAudit);
+        LifecycleAudit,
+        ResumePackages);
 
     public static string TransactionProcessStep { get; } = Settings.ProcessStep;
 
     public static string ConfiguredServerUrl { get; } = Settings.ServerUrl;
 
     public static string TransactionMode { get; } = Settings.Mode;
+
+    public static string AttachmentUploadRoute { get; } = Settings.AttachmentUploadRoute;
+
+    public static string AttachmentUploadBindingMode { get; } = Settings.AttachmentUploadBindingMode;
+
+    public static string ResumeAttachmentSourceType { get; } = Settings.ResumeAttachmentSourceType;
+
+    public static string CompletedAttachmentSourceType { get; } = Settings.CompletedAttachmentSourceType;
 
     public static string ClientCertificateStatus => Settings.ClientCertificate.Enabled
         ? $"Client certificate: {Settings.ClientCertificate.SubjectName ?? Settings.ClientCertificate.Thumbprint ?? "configured"}"

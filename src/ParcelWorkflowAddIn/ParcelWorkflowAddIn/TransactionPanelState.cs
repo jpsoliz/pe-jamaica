@@ -170,7 +170,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public string? LoadedCaseFolderPath => session.LoadedCaseFolderPath;
 
-    public string SavedTransactionStatusText => "In Progress by current user";
+    public string SavedTransactionStatusText => "Suspended";
 
     public string ConnectionUserText
     {
@@ -565,8 +565,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             }
 
             StatusText = string.IsNullOrWhiteSpace(result.StatusMessage)
-                ? $"Loaded {SelectedRow.TransactionNumber}."
-                : $"Loaded {SelectedRow.TransactionNumber}: {result.StatusMessage}";
+                ? $"Opened case {SelectedRow.TransactionNumber}."
+                : result.StatusMessage;
             NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         }
         finally
@@ -678,18 +678,18 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         IsLoading = true;
         ErrorText = null;
-        StatusText = "Saving current transaction progress.";
+        StatusText = "Suspending current transaction.";
         try
         {
             var savedTransactionNumber = session.LoadedTransactionNumber;
-            var result = await lifecycleCoordinator.SaveProgressAsync(cancellationToken);
-            ApplyLifecycleResult(result, "Progress saved. Transaction remains in progress.");
+            var result = await lifecycleCoordinator.SaveAndCloseAsync(cancellationToken);
+            ApplyLifecycleResult(result, "Suspended. Transaction released for later resume.");
             if (result.Success)
             {
                 SavedTransactionNumber = savedTransactionNumber;
                 session.ClearLoadedTransaction();
                 RestoreSelectedRow(savedTransactionNumber);
-                StatusText = result.StatusMessage ?? "Progress saved. Select a transaction to continue.";
+                StatusText = result.StatusMessage ?? "Suspended. Select a transaction to continue.";
                 NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
             }
         }
@@ -709,12 +709,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         IsLoading = true;
         ErrorText = null;
-        StatusText = "Completing transaction.";
+        StatusText = "Completing and closing transaction.";
         try
         {
             var completedTransactionNumber = session.LoadedTransactionNumber;
             var result = await lifecycleCoordinator.CompleteAsync(cancellationToken);
-            ApplyLifecycleResult(result, "Transaction completed.");
+            ApplyLifecycleResult(result, "Completed. Final package uploaded and transaction closed.");
             if (result.Success)
             {
                 SavedTransactionNumber = null;

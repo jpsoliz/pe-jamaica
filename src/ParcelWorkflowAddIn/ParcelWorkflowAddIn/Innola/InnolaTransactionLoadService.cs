@@ -16,6 +16,7 @@ public sealed class InnolaTransactionLoadService
     private readonly SourceInputProfileDetector profileDetector;
     private readonly WorkflowRuleResolver workflowRuleResolver;
     private readonly Func<WorkflowRuleSettings> getWorkflowRuleSettings;
+    private readonly CaseResumePackageService resumePackageService;
     private readonly Func<string> getOutputRoot;
     private readonly Func<DateTimeOffset> getUtcNow;
 
@@ -35,6 +36,7 @@ public sealed class InnolaTransactionLoadService
             profileDetector,
             new WorkflowRuleResolver(),
             WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(),
             getOutputRoot,
             getUtcNow)
     {
@@ -48,6 +50,7 @@ public sealed class InnolaTransactionLoadService
         SourceInputProfileDetector profileDetector,
         WorkflowRuleResolver workflowRuleResolver,
         Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        CaseResumePackageService resumePackageService,
         Func<string> getOutputRoot,
         Func<DateTimeOffset>? getUtcNow = null)
     {
@@ -58,6 +61,7 @@ public sealed class InnolaTransactionLoadService
         this.profileDetector = profileDetector;
         this.workflowRuleResolver = workflowRuleResolver;
         this.getWorkflowRuleSettings = getWorkflowRuleSettings;
+        this.resumePackageService = resumePackageService;
         this.getOutputRoot = getOutputRoot;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
@@ -102,7 +106,12 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure("Loaded transaction details did not match the selected transaction.");
         }
 
-        if (detail.Attachments.Count == 0 || detail.Attachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
+        var resumeAttachment = detail.Attachments.FirstOrDefault(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber));
+        var sourceAttachments = detail.Attachments
+            .Where(attachment => resumeAttachment is null || !string.Equals(attachment.AttachmentId, resumeAttachment.AttachmentId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if ((sourceAttachments.Length == 0 && resumeAttachment is null)
+            || sourceAttachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
         {
             sessionManager.ClearLoadedTransaction();
             return InnolaTransactionLoadResult.Failure("Transaction attachments are incomplete. Try again after Innola metadata is refreshed.");
@@ -113,6 +122,16 @@ public sealed class InnolaTransactionLoadService
         {
             sessionManager.ClearLoadedTransaction();
             return InnolaTransactionLoadResult.Failure("Case Folder output location is not configured.");
+        }
+
+        if (resumeAttachment is not null)
+        {
+            var restored = await RestoreCaseFolderFromResumePackageAsync(session, selected, detail, resumeAttachment, outputRoot, cancellationToken);
+            if (!restored.Success)
+            {
+                sessionManager.ClearLoadedTransaction();
+                return InnolaTransactionLoadResult.Failure(restored.ErrorMessage ?? "Saved resume package could not be restored.");
+            }
         }
 
         var caseFolderResult = CreateOrReopenCaseFolder(outputRoot, detail.TransactionNumber, session.User.Username, detail);
@@ -129,7 +148,7 @@ public sealed class InnolaTransactionLoadService
         var loadedAt = getUtcNow().UtcDateTime.ToString("O");
         var newlyWrittenFiles = new List<string>();
 
-        foreach (var attachment in detail.Attachments)
+        foreach (var attachment in sourceAttachments)
         {
             if (provenance.Any(existing => existing.AttachmentId.Equals(attachment.AttachmentId, StringComparison.OrdinalIgnoreCase)
                 && File.Exists(existing.CopiedPath)))
@@ -192,9 +211,9 @@ public sealed class InnolaTransactionLoadService
         {
             Payload = manifest.Payload with
             {
-                WorkflowState = "intake",
+                WorkflowState = resumeAttachment is null ? "intake" : manifest.Payload.WorkflowState,
                 SourceFiles = sourceFiles,
-                DetectedProfile = detectedProfile,
+                DetectedProfile = resumeAttachment is null ? detectedProfile : manifest.Payload.DetectedProfile ?? detectedProfile,
                 InnolaTransaction = new ManifestInnolaTransaction(
                     detail.TransactionId,
                     detail.TransactionNumber,
@@ -231,11 +250,39 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure($"Case Folder manifest could not be updated: {exception.Message}");
         }
 
-        sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt);
+        var wasRestoredFromResumePackage = resumeAttachment is not null;
+        sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt, wasRestoredFromResumePackage);
+        var loadModePrefix = resumeAttachment is null ? "Opened new case for" : "Restored from saved case for";
         var status = ruleResolution.Success
-            ? $"Loaded {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
-            : $"Loaded {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}";
-        return InnolaTransactionLoadResult.Succeeded(layout, detectedProfile, status);
+            ? $"{loadModePrefix} {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
+            : $"{loadModePrefix} {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}";
+        return InnolaTransactionLoadResult.Succeeded(layout, detectedProfile, wasRestoredFromResumePackage, status);
+    }
+
+    private async Task<ResumePackageRestoreResult> RestoreCaseFolderFromResumePackageAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selected,
+        InnolaTransactionDetail detail,
+        InnolaAttachmentMetadata resumeAttachment,
+        string outputRoot,
+        CancellationToken cancellationToken)
+    {
+        InnolaAttachmentContentResult content;
+        try
+        {
+            content = await detailService.GetAttachmentContentAsync(session, detail, resumeAttachment, cancellationToken);
+        }
+        catch (Exception exception) when (IsExpectedAdapterFailure(exception))
+        {
+            return ResumePackageRestoreResult.Failed("Saved resume package could not be downloaded. Try again.");
+        }
+
+        if (!content.Success)
+        {
+            return ResumePackageRestoreResult.Failed(SafeRetryMessage(content.ErrorMessage));
+        }
+
+        return resumePackageService.Restore(outputRoot, selected, content.Content);
     }
 
     private CaseFolderPreparationResult CreateOrReopenCaseFolder(

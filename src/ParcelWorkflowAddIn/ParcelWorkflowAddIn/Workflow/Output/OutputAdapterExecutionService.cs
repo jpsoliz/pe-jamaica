@@ -1,34 +1,33 @@
-using System.Text.Json;
+using System.IO;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
-using System.IO;
 
-namespace ParcelWorkflowAddIn.Workflow.Validation;
+namespace ParcelWorkflowAddIn.Workflow.Output;
 
-public sealed class ValidationAdapterExecutionService : IValidationExecutionService
+public sealed class OutputAdapterExecutionService : IOutputExecutionService
 {
     private readonly IProcessRunner processRunner;
     private readonly Func<WorkflowExecutionSettings> getExecutionSettings;
-    private readonly ValidationSummaryPersistenceService persistenceService;
+    private readonly OutputSummaryPersistenceService persistenceService;
 
-    public ValidationAdapterExecutionService()
-        : this(new ProcessRunner(), WorkflowExecutionSettings.Load, new ValidationSummaryPersistenceService())
+    public OutputAdapterExecutionService()
+        : this(new ProcessRunner(), WorkflowExecutionSettings.Load, new OutputSummaryPersistenceService())
     {
     }
 
-    public ValidationAdapterExecutionService(
+    public OutputAdapterExecutionService(
         IProcessRunner processRunner,
         Func<WorkflowExecutionSettings> getExecutionSettings,
-        ValidationSummaryPersistenceService persistenceService)
+        OutputSummaryPersistenceService persistenceService)
     {
         this.processRunner = processRunner;
         this.getExecutionSettings = getExecutionSettings;
         this.persistenceService = persistenceService;
     }
 
-    public async Task<ValidationExecutionResult> RunAsync(
+    public async Task<OutputExecutionResult> RunAsync(
         CaseFolderLayout layout,
         ManifestDocument manifest,
         string? operatorId,
@@ -37,60 +36,58 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
         var executionSettings = getExecutionSettings();
         if (string.IsNullOrWhiteSpace(executionSettings.PythonExecutable) || !File.Exists(executionSettings.PythonExecutable))
         {
-            return ValidationExecutionResult.Failed("Configured ArcGIS Python executable is not available for validation.");
+            return OutputExecutionResult.Failed("Configured ArcGIS Python executable is not available for output generation.");
         }
 
-        if (string.IsNullOrWhiteSpace(executionSettings.ValidationAdapterScriptPath) || !File.Exists(executionSettings.ValidationAdapterScriptPath))
+        if (string.IsNullOrWhiteSpace(executionSettings.OutputAdapterScriptPath) || !File.Exists(executionSettings.OutputAdapterScriptPath))
         {
-            return ValidationExecutionResult.Failed("validation_adapter.py is not available for validation.");
+            return OutputExecutionResult.Failed("output_adapter.py is not available for output generation.");
         }
 
         var approvedReviewPath = Path.Combine(layout.WorkingDirectory, "approved_review.json");
         var reviewDataPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
-        var dwgContextPath = Path.Combine(layout.WorkingDirectory, "dwg_context.json");
-        var outputPath = Path.Combine(layout.WorkingDirectory, persistenceService.ValidationArtifactFileName);
-        var rulesPath = executionSettings.ValidationRulesPath;
+        var outputSummaryPath = Path.Combine(layout.OutputDirectory, persistenceService.OutputArtifactFileName);
 
         var arguments = string.Join(" ",
-            Quote(executionSettings.ValidationAdapterScriptPath),
+            Quote(executionSettings.OutputAdapterScriptPath),
             "--manifest", Quote(layout.ManifestPath),
             "--approved-review", Quote(approvedReviewPath),
             "--review-data", Quote(reviewDataPath),
-            "--source-root", Quote(layout.SourceDirectory),
-            "--dwg-context", Quote(dwgContextPath),
-            "--output", Quote(outputPath),
+            "--output-root", Quote(layout.OutputDirectory),
+            "--output-summary", Quote(outputSummaryPath),
             "--operator", Quote(operatorId ?? string.Empty),
-            "--rules", Quote(rulesPath ?? string.Empty));
+            "--template-project", Quote(executionSettings.OutputTemplateProjectPath ?? string.Empty),
+            "--template-gdb", Quote(executionSettings.OutputTemplateGdbPath ?? string.Empty));
 
         var result = await processRunner.RunAsync(
             executionSettings.PythonExecutable,
             arguments,
-            TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(120),
             null,
             cancellationToken).ConfigureAwait(false);
 
         if (result.TimedOut)
         {
-            return ValidationExecutionResult.Failed("Validation timed out before completion.");
+            return OutputExecutionResult.Failed("Output generation timed out before completion.");
         }
 
         if (result.ExitCode != 0)
         {
-            return ValidationExecutionResult.Failed(Sanitize(result.StandardError, result.StandardOutput));
+            return OutputExecutionResult.Failed(Sanitize(result.StandardError, result.StandardOutput));
         }
 
-        if (!File.Exists(outputPath))
+        if (!File.Exists(outputSummaryPath))
         {
-            return ValidationExecutionResult.Failed("Validation completed without producing validation_summary.json.");
+            return OutputExecutionResult.Failed("Output generation completed without producing output_summary.json.");
         }
 
         var summary = persistenceService.Load(layout);
         if (summary is null)
         {
-            return ValidationExecutionResult.Failed("Validation summary could not be loaded after validation completed.");
+            return OutputExecutionResult.Failed("Output summary could not be loaded after output generation completed.");
         }
 
-        return new ValidationExecutionResult(true, null, outputPath, summary);
+        return new OutputExecutionResult(true, null, outputSummaryPath, summary);
     }
 
     private static string Quote(string value)
@@ -103,7 +100,7 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
         var joined = string.Join(Environment.NewLine, values.Where(value => !string.IsNullOrWhiteSpace(value)));
         if (string.IsNullOrWhiteSpace(joined))
         {
-            return "Validation failed without additional details.";
+            return "Output generation failed without additional details.";
         }
 
         var lines = joined
@@ -118,7 +115,7 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
             sanitized = sanitized[..400];
         }
 
-        return string.IsNullOrWhiteSpace(sanitized) ? "Validation failed without additional details." : sanitized;
+        return string.IsNullOrWhiteSpace(sanitized) ? "Output generation failed without additional details." : sanitized;
     }
 
     private static bool LooksSensitive(string value)

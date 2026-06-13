@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -63,6 +64,51 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         var manifest = ManifestSerializer.Read(Path.Combine(manager.LoadedCaseFolderPath!, "manifest.json"));
         TestAssert.Equal("in_progress", manifest.Payload.InnolaLifecycle!.Status, "Saved lifecycle should remain in progress.");
         TestAssert.True(!string.IsNullOrWhiteSpace(manifest.Payload.InnolaLifecycle.LastSavedAt), "Last saved timestamp should be recorded.");
+    }
+
+    public static async Task SaveAndCloseUploadsResumePackageAndPersistsProgress()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000004", "TR100000004"), FixedNow());
+        var loader = new InnolaTransactionLoadService(
+            manager,
+            detailService,
+            new CaseFolderStore(() => FixedNow(), () => "run-lifecycle"),
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            new SourceInputProfileDetector(() => FixedNow()),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => tempRoot.Path,
+            () => FixedNow());
+
+        var loaded = await loader.LoadSelectedTransactionAsync();
+        TestAssert.True(loaded.Success, "Test setup should load a transaction.");
+
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            new DefaultTransactionCompletionReadinessService(),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow());
+
+        await coordinator.StartOrClaimAsync();
+        File.WriteAllText(Path.Combine(manager.LoadedCaseFolderPath!, "working", "approved_review.json"), "{\"status\":\"approved\"}");
+
+        var result = await coordinator.SaveAndCloseAsync();
+
+        TestAssert.True(result.Success, "Save and close should succeed.");
+        TestAssert.Equal(1, lifecycleService.SaveCalls, "Save and close should persist lifecycle progress.");
+        var detail = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        var resumeAttachment = detail.Detail!.Attachments.FirstOrDefault(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, "TR100000004"));
+        TestAssert.True(resumeAttachment is not null, "Resume package attachment should be uploaded.");
+        var content = await detailService.GetAttachmentContentAsync(manager.CurrentSession!, detail.Detail, resumeAttachment!);
+        TestAssert.True(content.Success && content.Content.Length > 0, "Uploaded resume package should be downloadable.");
     }
 
     public static async Task CancelClearsActiveGateAndDoesNotComplete()
@@ -159,6 +205,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new CaseFolderStore(() => FixedNow(), () => "run-lifecycle"),
             new AttachmentSourceFileWriter(() => FixedNow()),
             new SourceInputProfileDetector(() => FixedNow()),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => outputRoot,
             () => FixedNow());
 
@@ -175,9 +224,11 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
     {
         return new InnolaTransactionLifecycleCoordinator(
             manager,
+            new MockInnolaTransactionDetailService(),
             lifecycleService,
             readiness ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => FixedNow());
     }
 
