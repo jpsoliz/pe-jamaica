@@ -9,6 +9,8 @@ public sealed record InnolaTransactionSettings(
     string Mode,
     string ProcessStep,
     string CaseFolderOutputRoot,
+    string ReviewWorkspaceMode,
+    string? ReviewWorkspaceModeWarning,
     IReadOnlyList<string> SupportedTransactionTypes,
     string? SupportedTransactionTypesWarning,
     IReadOnlyList<string> ComputeWorkflowStages,
@@ -36,11 +38,16 @@ public sealed record InnolaTransactionSettings(
         "Computation Check"
     };
 
+    public const string ReviewWorkspaceModeNormal = "normal";
+    public const string ReviewWorkspaceModeParcelFabric = "parcel_fabric";
+
     public static InnolaTransactionSettings Default { get; } = new(
         InnolaSettings.DefaultServerUrl,
         "mock",
         "parcel_workflow",
         DefaultCaseFolderOutputRoot(),
+        ReviewWorkspaceModeNormal,
+        null,
         SafeDefaultSupportedTransactionTypes,
         null,
         SafeDefaultComputeWorkflowStages,
@@ -67,6 +74,7 @@ public sealed record InnolaTransactionSettings(
         {
             return Default with
             {
+                ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json was not found.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json was not found.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json was not found."
             };
@@ -76,6 +84,7 @@ public sealed record InnolaTransactionSettings(
         {
             using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
             var root = document.RootElement;
+            var reviewWorkspaceMode = ResolveReviewWorkspaceMode(root);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
@@ -96,6 +105,8 @@ public sealed record InnolaTransactionSettings(
                 mode,
                 processStep,
                 string.IsNullOrWhiteSpace(outputRoot) ? Default.CaseFolderOutputRoot : ExpandPath(outputRoot),
+                reviewWorkspaceMode.Value,
+                reviewWorkspaceMode.Warning,
                 supportedTypes.Values,
                 supportedTypes.Warning,
                 computeWorkflowStages.Values,
@@ -114,6 +125,7 @@ public sealed record InnolaTransactionSettings(
         {
             return Default with
             {
+                ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json could not be parsed.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json could not be parsed.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json could not be parsed."
             };
@@ -282,6 +294,29 @@ public sealed record InnolaTransactionSettings(
             : new NamedStringListResolution(resolvedValues, null);
     }
 
+    private static NamedStringResolution ResolveReviewWorkspaceMode(JsonElement root)
+    {
+        var configuredValue = ReadString(root, "review_workspace_mode");
+        if (string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return new NamedStringResolution(
+                ReviewWorkspaceModeNormal,
+                "Review workspace mode is using the safe default because review_workspace_mode is missing.");
+        }
+
+        var normalized = configuredValue.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            ReviewWorkspaceModeNormal => new NamedStringResolution(ReviewWorkspaceModeNormal, null),
+            ReviewWorkspaceModeParcelFabric => new NamedStringResolution(ReviewWorkspaceModeParcelFabric, null),
+            "parcelfabric" => new NamedStringResolution(ReviewWorkspaceModeParcelFabric, null),
+            "parcel-fabric" => new NamedStringResolution(ReviewWorkspaceModeParcelFabric, null),
+            _ => new NamedStringResolution(
+                ReviewWorkspaceModeNormal,
+                $"Review workspace mode is using the safe default because '{configuredValue}' is not a supported value.")
+        };
+    }
+
     private static string DefaultCaseFolderOutputRoot()
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -309,12 +344,26 @@ public sealed record InnolaTransactionSettings(
             : string.Join(Environment.NewLine, values.Select(value => $"• {value}"));
     }
 
+    internal static string FormatReviewWorkspaceMode(string? value)
+    {
+        return value switch
+        {
+            ReviewWorkspaceModeParcelFabric => "Parcel Fabric",
+            ReviewWorkspaceModeNormal => "Normal",
+            _ => "Normal"
+        };
+    }
+
     private sealed record SupportedTransactionTypesResolution(
         IReadOnlyList<string> Values,
         string? Warning);
 
     private sealed record NamedStringListResolution(
         IReadOnlyList<string> Values,
+        string? Warning);
+
+    private sealed record NamedStringResolution(
+        string Value,
         string? Warning);
 }
 

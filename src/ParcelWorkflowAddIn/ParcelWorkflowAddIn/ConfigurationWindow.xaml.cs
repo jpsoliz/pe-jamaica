@@ -28,6 +28,11 @@ public partial class ConfigurationWindow : ProWindow
         var settingsPath = InnolaTransactionSettings.ResolveActiveSettingsPath();
         var transactionSettings = InnolaTransactionSettings.Load();
         SettingsPathText.Text = settingsPath;
+        ReviewWorkspaceModeText.Text = InnolaTransactionSettings.FormatReviewWorkspaceMode(transactionSettings.ReviewWorkspaceMode);
+        ReviewWorkspaceModeWarningText.Text = transactionSettings.ReviewWorkspaceModeWarning ?? string.Empty;
+        ReviewWorkspaceModeWarningText.Visibility = string.IsNullOrWhiteSpace(transactionSettings.ReviewWorkspaceModeWarning)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         SupportedTransactionTypesText.Text = InnolaTransactionSettings.FormatSupportedTransactionTypesDisplay(transactionSettings.SupportedTransactionTypes);
         SupportedTransactionTypesWarningText.Text = transactionSettings.SupportedTransactionTypesWarning ?? string.Empty;
         SupportedTransactionTypesWarningText.Visibility = string.IsNullOrWhiteSpace(transactionSettings.SupportedTransactionTypesWarning)

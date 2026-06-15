@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Preflight;
@@ -53,6 +54,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             "--manifest", Quote(layout.ManifestPath),
             "--approved-review", Quote(approvedReviewPath),
             "--review-data", Quote(reviewDataPath),
+            "--review-workspace-mode", Quote(executionSettings.ReviewWorkspaceMode),
             "--output-root", Quote(layout.OutputDirectory),
             "--output-summary", Quote(outputSummaryPath),
             "--operator", Quote(operatorId ?? string.Empty),
@@ -65,6 +67,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             TimeSpan.FromSeconds(120),
             null,
             cancellationToken).ConfigureAwait(false);
+        WriteExecutionLog(layout, executionSettings, arguments, result);
 
         if (result.TimedOut)
         {
@@ -125,5 +128,45 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             || value.Contains("bearer", StringComparison.OrdinalIgnoreCase)
             || value.Contains("password", StringComparison.OrdinalIgnoreCase)
             || value.Contains("token", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void WriteExecutionLog(
+        CaseFolderLayout layout,
+        WorkflowExecutionSettings executionSettings,
+        string arguments,
+        ProcessRunResult result)
+    {
+        try
+        {
+            Directory.CreateDirectory(layout.LogsDirectory);
+            var path = Path.Combine(layout.LogsDirectory, "process.log");
+            var builder = new StringBuilder();
+            builder.AppendLine($"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] Output adapter execution");
+            builder.AppendLine($"Python: {executionSettings.PythonExecutable}");
+            builder.AppendLine($"Mode: {executionSettings.ReviewWorkspaceMode}");
+            builder.AppendLine($"Adapter: {executionSettings.OutputAdapterScriptPath}");
+            builder.AppendLine($"Timed out: {result.TimedOut}");
+            builder.AppendLine($"Exit code: {result.ExitCode}");
+            builder.AppendLine($"Arguments: {Sanitize(arguments)}");
+
+            if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+            {
+                builder.AppendLine("STDOUT:");
+                builder.AppendLine(Sanitize(result.StandardOutput));
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.StandardError))
+            {
+                builder.AppendLine("STDERR:");
+                builder.AppendLine(Sanitize(result.StandardError));
+            }
+
+            builder.AppendLine();
+            File.AppendAllText(path, builder.ToString());
+        }
+        catch
+        {
+            // Logging should never block the user-facing workflow result.
+        }
     }
 }

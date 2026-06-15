@@ -7,6 +7,7 @@
   "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
+  "review_workspace_mode": "parcel_fabric",
   "supported_transaction_types": [
     "Plan Examination",
     "Cadastral Plan Examination"

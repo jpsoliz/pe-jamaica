@@ -37,6 +37,7 @@ internal static class InnolaTransactionSettingsTests
         using var settingsFile = WriteSettingsFile(
             """
             {
+              "review_workspace_mode": "parcel_fabric",
               "supported_transaction_types": [
                 "Plan Examination",
                 "Cadastral Plan Examination",
@@ -48,6 +49,8 @@ internal static class InnolaTransactionSettingsTests
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
         TestAssert.Equal(2, settings.SupportedTransactionTypes.Count, "Supported transaction type count mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, settings.ReviewWorkspaceMode, "Review workspace mode mismatch.");
+        TestAssert.Equal(null, settings.ReviewWorkspaceModeWarning, "Valid review workspace mode should not produce a warning.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "First supported transaction type mismatch.");
         TestAssert.Equal("Cadastral Plan Examination", settings.SupportedTransactionTypes[1], "Second supported transaction type mismatch.");
         TestAssert.Equal(null, settings.SupportedTransactionTypesWarning, "Valid list should not produce a warning.");
@@ -61,7 +64,9 @@ internal static class InnolaTransactionSettingsTests
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
         TestAssert.Equal(2, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Fallback review workspace mode mismatch.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "Fallback first supported transaction type mismatch.");
+        TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Fallback review workspace mode warning mismatch.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback warning mismatch.");
         TestAssert.True(settings.ComputeWorkflowStagesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback compute workflow stage warning mismatch.");
     }
@@ -102,6 +107,21 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal(null, settings.ComputeWorkflowStagesWarning, "Valid compute stage list should not produce a warning.");
     }
 
+    public static void InvalidReviewWorkspaceModeFallsBackToNormal()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "mystery_mode"
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Invalid review workspace mode should fall back to normal.");
+        TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Invalid review workspace mode warning mismatch.");
+    }
+
     public static void ConfigurationSummaryFormatsSupportedTransactionTypes()
     {
         var summary = InnolaTransactionSettings.FormatSupportedTransactionTypesDisplay(new[]
@@ -113,6 +133,12 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(summary.Contains("Plan Examination", StringComparison.Ordinal), "Configuration summary should include first supported type.");
         TestAssert.True(summary.Contains("Cadastral Plan Examination", StringComparison.Ordinal), "Configuration summary should include second supported type.");
         TestAssert.True(summary.Contains("•", StringComparison.Ordinal), "Configuration summary should render bullet formatting.");
+    }
+
+    public static void ConfigurationSummaryFormatsReviewWorkspaceMode()
+    {
+        TestAssert.Equal("Normal", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeNormal), "Normal review workspace display mismatch.");
+        TestAssert.Equal("Parcel Fabric", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric), "Parcel Fabric review workspace display mismatch.");
     }
 
     private static TempFile WriteSettingsFile(string json)

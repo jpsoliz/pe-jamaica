@@ -8,6 +8,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+REVIEW_WORKSPACE_MODE_NORMAL = "normal"
+REVIEW_WORKSPACE_MODE_PARCEL_FABRIC = "parcel_fabric"
+PARCEL_FABRIC_MODE_PILOT = "pilot"
+PARCEL_FABRIC_MODE_TRUE = "true"
+PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
+PARCEL_FABRIC_NAME = "local_parcel_fabric"
+PARCEL_FABRIC_PARCEL_TYPE_NAME = "compute_review"
+PARCEL_FABRIC_RECORD_PREFIX = "sidwell-record"
+
 
 def run(input_json_path, output_json_path):
     raise NotImplementedError("Output adapter is implemented through its CLI entrypoint.")
@@ -64,6 +73,14 @@ def _normalize_text(value: Any, limit: int) -> str:
         return text[:limit]
 
     return text[: limit - 3] + "..."
+
+
+def _normalize_review_workspace_mode(value: Any) -> str:
+    text = "" if value is None else str(value).strip().replace(" ", "_").lower()
+    if text in {REVIEW_WORKSPACE_MODE_PARCEL_FABRIC, "parcel-fabric", "parcelfabric"}:
+        return REVIEW_WORKSPACE_MODE_PARCEL_FABRIC
+
+    return REVIEW_WORKSPACE_MODE_NORMAL
 
 
 def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,6 +234,184 @@ def _copy_template_gdb(template_gdb: Path, target_gdb: Path) -> None:
     shutil.copytree(template_gdb, target_gdb)
 
 
+def _coerce_path(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = _coerce_path(item)
+            if text:
+                return text
+        return None
+
+    text = str(value).strip()
+    return text or None
+
+
+def _existing_feature_classes(arcpy, dataset_path: Path) -> dict[str, list[str]]:
+    previous_workspace = arcpy.env.workspace
+    try:
+        arcpy.env.workspace = str(dataset_path)
+        feature_classes = arcpy.ListFeatureClasses() or []
+        classified: dict[str, list[str]] = {"POINT": [], "POLYLINE": [], "POLYGON": []}
+        for feature_class in feature_classes:
+            try:
+                shape_type = str(arcpy.Describe(feature_class).shapeType or "").upper()
+            except Exception:
+                continue
+            if shape_type in classified:
+                classified[shape_type].append(feature_class)
+        return classified
+    finally:
+        arcpy.env.workspace = previous_workspace
+
+
+def _feature_class_delta(before: dict[str, list[str]], after: dict[str, list[str]], shape_type: str) -> list[str]:
+    previous = set(before.get(shape_type, []))
+    return [name for name in after.get(shape_type, []) if name not in previous]
+
+
+def _first_matching_field(arcpy, dataset: str, candidates: list[str]) -> str | None:
+    candidate_lookup = {candidate.lower(): candidate for candidate in candidates}
+    for field in arcpy.ListFields(dataset):
+        key = field.name.lower()
+        if key in candidate_lookup:
+            return field.name
+    return None
+
+
+def _record_name(transaction_number: str) -> str:
+    return f"{PARCEL_FABRIC_RECORD_PREFIX}-{transaction_number}"
+
+
+def _append_features(arcpy, source: str, target: str) -> None:
+    arcpy.management.Append([source], target, "NO_TEST")
+
+
+def _count_rows(arcpy, dataset_path: str | None) -> int:
+    if not dataset_path:
+        return 0
+
+    try:
+        return int(arcpy.management.GetCount(dataset_path)[0])
+    except Exception:
+        return 0
+
+
+def _create_true_parcel_fabric_with_arcpy(
+    arcpy,
+    target_gdb: Path,
+    root_paths: dict[str, str | None],
+    transaction_number: str,
+) -> tuple[dict[str, str | None], dict[str, Any]]:
+    if not root_paths.get("polygon_fc"):
+        raise RuntimeError("Parcel Fabric mode requires a polygon candidate generated from approved review data.")
+
+    fabric_dataset = target_gdb / PARCEL_FABRIC_DATASET_NAME
+    if arcpy.Exists(str(fabric_dataset)):
+        arcpy.management.Delete(str(fabric_dataset))
+
+    polygon_description = arcpy.Describe(root_paths["polygon_fc"])
+    spatial_reference = getattr(polygon_description, "spatialReference", None)
+    if spatial_reference is None:
+        raise RuntimeError("Could not determine spatial reference for Parcel Fabric output generation.")
+
+    print(f"Parcel fabric step: creating feature dataset '{fabric_dataset.name}'.")
+    arcpy.management.CreateFeatureDataset(str(target_gdb), fabric_dataset.name, spatial_reference)
+
+    print(f"Parcel fabric step: creating parcel fabric '{PARCEL_FABRIC_NAME}'.")
+    fabric_path = _coerce_path(arcpy.parcel.CreateParcelFabric(str(fabric_dataset), PARCEL_FABRIC_NAME))
+    if not fabric_path:
+        fabric_path = str(fabric_dataset / PARCEL_FABRIC_NAME)
+
+    if not arcpy.Exists(fabric_path):
+        raise RuntimeError("CreateParcelFabric completed, but the parcel fabric dataset could not be resolved.")
+
+    before_types = _existing_feature_classes(arcpy, fabric_dataset)
+    print(f"Parcel fabric step: adding parcel type '{PARCEL_FABRIC_PARCEL_TYPE_NAME}'.")
+    arcpy.parcel.AddParcelType(
+        fabric_path,
+        PARCEL_FABRIC_PARCEL_TYPE_NAME,
+        "TOPOLOGY_POLYGON",
+        "NOT_STRATA_PARCELS",
+    )
+    after_types = _existing_feature_classes(arcpy, fabric_dataset)
+
+    polygon_type_names = _feature_class_delta(before_types, after_types, "POLYGON")
+    line_type_names = _feature_class_delta(before_types, after_types, "POLYLINE")
+    if not polygon_type_names:
+        raise RuntimeError("AddParcelType completed, but no parcel type polygon feature class was found.")
+
+    parcel_polygon_fc = str(fabric_dataset / polygon_type_names[0])
+    parcel_line_fc = str(fabric_dataset / line_type_names[0]) if line_type_names else None
+
+    print("Parcel fabric step: copying approved polygon into parcel type polygons.")
+    _append_features(arcpy, root_paths["polygon_fc"], parcel_polygon_fc)
+
+    record_name = _record_name(transaction_number)
+    print(f"Parcel fabric step: creating parcel record '{record_name}'.")
+    arcpy.parcel.CreateParcelRecords(
+        parcel_polygon_fc,
+        None,
+        record_name,
+        "EXPRESSION",
+    )
+
+    print(f"Parcel fabric step: building parcel fabric for record '{record_name}'.")
+    arcpy.parcel.BuildParcelFabric(fabric_path, None, record_name)
+
+    parcel_points_fc = None
+    point_feature_classes = _existing_feature_classes(arcpy, fabric_dataset).get("POINT", [])
+    if point_feature_classes:
+        parcel_points_fc = str(fabric_dataset / point_feature_classes[0])
+
+    if root_paths.get("point_fc"):
+        print("Parcel fabric step: importing approved points into parcel fabric points.")
+        arcpy.parcel.ImportParcelFabricPoints(
+            root_paths["point_fc"],
+            fabric_path,
+            "PROXIMITY",
+            "1 Meters",
+            "ALL",
+            record_name,
+            None,
+            None,
+            "UPDATE_AND_CREATE",
+            parcel_points_fc,
+            None,
+        )
+
+    if not parcel_points_fc:
+        point_feature_classes = _existing_feature_classes(arcpy, fabric_dataset).get("POINT", [])
+        if point_feature_classes:
+            parcel_points_fc = str(fabric_dataset / point_feature_classes[0])
+
+    print("Parcel fabric step: validating parcel fabric.")
+    arcpy.parcel.ValidateParcelFabric(fabric_path, None)
+
+    return (
+        {
+            "review_dataset": str(fabric_dataset),
+            "review_layer": fabric_path,
+            "review_point_fc": parcel_points_fc,
+            "review_line_fc": parcel_line_fc,
+            "review_polygon_fc": parcel_polygon_fc,
+        },
+        {
+            "parcel_fabric_mode": PARCEL_FABRIC_MODE_TRUE,
+            "parcel_fabric_dataset_path": str(fabric_dataset),
+            "parcel_fabric_layer_path": fabric_path,
+            "parcel_record_name": record_name,
+            "parcel_record_id": None,
+            "parcel_type": PARCEL_FABRIC_PARCEL_TYPE_NAME,
+            "built_parcel_count": _count_rows(arcpy, parcel_polygon_fc),
+            "built_line_count": _count_rows(arcpy, parcel_line_fc),
+            "built_point_count": _count_rows(arcpy, parcel_points_fc),
+        },
+    )
+
+
 def _create_outputs_with_arcpy(
     arcpy,
     target_gdb: Path,
@@ -224,7 +419,9 @@ def _create_outputs_with_arcpy(
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygon_coords: list[tuple[float, float]],
-) -> tuple[dict[str, str | None], list[str]]:
+    review_workspace_mode: str,
+    transaction_number: str,
+) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
     output_dir = target_gdb.parent
     output_dir.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
@@ -307,11 +504,39 @@ def _create_outputs_with_arcpy(
             if arcpy.Exists(str(polygon_fc)):
                 arcpy.management.Delete(str(polygon_fc))
 
-    return ({
+    root_paths = {
         "point_fc": str(point_fc),
         "line_fc": created_line_fc,
         "polygon_fc": created_polygon_fc,
-    }, warnings)
+    }
+    review_paths = {
+        "review_dataset": None,
+        "review_layer": None,
+        "review_point_fc": None,
+        "review_line_fc": None,
+        "review_polygon_fc": None,
+    }
+    review_metadata: dict[str, Any] = {
+        "parcel_fabric_mode": None,
+        "parcel_fabric_dataset_path": None,
+        "parcel_fabric_layer_path": None,
+        "parcel_record_name": None,
+        "parcel_record_id": None,
+        "parcel_type": None,
+        "built_parcel_count": 0,
+        "built_line_count": 0,
+        "built_point_count": 0,
+    }
+
+    if review_workspace_mode == REVIEW_WORKSPACE_MODE_PARCEL_FABRIC:
+        review_paths, review_metadata = _create_true_parcel_fabric_with_arcpy(
+            arcpy,
+            target_gdb,
+            root_paths,
+            transaction_number,
+        )
+
+    return (root_paths, review_paths | review_metadata, warnings)
 
 
 def _create_outputs_filesystem_fallback(
@@ -319,7 +544,9 @@ def _create_outputs_filesystem_fallback(
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygon_coords: list[tuple[float, float]],
-) -> tuple[dict[str, str | None], list[str]]:
+    review_workspace_mode: str,
+    transaction_number: str,
+) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
     target_gdb.mkdir(parents=True, exist_ok=True)
     (target_gdb / "_sidwell_test_mode.txt").write_text("filesystem fallback", encoding="utf-8")
 
@@ -333,11 +560,78 @@ def _create_outputs_filesystem_fallback(
     if polygon_coords:
         polygon_fc.write_text(json.dumps(polygon_coords, indent=2), encoding="utf-8")
 
-    return ({
+    root_paths = {
         "point_fc": str(point_fc),
         "line_fc": str(line_fc) if segments else None,
         "polygon_fc": str(polygon_fc) if polygon_coords else None,
-    }, [])
+    }
+    warnings: list[str] = []
+    review_paths = {
+        "review_dataset": None,
+        "review_layer": None,
+        "review_point_fc": None,
+        "review_line_fc": None,
+        "review_polygon_fc": None,
+        "parcel_fabric_mode": None,
+        "parcel_fabric_dataset_path": None,
+        "parcel_fabric_layer_path": None,
+        "parcel_record_name": None,
+        "parcel_record_id": None,
+        "parcel_type": None,
+        "built_parcel_count": 0,
+        "built_line_count": 0,
+        "built_point_count": 0,
+    }
+
+    if review_workspace_mode == REVIEW_WORKSPACE_MODE_PARCEL_FABRIC:
+        review_dataset = target_gdb / PARCEL_FABRIC_DATASET_NAME
+        fabric_layer = review_dataset / PARCEL_FABRIC_NAME
+        parcel_type_dir = fabric_layer / PARCEL_FABRIC_PARCEL_TYPE_NAME
+        review_dataset.mkdir(parents=True, exist_ok=True)
+        parcel_type_dir.mkdir(parents=True, exist_ok=True)
+
+        review_point_fc = parcel_type_dir / "points.json"
+        review_line_fc = parcel_type_dir / "lines.json"
+        review_polygon_fc = parcel_type_dir / "polygons.json"
+
+        if root_paths.get("point_fc"):
+            shutil.copyfile(root_paths["point_fc"], review_point_fc)
+        if root_paths.get("line_fc"):
+            shutil.copyfile(root_paths["line_fc"], review_line_fc)
+        if root_paths.get("polygon_fc"):
+            shutil.copyfile(root_paths["polygon_fc"], review_polygon_fc)
+
+        (fabric_layer / "records.json").write_text(
+            json.dumps(
+                {
+                    "record_name": _record_name(transaction_number),
+                    "parcel_type": PARCEL_FABRIC_PARCEL_TYPE_NAME,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        review_paths.update(
+            {
+                "review_dataset": str(review_dataset),
+                "review_layer": str(fabric_layer),
+                "review_point_fc": str(review_point_fc) if root_paths.get("point_fc") else None,
+                "review_line_fc": str(review_line_fc) if root_paths.get("line_fc") else None,
+                "review_polygon_fc": str(review_polygon_fc) if root_paths.get("polygon_fc") else None,
+                "parcel_fabric_mode": PARCEL_FABRIC_MODE_TRUE,
+                "parcel_fabric_dataset_path": str(review_dataset),
+                "parcel_fabric_layer_path": str(fabric_layer),
+                "parcel_record_name": _record_name(transaction_number),
+                "parcel_record_id": None,
+                "parcel_type": PARCEL_FABRIC_PARCEL_TYPE_NAME,
+                "built_parcel_count": 1 if polygon_coords else 0,
+                "built_line_count": len(segments),
+                "built_point_count": len(points),
+            }
+        )
+
+    return (root_paths, review_paths, warnings)
 
 
 def _build_summary(
@@ -347,6 +641,7 @@ def _build_summary(
     result_gdb_path: Path,
     geojson_path: Path,
     layer_paths: dict[str, str | None],
+    review_paths: dict[str, str | None],
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygon_coords: list[tuple[float, float]],
@@ -354,22 +649,59 @@ def _build_summary(
     template_project_path: str | None,
     template_gdb_path: str | None,
     warnings: list[str],
+    review_workspace_mode: str,
+    parcel_fabric_mode: str | None,
+    parcel_fabric_dataset_path: str | None,
+    parcel_fabric_layer_path: str | None,
+    parcel_record_name: str | None,
+    parcel_record_id: str | None,
+    parcel_type: str | None,
+    built_parcel_count: int,
+    built_line_count: int,
+    built_point_count: int,
 ) -> dict[str, Any]:
     artifact_paths = [str(geojson_path)]
-    map_layer_paths = [
-        layer_paths.get("point_fc"),
-        layer_paths.get("line_fc"),
-        layer_paths.get("polygon_fc"),
-    ]
+    if review_paths.get("review_dataset"):
+        artifact_paths.append(review_paths["review_dataset"])
+
+    active_layer_paths = (
+        [
+            review_paths.get("review_layer"),
+            review_paths.get("review_point_fc"),
+            review_paths.get("review_line_fc"),
+            review_paths.get("review_polygon_fc"),
+        ]
+        if review_workspace_mode == REVIEW_WORKSPACE_MODE_PARCEL_FABRIC and review_paths.get("review_dataset")
+        else [
+            layer_paths.get("point_fc"),
+            layer_paths.get("line_fc"),
+            layer_paths.get("polygon_fc"),
+        ]
+    )
 
     payload = {
         "status": "created",
+        "review_workspace_mode": review_workspace_mode,
         "result_gdb_path": str(result_gdb_path),
         "artifact_paths": artifact_paths,
-        "map_layer_paths": [path for path in map_layer_paths if path],
+        "map_layer_paths": [path for path in active_layer_paths if path],
         "point_feature_class_path": layer_paths.get("point_fc"),
         "line_feature_class_path": layer_paths.get("line_fc"),
         "polygon_feature_class_path": layer_paths.get("polygon_fc"),
+        "review_dataset_path": review_paths.get("review_dataset"),
+        "review_layer_path": review_paths.get("review_layer"),
+        "review_point_feature_class_path": review_paths.get("review_point_fc"),
+        "review_line_feature_class_path": review_paths.get("review_line_fc"),
+        "review_polygon_feature_class_path": review_paths.get("review_polygon_fc"),
+        "parcel_fabric_mode": parcel_fabric_mode,
+        "parcel_fabric_dataset_path": parcel_fabric_dataset_path,
+        "parcel_fabric_layer_path": parcel_fabric_layer_path,
+        "parcel_record_name": parcel_record_name,
+        "parcel_record_id": parcel_record_id,
+        "parcel_type": parcel_type,
+        "built_parcel_count": built_parcel_count,
+        "built_line_count": built_line_count,
+        "built_point_count": built_point_count,
         "point_count": len(points),
         "line_count": len(segments),
         "polygon_count": 1 if polygon_coords else 0,
@@ -395,6 +727,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--approved-review", required=True)
     parser.add_argument("--review-data", required=True)
+    parser.add_argument("--review-workspace-mode", default=REVIEW_WORKSPACE_MODE_NORMAL)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output-summary", required=True)
     parser.add_argument("--operator")
@@ -405,6 +738,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path = Path(args.manifest)
     approved_review_path = Path(args.approved_review)
     review_data_path = Path(args.review_data)
+    review_workspace_mode = _normalize_review_workspace_mode(args.review_workspace_mode)
     output_root = Path(args.output_root)
     output_summary_path = Path(args.output_summary)
     template_gdb_path = Path(args.template_gdb) if args.template_gdb else None
@@ -431,9 +765,25 @@ def main(argv: list[str] | None = None) -> int:
 
     arcpy = _load_arcpy()
     if arcpy is not None:
-        layer_paths, warnings = _create_outputs_with_arcpy(arcpy, result_gdb_path, template_gdb_path, points, segments, polygon_coords)
+        layer_paths, review_paths, warnings = _create_outputs_with_arcpy(
+            arcpy,
+            result_gdb_path,
+            template_gdb_path,
+            points,
+            segments,
+            polygon_coords,
+            review_workspace_mode,
+            str(transaction_number),
+        )
     elif os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", "").strip() == "1":
-        layer_paths, warnings = _create_outputs_filesystem_fallback(result_gdb_path, points, segments, polygon_coords)
+        layer_paths, review_paths, warnings = _create_outputs_filesystem_fallback(
+            result_gdb_path,
+            points,
+            segments,
+            polygon_coords,
+            review_workspace_mode,
+            str(transaction_number),
+        )
     else:
         raise RuntimeError("ArcPy is not available for output generation.")
 
@@ -446,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
         result_gdb_path,
         geojson_path,
         layer_paths,
+        review_paths,
         points,
         segments,
         effective_polygon_coords,
@@ -453,6 +804,16 @@ def main(argv: list[str] | None = None) -> int:
         args.template_project,
         args.template_gdb,
         warnings,
+        review_workspace_mode,
+        review_paths.get("parcel_fabric_mode"),
+        review_paths.get("parcel_fabric_dataset_path"),
+        review_paths.get("parcel_fabric_layer_path"),
+        review_paths.get("parcel_record_name"),
+        review_paths.get("parcel_record_id"),
+        review_paths.get("parcel_type"),
+        int(review_paths.get("built_parcel_count") or 0),
+        int(review_paths.get("built_line_count") or 0),
+        int(review_paths.get("built_point_count") or 0),
     )
     _write_json(output_summary_path, summary)
     return 0

@@ -1105,7 +1105,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return "Generated output artifacts are available for inspection before final transaction completion.";
         }
 
-        return $"{summary.Payload.PointCount} point(s), {summary.Payload.LineCount} line(s), and {summary.Payload.PolygonCount} polygon feature(s) were generated in the local transaction workspace.";
+        var workspaceMode = string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, StringComparison.OrdinalIgnoreCase)
+            ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
+                ? "Parcel Fabric review workspace"
+                : "Parcel Fabric pilot review workspace"
+            : "local transaction workspace";
+        var builtSummary = string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
+            ? $" Built fabric content: {summary.Payload.BuiltPointCount} point(s), {summary.Payload.BuiltLineCount} line(s), and {summary.Payload.BuiltParcelCount} parcel polygon(s)."
+            : string.Empty;
+        return $"{summary.Payload.PointCount} point(s), {summary.Payload.LineCount} line(s), and {summary.Payload.PolygonCount} polygon feature(s) were generated in the {workspaceMode}.{builtSummary}";
     }
 
     private void ToggleReviewDetails()

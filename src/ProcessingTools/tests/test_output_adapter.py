@@ -194,6 +194,89 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual(0, summary["payload"]["polygon_count"])
             self.assertEqual([], summary["warnings"])
 
+    def test_output_adapter_parcel_fabric_mode_writes_true_review_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "approved_review.json"
+            review_path = temp_path / "extraction_review_data.json"
+            output_root = temp_path / "output"
+            output_summary_path = output_root / "output_summary.json"
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_id": "100000206",
+                        "payload": {"script_plan": {"source_manifest_hash": "hash-123"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000206",
+                        "review_hash": "approved-hash",
+                        "approved_by": "tester",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000206",
+                        "review_hash": "approved-hash",
+                        "rows": [
+                            {"row_id": "1", "point_identifier": "P1", "easting": "1000.0", "northing": "2000.0"},
+                            {"row_id": "2", "point_identifier": "P2", "easting": "1010.0", "northing": "2000.0"},
+                            {"row_id": "3", "point_identifier": "P3", "easting": "1010.0", "northing": "2010.0"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            previous = os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE")
+            os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = "1"
+            try:
+                exit_code = output_adapter.main(
+                    [
+                        "--manifest",
+                        str(manifest_path),
+                        "--approved-review",
+                        str(approved_path),
+                        "--review-data",
+                        str(review_path),
+                        "--review-workspace-mode",
+                        "parcel_fabric",
+                        "--output-root",
+                        str(output_root),
+                        "--output-summary",
+                        str(output_summary_path),
+                    ]
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", None)
+                else:
+                    os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = previous
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual("parcel_fabric", summary["payload"]["review_workspace_mode"])
+            self.assertEqual("true", summary["payload"]["parcel_fabric_mode"])
+            self.assertTrue(summary["payload"]["review_dataset_path"].endswith("parcel_fabric_dataset"))
+            self.assertTrue(summary["payload"]["review_layer_path"].endswith("parcel_fabric_dataset/local_parcel_fabric") or summary["payload"]["review_layer_path"].endswith("parcel_fabric_dataset\\local_parcel_fabric"))
+            self.assertTrue(summary["payload"]["review_point_feature_class_path"].endswith("compute_review/points.json") or summary["payload"]["review_point_feature_class_path"].endswith("compute_review\\points.json"))
+            self.assertEqual(summary["payload"]["review_layer_path"], summary["payload"]["map_layer_paths"][0])
+            self.assertEqual("compute_review", summary["payload"]["parcel_type"])
+            self.assertEqual("sidwell-record-100000206", summary["payload"]["parcel_record_name"])
+            self.assertEqual(1, summary["payload"]["built_parcel_count"])
+            self.assertEqual(2, summary["payload"]["built_line_count"])
+            self.assertEqual(3, summary["payload"]["built_point_count"])
+            self.assertEqual([], summary["warnings"])
+
 
 if __name__ == "__main__":
     unittest.main()

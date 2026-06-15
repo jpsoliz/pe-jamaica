@@ -89,8 +89,17 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
         return new OutputMapIntegrationResult(
             true,
-            "Output layers were added to the active map and zoomed for review.",
+            BuildSuccessMessage(summary),
             layerPaths);
+    }
+
+    private static string BuildSuccessMessage(OutputSummaryDocument summary)
+    {
+        return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, StringComparison.OrdinalIgnoreCase)
+            ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
+                ? "Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry."
+                : "Parcel Fabric pilot review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools for examination."
+            : "Output layers were added to the active map and zoomed for review.";
     }
 
     private static void TryConfigurePointLabels(Layer layer)

@@ -9,6 +9,7 @@ public sealed record WorkflowExecutionSettings(
     string PythonExecutable,
     string CreateParcelScriptPath,
     string OutputAdapterScriptPath,
+    string ReviewWorkspaceMode,
     string? OutputTemplateProjectPath,
     string? OutputTemplateGdbPath,
     string ValidationAdapterScriptPath,
@@ -23,6 +24,7 @@ public sealed record WorkflowExecutionSettings(
         ProcessingEnvironmentSettings.Default.PythonExecutable,
         Path.Combine(DefaultScriptsRoot, "CreateParcelFromFile.py"),
         DefaultOutputAdapterPath ?? @"src\ProcessingTools\adapters\output_adapter.py",
+        InnolaTransactionSettings.ReviewWorkspaceModeNormal,
         null,
         null,
         DefaultValidationAdapterPath ?? @"src\ProcessingTools\adapters\validation_adapter.py",
@@ -48,6 +50,7 @@ public sealed record WorkflowExecutionSettings(
                 : configuredScriptPath) ?? Path.Combine(scriptsRoot, "CreateParcelFromFile.py");
             var outputAdapterPath = ExpandPath(ReadString(root, "output_adapter_script_path")
                 ?? Default.OutputAdapterScriptPath) ?? Default.OutputAdapterScriptPath;
+            var reviewWorkspaceMode = NormalizeReviewWorkspaceMode(ReadString(root, "review_workspace_mode"));
             var outputTemplateProjectPath = ExpandPath(ReadString(root, "output_template_project_path"));
             var outputTemplateGdbPath = ExpandPath(ReadString(root, "output_template_gdb_path"));
             var validationAdapterPath = ExpandPath(ReadString(root, "validation_adapter_script_path")
@@ -59,6 +62,7 @@ public sealed record WorkflowExecutionSettings(
                 pythonExecutable,
                 scriptPath,
                 outputAdapterPath,
+                reviewWorkspaceMode,
                 outputTemplateProjectPath,
                 outputTemplateGdbPath,
                 validationAdapterPath,
@@ -110,5 +114,22 @@ public sealed record WorkflowExecutionSettings(
         }
 
         return null;
+    }
+
+    private static string NormalizeReviewWorkspaceMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Default.ReviewWorkspaceMode;
+        }
+
+        var normalized = value.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
+            "parcel-fabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
+            "parcelfabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
+            _ => InnolaTransactionSettings.ReviewWorkspaceModeNormal
+        };
     }
 }
