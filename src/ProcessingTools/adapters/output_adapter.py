@@ -1,10 +1,10 @@
 import argparse
+import datetime as dt
 import json
 import math
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +14,7 @@ def run(input_json_path, output_json_path):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -380,7 +380,7 @@ def _build_summary(
     return {
         "schema_version": "1.0.0",
         "transaction_id": manifest.get("transaction_id") or approved_review.get("transaction_number") or "",
-        "run_id": f"output-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        "run_id": f"output-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M%S')}",
         "created_at": _utc_now(),
         "created_by": operator_id or approved_review.get("approved_by"),
         "source_manifest_hash": ((manifest.get("payload") or {}).get("script_plan") or {}).get("source_manifest_hash", ""),

@@ -20,6 +20,8 @@ public static class WorkflowStateExtensions
             WorkflowState.ValidationPassed => "validation_passed",
             WorkflowState.OutputRunning => "output_running",
             WorkflowState.OutputCreated => "output_created",
+            WorkflowState.SpatialReviewPending => "spatial_review_pending",
+            WorkflowState.SpatialReviewApproved => "spatial_review_approved",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }
@@ -42,6 +44,8 @@ public static class WorkflowStateExtensions
             WorkflowState.ValidationPassed => "Validation Passed",
             WorkflowState.OutputRunning => "Output Running",
             WorkflowState.OutputCreated => "Output Created",
+            WorkflowState.SpatialReviewPending => "Spatial Review Pending",
+            WorkflowState.SpatialReviewApproved => "Spatial Review Approved",
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown workflow state.")
         };
     }

@@ -49,13 +49,29 @@ internal static class ShellState
 
     public static string TransactionMode { get; } = Settings.Mode;
 
+    public static IReadOnlyList<string> SupportedTransactionTypes { get; } = Settings.SupportedTransactionTypes;
+
+    public static string? SupportedTransactionTypesWarning { get; } = Settings.SupportedTransactionTypesWarning;
+
+    public static IReadOnlyList<string> ComputeWorkflowStages { get; } = Settings.ComputeWorkflowStages;
+
+    public static string? ComputeWorkflowStagesWarning { get; } = Settings.ComputeWorkflowStagesWarning;
+
     public static string AttachmentUploadRoute { get; } = Settings.AttachmentUploadRoute;
 
     public static string AttachmentUploadBindingMode { get; } = Settings.AttachmentUploadBindingMode;
 
+    public static string AttachmentUploadMode { get; } = Settings.AttachmentUploadMode;
+
     public static string ResumeAttachmentSourceType { get; } = Settings.ResumeAttachmentSourceType;
 
     public static string CompletedAttachmentSourceType { get; } = Settings.CompletedAttachmentSourceType;
+
+    public static string ResumeAttachmentRegisteredType { get; } = Settings.ResumeAttachmentRegisteredType;
+
+    public static string CompletedAttachmentRegisteredType { get; } = Settings.CompletedAttachmentRegisteredType;
+
+    public static string? AttachmentRegisteredSpatialUnitId { get; } = Settings.AttachmentRegisteredSpatialUnitId;
 
     public static string ClientCertificateStatus => Settings.ClientCertificate.Enabled
         ? $"Client certificate: {Settings.ClientCertificate.SubjectName ?? Settings.ClientCertificate.Thumbprint ?? "configured"}"

@@ -4,7 +4,7 @@
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     Title="Configuration"
                     Width="560"
-                    Height="430"
+                    Height="620"
                     WindowStartupLocation="CenterOwner">
   <Grid Margin="14">
     <Grid.RowDefinitions>
@@ -25,6 +25,14 @@
           <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
@@ -69,6 +77,70 @@
         <TextBlock Grid.Row="9" Grid.Column="1" x:Name="OpenAiKeySourceText" TextWrapping="Wrap" Margin="0,0,0,8" />
 
         <TextBlock Grid.Row="10"
+                   Text="Supported transaction types"
+                   FontWeight="SemiBold"
+                   Margin="0,0,8,8" />
+        <TextBlock Grid.Row="10"
+                   Grid.Column="1"
+                   x:Name="SupportedTransactionTypesText"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="11"
+                   Text="Compute workflow stages"
+                   FontWeight="SemiBold"
+                   Margin="0,0,8,8" />
+        <TextBlock Grid.Row="11"
+                   Grid.Column="1"
+                   x:Name="ComputeWorkflowStagesText"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="12"
+                   Grid.ColumnSpan="2"
+                   x:Name="ComputeWorkflowStagesWarningText"
+                   Foreground="#B42318"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="13"
+                   Grid.ColumnSpan="2"
+                   x:Name="SupportedTransactionTypesWarningText"
+                   Foreground="#B42318"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="14"
+                   Text="Preflight rules file"
+                   FontWeight="SemiBold"
+                   Margin="0,0,8,8" />
+        <TextBlock Grid.Row="14"
+                   Grid.Column="1"
+                   x:Name="PreflightRulesPathText"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="15"
+                   Grid.ColumnSpan="2"
+                   x:Name="PreflightRulesWarningText"
+                   Foreground="#B42318"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="16"
+                   Grid.ColumnSpan="2"
+                   Text="Preflight Rules"
+                   FontWeight="SemiBold"
+                   Margin="0,4,0,8" />
+
+        <StackPanel Grid.Row="17"
+                    Grid.ColumnSpan="2"
+                    x:Name="PreflightRulesPanel" />
+
+        <TextBlock Grid.Row="18"
                    Grid.ColumnSpan="2"
                    Foreground="#53636A"
                    Text="Edit WorkflowSettings.json, then restart ArcGIS Pro to reload these settings."

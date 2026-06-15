@@ -55,7 +55,7 @@ public sealed record ProcessingEnvironmentSettings(
         }
     }
 
-    private static string ResolveSettingsPath()
+    public static string ResolveSettingsPath()
     {
         foreach (var candidate in GetSettingsPathCandidates())
         {

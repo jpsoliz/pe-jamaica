@@ -7,6 +7,7 @@ using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Text.Json.Nodes;
@@ -856,12 +857,12 @@ internal static class WorkflowSessionTests
         var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
 
         TestAssert.True(result.Success, "Outputs should succeed for a validated approved review case.");
-        TestAssert.Equal(WorkflowState.OutputCreated, session.CurrentState, "Successful outputs should move workflow to output created.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Successful outputs should move workflow to spatial review pending.");
         TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Outputs should create output summary.");
         TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "output_summary.json"), "Output summary should be registered.");
         TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase)), "Generated geodatabase should be registered.");
         TestAssert.True(session.CurrentOutputSummary is not null, "Output summary should be loaded into session state.");
-        TestAssert.Equal("Outputs created: local geometry is ready for map review.", session.StatusText, "Output success status mismatch.");
+        TestAssert.Equal("Outputs created: local geometry is ready for spatial review in the map.", session.StatusText, "Output success status mismatch.");
     }
 
     public static void WorkflowSessionOutputGenerationRequiresValidationPass()
@@ -895,7 +896,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(!File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Failed outputs should not leave output summary behind.");
     }
 
-    public static void WorkflowSessionReopenRestoresOutputCreatedStateAndArtifacts()
+    public static void WorkflowSessionReopenRestoresSpatialReviewPendingStateAndArtifacts()
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
@@ -909,9 +910,46 @@ internal static class WorkflowSessionTests
         var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
 
         TestAssert.True(reopenResult.Success, "Case with outputs should reopen.");
-        TestAssert.Equal(WorkflowState.OutputCreated, reopenSession.CurrentState, "Reopen should restore output-created state.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, reopenSession.CurrentState, "Reopen should restore spatial review pending state.");
         TestAssert.True(reopenSession.CurrentOutputSummary is not null, "Reopen should restore output summary.");
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "output_summary.json"), "Reopen should expose output summary artifact.");
+    }
+
+    public static void WorkflowSessionSpatialReviewApprovalUnlocksReadyToComplete()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        var approval = session.ApproveSpatialReview("tester");
+
+        TestAssert.True(approval.IsCurrent, "Spatial review approval should succeed when outputs are current.");
+        TestAssert.Equal(WorkflowState.SpatialReviewApproved, session.CurrentState, "Spatial review approval should advance workflow to approved.");
+        TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "spatial_review_approval.json"), "Approval artifact should be registered.");
+    }
+
+    public static void WorkflowSessionReopenInvalidatesStaleSpatialReviewApproval()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        File.AppendAllText(Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson"), "\n{\"changed\":true}");
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false));
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Case with approved spatial review should reopen.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, reopenSession.CurrentState, "Changed output artifacts should invalidate spatial review approval.");
+        TestAssert.True(reopenSession.IntakeIssues.Any(issue => issue.Contains("Spatial review approval", StringComparison.OrdinalIgnoreCase)), "Reopen should explain why approval was invalidated.");
     }
 
     private sealed class FakeSourceFileLauncher : ISourceFileLauncher
@@ -1088,7 +1126,8 @@ internal static class WorkflowSessionTests
             new FakeValidationExecutionService(blocked: false),
             new ValidationSummaryPersistenceService(),
             outputExecutionService,
-            new OutputSummaryPersistenceService());
+            new OutputSummaryPersistenceService(),
+            new SpatialReviewApprovalPersistenceService());
     }
 
     private static CaseFolderLayout CreateInnolaScenarioACase(CaseFolderStore store, string outputRoot)

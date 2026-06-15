@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Tests;
 using ParcelWorkflowAddIn.WorkflowRules;
+using System.IO.Compression;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -234,6 +235,78 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(File.Exists(Path.Combine(second.Layout.WorkingDirectory, "approved_review.json")), "Saved review artifact should be restored.");
     }
 
+    public static async Task ResumePackageRestorePrefersNewestSavedPackageWhenMultipleExist()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+
+        var firstLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "intake", "old", new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero));
+        var secondLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "review_approved", "new", new DateTimeOffset(2026, 6, 10, 13, 0, 0, TimeSpan.Zero));
+
+        var oldPackage = BuildResumePackage(firstLayout, manager.SelectedTransaction!, new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero));
+        var newPackage = BuildResumePackage(secondLayout, manager.SelectedTransaction!, new DateTimeOffset(2026, 6, 10, 13, 0, 0, TimeSpan.Zero));
+
+        var attachments = new[]
+        {
+            new InnolaAttachmentMetadata("resume-old", "sidwell-case-state-TR100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-old", true),
+            new InnolaAttachmentMetadata("resume-new", "sidwell-case-state-TR100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-new", true)
+        };
+
+        var detail = Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments);
+        var service = LoadService(
+            manager,
+            new MultiResumeAttachmentDetailService(
+                detail,
+                new Dictionary<string, byte[]>
+                {
+                    ["resume-old"] = oldPackage,
+                    ["resume-new"] = newPackage
+                }),
+            tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, "Latest saved resume package should restore successfully.");
+        var reopenedSession = new global::ParcelWorkflowAddIn.Workflow.WorkflowSession(new CaseFolderStore());
+        var reopen = reopenedSession.ReopenCaseFolder(result.Layout!.RootDirectory);
+        TestAssert.True(reopen.Success, "Restored latest case folder should reopen.");
+        TestAssert.Equal(global::ParcelWorkflowAddIn.Workflow.WorkflowState.ReviewApproved, reopen.ResolvedState, "Newest saved workflow state should win.");
+        TestAssert.True(File.Exists(Path.Combine(result.Layout.WorkingDirectory, "new.txt")), "Newest resume package artifacts should be restored.");
+        TestAssert.True(!File.Exists(Path.Combine(result.Layout.WorkingDirectory, "old.txt")), "Older resume package artifacts should not be restored.");
+    }
+
+    public static async Task ResumePackageExcludesHeavyOutputArtifactsButKeepsWorkingState()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detailService = new MockInnolaTransactionDetailService();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, detailService, tempRoot.Path);
+
+        var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial load should succeed.");
+
+        var layout = first.Layout!;
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, "approved_review.json"), "{\"review_data_hash\":\"abc\"}");
+        Directory.CreateDirectory(layout.OutputDirectory);
+        File.WriteAllText(Path.Combine(layout.OutputDirectory, "output_summary.json"), "{\"status\":\"ready\"}");
+        var gdbDirectory = Path.Combine(layout.OutputDirectory, "parcel_output.gdb");
+        Directory.CreateDirectory(gdbDirectory);
+        File.WriteAllText(Path.Combine(gdbDirectory, "a00000001.gdbtable"), "large-ish binary placeholder");
+
+        var resumeService = new CaseResumePackageService(() => FixedNow(), () => "test");
+        var package = resumeService.Build(layout, manager.SelectedTransaction!, "tester");
+        TestAssert.True(package.Success, "Resume package should build.");
+
+        using var archive = new ZipArchive(File.OpenRead(package.PackagePath!), ZipArchiveMode.Read);
+        var names = archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToArray();
+        TestAssert.True(names.Contains("manifest.json"), "Resume package should keep manifest.");
+        TestAssert.True(names.Contains("working/approved_review.json"), "Resume package should keep review state.");
+        TestAssert.True(names.Contains("output/output_summary.json"), "Resume package should keep lightweight output summary.");
+        TestAssert.True(!names.Any(name => name.Contains(".gdb/", StringComparison.OrdinalIgnoreCase)), "Resume package should exclude file geodatabase payload.");
+    }
+
     public static async Task ExistingCaseFolderMismatchBlocksLoad()
     {
         using var tempRoot = new TempDirectory();
@@ -401,6 +474,45 @@ internal static class InnolaTransactionLoadServiceTests
         return new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
     }
 
+    private static CaseFolderLayout BuildResumeCaseFolder(string outputRoot, string transactionNumber, string workflowState, string marker, DateTimeOffset now)
+    {
+        var store = new CaseFolderStore(() => now, () => $"run-{marker}");
+        var created = store.CreateCase(outputRoot, transactionNumber, "tester");
+        var layout = created.Layout!;
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with
+        {
+            Payload = manifest.Payload with
+            {
+                WorkflowState = workflowState,
+                InnolaTransaction = new ManifestInnolaTransaction(
+                    "100000004",
+                    transactionNumber,
+                    "task-100000004",
+                    "Computation Check",
+                    "parcel_workflow",
+                    "parcel_workflow",
+                    null,
+                    "tester",
+                    null,
+                    null,
+                    null,
+                    null,
+                    now.UtcDateTime.ToString("O"))
+            }
+        });
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, $"{marker}.txt"), marker);
+        return layout;
+    }
+
+    private static byte[] BuildResumePackage(CaseFolderLayout layout, SelectedInnolaTransaction transaction, DateTimeOffset now)
+    {
+        var resumeService = new CaseResumePackageService(() => now, () => "test");
+        var package = resumeService.Build(layout, transaction, "tester");
+        TestAssert.True(package.Success, "Resume package should build for test fixture.");
+        return File.ReadAllBytes(package.PackagePath!);
+    }
+
     private sealed class CountingDetailService : IInnolaTransactionDetailService
     {
         private readonly InnolaTransactionDetail? detail;
@@ -517,6 +629,49 @@ internal static class InnolaTransactionLoadServiceTests
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Should not be called.");
+        }
+    }
+
+    private sealed class MultiResumeAttachmentDetailService : IInnolaTransactionDetailService
+    {
+        private readonly InnolaTransactionDetail detail;
+        private readonly IReadOnlyDictionary<string, byte[]> attachmentContentById;
+
+        public MultiResumeAttachmentDetailService(InnolaTransactionDetail detail, IReadOnlyDictionary<string, byte[]> attachmentContentById)
+        {
+            this.detail = detail;
+            this.attachmentContentById = attachmentContentById;
+        }
+
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionDetailResult.Succeeded(detail));
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(attachmentContentById.TryGetValue(attachment.AttachmentId, out var content)
+                ? InnolaAttachmentContentResult.Succeeded(content)
+                : InnolaAttachmentContentResult.Failure("Attachment content was not found.", "not_found"));
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
         }
     }
 

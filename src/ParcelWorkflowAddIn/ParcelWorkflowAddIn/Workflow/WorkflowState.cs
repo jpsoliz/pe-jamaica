@@ -15,5 +15,7 @@ public enum WorkflowState
     ValidationBlocked,
     ValidationPassed,
     OutputRunning,
-    OutputCreated
+    OutputCreated,
+    SpatialReviewPending,
+    SpatialReviewApproved
 }

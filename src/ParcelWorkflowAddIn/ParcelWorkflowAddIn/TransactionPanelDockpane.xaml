@@ -8,6 +8,8 @@
              d:DataContext="{d:DesignInstance Type=local:TransactionPanelDockpaneViewModel}">
   <UserControl.Resources>
     <local:TransactionNumberEqualsConverter x:Key="TransactionNumberEquals" />
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
     <Style x:Key="CompactLabel" TargetType="TextBlock">
       <Setter Property="FontFamily" Value="Segoe UI" />
       <Setter Property="FontSize" Value="11" />
@@ -15,18 +17,21 @@
       <Setter Property="Foreground" Value="#52616B" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style x:Key="CompactButton" TargetType="Button">
-      <Setter Property="MinHeight" Value="24" />
-      <Setter Property="Padding" Value="8,2" />
-      <Setter Property="Margin" Value="0,0,6,0" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
+
     <Style x:Key="ToolbarButton" TargetType="Button">
-      <Setter Property="Width" Value="24" />
-      <Setter Property="Height" Value="24" />
-      <Setter Property="Padding" Value="3" />
-      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="Margin" Value="0,0,6,0" />
       <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+    </Style>
+
+    <Style x:Key="ControlComboBox" TargetType="ComboBox">
+      <Setter Property="MinHeight" Value="26" />
+    </Style>
+
+    <Style x:Key="ControlTextBox" TargetType="TextBox">
+      <Setter Property="MinHeight" Value="26" />
     </Style>
   </UserControl.Resources>
 
@@ -34,19 +39,24 @@
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <DockPanel Grid.Row="0" LastChildFill="True">
-      <ToolBar DockPanel.Dock="Right"
-               Height="28"
+    <Border Grid.Row="0"
+            Margin="0,8,0,0"
+            Padding="8,6"
+            BorderBrush="#DCE3E8"
+            BorderThickness="1"
+            Background="#FFFFFF">
+      <ToolBar Height="30"
                Padding="0"
-               Background="Transparent"
+               Background="#FFFFFF"
                BorderThickness="0">
         <Button Style="{StaticResource ToolbarButton}"
                 Command="{Binding State.RefreshCommand}"
-                ToolTip="Refresh transactions">
+                ToolTip="Refresh transactions list">
           <Image Source="Images\TaskList\Refresh16.png" Width="16" Height="16" />
         </Button>
         <Separator Width="1" Margin="2,0" />
@@ -57,7 +67,7 @@
         </Button>
         <Button Style="{StaticResource ToolbarButton}"
                 Command="{Binding State.StopTaskCommand}"
-                ToolTip="Suspend task and save it for later resume">
+                ToolTip="Stop Transaction">
           <Image Source="Images\TaskList\StopTask_16.png" Width="16" Height="16" />
         </Button>
         <Separator Width="1" Margin="2,0" />
@@ -77,284 +87,284 @@
           <Image Source="Images\TaskList\CompleteTransaction_16.png" Width="16" Height="16" />
         </Button>
       </ToolBar>
-      <StackPanel>
-        <TextBlock Text="{Binding State.StatusText}"
-                   FontSize="12"
-                   Foreground="#52616B"
-                   TextWrapping="Wrap" />
-        <TextBlock Text="{Binding State.LoadedCaseFolderPath}"
-                   Margin="0,2,0,0"
-                   FontSize="11"
-                   Foreground="#52616B"
-                   TextWrapping="Wrap" />
-      </StackPanel>
-    </DockPanel>
+    </Border>
 
-    <Grid Grid.Row="1" Margin="0,10,0,8">
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="72" />
-        <ColumnDefinition Width="*" />
-      </Grid.ColumnDefinitions>
-
-      <TextBlock Text="Filter"
-                 Style="{StaticResource CompactLabel}" />
-      <ComboBox Grid.Column="1"
-                MinHeight="24"
-                ItemsSource="{Binding State.Filters}"
-                SelectedItem="{Binding State.SelectedFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                IsEnabled="{Binding State.CanUseListControls}" />
-
-      <TextBlock Grid.Row="1"
-                 Text="Search"
-                 Margin="0,6,0,0"
-                 Style="{StaticResource CompactLabel}" />
-      <TextBox Grid.Row="1"
-               Grid.Column="1"
-               MinHeight="24"
-               Margin="0,6,0,0"
-               Text="{Binding State.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-               IsEnabled="{Binding State.CanUseListControls}" />
-
-      <TextBlock Grid.Row="2"
-                 Text="Sorting"
-                 Margin="0,6,0,0"
-                 Style="{StaticResource CompactLabel}" />
-      <Grid Grid.Row="2" Grid.Column="1" Margin="0,6,0,0">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="8" />
-          <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
-        <ComboBox ItemsSource="{Binding State.SortFields}"
-                  SelectedItem="{Binding State.SortField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                  IsEnabled="{Binding State.CanUseListControls}" />
-        <ComboBox Grid.Column="2"
-                  ItemsSource="{Binding State.SortDirections}"
-                  SelectedItem="{Binding State.SortDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                  IsEnabled="{Binding State.CanUseListControls}" />
-      </Grid>
-    </Grid>
+    <TextBlock Grid.Row="1"
+               Margin="0,8,0,0"
+               Text="{Binding State.StatusText}"
+               FontSize="12"
+               Foreground="#52616B"
+               TextWrapping="Wrap" />
 
     <Border Grid.Row="2"
+            Margin="0,8,0,0"
+            Padding="8"
+            BorderBrush="#DCE3E8"
+            BorderThickness="1"
+            Background="#FFFFFF">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="72" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="12" />
+          <ColumnDefinition Width="56" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Grid.Column="0"
+                   Text="Filter"
+                   Style="{StaticResource CompactLabel}" />
+        <ComboBox Grid.Row="0"
+                  Grid.Column="1"
+                  Style="{StaticResource ControlComboBox}"
+                  ItemsSource="{Binding State.Filters}"
+                  SelectedItem="{Binding State.SelectedFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  IsEnabled="{Binding State.CanUseListControls}" />
+
+        <TextBlock Grid.Row="0"
+                   Grid.Column="3"
+                   Text="Search"
+                   Style="{StaticResource CompactLabel}" />
+        <TextBox Grid.Row="0"
+                 Grid.Column="4"
+                 Style="{StaticResource ControlTextBox}"
+                 Text="{Binding State.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 IsEnabled="{Binding State.CanUseListControls}" />
+
+        <TextBlock Grid.Row="1"
+                   Grid.Column="0"
+                   Margin="0,8,0,0"
+                   Text="Sort"
+                   Style="{StaticResource CompactLabel}" />
+        <Grid Grid.Row="1"
+              Grid.Column="1"
+              Grid.ColumnSpan="4"
+              Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="8" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <ComboBox Grid.Column="0"
+                    Style="{StaticResource ControlComboBox}"
+                    ItemsSource="{Binding State.SortFields}"
+                    SelectedItem="{Binding State.SortField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    IsEnabled="{Binding State.CanUseListControls}" />
+          <ComboBox Grid.Column="2"
+                    Style="{StaticResource ControlComboBox}"
+                    ItemsSource="{Binding State.SortDirections}"
+                    SelectedItem="{Binding State.SortDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    IsEnabled="{Binding State.CanUseListControls}" />
+        </Grid>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="3"
+            Margin="0,8,0,0"
             BorderBrush="#C9D2D8"
             BorderThickness="1"
             Background="#FFFFFF">
-    <ListBox ItemsSource="{Binding State.Rows}"
-             SelectedItem="{Binding State.SelectedRow, Mode=TwoWay}"
-             IsEnabled="{Binding State.CanUseListControls}"
-             BorderThickness="0"
-             IsHitTestVisible="{Binding State.CanUseListControls}"
-             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-      <ListBox.ItemContainerStyle>
-        <Style TargetType="ListBoxItem">
-          <Style.Triggers>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.72" />
-            </Trigger>
-          </Style.Triggers>
-        </Style>
-      </ListBox.ItemContainerStyle>
-        <ListBox.InputBindings>
-          <MouseBinding Gesture="LeftDoubleClick"
-                        Command="{Binding State.StartTransactionCommand}" />
-        </ListBox.InputBindings>
-        <ListBox.ItemTemplate>
-          <DataTemplate>
-            <Border BorderBrush="#C9D2D8"
-                    BorderThickness="0,0,0,1"
-                    Padding="6"
-                    MinHeight="64">
-              <Border.Style>
-                <Style TargetType="Border">
-                  <Setter Property="Background" Value="#FFFFFF" />
-                  <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsLoadable}"
-                                 Value="False">
-                      <Setter Property="Background" Value="#F5F7F9" />
-                      <Setter Property="Opacity" Value="0.72" />
-                    </DataTrigger>
-                    <DataTrigger Value="True">
-                      <DataTrigger.Binding>
-                        <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
-                          <Binding Path="TransactionNumber" />
-                          <Binding Path="DataContext.State.SavedTransactionNumber"
-                                   RelativeSource="{RelativeSource AncestorType=ListBox}" />
-                        </MultiBinding>
-                      </DataTrigger.Binding>
-                      <Setter Property="Background" Value="#FFF7E6" />
-                    </DataTrigger>
-                    <DataTrigger Value="True">
-                      <DataTrigger.Binding>
-                        <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
-                          <Binding Path="TransactionNumber" />
-                          <Binding Path="DataContext.State.ActiveTransactionNumber"
-                                   RelativeSource="{RelativeSource AncestorType=ListBox}" />
-                        </MultiBinding>
-                      </DataTrigger.Binding>
-                      <Setter Property="Background" Value="#E7F2FB" />
-                    </DataTrigger>
-                  </Style.Triggers>
-                </Style>
-              </Border.Style>
-              <Grid>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+      <Grid>
+        <ListBox ItemsSource="{Binding State.Rows}"
+                 SelectedItem="{Binding State.SelectedRow, Mode=TwoWay}"
+                 IsEnabled="{Binding State.CanUseListControls}"
+                 BorderThickness="0"
+                 IsHitTestVisible="{Binding State.CanUseListControls}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemContainerStyle>
+            <Style TargetType="ListBoxItem">
+              <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                  <Setter Property="Opacity" Value="0.72" />
+                </Trigger>
+              </Style.Triggers>
+            </Style>
+          </ListBox.ItemContainerStyle>
+          <ListBox.InputBindings>
+            <MouseBinding Gesture="LeftDoubleClick"
+                          Command="{Binding State.StartTransactionCommand}" />
+          </ListBox.InputBindings>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Border BorderBrush="#C9D2D8"
+                      BorderThickness="0,0,0,1"
+                      Padding="6"
+                      MinHeight="64">
+                <Border.Style>
+                  <Style TargetType="Border">
+                    <Setter Property="Background" Value="#FFFFFF" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsLoadable}"
+                                   Value="False">
+                        <Setter Property="Background" Value="#F5F7F9" />
+                        <Setter Property="Opacity" Value="0.72" />
+                      </DataTrigger>
+                      <DataTrigger Value="True">
+                        <DataTrigger.Binding>
+                          <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
+                            <Binding Path="TransactionNumber" />
+                            <Binding Path="DataContext.State.SavedTransactionNumber"
+                                     RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                          </MultiBinding>
+                        </DataTrigger.Binding>
+                        <Setter Property="Background" Value="#FFF7E6" />
+                      </DataTrigger>
+                      <DataTrigger Value="True">
+                        <DataTrigger.Binding>
+                          <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
+                            <Binding Path="TransactionNumber" />
+                            <Binding Path="DataContext.State.ActiveTransactionNumber"
+                                     RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                          </MultiBinding>
+                        </DataTrigger.Binding>
+                        <Setter Property="Background" Value="#E7F2FB" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Border.Style>
+                <Grid>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{Binding TransactionNumber}"
-                           FontWeight="SemiBold"
-                             FontSize="12"
-                             Foreground="#2B6CB0"
-                             TextDecorations="Underline" />
-                  <TextBlock Text=" - "
-                             FontSize="12"
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding TransactionNumber}"
+                               FontWeight="SemiBold"
+                               FontSize="12"
+                               Foreground="#2B6CB0"
+                               TextDecorations="Underline" />
+                    <TextBlock Text=" - "
+                               FontSize="12"
+                               Foreground="#1F2933" />
+                    <TextBlock Text="{Binding TaskName}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+
+                  <TextBlock Grid.Column="1"
+                             Text="{Binding DisplayTimestamp}"
+                             Margin="8,0,0,0"
+                             FontSize="11"
                              Foreground="#1F2933" />
-                  <TextBlock Text="{Binding TaskName}"
+
+                  <TextBlock Grid.Row="1"
+                             Text="{Binding ResponsibleParty}"
+                             Margin="0,3,0,0"
                              FontSize="12"
-                             FontWeight="SemiBold"
                              Foreground="#1F2933"
                              TextWrapping="Wrap" />
-                </StackPanel>
 
-                <TextBlock Grid.Column="1"
-                           Text="{Binding DisplayTimestamp}"
-                           Margin="8,0,0,0"
-                           FontSize="11"
-                           Foreground="#1F2933" />
-
-                <TextBlock Grid.Row="1"
-                           Text="{Binding ResponsibleParty}"
-                           Margin="0,3,0,0"
-                           FontSize="12"
-                           Foreground="#1F2933"
-                           TextWrapping="Wrap" />
-
-                <TextBlock Grid.Row="2"
-                           Text="{Binding DisplayTransactionType}"
-                           Margin="0,3,0,0"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap" />
-
-                <StackPanel Grid.Row="3"
-                            Grid.ColumnSpan="2"
-                            Orientation="Horizontal"
-                            Margin="0,3,0,0">
-                  <TextBlock Text="{Binding DisplayAssignment}"
-                             FontSize="12"
-                             FontStyle="Italic"
-                             Foreground="#1F2933" />
-                  <TextBlock Text="  "
-                             FontSize="12" />
-                  <TextBlock Text="{Binding DisplayStatus}"
-                             FontSize="11"
-                             Foreground="#52616B" />
-                  <TextBlock Text="  "
-                             FontSize="12" />
-                  <TextBlock Text="{Binding DataContext.State.SavedTransactionStatusText, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                  <TextBlock Grid.Row="2"
+                             Text="{Binding DisplayTransactionType}"
+                             Margin="0,3,0,0"
                              FontSize="11"
                              FontWeight="SemiBold"
-                             Foreground="#8A5A00">
-                    <TextBlock.Style>
-                      <Style TargetType="TextBlock">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                          <DataTrigger Value="True">
-                            <DataTrigger.Binding>
-                              <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
-                                <Binding Path="TransactionNumber" />
-                                <Binding Path="DataContext.State.SavedTransactionNumber"
-                                         RelativeSource="{RelativeSource AncestorType=ListBox}" />
-                              </MultiBinding>
-                            </DataTrigger.Binding>
-                            <Setter Property="Visibility" Value="Visible" />
-                          </DataTrigger>
-                        </Style.Triggers>
-                      </Style>
-                    </TextBlock.Style>
-                  </TextBlock>
-                </StackPanel>
-              </Grid>
-            </Border>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
+                             Foreground="#52616B"
+                             TextWrapping="Wrap" />
+
+                  <StackPanel Grid.Row="3"
+                              Grid.ColumnSpan="2"
+                              Orientation="Horizontal"
+                              Margin="0,3,0,0">
+                    <TextBlock Text="{Binding DisplayAssignment}"
+                               FontSize="12"
+                               FontStyle="Italic"
+                               Foreground="#1F2933" />
+                    <TextBlock Text="  "
+                               FontSize="12" />
+                    <TextBlock Text="{Binding DisplayStatus}"
+                               FontSize="11"
+                               Foreground="#52616B" />
+                    <TextBlock Text="  "
+                               FontSize="12" />
+                    <TextBlock Text="{Binding DataContext.State.SavedTransactionStatusText, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#8A5A00">
+                      <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                          <Setter Property="Visibility" Value="Collapsed" />
+                          <Style.Triggers>
+                            <DataTrigger Value="True">
+                              <DataTrigger.Binding>
+                                <MultiBinding Converter="{StaticResource TransactionNumberEquals}">
+                                  <Binding Path="TransactionNumber" />
+                                  <Binding Path="DataContext.State.SavedTransactionNumber"
+                                           RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                                </MultiBinding>
+                              </DataTrigger.Binding>
+                              <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </TextBlock.Style>
+                    </TextBlock>
+                  </StackPanel>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <TextBlock HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="12"
+                   Foreground="#75838F"
+                   Text="No transactions to display. Adjust filters or refresh to try again."
+                   TextWrapping="Wrap"
+                   TextAlignment="Center"
+                   Margin="24"
+                   Visibility="{Binding State.IsEmpty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+      </Grid>
     </Border>
 
-    <Grid Grid.Row="3" Margin="0,8,0,0">
-      <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-      </Grid.RowDefinitions>
+    <Border Grid.Row="4"
+            Margin="0,8,0,0"
+            Padding="8,6"
+            BorderBrush="#C9D2D8"
+            BorderThickness="1"
+            Background="#F5F7F9">
       <StackPanel>
-      <TextBlock Text="{Binding State.ErrorText}"
-                 FontSize="12"
-                 Foreground="#B42318"
-                 TextWrapping="Wrap" />
-      <TextBlock Text="No available transactions for this step."
-                 FontSize="12"
-                 Foreground="#75838F">
-        <TextBlock.Style>
-          <Style TargetType="TextBlock">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-              <DataTrigger Binding="{Binding State.IsEmpty}" Value="True">
-                <Setter Property="Visibility" Value="Visible" />
-              </DataTrigger>
-            </Style.Triggers>
-          </Style>
-        </TextBlock.Style>
-      </TextBlock>
+        <TextBlock Text="{Binding State.ConnectionUserText}"
+                   FontSize="11"
+                   Foreground="#1F2933"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding State.ConnectionServerText}"
+                   Margin="0,2,0,0"
+                   FontSize="11"
+                   Foreground="#1F2933"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding State.ConnectionModeText}"
+                   Margin="0,2,0,0"
+                   FontSize="11"
+                   Foreground="#1F2933"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding State.ClientCertificateText}"
+                   Margin="0,2,0,0"
+                   FontSize="11"
+                   Foreground="#1F2933"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding State.RetrievedRecordCountText}"
+                   Margin="0,2,0,0"
+                   FontSize="11"
+                   FontWeight="SemiBold"
+                   Foreground="#52616B"
+                   TextWrapping="Wrap" />
       </StackPanel>
-
-      <Border Grid.Row="1"
-              Margin="0,8,0,0"
-              Padding="8,6"
-              BorderBrush="#C9D2D8"
-              BorderThickness="1"
-              Background="#F5F7F9">
-        <StackPanel>
-          <TextBlock Text="{Binding State.ConnectionUserText}"
-                     FontSize="11"
-                     Foreground="#1F2933"
-                     TextWrapping="Wrap" />
-          <TextBlock Text="{Binding State.ConnectionServerText}"
-                     Margin="0,2,0,0"
-                     FontSize="11"
-                     Foreground="#1F2933"
-                     TextWrapping="Wrap" />
-          <TextBlock Text="{Binding State.ConnectionModeText}"
-                     Margin="0,2,0,0"
-                     FontSize="11"
-                     Foreground="#1F2933"
-                     TextWrapping="Wrap" />
-          <TextBlock Text="{Binding State.ClientCertificateText}"
-                     Margin="0,2,0,0"
-                     FontSize="11"
-                     Foreground="#1F2933"
-                     TextWrapping="Wrap" />
-          <TextBlock Text="{Binding State.RetrievedRecordCountText}"
-                     Margin="0,2,0,0"
-                     FontSize="11"
-                     FontWeight="SemiBold"
-                     Foreground="#52616B"
-                     TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-    </Grid>
+    </Border>
   </Grid>
 </UserControl>

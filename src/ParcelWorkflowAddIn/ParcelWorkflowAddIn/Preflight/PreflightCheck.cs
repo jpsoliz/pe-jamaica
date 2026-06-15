@@ -27,6 +27,11 @@ public sealed record PreflightCheck(
         return new PreflightCheck(checkId, category, "warning", "warning", message, affectedPath, sourceRole, correction);
     }
 
+    public static PreflightCheck DisabledForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null)
+    {
+        return new PreflightCheck(checkId, category, "warning", "disabled", message, affectedPath, sourceRole, null);
+    }
+
     public static PreflightCheck PassedForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null)
     {
         return new PreflightCheck(checkId, category, "passed", "passed", message, affectedPath, sourceRole, null);

@@ -121,7 +121,7 @@
                   ItemsSource="{Binding WorkflowSteps}">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate>
-          <UniformGrid Columns="3" />
+          <UniformGrid Columns="4" />
         </ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
@@ -928,6 +928,55 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsSpatialReviewStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Spatial Review"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,6,10,6">
+                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                          Margin="0,0,6,0">
+                    <TextBlock Text="{Binding SpatialReviewBadge}"
+                               FontSize="11"
+                               Foreground="#1F2933" />
+                  </Border>
+                  <Button Content="Load layers"
+                          Command="{Binding LoadSpatialReviewLayersCommand}"
+                          IsEnabled="{Binding CanLoadSpatialReviewLayers}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="0,0,6,0" />
+                  <Button Content="Mark reviewed"
+                          Command="{Binding ApproveSpatialReviewCommand}"
+                          IsEnabled="{Binding CanApproveSpatialReview}"
+                          Style="{StaticResource SmallButtonStyle}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding SpatialReviewSummaryText}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap" />
+                <TextBlock Margin="0,6,0,0"
+                           Text="{Binding SpatialReviewHelpText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </StackPanel>

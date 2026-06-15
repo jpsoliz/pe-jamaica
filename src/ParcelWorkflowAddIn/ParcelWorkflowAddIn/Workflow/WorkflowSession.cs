@@ -5,6 +5,7 @@ using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.IO;
@@ -28,6 +29,7 @@ public sealed class WorkflowSession
     private readonly ValidationSummaryPersistenceService validationSummaryPersistenceService;
     private readonly IOutputExecutionService outputExecutionService;
     private readonly OutputSummaryPersistenceService outputSummaryPersistenceService;
+    private readonly SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -87,7 +89,8 @@ public sealed class WorkflowSession
             new ValidationAdapterExecutionService(),
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
-            new OutputSummaryPersistenceService())
+            new OutputSummaryPersistenceService(),
+            new SpatialReviewApprovalPersistenceService())
     {
     }
 
@@ -115,7 +118,8 @@ public sealed class WorkflowSession
             new ValidationAdapterExecutionService(),
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
-            new OutputSummaryPersistenceService())
+            new OutputSummaryPersistenceService(),
+            new SpatialReviewApprovalPersistenceService())
     {
     }
 
@@ -146,7 +150,8 @@ public sealed class WorkflowSession
             validationExecutionService,
             validationSummaryPersistenceService,
             new OutputAdapterExecutionService(),
-            new OutputSummaryPersistenceService())
+            new OutputSummaryPersistenceService(),
+            new SpatialReviewApprovalPersistenceService())
     {
     }
 
@@ -164,7 +169,8 @@ public sealed class WorkflowSession
         IValidationExecutionService validationExecutionService,
         ValidationSummaryPersistenceService validationSummaryPersistenceService,
         IOutputExecutionService outputExecutionService,
-        OutputSummaryPersistenceService outputSummaryPersistenceService)
+        OutputSummaryPersistenceService outputSummaryPersistenceService,
+        SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -180,6 +186,7 @@ public sealed class WorkflowSession
         this.validationSummaryPersistenceService = validationSummaryPersistenceService;
         this.outputExecutionService = outputExecutionService;
         this.outputSummaryPersistenceService = outputSummaryPersistenceService;
+        this.spatialReviewApprovalPersistenceService = spatialReviewApprovalPersistenceService;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -214,7 +221,7 @@ public sealed class WorkflowSession
 
     public bool IsOutputRunning => outputRunActive;
 
-    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed or WorkflowState.OutputRunning or WorkflowState.OutputCreated;
+    public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed or WorkflowState.OutputRunning or WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved;
 
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
 
@@ -223,6 +230,10 @@ public sealed class WorkflowSession
     public bool CanRunValidation => !validationRunActive && CanRunValidationState(CurrentState);
 
     public bool CanRunOutputs => !outputRunActive && CanRunOutputState(CurrentState);
+
+    public bool CanApproveSpatialReview =>
+        currentOutputSummary is not null
+        && CurrentState is WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending;
 
     public ValidationSummaryDocument? CurrentValidationSummary => currentValidationSummary;
 
@@ -390,9 +401,10 @@ public sealed class WorkflowSession
         LoadPreflightResults(result.Layout);
         currentValidationSummary = LoadValidationSummary(result.Layout, result.ResolvedState);
         currentOutputSummary = LoadOutputSummary(result.Layout, result.ResolvedState);
+        RestoreSpatialReviewState(result.Layout, result.ResolvedState);
         StatusText = result.RecoverabilityIssues.Count == 0
             ? "Case reopened"
-            : "Case reopened with recoverability issues.";
+            : "Case reopened. Some saved artifacts could not be restored - please review results.";
 
         return result;
     }
@@ -611,6 +623,42 @@ public sealed class WorkflowSession
         return approvalResult;
     }
 
+    public SpatialReviewApprovalValidationResult ApproveSpatialReview(string? operatorId)
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            StatusText = "Create or reopen a Case Folder before approving spatial review.";
+            return SpatialReviewApprovalValidationResult.Invalid(StatusText);
+        }
+
+        if (CurrentState is not WorkflowState.OutputCreated and not WorkflowState.SpatialReviewPending)
+        {
+            StatusText = "Spatial review can only be approved after outputs are ready for map review.";
+            return SpatialReviewApprovalValidationResult.Invalid(StatusText);
+        }
+
+        if (currentOutputSummary is null)
+        {
+            StatusText = "Spatial review approval requires a current output summary. Run Outputs again if needed.";
+            return SpatialReviewApprovalValidationResult.Invalid(StatusText);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        try
+        {
+            var approval = spatialReviewApprovalPersistenceService.Save(layout, currentOutputSummary, operatorId);
+            UpsertAvailableArtifact(new AvailableArtifact(spatialReviewApprovalPersistenceService.ApprovalArtifactFileName, spatialReviewApprovalPersistenceService.GetApprovalPath(layout)));
+            SetWorkflowState(layout, WorkflowState.SpatialReviewApproved);
+            StatusText = "Spatial review approved. The case is ready for final completion when transaction-level completion is appropriate.";
+            return SpatialReviewApprovalValidationResult.Current(approval);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or InvalidOperationException or JsonException or ArgumentException)
+        {
+            StatusText = $"Spatial review approval failed: {exception.Message}";
+            return SpatialReviewApprovalValidationResult.Invalid(StatusText);
+        }
+    }
+
     public async Task<ValidationExecutionResult> RunValidationAsync(string? operatorId, CancellationToken cancellationToken = default)
     {
         if (validationRunActive)
@@ -755,8 +803,9 @@ public sealed class WorkflowSession
                 }
             }
 
-            SetWorkflowState(layout, WorkflowState.OutputCreated);
-            StatusText = "Outputs created: local geometry is ready for map review.";
+            RemoveSpatialReviewArtifacts(layout);
+            SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
+            StatusText = "Outputs created: local geometry is ready for spatial review in the map.";
             return result;
         }
         catch (OperationCanceledException)
@@ -1030,6 +1079,7 @@ public sealed class WorkflowSession
     private void RemoveOutputArtifacts(CaseFolderLayout layout)
     {
         currentOutputSummary = null;
+        RemoveSpatialReviewArtifacts(layout);
         var candidateFiles = new[]
         {
             Path.Combine(layout.OutputDirectory, outputSummaryPersistenceService.OutputArtifactFileName),
@@ -1076,7 +1126,9 @@ public sealed class WorkflowSession
         if (reopenedState is not WorkflowState.ValidationBlocked
             and not WorkflowState.ValidationPassed
             and not WorkflowState.OutputRunning
-            and not WorkflowState.OutputCreated)
+            and not WorkflowState.OutputCreated
+            and not WorkflowState.SpatialReviewPending
+            and not WorkflowState.SpatialReviewApproved)
         {
             return null;
         }
@@ -1094,7 +1146,9 @@ public sealed class WorkflowSession
 
     private OutputSummaryDocument? LoadOutputSummary(CaseFolderLayout layout, WorkflowState reopenedState)
     {
-        if (reopenedState is not WorkflowState.OutputCreated)
+        if (reopenedState is not WorkflowState.OutputCreated
+            and not WorkflowState.SpatialReviewPending
+            and not WorkflowState.SpatialReviewApproved)
         {
             return null;
         }
@@ -1148,6 +1202,62 @@ public sealed class WorkflowSession
         }
 
         return null;
+    }
+
+    private void RestoreSpatialReviewState(CaseFolderLayout layout, WorkflowState reopenedState)
+    {
+        if (reopenedState == WorkflowState.OutputCreated)
+        {
+            SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
+            CurrentState = WorkflowState.SpatialReviewPending;
+            return;
+        }
+
+        if (reopenedState is not WorkflowState.SpatialReviewPending and not WorkflowState.SpatialReviewApproved)
+        {
+            return;
+        }
+
+        var approvalPath = spatialReviewApprovalPersistenceService.GetApprovalPath(layout);
+        if (File.Exists(approvalPath))
+        {
+            UpsertAvailableArtifact(new AvailableArtifact(spatialReviewApprovalPersistenceService.ApprovalArtifactFileName, approvalPath));
+        }
+
+        if (reopenedState != WorkflowState.SpatialReviewApproved)
+        {
+            return;
+        }
+
+        var validation = spatialReviewApprovalPersistenceService.ValidateCurrent(layout, currentOutputSummary);
+        if (validation.IsCurrent)
+        {
+            return;
+        }
+
+        RemoveSpatialReviewArtifacts(layout);
+        intakeIssues.Add(validation.ErrorMessage ?? "Spatial review approval could not be verified.");
+        SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
+        CurrentState = WorkflowState.SpatialReviewPending;
+    }
+
+    private void RemoveSpatialReviewArtifacts(CaseFolderLayout layout)
+    {
+        var approvalPath = spatialReviewApprovalPersistenceService.GetApprovalPath(layout);
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, approvalPath, StringComparison.OrdinalIgnoreCase));
+        if (!File.Exists(approvalPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(approvalPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Spatial review approval artifact could not be cleared: {exception.Message}");
+        }
     }
 
     private static string? ReadJsonString(JsonElement element, string propertyName)

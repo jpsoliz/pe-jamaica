@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Diagnostics;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Innola;
 
@@ -64,7 +65,8 @@ public sealed class CaseResumePackageService
                     var fullFilePath = Path.GetFullPath(filePath);
                     var relativePath = Path.GetRelativePath(layout.RootDirectory, fullFilePath);
                     if (string.IsNullOrWhiteSpace(relativePath)
-                        || relativePath.Equals(ResumeManifestFileName, StringComparison.OrdinalIgnoreCase))
+                        || relativePath.Equals(ResumeManifestFileName, StringComparison.OrdinalIgnoreCase)
+                        || !ShouldIncludeInResumePackage(relativePath))
                     {
                         continue;
                     }
@@ -72,6 +74,10 @@ public sealed class CaseResumePackageService
                     archive.CreateEntryFromFile(fullFilePath, relativePath, CompressionLevel.SmallestSize);
                 }
             }
+
+            var packageInfo = new FileInfo(tempPackagePath);
+            Debug.WriteLine(
+                $"Innola resume package built. TransactionNumber={transaction.TransactionNumber}; Path={tempPackagePath}; Bytes={packageInfo.Length}.");
 
             return ResumePackageBuildResult.Succeeded(
                 tempPackagePath,
@@ -199,6 +205,44 @@ public sealed class CaseResumePackageService
     private static string ResolveAddInVersion()
     {
         return typeof(CaseResumePackageService).Assembly.GetName().Version?.ToString() ?? "dev";
+    }
+
+    private static bool ShouldIncludeInResumePackage(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/');
+
+        if (normalized.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("source/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("working/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.Equals("output/output_summary.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.StartsWith("output/reports/", StringComparison.OrdinalIgnoreCase)
+            && normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (normalized.Equals("output/logs/process.log", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
     }
 }
 

@@ -135,6 +135,48 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "dwg_source_sublayers"), "DWG sub-layer blocker should be present.");
     }
 
+    public static void ManifestPreflightDisabledDwgProbeRecordsDisabledWarning()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+        var catalog = new PreflightRuleCatalog(
+            Path.Combine(tempRoot.Path, "PreflightRules.json"),
+            UsingSafeDefaults: false,
+            LoadWarning: null,
+            new[]
+            {
+                new PreflightRuleDefinition("arcgis_unknown_version_behavior", "arcgis_pro", "Unknown ArcGIS Pro version handling", string.Empty, true, "warning", false),
+                new PreflightRuleDefinition("python_package_probe", "python", "Python package probe", string.Empty, true, "configured", false),
+                new PreflightRuleDefinition("dwg_readiness_probe", "dwg", "DWG readiness probe", string.Empty, false, "blocker", false)
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(
+                ProbeExecuted: true,
+                Success: false,
+                Message: "No readable CAD sub-layers found.",
+                Correction: "Replace with a DWG that contains features.")),
+            catalog)
+            .Run(layout, "tester");
+
+        TestAssert.Equal("passed", summary.Payload.Status, "Disabled DWG readiness probe should not block preflight.");
+        TestAssert.True(summary.Payload.Warnings.Any(check => check.CheckId == "dwg_readiness_probe" && check.Status == "disabled"), "Disabled DWG readiness probe should be recorded.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "dwg_source_sublayers"), "Disabled DWG readiness probe should skip sub-layer blocker.");
+    }
+
     public static void ManifestPreflightBlocksMissingDetectedProfile()
     {
         using var tempRoot = new TempDirectory();

@@ -33,15 +33,16 @@ public sealed class ManifestPreflightService
     private readonly Func<string> createRunId;
     private readonly IProcessingEnvironmentPreflightService environmentPreflightService;
     private readonly IDwgReferenceReadinessInspector dwgReadinessInspector;
+    private readonly PreflightRuleCatalog ruleCatalog;
     private const int MinimumDwgFileSizeBytes = 1;
 
     public ManifestPreflightService()
-        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector())
+        : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector(), new PreflightRuleCatalogLoader().Load())
     {
     }
 
     public ManifestPreflightService(Func<DateTimeOffset> getUtcNow, Func<string> createRunId)
-        : this(getUtcNow, createRunId, new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector())
+        : this(getUtcNow, createRunId, new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector(), new PreflightRuleCatalogLoader().Load())
     {
     }
 
@@ -49,7 +50,7 @@ public sealed class ManifestPreflightService
         Func<DateTimeOffset> getUtcNow,
         Func<string> createRunId,
         IProcessingEnvironmentPreflightService environmentPreflightService)
-        : this(getUtcNow, createRunId, environmentPreflightService, new NoOpDwgReferenceReadinessInspector())
+        : this(getUtcNow, createRunId, environmentPreflightService, new NoOpDwgReferenceReadinessInspector(), new PreflightRuleCatalogLoader().Load())
     {
     }
 
@@ -57,12 +58,14 @@ public sealed class ManifestPreflightService
         Func<DateTimeOffset> getUtcNow,
         Func<string> createRunId,
         IProcessingEnvironmentPreflightService environmentPreflightService,
-        IDwgReferenceReadinessInspector dwgReadinessInspector)
+        IDwgReferenceReadinessInspector dwgReadinessInspector,
+        PreflightRuleCatalog? ruleCatalog = null)
     {
         this.getUtcNow = getUtcNow;
         this.createRunId = createRunId;
         this.environmentPreflightService = environmentPreflightService;
         this.dwgReadinessInspector = dwgReadinessInspector;
+        this.ruleCatalog = ruleCatalog ?? new PreflightRuleCatalogLoader().Load();
     }
 
     public static ManifestPreflightService CreateDefault()
@@ -71,7 +74,8 @@ public sealed class ManifestPreflightService
             () => DateTimeOffset.UtcNow,
             () => $"preflight-{Guid.NewGuid():N}",
             new ProcessingEnvironmentPreflightService(),
-            new ArcPyDwgReferenceReadinessInspector(new ProcessRunner()));
+            new ArcPyDwgReferenceReadinessInspector(new ProcessRunner()),
+            new PreflightRuleCatalogLoader().Load());
     }
 
     public PreflightSummaryDocument Run(CaseFolderLayout layout, string? createdBy)
@@ -98,7 +102,7 @@ public sealed class ManifestPreflightService
         }
         else
         {
-            await EvaluateProfile(manifest, layout, blockers, passed, cancellationToken).ConfigureAwait(false);
+            await EvaluateProfile(manifest, layout, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
 
         EvaluateScriptPlan(manifest, layout, blockers, passed);
@@ -128,6 +132,7 @@ public sealed class ManifestPreflightService
         ManifestDocument manifest,
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
         CancellationToken cancellationToken)
     {
@@ -155,7 +160,7 @@ public sealed class ManifestPreflightService
 
         foreach (var role in RequiredRoles(profile.ProfileCode))
         {
-            await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, passed, cancellationToken).ConfigureAwait(false);
+            await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -210,6 +215,7 @@ public sealed class ManifestPreflightService
         CaseFolderLayout layout,
         string role,
         List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
         CancellationToken cancellationToken)
     {
@@ -231,7 +237,7 @@ public sealed class ManifestPreflightService
             source.CopiedPath,
             role));
 
-        await ValidateCopiedSource(layout, source, role, blockers, passed, cancellationToken).ConfigureAwait(false);
+        await ValidateCopiedSource(layout, source, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ValidateCopiedSource(
@@ -239,6 +245,7 @@ public sealed class ManifestPreflightService
         ManifestSourceFile source,
         string role,
         List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
         CancellationToken cancellationToken)
     {
@@ -344,7 +351,7 @@ public sealed class ManifestPreflightService
 
         if (string.Equals(role, SourceRole.DwgReference, StringComparison.OrdinalIgnoreCase))
         {
-            await ValidateDwgReadiness(source, copiedPath, blockers, passed, cancellationToken).ConfigureAwait(false);
+            await ValidateDwgReadiness(source, copiedPath, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -352,6 +359,7 @@ public sealed class ManifestPreflightService
         ManifestSourceFile source,
         string copiedPath,
         List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
         CancellationToken cancellationToken)
     {
@@ -402,6 +410,18 @@ public sealed class ManifestPreflightService
             source.SourceRole));
 
         var probeResult = await dwgReadinessInspector.InspectAsync(copiedPath, cancellationToken).ConfigureAwait(false);
+        var rule = ruleCatalog.GetRule("dwg_readiness_probe");
+        if (!rule.Enabled)
+        {
+            warnings.Add(PreflightCheck.DisabledForCategory(
+                rule.Category,
+                rule.RuleId,
+                $"Skipped: {rule.DisplayName} is disabled in PreflightRules.json.",
+                ruleCatalog.SourcePath,
+                source.SourceRole));
+            return;
+        }
+
         if (!probeResult.ProbeExecuted)
         {
             return;
@@ -409,13 +429,28 @@ public sealed class ManifestPreflightService
 
         if (!probeResult.Success)
         {
-            blockers.Add(PreflightCheck.BlockerForCategory(
+            var check = PreflightCheck.BlockerForCategory(
                 "dwg",
                 "dwg_source_sublayers",
                 probeResult.Message ?? "DWG source has no readable CAD sub-layers.",
                 copiedPath,
                 source.SourceRole,
-                probeResult.Correction));
+                probeResult.Correction);
+            var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "blocker");
+            if (severity == "warning")
+            {
+                warnings.Add(PreflightCheck.WarningForCategory(
+                    "dwg",
+                    "dwg_source_sublayers",
+                    check.Message,
+                    copiedPath,
+                    source.SourceRole,
+                    probeResult.Correction));
+            }
+            else
+            {
+                blockers.Add(check);
+            }
             return;
         }
 

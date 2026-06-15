@@ -43,8 +43,14 @@ internal static class WorkflowWorkspacePlannerTests
         TestAssert.Equal(WorkflowWorkspaceStage.Outputs, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.OutputRunning, false, true), "Output running should keep focus on outputs.");
     }
 
-    public static void OutputCreatedResolvesToReadyToCompleteWorkspace()
+    public static void OutputCreatedResolvesToSpatialReviewWorkspace()
     {
-        TestAssert.Equal(WorkflowWorkspaceStage.ReadyToComplete, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.OutputCreated, false, true), "Created outputs should focus ready to complete.");
+        TestAssert.Equal(WorkflowWorkspaceStage.SpatialReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.OutputCreated, false, true), "Created outputs should focus spatial review.");
+        TestAssert.Equal(WorkflowWorkspaceStage.SpatialReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.SpatialReviewPending, false, true), "Pending spatial review should focus spatial review.");
+    }
+
+    public static void SpatialReviewApprovedResolvesToReadyToCompleteWorkspace()
+    {
+        TestAssert.Equal(WorkflowWorkspaceStage.ReadyToComplete, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.SpatialReviewApproved, false, true), "Approved spatial review should focus ready to complete.");
     }
 }

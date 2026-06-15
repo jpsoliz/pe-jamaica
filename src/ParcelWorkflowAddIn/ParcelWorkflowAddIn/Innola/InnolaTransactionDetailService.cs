@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -144,12 +145,14 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         {
             var route = NormalizeUploadRoute(ShellState.AttachmentUploadRoute);
             var bindingMode = NormalizeBindingMode(ShellState.AttachmentUploadBindingMode);
-            var query = BuildUploadQuery(selectedTransaction, sourceType, bindingMode);
+            var uploadMode = NormalizeUploadMode(ShellState.AttachmentUploadMode);
+            var query = BuildUploadQuery(selectedTransaction, sourceType, bindingMode, route, uploadMode);
+            var requestPath = BuildUploadRequestPath(route, query);
             using var request = new HttpRequestMessage(
                 HttpMethod.Post,
                 InnolaHttp.BuildUri(
                     session.ServerUrl,
-                    $"{InnolaSettings.RestPath}{route}{query}"));
+                    requestPath));
             InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
 
             using var formData = new MultipartFormDataContent();
@@ -160,22 +163,41 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
             {
                 formData.Add(new StringContent(sourceType), "sourceType");
-                formData.Add(new StringContent(selectedTransaction.TaskId), "taskId");
+                formData.Add(new StringContent(ResolveUploadTaskValue(selectedTransaction, route, uploadMode)), "taskId");
                 if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
                 {
                     formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
                 }
             }
             request.Content = formData;
+            Debug.WriteLine(
+                $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; SourceType={sourceType}; Path={requestPath}.");
 
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var responseBody = await SafeReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                 Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={response.StatusCode}; Body={responseBody}.");
                 return InnolaAttachmentUploadResult.Failure(
                     $"Could not upload saved resume package ({response.StatusCode}). Try again.",
                     response.StatusCode.ToString());
+            }
+
+            var uploadResponseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+            if (uploadMode == AttachmentUploadMode.AttachThenRegisterSource)
+            {
+                var registeredType = ResolveRegisteredType(sourceType);
+                var registerResult = await RegisterUploadedSourceAsync(
+                    session,
+                    selectedTransaction,
+                    sourceType,
+                    registeredType,
+                    uploadResponseBody,
+                    cancellationToken).ConfigureAwait(false);
+                if (!registerResult.Success)
+                {
+                    return registerResult;
+                }
             }
 
             Debug.WriteLine($"Innola attachment upload completed. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}.");
@@ -186,6 +208,81 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={exception.GetType().Name}.");
             return InnolaAttachmentUploadResult.Failure("Could not upload saved resume package. Try again.", exception.GetType().Name);
         }
+    }
+
+    private async Task<InnolaAttachmentUploadResult> RegisterUploadedSourceAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string sourceType,
+        string? registeredType,
+        string uploadResponseBody,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
+        {
+            return InnolaAttachmentUploadResult.Failure("Could not register uploaded source because the transaction id is unavailable.", "transaction_id_missing");
+        }
+
+        JsonNode uploadedSource;
+        try
+        {
+            uploadedSource = JsonNode.Parse(uploadResponseBody)
+                ?? throw new JsonException("Upload response was empty.");
+        }
+        catch (Exception exception) when (exception is JsonException or FormatException)
+        {
+            Debug.WriteLine($"Innola uploaded source registration parse failed. TransactionId={selectedTransaction.TransactionId}; Error={exception.GetType().Name}; Body={SanitizeDiagnostic(uploadResponseBody)}.");
+            return InnolaAttachmentUploadResult.Failure("Could not register uploaded source. Try again.", "upload_response_invalid");
+        }
+
+        List<JsonNode> existingSources;
+        try
+        {
+            existingSources = await GetAdministrativeSourcesAsync(session, selectedTransaction.TransactionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException or JsonException)
+        {
+            Debug.WriteLine($"Innola source registration lookup failed. TransactionId={selectedTransaction.TransactionId}; Error={exception.GetType().Name}.");
+            return InnolaAttachmentUploadResult.Failure("Could not load current transaction sources. Try again.", exception.GetType().Name);
+        }
+
+        try
+        {
+            PrepareUploadedSourceForRegistration(
+                uploadedSource,
+                existingSources,
+                sourceType,
+                registeredType,
+                ShellState.AttachmentRegisteredSpatialUnitId);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or FormatException)
+        {
+            Debug.WriteLine($"Innola uploaded source preparation failed. TransactionId={selectedTransaction.TransactionId}; Error={exception.GetType().Name}.");
+            return InnolaAttachmentUploadResult.Failure("Could not prepare uploaded source for transaction registration.", exception.GetType().Name);
+        }
+
+        existingSources.Add(uploadedSource);
+        var payload = new JsonArray(existingSources.Select(node => node.DeepClone()).ToArray());
+        using var registerRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            InnolaHttp.BuildUri(
+                session.ServerUrl,
+                $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(selectedTransaction.TransactionId)}"));
+        InnolaHttp.ApplyAuthHeaders(registerRequest, session.AccessToken);
+        registerRequest.Content = new StringContent(payload.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+
+        using var registerResponse = await httpClient.SendAsync(registerRequest, cancellationToken).ConfigureAwait(false);
+        if (!registerResponse.IsSuccessStatusCode)
+        {
+            var responseBody = await ReadResponseBodyAsync(registerResponse, cancellationToken).ConfigureAwait(false);
+            Debug.WriteLine($"Innola uploaded source registration failed. TransactionId={selectedTransaction.TransactionId}; Status={registerResponse.StatusCode}; Body={responseBody}.");
+            return InnolaAttachmentUploadResult.Failure(
+                $"Could not register uploaded source ({registerResponse.StatusCode}). Try again.",
+                registerResponse.StatusCode.ToString());
+        }
+
+        Debug.WriteLine($"Innola uploaded source registration completed. TransactionId={selectedTransaction.TransactionId}; SourceCount={existingSources.Count}.");
+        return InnolaAttachmentUploadResult.Succeeded();
     }
 
     private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetScanningApplicationSourceAttachmentsAsync(
@@ -229,12 +326,11 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         }
     }
 
-    private static async Task<string> SafeReadResponseBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<string> ReadResponseBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            return SanitizeDiagnostic(body);
+            return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
@@ -270,6 +366,15 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         return normalized;
     }
 
+    private static AttachmentUploadMode NormalizeUploadMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "attach_then_register_source" => AttachmentUploadMode.AttachThenRegisterSource,
+            _ => AttachmentUploadMode.AttachOnly
+        };
+    }
+
     private static AttachmentUploadBindingMode NormalizeBindingMode(string? value)
     {
         return value?.Trim().ToLowerInvariant() switch
@@ -280,14 +385,49 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         };
     }
 
-    private static string BuildUploadQuery(SelectedInnolaTransaction selectedTransaction, string sourceType, AttachmentUploadBindingMode bindingMode)
+    private static string BuildUploadQuery(SelectedInnolaTransaction selectedTransaction, string sourceType, AttachmentUploadBindingMode bindingMode, string route, AttachmentUploadMode uploadMode)
     {
         if (bindingMode is AttachmentUploadBindingMode.FormOnly)
         {
             return string.Empty;
         }
 
-        return $"?sourceType={Uri.EscapeDataString(sourceType)}&taskId={Uri.EscapeDataString(selectedTransaction.TaskId)}";
+        return $"?sourceType={Uri.EscapeDataString(sourceType)}&taskId={Uri.EscapeDataString(ResolveUploadTaskValue(selectedTransaction, route, uploadMode))}";
+    }
+
+    private static string BuildUploadRequestPath(string route, string query)
+    {
+        if (route.StartsWith("api/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"/{route}{query}";
+        }
+
+        if (route.StartsWith("v4/rest/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"/api/{route}{query}";
+        }
+
+        if (route.StartsWith("rest/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"/api/{route}{query}";
+        }
+
+        var prefix = route.StartsWith("source/", StringComparison.OrdinalIgnoreCase)
+            ? InnolaSettings.V4RestPath
+            : InnolaSettings.RestPath;
+        return $"{prefix}{route}{query}";
+    }
+
+    private static string ResolveUploadTaskValue(SelectedInnolaTransaction selectedTransaction, string route, AttachmentUploadMode uploadMode)
+    {
+        if (uploadMode == AttachmentUploadMode.AttachThenRegisterSource
+            && route.StartsWith("source/sources/attach", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
+        {
+            return selectedTransaction.TransactionId;
+        }
+
+        return selectedTransaction.TaskId;
     }
 
     private enum AttachmentUploadBindingMode
@@ -295,6 +435,149 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         QueryOnly,
         FormOnly,
         QueryAndForm
+    }
+
+    private enum AttachmentUploadMode
+    {
+        AttachOnly,
+        AttachThenRegisterSource
+    }
+
+    private async Task<List<JsonNode>> GetAdministrativeSourcesAsync(
+        InnolaSession session,
+        string transactionId,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            InnolaHttp.BuildUri(
+                session.ServerUrl,
+                $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
+        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+            throw new HttpRequestException($"Administrative source lookup failed: {response.StatusCode}; {responseBody}");
+        }
+
+        var responseBodyText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var parsed = JsonNode.Parse(responseBodyText);
+        return parsed switch
+        {
+            JsonArray array => array.Select(node => node?.DeepClone()).Where(node => node is not null).Cast<JsonNode>().ToList(),
+            _ => throw new JsonException("Administrative source lookup did not return a JSON array.")
+        };
+    }
+
+    private static void PrepareUploadedSourceForRegistration(
+        JsonNode uploadedSource,
+        IReadOnlyList<JsonNode> existingSources,
+        string sourceType,
+        string? registeredType,
+        string? spatialUnitId)
+    {
+        if (uploadedSource is not JsonObject sourceObject)
+        {
+            throw new InvalidOperationException("Upload response is not a source object.");
+        }
+
+        var nextAtId = GetNextAtId(existingSources);
+        ForceAtId(sourceObject, ref nextAtId);
+
+        if (sourceObject["body"] is JsonObject bodyObject)
+        {
+            ForceAtId(bodyObject, ref nextAtId);
+        }
+
+        if (sourceObject["link"] is JsonObject linkObject)
+        {
+            ForceAtId(linkObject, ref nextAtId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(registeredType))
+        {
+            sourceObject["type"] = registeredType;
+        }
+
+        if (!string.IsNullOrWhiteSpace(spatialUnitId))
+        {
+            sourceObject["spatialUnitId"] = spatialUnitId;
+        }
+    }
+
+    private static string? ResolveRegisteredType(string sourceType)
+    {
+        if (string.Equals(sourceType, ShellState.ResumeAttachmentSourceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return ShellState.ResumeAttachmentRegisteredType;
+        }
+
+        if (string.Equals(sourceType, ShellState.CompletedAttachmentSourceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return ShellState.CompletedAttachmentRegisteredType;
+        }
+
+        return ShellState.ResumeAttachmentRegisteredType;
+    }
+
+    private static int GetNextAtId(IReadOnlyList<JsonNode> sources)
+    {
+        var maxAtId = 0;
+        foreach (var source in sources)
+        {
+            maxAtId = Math.Max(maxAtId, ReadAtId(source));
+            maxAtId = Math.Max(maxAtId, ReadAtId(source?["body"]));
+            maxAtId = Math.Max(maxAtId, ReadAtId(source?["link"]));
+        }
+
+        return maxAtId + 1;
+    }
+
+    private static int ReadAtId(JsonNode? node)
+    {
+        if (node is not JsonObject obj)
+        {
+            return 0;
+        }
+
+        var raw = obj["atId"]?.GetValue<string>()
+            ?? obj["AtId"]?.GetValue<string>()
+            ?? obj["@id"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return 0;
+        }
+
+        var separator = raw.IndexOf(':', StringComparison.Ordinal);
+        var numericPart = separator >= 0 ? raw[(separator + 1)..] : raw;
+        return int.TryParse(numericPart, out var value) ? value : 0;
+    }
+
+    private static void ForceAtId(JsonObject target, ref int nextAtId)
+    {
+        var value = $"obj:{nextAtId++}";
+
+        if (target["@id"] is not null)
+        {
+            target["@id"] = value;
+            return;
+        }
+
+        if (target["atId"] is not null)
+        {
+            target["atId"] = value;
+            return;
+        }
+
+        if (target["AtId"] is not null)
+        {
+            target["AtId"] = value;
+            return;
+        }
+
+        target["@id"] = value;
     }
 
     private async Task<IReadOnlyList<InnolaAttachmentMetadata>> GetTransactionSourceAttachmentsAsync(

@@ -20,6 +20,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly InnolaTransactionLoadService? transactionLoadService;
     private readonly InnolaTransactionLifecycleCoordinator? lifecycleCoordinator;
     private readonly IActiveTransactionSwitchDecisionProvider switchDecisionProvider;
+    private readonly HashSet<string> supportedTransactionTypes;
+    private readonly HashSet<string> computeWorkflowStages;
     private readonly Func<DateTimeOffset> clock;
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
@@ -40,8 +42,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         InnolaSessionManager session,
         IInnolaTransactionService transactionService,
         string processStep,
-        Func<DateTimeOffset>? clock)
-        : this(session, transactionService, processStep, null, null, null, clock)
+        Func<DateTimeOffset>? clock,
+        IReadOnlyCollection<string>? supportedTransactionTypes = null,
+        IReadOnlyCollection<string>? computeWorkflowStages = null)
+        : this(session, transactionService, processStep, null, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages)
     {
     }
 
@@ -50,8 +54,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IInnolaTransactionService transactionService,
         string processStep,
         InnolaTransactionLoadService? transactionLoadService = null,
-        Func<DateTimeOffset>? clock = null)
-        : this(session, transactionService, processStep, transactionLoadService, null, null, clock)
+        Func<DateTimeOffset>? clock = null,
+        IReadOnlyCollection<string>? supportedTransactionTypes = null,
+        IReadOnlyCollection<string>? computeWorkflowStages = null)
+        : this(session, transactionService, processStep, transactionLoadService, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages)
     {
     }
 
@@ -63,13 +69,25 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         InnolaTransactionLifecycleCoordinator? lifecycleCoordinator = null,
         IActiveTransactionSwitchDecisionProvider? switchDecisionProvider = null,
         Func<DateTimeOffset>? clock = null,
-        bool autoRefreshOnLogin = false)
+        bool autoRefreshOnLogin = false,
+        IReadOnlyCollection<string>? supportedTransactionTypes = null,
+        IReadOnlyCollection<string>? computeWorkflowStages = null)
     {
         this.session = session;
         this.transactionService = transactionService;
         this.transactionLoadService = transactionLoadService;
         this.lifecycleCoordinator = lifecycleCoordinator;
         this.switchDecisionProvider = switchDecisionProvider ?? new StayOnCurrentTransactionDecisionProvider();
+        this.supportedTransactionTypes = new HashSet<string>(
+            (supportedTransactionTypes is { Count: > 0 }
+                ? supportedTransactionTypes
+                : ShellState.SupportedTransactionTypes),
+            StringComparer.OrdinalIgnoreCase);
+        this.computeWorkflowStages = new HashSet<string>(
+            (computeWorkflowStages is { Count: > 0 }
+                ? computeWorkflowStages
+                : ShellState.ComputeWorkflowStages),
+            StringComparer.OrdinalIgnoreCase);
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
         this.autoRefreshOnLogin = autoRefreshOnLogin;
@@ -485,6 +503,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         var requestedRow = SelectedRow;
+        if (!ValidateSupportedTransactionType(requestedRow))
+        {
+            return;
+        }
+
+        if (!ValidateComputeWorkflowStage(requestedRow))
+        {
+            return;
+        }
+
         var previousTransactionState = session.CaptureTransactionState();
         if (session.HasActiveTransaction
             && session.SelectedTransaction is not null
@@ -579,6 +607,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public async Task StartSelectedTransactionAsync(CancellationToken cancellationToken = default)
     {
         if (!CanStartTransaction || lifecycleCoordinator is null || SelectedRow is null)
+        {
+            return;
+        }
+
+        if (!ValidateSupportedTransactionType(SelectedRow))
+        {
+            return;
+        }
+
+        if (!ValidateComputeWorkflowStage(SelectedRow))
         {
             return;
         }
@@ -1065,5 +1103,35 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private static bool Contains(string? value, string query)
     {
         return value?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false;
+    }
+
+    private bool ValidateSupportedTransactionType(InnolaTransactionRow row)
+    {
+        var normalizedType = row.TransactionType?.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedType) && supportedTransactionTypes.Contains(normalizedType))
+        {
+            return true;
+        }
+
+        const string message = "This transaction type is not supported by Parcel Workflow. Please return to the transaction list and select a valid examination transaction.";
+        ErrorText = message;
+        StatusText = message;
+        RestoreSelectedRow(row.TransactionNumber);
+        return false;
+    }
+
+    private bool ValidateComputeWorkflowStage(InnolaTransactionRow row)
+    {
+        var normalizedStage = row.TaskName?.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedStage) && computeWorkflowStages.Contains(normalizedStage))
+        {
+            return true;
+        }
+
+        const string message = "This transaction belongs to a different workflow stage and cannot be opened in Parcel Workflow [Compute]. Please return to the transaction list and select a Compute transaction.";
+        ErrorText = message;
+        StatusText = message;
+        RestoreSelectedRow(row.TransactionNumber);
+        return false;
     }
 }

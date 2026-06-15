@@ -11,20 +11,23 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
     private readonly ProcessingEnvironmentSettings settings;
     private readonly IProcessRunner processRunner;
     private readonly IArcGisProEnvironmentProvider arcGisProEnvironmentProvider;
+    private readonly PreflightRuleCatalog ruleCatalog;
 
     public ProcessingEnvironmentPreflightService()
-        : this(ProcessingEnvironmentSettings.Load(), new ProcessRunner(), new ArcGisProEnvironmentProvider())
+        : this(ProcessingEnvironmentSettings.Load(), new ProcessRunner(), new ArcGisProEnvironmentProvider(), new PreflightRuleCatalogLoader().Load())
     {
     }
 
     public ProcessingEnvironmentPreflightService(
         ProcessingEnvironmentSettings settings,
         IProcessRunner processRunner,
-        IArcGisProEnvironmentProvider arcGisProEnvironmentProvider)
+        IArcGisProEnvironmentProvider arcGisProEnvironmentProvider,
+        PreflightRuleCatalog? ruleCatalog = null)
     {
         this.settings = settings;
         this.processRunner = processRunner;
         this.arcGisProEnvironmentProvider = arcGisProEnvironmentProvider;
+        this.ruleCatalog = ruleCatalog ?? new PreflightRuleCatalogLoader().Load();
     }
 
     public async Task<ProcessingEnvironmentPreflightResult> RunAsync(CaseFolderLayout layout, CancellationToken cancellationToken = default)
@@ -36,6 +39,17 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
         CheckArcGisProCompatibility(blockers, warnings, passed);
         CheckWorkspaceAccess(layout, blockers, passed);
         await CheckPythonAsync(blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(ruleCatalog.LoadWarning))
+        {
+            warnings.Add(PreflightCheck.WarningForCategory(
+                "configuration",
+                "preflight_rules_catalog_load",
+                ruleCatalog.LoadWarning!,
+                ruleCatalog.SourcePath,
+                null,
+                "Review PreflightRules.json and restart ArcGIS Pro after correcting it."));
+        }
 
         return new ProcessingEnvironmentPreflightResult(blockers, warnings, passed);
     }
@@ -80,20 +94,34 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
         var detectedVersion = arcGisProEnvironmentProvider.GetArcGisProVersion();
         if (string.IsNullOrWhiteSpace(detectedVersion))
         {
-            var check = PreflightCheck.WarningForCategory(
-                "arcgis_pro",
-                "arcgis_pro_version_detected",
-                "ArcGIS Pro version could not be detected from the current runtime.",
-                null,
-                null,
-                "Run this check inside ArcGIS Pro 3.6 or confirm the add-in manager target version.");
-            if (settings.UnknownArcGisVersionIsWarning)
+            var rule = ruleCatalog.GetRule("arcgis_unknown_version_behavior");
+            if (!rule.Enabled)
             {
-                warnings.Add(check);
+                warnings.Add(PreflightCheck.DisabledForCategory(
+                    rule.Category,
+                    rule.RuleId,
+                    $"Skipped: {rule.DisplayName} is disabled in PreflightRules.json.",
+                    ruleCatalog.SourcePath,
+                    null));
             }
             else
             {
-                blockers.Add(check with { Severity = "blocker", Status = "blocked" });
+                var check = PreflightCheck.WarningForCategory(
+                    "arcgis_pro",
+                    "arcgis_pro_version_detected",
+                    "ArcGIS Pro version could not be detected from the current runtime.",
+                    null,
+                    null,
+                    "Run this check inside ArcGIS Pro 3.6 or confirm the add-in manager target version.");
+                var severity = ResolveUnknownVersionSeverity(rule);
+                if (severity == "blocker")
+                {
+                    blockers.Add(check with { Severity = "blocker", Status = "blocked" });
+                }
+                else
+                {
+                    warnings.Add(check);
+                }
             }
 
             return;
@@ -207,6 +235,18 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
             .Concat(settings.OptionalPackages)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var packageProbeRule = ruleCatalog.GetRule("python_package_probe");
+        if (!packageProbeRule.Enabled)
+        {
+            warnings.Add(PreflightCheck.DisabledForCategory(
+                packageProbeRule.Category,
+                packageProbeRule.RuleId,
+                $"Skipped: {packageProbeRule.DisplayName} is disabled in PreflightRules.json.",
+                ruleCatalog.SourcePath,
+                null));
+            return;
+        }
+
         var importScript = BuildPythonProbeScript(packages);
         Debug.WriteLine($"Innola Python preflight: running import probe. Python={settings.PythonExecutable}; Timeout={PythonProbeTimeout.TotalSeconds:F0}s; Packages={string.Join(',', packages)}.");
         var pythonProbeClock = Stopwatch.StartNew();
@@ -291,7 +331,8 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
                 : $"Install {package} in the configured Python environment or mark it optional.";
             var isRequired = settings.RequiredPackages.Contains(package, StringComparer.OrdinalIgnoreCase)
                 || (settings.ArcPyRequired && package.Equals("arcpy", StringComparison.OrdinalIgnoreCase));
-            if (isRequired)
+            var severity = ResolvePackageSeverity(packageProbeRule, isRequired);
+            if (severity == "blocker")
             {
                 blockers.Add(PreflightCheck.BlockerForCategory("python", checkId, missingMessage, settings.PythonExecutable, null, correction));
             }
@@ -451,5 +492,22 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
     private static string ReadableName(string checkId)
     {
         return checkId.Replace('_', ' ');
+    }
+
+    private string ResolveUnknownVersionSeverity(PreflightRuleDefinition rule)
+    {
+        var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, settings.UnknownArcGisVersionIsWarning ? "warning" : "blocker");
+        return severity == "configured" ? (settings.UnknownArcGisVersionIsWarning ? "warning" : "blocker") : severity;
+    }
+
+    private static string ResolvePackageSeverity(PreflightRuleDefinition rule, bool isRequired)
+    {
+        var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "configured");
+        return severity switch
+        {
+            "warning" => "warning",
+            "blocker" => isRequired ? "blocker" : "warning",
+            _ => isRequired ? "blocker" : "warning"
+        };
     }
 }

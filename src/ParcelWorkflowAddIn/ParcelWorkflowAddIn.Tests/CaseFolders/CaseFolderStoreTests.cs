@@ -252,7 +252,17 @@ internal static class CaseFolderStoreTests
         ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "output_created" } });
         var createdState = store.ReopenCaseFolder(created.Layout.RootDirectory);
         TestAssert.True(createdState.Success, "Output created manifest should reopen.");
-        TestAssert.Equal(WorkflowState.OutputCreated, createdState.ResolvedState, "Output created state should resume correctly.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, createdState.ResolvedState, "Output created state should resume into spatial review.");
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "spatial_review_pending" } });
+        var pendingState = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(pendingState.Success, "Spatial review pending manifest should reopen.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, pendingState.ResolvedState, "Spatial review pending state should resume correctly.");
+
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "spatial_review_approved" } });
+        var approvedState = store.ReopenCaseFolder(created.Layout.RootDirectory);
+        TestAssert.True(approvedState.Success, "Spatial review approved manifest should reopen.");
+        TestAssert.Equal(WorkflowState.SpatialReviewApproved, approvedState.ResolvedState, "Spatial review approved state should resume correctly.");
     }
 
     private static bool IsSnakeCase(string value)

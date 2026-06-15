@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0.0",
+  "rules": [
+    {
+      "rule_id": "detected_profile_presence",
+      "category": "manifest",
+      "display_name": "Detected profile present",
+      "description": "Detected intake profile must be present before preflight can continue.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "detected_profile_complete",
+      "category": "manifest",
+      "display_name": "Detected profile complete",
+      "description": "Incomplete intake remains blocked until required source roles are resolved.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "required_source_roles",
+      "category": "manifest",
+      "display_name": "Required source roles",
+      "description": "Each workflow profile must provide the required copied source roles.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "source_file_integrity",
+      "category": "manifest",
+      "display_name": "Copied source integrity",
+      "description": "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "workflow_rule_resolution",
+      "category": "workflow_rule",
+      "display_name": "Workflow rule resolution",
+      "description": "Transactions must resolve to a current workflow rule and script plan.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "arcgis_sdk_lane",
+      "category": "arcgis_pro",
+      "display_name": "ArcGIS Pro SDK lane",
+      "description": "SDK lane and target framework must match the supported ArcGIS Pro 3.6 add-in lane.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "workspace_access",
+      "category": "write_access",
+      "display_name": "Workspace access",
+      "description": "Case folder working, output, and summary locations must remain writable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "python_executable_health",
+      "category": "python",
+      "display_name": "Python executable health",
+      "description": "Configured Python executable must be set, exist, and be invokable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "arcgis_unknown_version_behavior",
+      "category": "arcgis_pro",
+      "display_name": "Unknown ArcGIS Pro version handling",
+      "description": "Controls whether unknown ArcGIS Pro version detection is treated as a warning or blocker.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false
+    },
+    {
+      "rule_id": "python_package_probe",
+      "category": "python",
+      "display_name": "Python package probe",
+      "description": "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false
+    },
+    {
+      "rule_id": "dwg_signature_check",
+      "category": "dwg",
+      "display_name": "DWG file signature",
+      "description": "DWG reference files must be non-empty and contain a recognizable DWG signature.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "dwg_readiness_probe",
+      "category": "dwg",
+      "display_name": "DWG readiness probe",
+      "description": "Optional CAD sub-layer readiness probe for copied DWG references.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": false
+    }
+  ]
+}

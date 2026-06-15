@@ -119,6 +119,34 @@ internal static class ProcessingEnvironmentPreflightServiceTests
         TestAssert.True(result.Blockers.All(check => check.CheckId != "python_package_pandas_available"), "Optional missing packages should not block.");
     }
 
+    public static void DisabledPackageProbeRecordsDisabledCheck()
+    {
+        using var tempRoot = new TempDirectory();
+        var pythonPath = Path.Combine(tempRoot.Path, "python.exe");
+        File.WriteAllText(pythonPath, "fake");
+        var layout = CreateBareLayout(tempRoot.Path);
+        var catalog = new PreflightRuleCatalog(
+            Path.Combine(tempRoot.Path, "PreflightRules.json"),
+            UsingSafeDefaults: false,
+            LoadWarning: null,
+            new[]
+            {
+                new PreflightRuleDefinition("arcgis_unknown_version_behavior", "arcgis_pro", "Unknown ArcGIS Pro version handling", string.Empty, true, "warning", false),
+                new PreflightRuleDefinition("python_package_probe", "python", "Python package probe", string.Empty, false, "configured", false),
+                new PreflightRuleDefinition("dwg_readiness_probe", "dwg", "DWG readiness probe", string.Empty, true, "blocker", false)
+            });
+        var service = new ProcessingEnvironmentPreflightService(
+            Settings(pythonPath),
+            new FakeProcessRunner(new ProcessRunResult(0, "package:arcpy:missing", string.Empty, false)),
+            new FakeArcGisProEnvironmentProvider("3.6.0"),
+            catalog);
+
+        var result = service.RunAsync(layout).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Warnings.Any(check => check.CheckId == "python_package_probe" && check.Status == "disabled"), "Disabled package probe should be recorded as disabled.");
+        TestAssert.True(result.Blockers.All(check => check.CheckId != "python_package_arcpy_available"), "Disabled package probe should skip missing package blockers.");
+    }
+
     public static void ArcGisPro37IsCompatibleWithConfigured36Lane()
     {
         using var tempRoot = new TempDirectory();
@@ -185,6 +213,33 @@ internal static class ProcessingEnvironmentPreflightServiceTests
         var blocker = result.Blockers.Single(check => check.CheckId == "python_probe_timeout");
         TestAssert.True(!blocker.Message.Contains("secret", StringComparison.OrdinalIgnoreCase), "Timeout blocker should not leak raw output.");
         TestAssert.True(!blocker.Message.Contains("token", StringComparison.OrdinalIgnoreCase), "Timeout blocker should not leak tokens.");
+    }
+
+    public static void UnknownArcGisVersionRuleCanEscalateToBlocker()
+    {
+        using var tempRoot = new TempDirectory();
+        var pythonPath = Path.Combine(tempRoot.Path, "python.exe");
+        File.WriteAllText(pythonPath, "fake");
+        var layout = CreateBareLayout(tempRoot.Path);
+        var catalog = new PreflightRuleCatalog(
+            Path.Combine(tempRoot.Path, "PreflightRules.json"),
+            UsingSafeDefaults: false,
+            LoadWarning: null,
+            new[]
+            {
+                new PreflightRuleDefinition("arcgis_unknown_version_behavior", "arcgis_pro", "Unknown ArcGIS Pro version handling", string.Empty, true, "blocker", false),
+                new PreflightRuleDefinition("python_package_probe", "python", "Python package probe", string.Empty, true, "configured", false),
+                new PreflightRuleDefinition("dwg_readiness_probe", "dwg", "DWG readiness probe", string.Empty, true, "blocker", false)
+            });
+        var service = new ProcessingEnvironmentPreflightService(
+            Settings(pythonPath),
+            new FakeProcessRunner(new ProcessRunResult(0, "package:arcpy:ok", string.Empty, false)),
+            new FakeArcGisProEnvironmentProvider(null),
+            catalog);
+
+        var result = service.RunAsync(layout).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Blockers.Any(check => check.CheckId == "arcgis_pro_version_detected"), "Unknown ArcGIS version should become a blocker when the rule severity is blocker.");
     }
 
     public static void WorkflowSessionAsyncPreflightPreventsDuplicateRun()

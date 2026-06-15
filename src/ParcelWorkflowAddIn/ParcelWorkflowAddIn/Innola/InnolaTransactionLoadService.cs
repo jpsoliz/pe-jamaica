@@ -1,5 +1,7 @@
 using System.IO;
+using System.IO.Compression;
 using System.Net.Http;
+using System.Diagnostics;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
@@ -106,9 +108,12 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure("Loaded transaction details did not match the selected transaction.");
         }
 
-        var resumeAttachment = detail.Attachments.FirstOrDefault(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber));
+        var resumeAttachments = detail.Attachments
+            .Where(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber))
+            .ToArray();
+        var resumeAttachment = await ResolveLatestResumeAttachmentAsync(session, selected, detail, resumeAttachments, cancellationToken);
         var sourceAttachments = detail.Attachments
-            .Where(attachment => resumeAttachment is null || !string.Equals(attachment.AttachmentId, resumeAttachment.AttachmentId, StringComparison.OrdinalIgnoreCase))
+            .Where(attachment => !InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber))
             .ToArray();
         if ((sourceAttachments.Length == 0 && resumeAttachment is null)
             || sourceAttachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
@@ -124,6 +129,7 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure("Case Folder output location is not configured.");
         }
 
+        ResumePackageManifest? restoredResumeManifest = null;
         if (resumeAttachment is not null)
         {
             var restored = await RestoreCaseFolderFromResumePackageAsync(session, selected, detail, resumeAttachment, outputRoot, cancellationToken);
@@ -132,6 +138,8 @@ public sealed class InnolaTransactionLoadService
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(restored.ErrorMessage ?? "Saved resume package could not be restored.");
             }
+
+            restoredResumeManifest = restored.Manifest;
         }
 
         var caseFolderResult = CreateOrReopenCaseFolder(outputRoot, detail.TransactionNumber, session.User.Username, detail);
@@ -251,7 +259,7 @@ public sealed class InnolaTransactionLoadService
         }
 
         var wasRestoredFromResumePackage = resumeAttachment is not null;
-        sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt, wasRestoredFromResumePackage);
+        sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt, wasRestoredFromResumePackage, restoredResumeManifest?.SavedAt);
         var loadModePrefix = resumeAttachment is null ? "Opened new case for" : "Restored from saved case for";
         var status = ruleResolution.Success
             ? $"{loadModePrefix} {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
@@ -283,6 +291,89 @@ public sealed class InnolaTransactionLoadService
         }
 
         return resumePackageService.Restore(outputRoot, selected, content.Content);
+    }
+
+    private async Task<InnolaAttachmentMetadata?> ResolveLatestResumeAttachmentAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selected,
+        InnolaTransactionDetail detail,
+        IReadOnlyList<InnolaAttachmentMetadata> resumeAttachments,
+        CancellationToken cancellationToken)
+    {
+        if (resumeAttachments.Count == 0)
+        {
+            return null;
+        }
+
+        if (resumeAttachments.Count == 1)
+        {
+            return resumeAttachments[0];
+        }
+
+        var rankedCandidates = new List<(InnolaAttachmentMetadata Attachment, DateTimeOffset SavedAt)>();
+        foreach (var attachment in resumeAttachments)
+        {
+            try
+            {
+                var content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+                if (!content.Success || content.Content.Length == 0)
+                {
+                    Debug.WriteLine(
+                        $"Innola resume package candidate could not be read. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Error={content.ErrorCode ?? "(none)"}.");
+                    continue;
+                }
+
+                if (!TryReadResumeManifest(content.Content, out var resumeManifest))
+                {
+                    Debug.WriteLine(
+                        $"Innola resume package candidate manifest unreadable. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}.");
+                    continue;
+                }
+
+                if (!resumeManifest.TransactionNumber.Equals(selected.TransactionNumber, StringComparison.OrdinalIgnoreCase)
+                    || !resumeManifest.TaskId.Equals(selected.TaskId, StringComparison.OrdinalIgnoreCase))
+                {
+                    Debug.WriteLine(
+                        $"Innola resume package candidate skipped due to transaction mismatch. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; ManifestTransaction={resumeManifest.TransactionNumber}; ManifestTask={resumeManifest.TaskId}.");
+                    continue;
+                }
+
+                if (!DateTimeOffset.TryParse(resumeManifest.SavedAt, out var savedAt))
+                {
+                    Debug.WriteLine(
+                        $"Innola resume package candidate has invalid saved_at. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; SavedAt={resumeManifest.SavedAt}.");
+                    continue;
+                }
+
+                rankedCandidates.Add((attachment, savedAt));
+            }
+            catch (Exception exception) when (exception is HttpRequestException
+                or IOException
+                or InvalidOperationException
+                or NotSupportedException
+                or UnauthorizedAccessException
+                or TaskCanceledException)
+            {
+                Debug.WriteLine(
+                    $"Innola resume package candidate lookup failed. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Error={exception.GetType().Name}.");
+            }
+        }
+
+        if (rankedCandidates.Count == 0)
+        {
+            Debug.WriteLine(
+                $"Innola resume package selection fell back to first attachment. TransactionNumber={detail.TransactionNumber}; CandidateCount={resumeAttachments.Count}.");
+            return resumeAttachments[0];
+        }
+
+        var selectedAttachment = rankedCandidates
+            .OrderByDescending(candidate => candidate.SavedAt)
+            .ThenByDescending(candidate => candidate.Attachment.AttachmentId, StringComparer.OrdinalIgnoreCase)
+            .First()
+            .Attachment;
+        Debug.WriteLine(
+            $"Innola resume package selected latest saved state. TransactionNumber={detail.TransactionNumber}; CandidateCount={rankedCandidates.Count}; Attachment={selectedAttachment.FileName}; AttachmentId={selectedAttachment.AttachmentId}.");
+        return selectedAttachment;
     }
 
     private CaseFolderPreparationResult CreateOrReopenCaseFolder(
@@ -403,6 +494,39 @@ public sealed class InnolaTransactionLoadService
             {
                 // Best-effort cleanup. The load still fails and the manifest is not advanced.
             }
+        }
+    }
+
+    private static bool TryReadResumeManifest(byte[] packageContent, out ResumePackageManifest manifest)
+    {
+        manifest = null!;
+
+        try
+        {
+            using var archive = new ZipArchive(new MemoryStream(packageContent, writable: false), ZipArchiveMode.Read, leaveOpen: false);
+            var resumeManifestEntry = archive.GetEntry(CaseResumePackageService.ResumeManifestFileName);
+            if (resumeManifestEntry is null)
+            {
+                return false;
+            }
+
+            using var entryStream = resumeManifestEntry.Open();
+            var parsed = System.Text.Json.JsonSerializer.Deserialize(entryStream, ResumeManifestJsonContext.Default.ResumePackageManifest);
+            if (parsed is null)
+            {
+                return false;
+            }
+
+            manifest = parsed;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException
+            or InvalidDataException
+            or NotSupportedException
+            or ArgumentException
+            or System.Text.Json.JsonException)
+        {
+            return false;
         }
     }
 

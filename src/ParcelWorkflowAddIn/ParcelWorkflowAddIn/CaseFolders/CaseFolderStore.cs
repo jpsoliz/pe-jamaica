@@ -274,6 +274,7 @@ public sealed partial class CaseFolderStore
             Path.Combine(layout.WorkingDirectory, "dwg_context.json"),
             Path.Combine(layout.WorkingDirectory, "approved_review.json"),
             Path.Combine(layout.WorkingDirectory, "validation_summary.json"),
+            Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json"),
             Path.Combine(layout.OutputDirectory, "output_summary.json"),
             Path.Combine(layout.LogsDirectory, "process.log"),
             Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson")
@@ -368,7 +369,17 @@ public sealed partial class CaseFolderStore
 
         if (string.Equals(workflowState, WorkflowState.OutputCreated.ToContractValue(), StringComparison.OrdinalIgnoreCase))
         {
-            return WorkflowState.OutputCreated;
+            return WorkflowState.SpatialReviewPending;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.SpatialReviewPending.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.SpatialReviewPending;
+        }
+
+        if (string.Equals(workflowState, WorkflowState.SpatialReviewApproved.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.SpatialReviewApproved;
         }
 
         if (string.Equals(workflowState, WorkflowState.PreflightRunning.ToContractValue(), StringComparison.OrdinalIgnoreCase))

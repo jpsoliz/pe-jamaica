@@ -1,4 +1,5 @@
 using System.IO;
+using ArcGIS.Core.CIM;
 using ArcGIS.Desktop.Framework.Threading.Tasks;
 using ArcGIS.Desktop.Mapping;
 
@@ -34,7 +35,7 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         var mapView = MapView.Active;
         if (mapView?.Map is null)
         {
-            return OutputMapIntegrationResult.Skipped("Outputs were created, but no active map is available to load the generated layers.");
+            return OutputMapIntegrationResult.Skipped("Output files were created, but no active ArcGIS Pro map was available to load the layers automatically.");
         }
 
         var layerPaths = persistenceService.GetMapLayerPaths(summary)
@@ -56,12 +57,14 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
                 if (existing is not null)
                 {
                     loadedLayers.Add(existing);
+                    TryConfigurePointLabels(existing);
                     continue;
                 }
 
                 var created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), mapView.Map);
                 if (created is not null)
                 {
+                    TryConfigurePointLabels(created);
                     loadedLayers.Add(created);
                 }
             }
@@ -88,6 +91,30 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
             true,
             "Output layers were added to the active map and zoomed for review.",
             layerPaths);
+    }
+
+    private static void TryConfigurePointLabels(Layer layer)
+    {
+        if (layer is not FeatureLayer featureLayer
+            || !string.Equals(featureLayer.Name, "parcel_points", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var definition = featureLayer.GetDefinition() as CIMFeatureLayer;
+        if (definition is null)
+        {
+            return;
+        }
+
+        var labelClass = definition.LabelClasses?.FirstOrDefault() ?? new CIMLabelClass();
+        labelClass.Name = "Point ID";
+        labelClass.ExpressionEngine = LabelExpressionEngine.Arcade;
+        labelClass.Expression = "$feature.point_id";
+        labelClass.Visibility = true;
+        definition.LabelClasses = new[] { labelClass };
+        definition.LabelVisibility = true;
+        featureLayer.SetDefinition(definition);
     }
 }
 

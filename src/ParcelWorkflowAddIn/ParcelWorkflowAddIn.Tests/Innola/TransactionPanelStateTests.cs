@@ -33,7 +33,7 @@ internal static class TransactionPanelStateTests
         {
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
-                Row("task-2", "TR100000005", "Prepare Rejection Letter", "Group One", "2024-10-15T09:38:00-05:00"),
+                Row("task-2", "TR100000005", "Compute Survey Plan", "Group One", "2024-10-15T09:38:00-05:00"),
                 Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
             })
         };
@@ -62,7 +62,7 @@ internal static class TransactionPanelStateTests
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
                 Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
-                Row("task-2", "TR100000009", "QC of Registration Cases", "qc", "2024-10-15T09:53:00-05:00")
+                Row("task-2", "TR100000009", "Compute Survey Plan", "qc", "2024-10-15T09:53:00-05:00")
             })
         };
         var manager = LoggedInManager();
@@ -127,6 +127,72 @@ internal static class TransactionPanelStateTests
         TestAssert.True(panel.CanStartTransaction, "Loaded selected transaction should be ready to start.");
         TestAssert.True(!panel.CanStopTask, "Stop should remain disabled before start.");
         TestAssert.True(!panel.CanCompleteTask, "Complete should remain disabled before start.");
+    }
+
+    public static async Task UnsupportedTransactionTypeBlocksWorkflowLoadBeforeCaseFolderCreation()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00", "Survey Update")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" });
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.LoadSelectedTransactionAsync();
+
+        TestAssert.Equal(null, manager.SelectedTransaction, "Unsupported transaction should not become selected in session state.");
+        TestAssert.True(!manager.IsTransactionLoaded, "Unsupported transaction should not load a case folder.");
+        TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Unsupported transaction row should remain selected.");
+        TestAssert.Equal("This transaction type is not supported by Parcel Workflow. Please return to the transaction list and select a valid examination transaction.", panel.StatusText, "Unsupported transaction status mismatch.");
+        TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported transaction should surface a matching blocking error.");
+    }
+
+    public static async Task UnsupportedWorkflowStageBlocksComputeWorkflowLaunch()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare Survey Plan", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" });
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.LoadSelectedTransactionAsync();
+
+        TestAssert.Equal(null, manager.SelectedTransaction, "Unsupported workflow stage should not become selected in session state.");
+        TestAssert.True(!manager.IsTransactionLoaded, "Unsupported workflow stage should not load a case folder.");
+        TestAssert.Equal("This transaction belongs to a different workflow stage and cannot be opened in Parcel Workflow [Compute]. Please return to the transaction list and select a Compute transaction.", panel.StatusText, "Unsupported workflow stage status mismatch.");
+        TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported workflow stage should surface a matching blocking error.");
     }
 
     public static async Task StartActionLoadsAndClaimsTransaction()
@@ -203,7 +269,7 @@ internal static class TransactionPanelStateTests
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
                 Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
-                Row("task-100000005", "TR100000005", "Prepare Rejection Letter", "tester", "2024-10-15T09:38:00-05:00")
+                Row("task-100000005", "TR100000005", "Compute Survey Plan", "tester", "2024-10-15T09:38:00-05:00")
             })
         };
         var manager = LoggedInManager();
@@ -307,7 +373,7 @@ internal static class TransactionPanelStateTests
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
                 Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
-                Row("task-100000005", "TR100000005", "Prepare Rejection Letter", "tester", "2024-10-15T09:38:00-05:00")
+                Row("task-100000005", "TR100000005", "Compute Survey Plan", "tester", "2024-10-15T09:38:00-05:00")
             })
         };
         var manager = LoggedInManager();
@@ -345,7 +411,7 @@ internal static class TransactionPanelStateTests
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
                 Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
-                Row("task-100000005", "TR100000005", "Prepare Rejection Letter", "tester", "2024-10-15T09:38:00-05:00")
+                Row("task-100000005", "TR100000005", "Compute Survey Plan", "tester", "2024-10-15T09:38:00-05:00")
             })
         };
         var manager = LoggedInManager();
@@ -502,7 +568,7 @@ internal static class TransactionPanelStateTests
             clock);
     }
 
-    private static InnolaTransactionRow Row(string taskId, string transactionNumber, string taskName, string assignedGroup, string receivedAt)
+    private static InnolaTransactionRow Row(string taskId, string transactionNumber, string taskName, string assignedGroup, string receivedAt, string transactionType = "Plan Examination")
     {
         return new InnolaTransactionRow(
             taskId,
@@ -511,7 +577,7 @@ internal static class TransactionPanelStateTests
             taskName,
             "parcel_workflow",
             InnolaTransactionStatus.Available,
-            "Plan Examination",
+            transactionType,
             "John Johnson",
             assignedGroup == "tester" ? "tester" : null,
             assignedGroup,

@@ -191,7 +191,8 @@ public sealed class InnolaSessionManager
             row.TaskName,
             row.ProcessStep,
             selectedAt,
-            row.ApplicationId);
+            row.ApplicationId,
+            row.TransactionType);
         ClearLoadedTransactionCore();
         OnSessionChanged();
     }
@@ -247,7 +248,7 @@ public sealed class InnolaSessionManager
         OnSessionChanged();
     }
 
-    public void MarkTransactionLoaded(string transactionNumber, string caseFolderPath, string loadedAt, bool wasRestoredFromResumePackage)
+    public void MarkTransactionLoaded(string transactionNumber, string caseFolderPath, string loadedAt, bool wasRestoredFromResumePackage, string? restoredLastSavedAt = null)
     {
         if (!IsLoggedIn || SelectedTransaction is null)
         {
@@ -265,11 +266,13 @@ public sealed class InnolaSessionManager
         LifecycleOwnerUser = null;
         LifecycleOwnerDisplayName = null;
         ClaimedAt = null;
-        LastSavedAt = null;
+        LastSavedAt = wasRestoredFromResumePackage ? restoredLastSavedAt : null;
         CompletedAt = null;
         CancelledAt = null;
         LifecycleStatusText = wasRestoredFromResumePackage
-            ? $"Restored from saved case: {transactionNumber}."
+            ? string.IsNullOrWhiteSpace(restoredLastSavedAt)
+                ? $"Restored from saved case: {transactionNumber}."
+                : $"Restored from saved case: {transactionNumber}. Last update: {restoredLastSavedAt}."
             : $"Opened new case: {transactionNumber}.";
         OnSessionChanged();
     }
