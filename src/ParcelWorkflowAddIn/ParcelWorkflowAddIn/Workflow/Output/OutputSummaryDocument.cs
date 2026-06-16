@@ -40,4 +40,32 @@ public sealed record OutputSummaryPayload(
     [property: JsonPropertyName("line_count")] int LineCount,
     [property: JsonPropertyName("polygon_count")] int PolygonCount,
     [property: JsonPropertyName("template_project_path")] string? TemplateProjectPath,
-    [property: JsonPropertyName("template_gdb_path")] string? TemplateGdbPath);
+    [property: JsonPropertyName("template_gdb_path")] string? TemplateGdbPath,
+    [property: JsonPropertyName("enterprise_working_publish")] EnterpriseWorkingPublishSummary? EnterpriseWorkingPublish = null);
+
+public sealed record EnterpriseWorkingPublishSummary(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("published_at")] string PublishedAt,
+    [property: JsonPropertyName("published_by")] string? PublishedBy,
+    [property: JsonPropertyName("transaction_scope_field")] string ScopeField,
+    [property: JsonPropertyName("transaction_scope_value")] string ScopeValue,
+    [property: JsonPropertyName("workflow_name")] string WorkflowName,
+    [property: JsonPropertyName("workflow_stage")] string WorkflowStage,
+    [property: JsonPropertyName("transaction_id")] string TransactionId,
+    [property: JsonPropertyName("transaction_number")] string TransactionNumber,
+    [property: JsonPropertyName("task_id")] string? TaskId,
+    [property: JsonPropertyName("transaction_type")] string? TransactionType,
+    [property: JsonPropertyName("assigned_user")] string? AssignedUser,
+    [property: JsonPropertyName("assigned_group")] string? AssignedGroup,
+    [property: JsonPropertyName("last_saved_utc")] string PublishedUtc,
+    [property: JsonPropertyName("published_layers")] IReadOnlyList<EnterpriseWorkingPublishedLayer> PublishedLayers,
+    [property: JsonPropertyName("local_only_artifacts")] IReadOnlyList<string> LocalOnlyArtifacts,
+    [property: JsonPropertyName("warnings")] IReadOnlyList<string> Warnings,
+    [property: JsonPropertyName("errors")] IReadOnlyList<string> Errors);
+
+public sealed record EnterpriseWorkingPublishedLayer(
+    [property: JsonPropertyName("layer_role")] string LayerRole,
+    [property: JsonPropertyName("target")] string Target,
+    [property: JsonPropertyName("record_count")] int RecordCount,
+    [property: JsonPropertyName("replaced_existing")] bool ReplacedExisting);

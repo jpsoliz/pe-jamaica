@@ -285,6 +285,11 @@ def _record_name(transaction_number: str) -> str:
     return f"{PARCEL_FABRIC_RECORD_PREFIX}-{transaction_number}"
 
 
+def _arcade_string_literal(value: str) -> str:
+    escaped = (value or "").replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def _append_features(arcpy, source: str, target: str) -> None:
     arcpy.management.Append([source], target, "NO_TEST")
 
@@ -350,11 +355,12 @@ def _create_true_parcel_fabric_with_arcpy(
     _append_features(arcpy, root_paths["polygon_fc"], parcel_polygon_fc)
 
     record_name = _record_name(transaction_number)
+    record_expression = _arcade_string_literal(record_name)
     print(f"Parcel fabric step: creating parcel record '{record_name}'.")
     arcpy.parcel.CreateParcelRecords(
         parcel_polygon_fc,
         None,
-        record_name,
+        record_expression,
         "EXPRESSION",
     )
 

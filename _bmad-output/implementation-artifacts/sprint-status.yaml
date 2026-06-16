@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-06-14
+# last_updated: 2026-06-15
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-06-14
+last_updated: 2026-06-15
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -104,3 +104,12 @@ development_status:
   6-4-create-case-1-4-acceptance-fixture-contracts: backlog
   6-5-validate-fixture-runs-and-recovery-behavior: backlog
   epic-6-retrospective: optional
+
+  epic-7: in-progress
+  7-1-define-enterprise-working-review-layer-schema-and-configuration: review
+  7-1a-expose-review-workspace-mode-and-enterprise-targets-in-configuration-panel: review
+  7-2-publish-approved-review-geometry-to-enterprise-working-layers: review
+  7-3-restore-transaction-working-state-from-enterprise-review-layers: review
+  7-4-promote-working-review-geometry-to-sync-ready-authoritative-package: backlog
+  7-5-refactor-configuration-into-editable-settings-workspace-with-functional-tabs: review
+  epic-7-retrospective: optional

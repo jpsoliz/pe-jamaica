@@ -14,7 +14,7 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
     private readonly ValidationSummaryPersistenceService persistenceService;
 
     public ValidationAdapterExecutionService()
-        : this(new ProcessRunner(), WorkflowExecutionSettings.Load, new ValidationSummaryPersistenceService())
+        : this(new ProcessRunner(), () => WorkflowExecutionSettings.Load(), new ValidationSummaryPersistenceService())
     {
     }
 

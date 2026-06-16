@@ -258,6 +258,207 @@ Use explicit JSON artifacts as the contract between the C# add-in and Python pro
 
 Each JSON artifact includes:
 
+## Distributed Multi-User Working State Strategy
+
+### Decision Summary
+
+For multi-user production deployment, the solution will adopt a **hybrid working-state architecture**:
+
+- **Local Case Folder remains the processing system of record** for source files, intermediate artifacts, logs, resume payloads, extraction review JSON, validation summaries, temporary geodatabases, and Python execution products.
+- **ArcGIS Enterprise working layers become the shared spatial review workspace** for in-progress points, lines, polygons, and review-state metadata that multiple users or supervisors may need to inspect in a distributed environment.
+- **Authoritative sync/publish remains a separate promotion step** and does not occur directly from raw extraction outputs.
+
+This decision preserves the strengths of the existing local-first architecture while introducing a collaborative spatial layer that can scale across users, machines, and sessions.
+
+### Why This Decision Was Made
+
+The current local `.gdb` and local Parcel Fabric approach is effective for:
+
+- isolated transaction processing
+- deterministic Python/ArcPy execution
+- suspend/resume packaging
+- artifact-rich debugging and audit review
+
+However, a local-only review workspace creates long-term problems in a distributed operational setting:
+
+- no shared visibility of in-progress spatial edits
+- difficult supervisor/reviewer inspection
+- harder machine-to-machine resume workflows
+- no central transactional spatial state for collaboration
+- weak alignment with future Enterprise sync/promotion
+
+The hybrid model keeps processing noise local while centralizing only the reviewable spatial state that benefits from shared access.
+
+### Alternatives Considered
+
+#### Alternative A: Local-only working state until final sync
+
+**Pros**
+
+- simplest implementation
+- lowest concurrency risk
+- easiest debugging and recovery
+- no service-side edit contention
+
+**Cons**
+
+- weak collaboration model
+- poor shared visibility
+- difficult cross-machine recovery
+- no centralized review workspace
+
+**Decision**
+
+Rejected as the long-term target. It remains acceptable for prototype and early pilot operation.
+
+#### Alternative B: Enterprise working feature layers plus local processing workspace
+
+**Pros**
+
+- strong distributed-user support
+- shared review and supervision surface
+- clear separation between processing artifacts and collaborative spatial state
+- easier audit dashboards and operational reporting
+- compatible with future authoritative sync
+
+**Cons**
+
+- requires transaction ownership and edit-lock conventions
+- requires working-layer schema and lifecycle management
+- introduces Enterprise configuration and permissions work
+
+**Decision**
+
+Selected as the preferred production path.
+
+#### Alternative C: Enterprise Parcel Fabric as the primary working workspace
+
+**Pros**
+
+- best cadastral editing semantics
+- richer parcel-editing tools
+- stronger long-term alignment with authoritative parcel operations
+
+**Cons**
+
+- materially higher implementation and operational complexity
+- heavier service, permission, and workflow setup
+- extraction outputs are not always mature enough to enter Parcel Fabric immediately
+- more fragile as the first collaborative working-state model
+
+**Decision**
+
+Deferred as an advanced mode/pilot, not the default shared working-state architecture.
+
+### Architectural Model
+
+#### Review Workspace Mode Configuration
+
+The solution should expose a configuration-controlled **review workspace mode** so deployments can choose the appropriate spatial review surface without changing the core workflow logic.
+
+The initial supported modes are:
+
+1. **`normal`**  
+   Standard local transaction `.gdb` review workspace using ordinary feature classes for points, lines, polygons, and related outputs.
+
+2. **`parcel_fabric_local`**  
+   Local transaction `.gdb` review workspace using a local Parcel Fabric for advanced parcel-editing and cadastral review tools inside ArcGIS Pro.
+
+3. **`enterprise_working_layers`**  
+   Shared ArcGIS Enterprise working review workspace using configured working feature layers for collaborative, distributed review.
+
+These three modes share the same upstream intake, preflight, extraction, review, validation, and audit patterns, but differ in where the spatial review state is materialized.
+
+This configuration should be explicit in application settings and visible in the Configuration panel so administrators and support staff can confirm which review strategy is active for a deployment.
+
+#### Local Case Workspace
+
+The local Case Folder continues to hold:
+
+- copied source attachments
+- extracted review JSON and approved review JSON
+- OCR/AI/intermediate artifacts
+- processing logs
+- validation summaries
+- generated output package artifacts
+- temporary `.gdb` or local Parcel Fabric products used for execution
+- resume package ZIP content
+
+These artifacts remain local because they are noisy, execution-specific, and not appropriate as shared Enterprise editing state.
+
+#### Enterprise Working Review Workspace
+
+ArcGIS Enterprise working layers will hold only the spatial and operational state needed for collaborative review:
+
+- working parcel points
+- working parcel lines
+- working parcel polygons
+- optional review issue/annotation layers
+- optional case index / case extent layer
+
+Each working feature should carry transaction and lifecycle metadata such as:
+
+- `transaction_id`
+- `transaction_number`
+- `case_id`
+- `workflow_name`
+- `workflow_stage`
+- `assigned_user`
+- `status`
+- `is_active`
+- `last_saved_utc`
+- `review_state`
+- `source_mode`
+- `edit_generation` or equivalent optimistic-concurrency token
+
+This workspace is the shared review surface, not the full artifact store.
+
+#### Authoritative Promotion Layer
+
+Final authoritative sync is a separate step that:
+
+- validates readiness
+- checks downstream requirements
+- promotes reviewed/approved geometry into the target authoritative store
+- records audit metadata for the promotion event
+
+This avoids coupling raw extraction products directly to the authoritative cadastral environment.
+
+### Working Rules for Multi-User Safety
+
+The distributed design depends on explicit lifecycle rules:
+
+1. One active owner per transaction at a time.
+2. Working geometry is always keyed by transaction/case identity.
+3. Suspend persists local artifacts and refreshes Enterprise working-state metadata.
+4. Reopen restores the latest local artifacts and, where configured, rehydrates the map from Enterprise working layers.
+5. Final approval/promotion closes or archives the working record and prevents accidental parallel continuation.
+
+### Parcel Fabric Positioning
+
+Parcel Fabric remains valuable, but it should be introduced carefully.
+
+Recommended sequencing:
+
+- **Default local path:** `normal`
+- **Advanced local path:** `parcel_fabric_local`
+- **Distributed path:** `enterprise_working_layers`
+- **Future advanced distributed path:** optional Enterprise Parcel Fabric pilot for selected transaction types or advanced cadastral editing scenarios.
+
+This preserves simplicity for the core workflow while leaving room for a stronger cadastral editing experience where the operational value justifies the complexity.
+
+### Consequences for the Current Solution
+
+This decision implies the next architecture and implementation work should add:
+
+- Enterprise working-layer schema and configuration
+- publishing of approved review geometry into working layers
+- reopen/resume behavior that can restore working-state context from Enterprise
+- promotion workflow from working review state to sync-ready authoritative outputs
+- optional future Enterprise Parcel Fabric mode as a distinct pilot path
+
+The current local `.gdb` / local Parcel Fabric outputs remain useful as execution artifacts and fallback review products, but they are no longer the only long-term review workspace for production multi-user deployment.
+
 - `schema_version`
 - `transaction_id`
 - `run_id`

@@ -14,7 +14,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
     private readonly OutputSummaryPersistenceService persistenceService;
 
     public OutputAdapterExecutionService()
-        : this(new ProcessRunner(), WorkflowExecutionSettings.Load, new OutputSummaryPersistenceService())
+        : this(new ProcessRunner(), () => WorkflowExecutionSettings.Load(), new OutputSummaryPersistenceService())
     {
     }
 
@@ -64,7 +64,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
         var result = await processRunner.RunAsync(
             executionSettings.PythonExecutable,
             arguments,
-            TimeSpan.FromSeconds(120),
+            TimeSpan.FromSeconds(executionSettings.OutputAdapterTimeoutSeconds),
             null,
             cancellationToken).ConfigureAwait(false);
         WriteExecutionLog(layout, executionSettings, arguments, result);
@@ -145,6 +145,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             builder.AppendLine($"Python: {executionSettings.PythonExecutable}");
             builder.AppendLine($"Mode: {executionSettings.ReviewWorkspaceMode}");
             builder.AppendLine($"Adapter: {executionSettings.OutputAdapterScriptPath}");
+            builder.AppendLine($"Timeout seconds: {executionSettings.OutputAdapterTimeoutSeconds}");
             builder.AppendLine($"Timed out: {result.TimedOut}");
             builder.AppendLine($"Exit code: {result.ExitCode}");
             builder.AppendLine($"Arguments: {Sanitize(arguments)}");

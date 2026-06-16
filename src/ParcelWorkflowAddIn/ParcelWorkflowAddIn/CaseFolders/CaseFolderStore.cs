@@ -275,6 +275,7 @@ public sealed partial class CaseFolderStore
             Path.Combine(layout.WorkingDirectory, "approved_review.json"),
             Path.Combine(layout.WorkingDirectory, "validation_summary.json"),
             Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json"),
+            Path.Combine(layout.WorkingDirectory, "enterprise_working_restore.json"),
             Path.Combine(layout.OutputDirectory, "output_summary.json"),
             Path.Combine(layout.LogsDirectory, "process.log"),
             Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson")

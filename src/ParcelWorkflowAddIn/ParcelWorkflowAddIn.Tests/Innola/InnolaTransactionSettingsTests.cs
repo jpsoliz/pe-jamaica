@@ -37,7 +37,7 @@ internal static class InnolaTransactionSettingsTests
         using var settingsFile = WriteSettingsFile(
             """
             {
-              "review_workspace_mode": "parcel_fabric",
+              "review_workspace_mode": "parcel_fabric_local",
               "supported_transaction_types": [
                 "Plan Examination",
                 "Cadastral Plan Examination",
@@ -49,7 +49,7 @@ internal static class InnolaTransactionSettingsTests
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
         TestAssert.Equal(2, settings.SupportedTransactionTypes.Count, "Supported transaction type count mismatch.");
-        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, settings.ReviewWorkspaceMode, "Review workspace mode mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal, settings.ReviewWorkspaceMode, "Review workspace mode mismatch.");
         TestAssert.Equal(null, settings.ReviewWorkspaceModeWarning, "Valid review workspace mode should not produce a warning.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "First supported transaction type mismatch.");
         TestAssert.Equal("Cadastral Plan Examination", settings.SupportedTransactionTypes[1], "Second supported transaction type mismatch.");
@@ -122,6 +122,120 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Invalid review workspace mode warning mismatch.");
     }
 
+    public static void LegacyParcelFabricReviewWorkspaceModeNormalizesToLocalParcelFabric()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "parcel_fabric"
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal, settings.ReviewWorkspaceMode, "Legacy parcel fabric value should normalize to local parcel fabric.");
+    }
+
+    public static void EnterpriseWorkingLayersModeLoadsEnterpriseConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "enterprise_working_layers",
+              "enterprise_working_review": {
+                "enabled": true,
+                "workspace_name": "jamaica_review",
+                "publish_behavior": "replace_transaction_scope",
+                "publish_timing": "on_complete",
+                "restore_behavior": "prefer_enterprise_then_local",
+                "allow_cross_machine_restore": true,
+                "transaction_scope_field": "transaction_number",
+                "layers": {
+                  "points": "https://example/points",
+                  "lines": "https://example/lines",
+                  "polygons": "https://example/polygons",
+                  "case_index": "https://example/case_index"
+                }
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, settings.ReviewWorkspaceMode, "Enterprise review workspace mode mismatch.");
+        TestAssert.True(settings.EnterpriseWorkingReview.Enabled, "Enterprise working review should be enabled.");
+        TestAssert.Equal("jamaica_review", settings.EnterpriseWorkingReview.WorkspaceName, "Workspace name mismatch.");
+        TestAssert.Equal(EnterpriseWorkingReviewSettings.PublishTimingOnComplete, settings.EnterpriseWorkingReview.PublishTiming, "Publish timing mismatch.");
+        TestAssert.Equal("https://example/points", settings.EnterpriseWorkingReview.Layers.Points, "Points layer mismatch.");
+        TestAssert.True(settings.EnterpriseWorkingReview.Warning?.Contains("issues layer", StringComparison.OrdinalIgnoreCase) == true, "Missing optional issues layer warning mismatch.");
+    }
+
+    public static void EnterpriseWorkingPublishTimingDefaultsToOnComplete()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "enterprise_working_layers",
+              "enterprise_working_review": {
+                "enabled": true,
+                "layers": {
+                  "points": "https://example/points",
+                  "lines": "https://example/lines",
+                  "polygons": "https://example/polygons"
+                }
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+        TestAssert.Equal(EnterpriseWorkingReviewSettings.PublishTimingOnComplete, settings.EnterpriseWorkingReview.PublishTiming, "Enterprise publish timing should default to on_complete.");
+    }
+
+    public static void NormalModeDoesNotWarnAboutMissingEnterpriseTargets()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "normal",
+              "enterprise_working_review": {
+                "enabled": false,
+                "layers": {
+                  "points": "",
+                  "lines": "",
+                  "polygons": ""
+                }
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Normal mode mismatch.");
+        TestAssert.Equal(null, settings.EnterpriseWorkingReview.Warning, "Normal mode should not warn about enterprise targets that are not in use.");
+    }
+
+    public static void EnterpriseModeWarnsWhenRequiredTargetsAreMissing()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "enterprise_working_layers",
+              "enterprise_working_review": {
+                "enabled": true,
+                "transaction_scope_field": "transaction_number",
+                "layers": {
+                  "points": "https://example/points"
+                }
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, settings.ReviewWorkspaceMode, "Enterprise mode mismatch.");
+        TestAssert.True(settings.EnterpriseWorkingReview.Warning?.Contains("geometry layer targets", StringComparison.OrdinalIgnoreCase) == true, "Enterprise mode should warn when required targets are missing.");
+    }
+
     public static void ConfigurationSummaryFormatsSupportedTransactionTypes()
     {
         var summary = InnolaTransactionSettings.FormatSupportedTransactionTypesDisplay(new[]
@@ -138,7 +252,8 @@ internal static class InnolaTransactionSettingsTests
     public static void ConfigurationSummaryFormatsReviewWorkspaceMode()
     {
         TestAssert.Equal("Normal", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeNormal), "Normal review workspace display mismatch.");
-        TestAssert.Equal("Parcel Fabric", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric), "Parcel Fabric review workspace display mismatch.");
+        TestAssert.Equal("Local Parcel Fabric", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal), "Local Parcel Fabric review workspace display mismatch.");
+        TestAssert.Equal("Enterprise Working Layers", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers), "Enterprise working layers display mismatch.");
     }
 
     private static TempFile WriteSettingsFile(string json)

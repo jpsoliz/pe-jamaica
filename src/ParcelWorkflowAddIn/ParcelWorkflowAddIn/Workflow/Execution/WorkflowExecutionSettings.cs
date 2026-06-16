@@ -10,6 +10,7 @@ public sealed record WorkflowExecutionSettings(
     string CreateParcelScriptPath,
     string OutputAdapterScriptPath,
     string ReviewWorkspaceMode,
+    int OutputAdapterTimeoutSeconds,
     string? OutputTemplateProjectPath,
     string? OutputTemplateGdbPath,
     string ValidationAdapterScriptPath,
@@ -19,20 +20,23 @@ public sealed record WorkflowExecutionSettings(
     private static readonly string? DefaultOutputAdapterPath = ResolveProjectFile(@"src\ProcessingTools\adapters\output_adapter.py");
     private static readonly string? DefaultValidationAdapterPath = ResolveProjectFile(@"src\ProcessingTools\adapters\validation_adapter.py");
     private static readonly string? DefaultValidationRulesPath = ResolveProjectFile(@"src\ProcessingTools\rules\rules.yaml");
+    public const int DefaultOutputAdapterTimeoutSecondsNormal = 120;
+    public const int DefaultOutputAdapterTimeoutSecondsParcelFabric = 600;
 
     public static WorkflowExecutionSettings Default { get; } = new(
         ProcessingEnvironmentSettings.Default.PythonExecutable,
         Path.Combine(DefaultScriptsRoot, "CreateParcelFromFile.py"),
         DefaultOutputAdapterPath ?? @"src\ProcessingTools\adapters\output_adapter.py",
         InnolaTransactionSettings.ReviewWorkspaceModeNormal,
+        DefaultOutputAdapterTimeoutSecondsNormal,
         null,
         null,
         DefaultValidationAdapterPath ?? @"src\ProcessingTools\adapters\validation_adapter.py",
         DefaultValidationRulesPath);
 
-    public static WorkflowExecutionSettings Load()
+    public static WorkflowExecutionSettings Load(string? settingsPath = null)
     {
-        var settingsPath = InnolaTransactionSettings.ResolveActiveSettingsPath();
+        settingsPath ??= InnolaTransactionSettings.ResolveActiveSettingsPath();
         if (!File.Exists(settingsPath))
         {
             return Default;
@@ -51,6 +55,8 @@ public sealed record WorkflowExecutionSettings(
             var outputAdapterPath = ExpandPath(ReadString(root, "output_adapter_script_path")
                 ?? Default.OutputAdapterScriptPath) ?? Default.OutputAdapterScriptPath;
             var reviewWorkspaceMode = NormalizeReviewWorkspaceMode(ReadString(root, "review_workspace_mode"));
+            var outputAdapterTimeoutSeconds = ReadPositiveInt(root, "output_adapter_timeout_seconds")
+                ?? GetDefaultOutputAdapterTimeoutSeconds(reviewWorkspaceMode);
             var outputTemplateProjectPath = ExpandPath(ReadString(root, "output_template_project_path"));
             var outputTemplateGdbPath = ExpandPath(ReadString(root, "output_template_gdb_path"));
             var validationAdapterPath = ExpandPath(ReadString(root, "validation_adapter_script_path")
@@ -63,6 +69,7 @@ public sealed record WorkflowExecutionSettings(
                 scriptPath,
                 outputAdapterPath,
                 reviewWorkspaceMode,
+                outputAdapterTimeoutSeconds,
                 outputTemplateProjectPath,
                 outputTemplateGdbPath,
                 validationAdapterPath,
@@ -79,6 +86,28 @@ public sealed record WorkflowExecutionSettings(
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+    }
+
+    private static int? ReadPositiveInt(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var numericValue) && numericValue > 0)
+        {
+            return numericValue;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && int.TryParse(value.GetString(), out var parsedValue)
+            && parsedValue > 0)
+        {
+            return parsedValue;
+        }
+
+        return null;
     }
 
     private static string? ExpandPath(string? path)
@@ -126,10 +155,19 @@ public sealed record WorkflowExecutionSettings(
         var normalized = value.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
         return normalized switch
         {
-            InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
-            "parcel-fabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
-            "parcelfabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric,
+            InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers => InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers,
+            InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
+            InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
+            "parcel-fabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
+            "parcelfabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
             _ => InnolaTransactionSettings.ReviewWorkspaceModeNormal
         };
+    }
+
+    private static int GetDefaultOutputAdapterTimeoutSeconds(string reviewWorkspaceMode)
+    {
+        return string.Equals(reviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
+            ? DefaultOutputAdapterTimeoutSecondsParcelFabric
+            : DefaultOutputAdapterTimeoutSecondsNormal;
     }
 }

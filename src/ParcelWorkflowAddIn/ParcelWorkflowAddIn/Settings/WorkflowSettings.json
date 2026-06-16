@@ -7,7 +7,29 @@
   "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
-  "review_workspace_mode": "parcel_fabric",
+  "review_workspace_mode": "parcel_fabric_local",
+  "enterprise_working_review": {
+    "enabled": false,
+    "service_root": "",
+    "workspace_name": "sidwell_working_review",
+    "publish_behavior": "replace_transaction_scope",
+    "publish_timing": "on_complete",
+    "restore_behavior": "prefer_local_then_enterprise",
+    "allow_cross_machine_restore": true,
+    "transaction_scope_field": "transaction_number",
+    "layers": {
+      "points": "",
+      "lines": "",
+      "polygons": "",
+      "issues": "",
+      "case_index": ""
+    }
+  },
+  "gsi_server_url": "",
+  "gsi_username": "",
+  "gsi_password_mode": "environment_variable",
+  "gsi_password_env_var": "GSI_PASSWORD",
+  "gsi_password": "",
   "supported_transaction_types": [
     "Plan Examination",
     "Cadastral Plan Examination"
@@ -42,5 +64,6 @@
   "output_template_gdb_path": "",
   "validation_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\validation_adapter.py",
   "validation_rules_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\rules\\rules.yaml",
+  "output_adapter_timeout_seconds": 600,
   "case_folder_output_root": ""
 }

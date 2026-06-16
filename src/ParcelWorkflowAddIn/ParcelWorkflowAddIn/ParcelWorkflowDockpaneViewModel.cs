@@ -723,12 +723,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReadyToCompleteSummaryText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Map review is complete and the transaction can now be finalized when you are comfortable with the parcel result."
+            ? "Map review is complete. When you approve the transaction, the reviewed result will be shared and the task will be finalized."
             : "Ready to Complete becomes available after outputs are reviewed and spatial review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Use the ArcGIS Pro map to do a last visual check, confirm the output artifacts look right, then select Approve to close the transaction. Select Suspend if you need to save this state and come back later."
+            ? "Use the ArcGIS Pro map to do a final visual check, confirm the output artifacts look right, then select Approve to publish the completed review and close the transaction. Select Suspend if you need to save this state and come back later."
             : "Finish Outputs and complete Spatial Review first. That review is the gate that unlocks final transaction completion.";
 
     public string ValidationBadge =>
@@ -1105,7 +1105,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return "Generated output artifacts are available for inspection before final transaction completion.";
         }
 
-        var workspaceMode = string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, StringComparison.OrdinalIgnoreCase)
+        var workspaceMode = string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
                 ? "Parcel Fabric review workspace"
                 : "Parcel Fabric pilot review workspace"
@@ -1319,11 +1319,18 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public async Task CompleteTransactionAsync()
     {
         if (MessageBox.Show(
-                "Approve this transaction, upload the completed package to Innola, and mark the task complete?",
+                "Approve this transaction, publish the completed review for shared visibility, upload the completed package to Innola, and mark the task complete?",
                 "Approve Transaction",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
+            return;
+        }
+
+        var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
+        if (publishResult.Attempted && !publishResult.Success)
+        {
+            RefreshWorkflowProperties();
             return;
         }
 

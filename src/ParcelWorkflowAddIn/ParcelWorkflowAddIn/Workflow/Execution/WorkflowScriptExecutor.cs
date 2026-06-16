@@ -18,7 +18,7 @@ public sealed class WorkflowScriptExecutor : IWorkflowScriptExecutor
                 new CreateParcelDraftExtractionAdapter()
             },
             WorkflowRuleSettingsLoader.Load,
-            WorkflowExecutionSettings.Load)
+            () => WorkflowExecutionSettings.Load())
     {
     }
 

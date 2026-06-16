@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.Tests.CaseFolders;
 using ParcelWorkflowAddIn.Tests.Innola;
 using ParcelWorkflowAddIn.Tests.Intake;
 using ParcelWorkflowAddIn.Tests.Preflight;
+using ParcelWorkflowAddIn.Tests.Settings;
 using ParcelWorkflowAddIn.Tests.Workflow;
 using ParcelWorkflowAddIn.Tests.WorkflowRules;
 
@@ -111,9 +112,14 @@ var tests = new (string Name, Action Run)[]
     ("workflow session validation rejects stale approval and returns to review", WorkflowSessionTests.WorkflowSessionValidationRejectsStaleApprovalAndReturnsToReview),
     ("workflow session reopen restores validation state and artifact", WorkflowSessionTests.WorkflowSessionReopenRestoresValidationStateAndArtifact),
     ("workflow session output generation creates artifacts and advances state", WorkflowSessionTests.WorkflowSessionOutputGenerationCreatesArtifactsAndAdvancesState),
+    ("workflow session enterprise publish writes summary and replaces transaction scope", WorkflowSessionTests.WorkflowSessionEnterprisePublishWritesSummaryAndReplacesTransactionScope),
+    ("workflow session enterprise publish failure keeps local outputs", WorkflowSessionTests.WorkflowSessionEnterprisePublishFailureKeepsLocalOutputs),
     ("workflow session output generation requires validation pass", WorkflowSessionTests.WorkflowSessionOutputGenerationRequiresValidationPass),
     ("workflow session output failure returns to validation passed", WorkflowSessionTests.WorkflowSessionOutputFailureReturnsToValidationPassed),
     ("workflow session reopen restores output state and artifact", WorkflowSessionTests.WorkflowSessionReopenRestoresSpatialReviewPendingStateAndArtifacts),
+    ("workflow session reopen detects enterprise working state alongside local artifacts", WorkflowSessionTests.WorkflowSessionReopenDetectsEnterpriseWorkingStateAlongsideLocalArtifacts),
+    ("workflow session reopen hydrates output summary from enterprise working state when local output summary is missing", WorkflowSessionTests.WorkflowSessionReopenHydratesOutputSummaryFromEnterpriseWorkingStateWhenLocalOutputSummaryIsMissing),
+    ("workflow session reopen reports partial enterprise restore warnings", WorkflowSessionTests.WorkflowSessionReopenReportsPartialEnterpriseRestoreWarnings),
     ("workflow session spatial review approval unlocks ready-to-complete", WorkflowSessionTests.WorkflowSessionSpatialReviewApprovalUnlocksReadyToComplete),
     ("workflow session reopen invalidates stale spatial review approval", WorkflowSessionTests.WorkflowSessionReopenInvalidatesStaleSpatialReviewApproval)
     ,
@@ -154,8 +160,16 @@ var tests = new (string Name, Action Run)[]
     ("innola invalid supported transaction types fall back to safe defaults", InnolaTransactionSettingsTests.InvalidSupportedTransactionTypesFallBackToSafeDefaults),
     ("innola compute workflow stages load from configuration", InnolaTransactionSettingsTests.ComputeWorkflowStagesLoadFromConfiguration),
     ("innola invalid review workspace mode falls back to normal", InnolaTransactionSettingsTests.InvalidReviewWorkspaceModeFallsBackToNormal),
+    ("innola legacy parcel fabric review workspace mode normalizes to local parcel fabric", InnolaTransactionSettingsTests.LegacyParcelFabricReviewWorkspaceModeNormalizesToLocalParcelFabric),
+    ("innola enterprise working layers mode loads enterprise configuration", InnolaTransactionSettingsTests.EnterpriseWorkingLayersModeLoadsEnterpriseConfiguration),
+    ("innola enterprise working publish timing defaults to on complete", InnolaTransactionSettingsTests.EnterpriseWorkingPublishTimingDefaultsToOnComplete),
+    ("innola normal mode does not warn about missing enterprise targets", InnolaTransactionSettingsTests.NormalModeDoesNotWarnAboutMissingEnterpriseTargets),
+    ("innola enterprise mode warns when required targets are missing", InnolaTransactionSettingsTests.EnterpriseModeWarnsWhenRequiredTargetsAreMissing),
     ("innola configuration summary formats supported transaction types", InnolaTransactionSettingsTests.ConfigurationSummaryFormatsSupportedTransactionTypes),
     ("innola configuration summary formats review workspace mode", InnolaTransactionSettingsTests.ConfigurationSummaryFormatsReviewWorkspaceMode),
+    ("settings workspace exposes expected tabs and loads current fields", SettingsWorkspaceServiceTests.SettingsWorkspaceExposesExpectedTabsAndLoadsCurrentFields),
+    ("settings workspace save round trip persists workflow and rule edits", SettingsWorkspaceServiceTests.SettingsWorkspaceSaveRoundTripPersistsWorkflowAndRuleEdits),
+    ("settings workspace validation rejects invalid enterprise and secret configuration", SettingsWorkspaceServiceTests.SettingsWorkspaceValidationRejectsInvalidEnterpriseAndSecretConfiguration),
     ("innola transaction service maps prior payload and filters unavailable rows", InnolaTransactionServiceTests.MapsPriorInnolaTaskPayloadAndFiltersUnavailableRows),
     ("innola transaction service uses workflow my-tasks endpoint", () => InnolaTransactionServiceTests.HttpTransactionServiceUsesWorkflowMyTasksEndpoint().GetAwaiter().GetResult()),
     ("innola transaction service falls back to application search when workflow rows are empty", () => InnolaTransactionServiceTests.HttpTransactionServiceFallsBackToApplicationSearchWhenWorkflowRowsAreEmpty().GetAwaiter().GetResult()),

@@ -29,6 +29,8 @@ public sealed class WorkflowSession
     private readonly ValidationSummaryPersistenceService validationSummaryPersistenceService;
     private readonly IOutputExecutionService outputExecutionService;
     private readonly OutputSummaryPersistenceService outputSummaryPersistenceService;
+    private readonly IEnterpriseWorkingLayerPublishService enterpriseWorkingLayerPublishService;
+    private readonly IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService;
     private readonly SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
@@ -90,6 +92,8 @@ public sealed class WorkflowSession
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
+            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseWorkingStateRestoreService(),
             new SpatialReviewApprovalPersistenceService())
     {
     }
@@ -119,6 +123,8 @@ public sealed class WorkflowSession
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
+            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseWorkingStateRestoreService(),
             new SpatialReviewApprovalPersistenceService())
     {
     }
@@ -151,6 +157,8 @@ public sealed class WorkflowSession
             validationSummaryPersistenceService,
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
+            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseWorkingStateRestoreService(),
             new SpatialReviewApprovalPersistenceService())
     {
     }
@@ -170,6 +178,8 @@ public sealed class WorkflowSession
         ValidationSummaryPersistenceService validationSummaryPersistenceService,
         IOutputExecutionService outputExecutionService,
         OutputSummaryPersistenceService outputSummaryPersistenceService,
+        IEnterpriseWorkingLayerPublishService enterpriseWorkingLayerPublishService,
+        IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService,
         SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService)
     {
         this.caseFolderStore = caseFolderStore;
@@ -186,6 +196,8 @@ public sealed class WorkflowSession
         this.validationSummaryPersistenceService = validationSummaryPersistenceService;
         this.outputExecutionService = outputExecutionService;
         this.outputSummaryPersistenceService = outputSummaryPersistenceService;
+        this.enterpriseWorkingLayerPublishService = enterpriseWorkingLayerPublishService;
+        this.enterpriseWorkingStateRestoreService = enterpriseWorkingStateRestoreService;
         this.spatialReviewApprovalPersistenceService = spatialReviewApprovalPersistenceService;
     }
 
@@ -401,10 +413,32 @@ public sealed class WorkflowSession
         LoadPreflightResults(result.Layout);
         currentValidationSummary = LoadValidationSummary(result.Layout, result.ResolvedState);
         currentOutputSummary = LoadOutputSummary(result.Layout, result.ResolvedState);
+        var enterpriseRestore = enterpriseWorkingStateRestoreService.Restore(result.Layout, result.Manifest, result.ResolvedState, currentOutputSummary);
+        intakeIssues.AddRange(enterpriseRestore.RecoverabilityIssues.Select(issue => issue.Message));
+        foreach (var artifact in enterpriseRestore.AddedArtifacts)
+        {
+            UpsertAvailableArtifact(artifact);
+        }
+
+        if (enterpriseRestore.RestoredOutputSummary is not null)
+        {
+            currentOutputSummary = enterpriseRestore.RestoredOutputSummary;
+            outputSummaryPersistenceService.Save(result.Layout, currentOutputSummary);
+            foreach (var artifactPath in outputSummaryPersistenceService.GetArtifactPaths(result.Layout, currentOutputSummary))
+            {
+                if (File.Exists(artifactPath) || Directory.Exists(artifactPath))
+                {
+                    UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(artifactPath), artifactPath));
+                }
+            }
+        }
+
         RestoreSpatialReviewState(result.Layout, result.ResolvedState);
-        StatusText = result.RecoverabilityIssues.Count == 0
-            ? "Case reopened"
-            : "Case reopened. Some saved artifacts could not be restored - please review results.";
+        StatusText = result.RecoverabilityIssues.Count == 0 && enterpriseRestore.RecoverabilityIssues.Count == 0
+            ? enterpriseRestore.StatusMessage
+            : enterpriseRestore.EnterpriseStateFound
+                ? enterpriseRestore.StatusMessage
+                : "Case reopened. Some saved artifacts could not be restored - please review results.";
 
         return result;
     }
@@ -795,7 +829,14 @@ public sealed class WorkflowSession
             }
 
             currentOutputSummary = result.Summary;
-            foreach (var artifactPath in outputSummaryPersistenceService.GetArtifactPaths(layout, result.Summary))
+            var publishResult = EnterpriseWorkingLayerPublishResult.Skipped("Enterprise working-layer publish will occur at final completion.");
+            if (ShouldPublishEnterpriseAtOutputStage())
+            {
+                publishResult = await enterpriseWorkingLayerPublishService.PublishAsync(layout, manifest, currentOutputSummary, operatorId, cancellationToken).ConfigureAwait(false);
+                PersistEnterprisePublishResult(layout, publishResult);
+            }
+
+            foreach (var artifactPath in outputSummaryPersistenceService.GetArtifactPaths(layout, currentOutputSummary))
             {
                 if (File.Exists(artifactPath) || Directory.Exists(artifactPath))
                 {
@@ -803,9 +844,18 @@ public sealed class WorkflowSession
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(publishResult.SummaryPath) && File.Exists(publishResult.SummaryPath))
+            {
+                UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(publishResult.SummaryPath), publishResult.SummaryPath));
+            }
+
             RemoveSpatialReviewArtifacts(layout);
             SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
-            StatusText = "Outputs created: local geometry is ready for spatial review in the map.";
+            StatusText = publishResult.Attempted && !publishResult.Success
+                ? "Outputs created locally, but enterprise working-layer publish failed. Local geometry is still ready for spatial review in the map."
+                : publishResult.Attempted
+                    ? "Outputs created and enterprise working-layer publish completed. Geometry is ready for spatial review in the map."
+                    : "Outputs created: local geometry is ready for spatial review in the map.";
             return result;
         }
         catch (OperationCanceledException)
@@ -831,11 +881,107 @@ public sealed class WorkflowSession
         }
     }
 
+    public async Task<EnterpriseWorkingLayerPublishResult> PublishEnterpriseWorkingReviewAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (CurrentState != WorkflowState.SpatialReviewApproved || string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            StatusText = "Complete spatial review before publishing enterprise working-layer geometry.";
+            return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            StatusText = "Enterprise publish could not start because the manifest could not be read.";
+            return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
+        }
+
+        currentOutputSummary ??= outputSummaryPersistenceService.Load(layout);
+        if (currentOutputSummary is null)
+        {
+            StatusText = "Enterprise publish could not start because no output summary is available.";
+            return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
+        }
+
+        var settings = Innola.InnolaTransactionSettings.Load();
+        if (!string.Equals(settings.EnterpriseWorkingReview.PublishTiming, Innola.EnterpriseWorkingReviewSettings.PublishTimingOnComplete, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText = "Enterprise publish is not configured for final completion timing.";
+            return EnterpriseWorkingLayerPublishResult.Skipped(StatusText);
+        }
+
+        var publishResult = await enterpriseWorkingLayerPublishService.PublishAsync(layout, manifest, currentOutputSummary, operatorId, cancellationToken).ConfigureAwait(false);
+        PersistEnterprisePublishResult(layout, publishResult);
+
+        if (!string.IsNullOrWhiteSpace(publishResult.SummaryPath) && File.Exists(publishResult.SummaryPath))
+        {
+            UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(publishResult.SummaryPath), publishResult.SummaryPath));
+        }
+
+        StatusText = publishResult.Success
+            ? "Enterprise working-layer publish completed. The completed review is now ready for shared visibility."
+            : $"Enterprise working-layer publish failed. Local outputs remain available. {publishResult.Message}";
+        return publishResult;
+    }
+
+    private void PersistEnterprisePublishResult(CaseFolderLayout layout, EnterpriseWorkingLayerPublishResult publishResult)
+    {
+        if (!publishResult.Attempted || publishResult.Summary is null || currentOutputSummary is null)
+        {
+            return;
+        }
+
+        currentOutputSummary = currentOutputSummary with
+        {
+            Payload = currentOutputSummary.Payload with
+            {
+                EnterpriseWorkingPublish = publishResult.Summary,
+                ArtifactPaths = MergeArtifactPaths(
+                    currentOutputSummary.Payload.ArtifactPaths,
+                    publishResult.SummaryPath)
+            }
+        };
+        outputSummaryPersistenceService.Save(layout, currentOutputSummary);
+    }
+
+    private static bool ShouldPublishEnterpriseAtOutputStage()
+    {
+        var settings = Innola.InnolaTransactionSettings.Load();
+        return string.Equals(
+            settings.EnterpriseWorkingReview.PublishTiming,
+            Innola.EnterpriseWorkingReviewSettings.PublishTimingOnOutputs,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)
     {
         CurrentState = state;
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = state.ToContractValue() } });
+    }
+
+    private static IReadOnlyList<string> MergeArtifactPaths(IReadOnlyList<string> existingPaths, string? additionalPath)
+    {
+        if (string.IsNullOrWhiteSpace(additionalPath))
+        {
+            return existingPaths;
+        }
+
+        return existingPaths
+            .Append(additionalPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private void InvalidatePreflight(CaseFolderLayout layout)

@@ -45,12 +45,12 @@
           <tooltip heading="Transaction Panel">Open available Innola transactions<disabledText /></tooltip>
         </button>
         <button id="ParcelWorkflow_ConfigurationButton"
-                caption="Configuration"
+                caption="Settings"
                 className="ShowConfigurationWindowButton"
                 loadOnClick="true"
                 smallImage="Install\Images\Ribbon\Configuration16.png"
                 largeImage="Install\Images\Ribbon\Configuration32.png">
-          <tooltip heading="Configuration">Open local parcel workflow settings<disabledText /></tooltip>
+          <tooltip heading="Settings">Open local parcel workflow settings<disabledText /></tooltip>
         </button>
         <button id="ParcelWorkflow_ShowDockpaneButton"
                 caption="Parcel Workflow [Compute]"

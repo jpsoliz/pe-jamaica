@@ -270,6 +270,12 @@ Cadastral staff and project stakeholders can confirm the case is ready for futur
 
 **FRs covered:** FR18, FR19, FR20, FR22
 
+### Epic 7: Enterprise Working Review Workspace & Authoritative Promotion
+
+Cadastral staff can publish reviewed spatial outputs into a shared ArcGIS Enterprise working workspace, resume work across distributed environments, and prepare approved geometry for controlled promotion into downstream authoritative cadastral systems.
+
+**FRs covered:** FR16, FR18, FR19, FR20, FR22
+
 ## Epic 1: Local Case Folder & Transaction Workspace Foundation
 
 Goal: Cadastral staff can create or reopen a transaction, copy source files into a structured Case Folder, detect the input profile from file types, and view/open source documents from the dock pane.
@@ -972,6 +978,145 @@ So that v1 acceptance proves the integrated process works across the required sc
 **And** good-quality cases must demonstrate usable extracted/reviewable records when source data supports it
 **And** recovery checks confirm completed step outputs remain available after simulated restart/reopen
 **And** fixture results are summarized for v1 acceptance review.
+
+## Epic 7: Enterprise Working Review Workspace & Authoritative Promotion
+
+Goal: Cadastral staff can collaborate through shared Enterprise working layers while preserving local processing artifacts and promoting approved geometry through a controlled downstream path.
+
+### Story 7.1: Define Enterprise Working Review Layer Schema and Configuration
+
+As a solution administrator,
+I want the add-in to define and load configuration for Enterprise working review layers,
+So that distributed users share a consistent schema, routing model, and environment-specific connection details.
+
+**Acceptance Criteria:**
+
+**Given** the architecture introduces an Enterprise working review workspace
+**When** the application loads configuration
+**Then** it can resolve configured working layer targets for points, lines, polygons, and optional issue layers
+**And** the schema defines transaction identity, workflow stage, assignment, status, and last-saved metadata required for distributed review
+**And** configuration cleanly separates local artifact storage from Enterprise working-layer publishing
+**And** missing or incomplete Enterprise working-layer configuration produces a clear non-destructive warning
+**And** local-only workflow execution remains supported when the Enterprise working workspace is disabled.
+
+### Story 7.2: Publish Approved Review Geometry to Enterprise Working Layers
+
+As a cadastral examiner,
+I want approved review geometry published into Enterprise working layers,
+So that I and other authorized reviewers can inspect and edit the current transaction state in a shared spatial workspace.
+
+**Acceptance Criteria:**
+
+**Given** review data has been approved for a loaded transaction
+**When** the user publishes or advances the transaction into the Enterprise working review workspace
+**Then** the add-in writes the current points, lines, and polygons into the configured working layers using the transaction identity as the key
+**And** existing working features for the same active transaction are updated or replaced according to the configured ownership rules
+**And** the working features include transaction metadata, workflow name, workflow stage, assigned user, and last-saved timestamp
+**And** publish failures do not delete local Case Folder artifacts
+**And** the user receives a clear result showing what was published and what remains local-only.
+
+### Story 7.3: Restore Transaction Working State from Enterprise Review Layers
+
+As a cadastral examiner,
+I want a reopened transaction to restore its distributed working-state context,
+So that I can continue review from the latest saved stage even when the work has moved across sessions or machines.
+
+**Acceptance Criteria:**
+
+**Given** a transaction has previously published geometry into Enterprise working layers
+**When** the user reopens that transaction
+**Then** the add-in can detect whether distributed working-state geometry exists for the transaction
+**And** the user can restore the map context from the Enterprise working workspace without losing the local Case Folder artifacts
+**And** the reopened workflow clearly indicates whether the case was restored from local-only state, Enterprise working state, or both
+**And** missing Enterprise features are reported as recoverability issues rather than silent success
+**And** transaction ownership and stage-lock rules still prevent conflicting parallel execution.
+
+### Story 7.1A: Expose Review Workspace Mode and Enterprise Targets in Configuration Panel
+
+As a solution administrator,  
+I want the Configuration panel to show and validate the selected review workspace mode and any Enterprise working-layer targets,  
+so that deployments can intentionally switch between local standard review, local Parcel Fabric review, and Enterprise working-layer review without editing hidden code paths.
+
+**Acceptance Criteria:**
+
+**Given** the application supports multiple review workspace modes
+**When** the user opens Configuration
+**Then** the panel shows the active review workspace mode with the supported values `normal`, `parcel_fabric_local`, and `enterprise_working_layers`
+**And** the panel explains the purpose of each mode in concise administrator-facing language.
+
+**Given** the review workspace mode is `enterprise_working_layers`
+**When** the user reviews configuration details
+**Then** the panel shows the configured Enterprise targets for working points, lines, polygons, and optional issue layers
+**And** missing required Enterprise target settings are called out clearly.
+
+**Given** the review workspace mode is `normal` or `parcel_fabric_local`
+**When** the Configuration panel is opened
+**Then** Enterprise working-layer settings are either hidden or visually de-emphasized
+**And** the panel makes clear that the workflow remains local-first in those modes.
+
+**Given** the configuration is incomplete or invalid for the selected mode
+**When** the panel is displayed
+**Then** the user sees a non-destructive readiness warning
+**And** local modes remain available as safe fallbacks.
+
+### Story 7.4: Promote Working Review Geometry to Sync-Ready Authoritative Package
+
+As a cadastral examiner,
+I want the reviewed working geometry prepared for downstream authoritative sync,
+So that approved transaction outputs can move from collaborative review state into a controlled promotion path.
+
+**Acceptance Criteria:**
+
+**Given** a transaction has passed review, validation, and required readiness checks
+**When** the user prepares the case for final downstream promotion
+**Then** the add-in records a sync-ready package or payload reference based on the latest approved working geometry
+**And** the workflow distinguishes working-review completion from authoritative promotion completion
+**And** audit metadata records the source working-layer features, operator, timestamp, and readiness outcome
+**And** the promotion step can be deferred or blocked without losing the reviewed working geometry
+**And** the add-in preserves compatibility with a future Enterprise sync or authoritative Parcel Fabric target.
+
+### Story 7.5: Refactor Configuration Into Editable Settings Workspace With Functional Tabs
+
+As a solution administrator or technical lead,  
+I want the current Configuration dialog refactored into an editable Settings workspace with functional tabs,  
+so that deployment, AI, Innola, preflight, and spatial workspace settings can be reviewed and maintained in one structured place without editing raw JSON for every change.
+
+**Acceptance Criteria:**
+
+**Given** the add-in currently exposes a read-only Configuration dialog
+**When** the new Settings workspace is opened
+**Then** the ribbon command, window title, and user-facing microcopy use `Settings` instead of `Configuration`
+**And** the workspace is organized into functional tabs rather than one long summary page.
+
+**Given** the Settings workspace is opened
+**When** the user navigates its tabs
+**Then** it includes at minimum `General`, `AI Toolset`, `Innola Integration`, `Preflight Rules`, and `Spatial Workspace`
+**And** each tab groups related fields using compact ArcGIS Pro-friendly WPF patterns.
+
+**Given** ordinary deployment settings are editable
+**When** the user updates non-secret values such as folders, workspace mode, supported transaction types, workflow stages, or server URLs
+**Then** those values can be saved back to the local settings source with validation and clear success/failure feedback
+**And** settings that require restart or next-session reload are clearly marked.
+
+**Given** secret-bearing settings are included
+**When** the user reviews AI or spatial sync credentials
+**Then** password or API-key values are masked in the UI
+**And** the workspace prefers secure references such as environment-variable names or managed credential sources over displaying plaintext secrets.
+
+**Given** the `Spatial Workspace` tab is opened
+**When** the user reviews downstream spatial and sync settings
+**Then** the tab shows the active review/output workspace mode and related local, Parcel Fabric, Enterprise working-layer, and GSI sync settings
+**And** it includes editable fields for GSI server, user, and password source/entry handling appropriate for local administration.
+
+**Given** the `Preflight Rules` tab is opened
+**When** the user reviews rule configuration
+**Then** locked safety rules remain visible but non-editable
+**And** configurable operational rules expose enabled/disabled state, severity, and description in a tab-focused editing surface aligned with the external rules catalog.
+
+**Given** invalid, incomplete, or partially unsupported settings are entered
+**When** the user attempts to save
+**Then** the workspace shows non-destructive validation warnings tied to the affected tab/field
+**And** it does not corrupt the previously valid settings file or rule catalog.
 
 ## Appendix: Implementation & Testability Contract
 

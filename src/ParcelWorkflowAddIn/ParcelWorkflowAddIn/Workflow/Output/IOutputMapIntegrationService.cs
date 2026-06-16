@@ -95,7 +95,7 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
     private static string BuildSuccessMessage(OutputSummaryDocument summary)
     {
-        return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabric, StringComparison.OrdinalIgnoreCase)
+        return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
                 ? "Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry."
                 : "Parcel Fabric pilot review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools for examination."

@@ -1,5 +1,6 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
@@ -865,6 +866,55 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("Outputs created: local geometry is ready for spatial review in the map.", session.StatusText, "Output success status mismatch.");
     }
 
+    public static void WorkflowSessionEnterprisePublishWritesSummaryAndReplacesTransactionScope()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => CreateEnterpriseWorkingSettings(tempRoot.Path));
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        var firstResult = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+
+        TestAssert.True(firstResult.Success, "Outputs should succeed before enterprise publish.");
+        TestAssert.True(session.CurrentOutputSummary?.Payload.EnterpriseWorkingPublish is null, "Enterprise publish should not happen during outputs when publish timing is on complete.");
+
+        var publishResult = session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        TestAssert.True(publishResult.Success, "Enterprise publish at completion stage should succeed.");
+        TestAssert.True(session.CurrentOutputSummary?.Payload.EnterpriseWorkingPublish is not null, "Enterprise publish summary should be attached after completion-stage publish.");
+        TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json")), "Enterprise publish summary artifact should be written.");
+
+        var republishResult = session.PublishEnterpriseWorkingReviewAsync("tester-2").GetAwaiter().GetResult();
+        TestAssert.True(republishResult.Success, "Republish should still succeed.");
+        var publishedStore = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(tempRoot.Path, "enterprise-points.json")));
+        var records = publishedStore.RootElement.GetProperty("Records");
+        TestAssert.Equal(1, records.GetArrayLength(), "Republish should replace existing transaction-scoped enterprise content.");
+        var transactionNumber = records[0].GetProperty("Payload").GetProperty("transaction_number").GetString();
+        TestAssert.Equal("100000206", transactionNumber, "Published enterprise record should still belong to the active transaction.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishFailureKeepsLocalOutputs()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), new FakeEnterpriseWorkingLayerPublishService(success: false));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        var publishResult = session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Local outputs should still succeed before enterprise publish.");
+        TestAssert.True(!publishResult.Success, "Enterprise publish failure should be surfaced at final completion timing.");
+        TestAssert.Equal(WorkflowState.SpatialReviewApproved, session.CurrentState, "Enterprise publish failure should not revoke the approved spatial review state.");
+        TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Local output summary should remain intact.");
+        TestAssert.True(session.StatusText.Contains("enterprise working-layer publish failed", StringComparison.OrdinalIgnoreCase), "Status should explain the enterprise publish failure.");
+    }
+
     public static void WorkflowSessionOutputGenerationRequiresValidationPass()
     {
         using var tempRoot = new TempDirectory();
@@ -913,6 +963,82 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.SpatialReviewPending, reopenSession.CurrentState, "Reopen should restore spatial review pending state.");
         TestAssert.True(reopenSession.CurrentOutputSummary is not null, "Reopen should restore output summary.");
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "output_summary.json"), "Reopen should expose output summary artifact.");
+    }
+
+    public static void WorkflowSessionReopenDetectsEnterpriseWorkingStateAlongsideLocalArtifacts()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Enterprise-backed case should reopen.");
+        TestAssert.True(reopenSession.StatusText.Contains("Local and enterprise working state were restored", StringComparison.OrdinalIgnoreCase), "Status should explain mixed local and enterprise restore.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "enterprise_working_restore.json"), "Enterprise restore snapshot should be registered.");
+        TestAssert.True(reopenSession.CurrentOutputSummary is not null, "Local output summary should remain available after enterprise restore detection.");
+    }
+
+    public static void WorkflowSessionReopenHydratesOutputSummaryFromEnterpriseWorkingStateWhenLocalOutputSummaryIsMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        File.Delete(Path.Combine(layout.OutputDirectory, "output_summary.json"));
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Case should reopen even when local output summary is missing.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, reopenSession.CurrentState, "Enterprise-only restore should reopen at a safe reviewable stage when prior local approval artifacts cannot be fully verified.");
+        TestAssert.True(reopenSession.StatusText.Contains("Case reopened", StringComparison.OrdinalIgnoreCase), "Status should remain explicit after enterprise-only restore.");
+        TestAssert.True(reopenSession.CurrentOutputSummary is not null, "Enterprise restore should synthesize an output summary when the local copy is missing.");
+        TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Enterprise restore should persist a synthesized output summary for future reopen flows.");
+        TestAssert.True(reopenSession.IntakeIssues.Any(issue => issue.Contains("Spatial review approval", StringComparison.OrdinalIgnoreCase)), "Enterprise-only restore should explain why completion approval could not be trusted automatically.");
+    }
+
+    public static void WorkflowSessionReopenReportsPartialEnterpriseRestoreWarnings()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        File.Delete(Path.Combine(tempRoot.Path, "enterprise-lines.json"));
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+
+        var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopenResult.Success, "Case should still reopen when enterprise working state is partial.");
+        TestAssert.True(reopenSession.StatusText.Contains("Some saved artifacts could not be restored", StringComparison.OrdinalIgnoreCase), "Status should report partial enterprise restore issues.");
+        TestAssert.True(reopenSession.IntakeIssues.Any(issue => issue.Contains("lines", StringComparison.OrdinalIgnoreCase)), "Partial restore should surface the missing enterprise layer role.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "enterprise_working_restore.json"), "Partial restore should still capture an enterprise restore snapshot.");
     }
 
     public static void WorkflowSessionSpatialReviewApprovalUnlocksReadyToComplete()
@@ -1097,6 +1223,52 @@ internal static class WorkflowSessionTests
         }
     }
 
+    private sealed class FakeEnterpriseWorkingLayerPublishService : IEnterpriseWorkingLayerPublishService
+    {
+        private readonly bool attempted;
+        private readonly bool success;
+
+        public FakeEnterpriseWorkingLayerPublishService(bool success, bool attempted = true)
+        {
+            this.success = success;
+            this.attempted = attempted;
+        }
+
+        public Task<EnterpriseWorkingLayerPublishResult> PublishAsync(CaseFolderLayout layout, ManifestDocument manifest, OutputSummaryDocument outputSummary, string? operatorId, CancellationToken cancellationToken = default)
+        {
+            if (!attempted)
+            {
+                return Task.FromResult(EnterpriseWorkingLayerPublishResult.Skipped("Enterprise working layers mode is not active for this test."));
+            }
+
+            var summary = new EnterpriseWorkingPublishSummary(
+                success ? "published" : "failed",
+                success ? "Published." : "Failed.",
+                "2026-06-12T00:00:00Z",
+                operatorId,
+                "transaction_number",
+                manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId,
+                "parcel_workflow_compute",
+                WorkflowState.SpatialReviewPending.ToContractValue(),
+                manifest.TransactionId,
+                manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId,
+                manifest.Payload.InnolaTransaction?.TaskId,
+                manifest.Payload.InnolaTransaction?.TaskName,
+                manifest.Payload.InnolaTransaction?.AssignedUser,
+                manifest.Payload.InnolaTransaction?.AssignedGroup,
+                "2026-06-12T00:00:00Z",
+                [],
+                [],
+                [],
+                success ? [] : ["Injected publish failure."]);
+            var summaryPath = Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json");
+            File.WriteAllText(summaryPath, System.Text.Json.JsonSerializer.Serialize(summary));
+            return Task.FromResult(success
+                ? EnterpriseWorkingLayerPublishResult.Succeeded("Published.", summaryPath, summary)
+                : EnterpriseWorkingLayerPublishResult.Failed("Failed.", summaryPath, summary));
+        }
+    }
+
     private static WorkflowSession CreateManifestOnlySession()
     {
         return new WorkflowSession(
@@ -1125,7 +1297,11 @@ internal static class WorkflowSessionTests
             new ValidationSummaryPersistenceService());
     }
 
-    private static WorkflowSession CreateOutputSession(CaseFolderStore store, IOutputExecutionService outputExecutionService)
+    private static WorkflowSession CreateOutputSession(
+        CaseFolderStore store,
+        IOutputExecutionService outputExecutionService,
+        IEnterpriseWorkingLayerPublishService? enterpriseWorkingLayerPublishService = null,
+        IEnterpriseWorkingStateRestoreService? enterpriseWorkingStateRestoreService = null)
     {
         return new WorkflowSession(
             store,
@@ -1142,8 +1318,35 @@ internal static class WorkflowSessionTests
             new ValidationSummaryPersistenceService(),
             outputExecutionService,
             new OutputSummaryPersistenceService(),
+            enterpriseWorkingLayerPublishService ?? new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
+            enterpriseWorkingStateRestoreService ?? new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
             new SpatialReviewApprovalPersistenceService());
     }
+
+    private static InnolaTransactionSettings CreateEnterpriseWorkingSettings(string rootPath)
+    {
+        return InnolaTransactionSettings.Default with
+        {
+            ReviewWorkspaceMode = InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers,
+            EnterpriseWorkingReview = new EnterpriseWorkingReviewSettings(
+                true,
+                null,
+                "sidwell_working_review",
+                EnterpriseWorkingReviewSettings.PublishBehaviorReplaceTransactionScope,
+                EnterpriseWorkingReviewSettings.PublishTimingOnComplete,
+                EnterpriseWorkingReviewSettings.RestoreBehaviorPreferLocalThenEnterprise,
+                true,
+                "transaction_number",
+                new EnterpriseWorkingLayerTargets(
+                    Path.Combine(rootPath, "enterprise-points.json"),
+                    Path.Combine(rootPath, "enterprise-lines.json"),
+                    Path.Combine(rootPath, "enterprise-polygons.json"),
+                    null,
+                    null),
+                null)
+        };
+    }
+
 
     private static CaseFolderLayout CreateInnolaScenarioACase(CaseFolderStore store, string outputRoot)
     {
