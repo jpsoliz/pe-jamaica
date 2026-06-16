@@ -33,6 +33,16 @@ public sealed class ExtractionReviewRow
 {
     public string RowId { get; set; } = string.Empty;
 
+    public string ParcelGroupId { get; set; } = string.Empty;
+
+    public string TraverseId { get; set; } = string.Empty;
+
+    public int? SequenceInGroup { get; set; }
+
+    public bool IsBoundaryBreak { get; set; }
+
+    public string GroupConfidence { get; set; } = string.Empty;
+
     public string PointIdentifier { get; set; } = string.Empty;
 
     public string Easting { get; set; } = string.Empty;

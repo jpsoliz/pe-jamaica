@@ -149,6 +149,11 @@ public sealed class ExtractionReviewPersistenceService
             rows = document.Rows.Select(row => new
             {
                 row_id = row.RowId,
+                parcel_group_id = row.ParcelGroupId,
+                traverse_id = row.TraverseId,
+                sequence_in_group = row.SequenceInGroup,
+                is_boundary_break = row.IsBoundaryBreak,
+                group_confidence = row.GroupConfidence,
                 point_identifier = row.PointIdentifier,
                 easting = row.Easting,
                 northing = row.Northing,
@@ -188,6 +193,11 @@ public sealed class ExtractionReviewPersistenceService
         var row = new ExtractionReviewRow
         {
             RowId = ReadFirstString(rowObject, "row_id", "review_row_id") ?? pointIdentifier ?? $"row-{index:000}",
+            ParcelGroupId = ReadFirstString(rowObject, "review_parcel_group_id", "parcel_group_id") ?? string.Empty,
+            TraverseId = ReadFirstString(rowObject, "review_traverse_id", "traverse_id") ?? string.Empty,
+            SequenceInGroup = ReadNullableInt(rowObject, "review_sequence_in_group", "sequence_in_group"),
+            IsBoundaryBreak = ReadBool(rowObject, "review_is_boundary_break") || ReadBool(rowObject, "is_boundary_break"),
+            GroupConfidence = ReadFirstString(rowObject, "review_group_confidence", "group_confidence") ?? string.Empty,
             PointIdentifier = ReadFirstString(rowObject, "review_point_identifier", "review_point_identifier_override") ?? pointIdentifier ?? string.Empty,
             Easting = ReadFirstString(rowObject, "review_easting", "review_easting_override") ?? easting ?? string.Empty,
             Northing = ReadFirstString(rowObject, "review_northing", "review_northing_override") ?? northing ?? string.Empty,
@@ -250,6 +260,11 @@ public sealed class ExtractionReviewPersistenceService
         {
             var rowObject = CloneObject(row.RawRow);
             rowObject["row_id"] = row.RowId;
+            rowObject["parcel_group_id"] = string.IsNullOrWhiteSpace(row.ParcelGroupId) ? null : row.ParcelGroupId;
+            rowObject["traverse_id"] = string.IsNullOrWhiteSpace(row.TraverseId) ? null : row.TraverseId;
+            rowObject["sequence_in_group"] = row.SequenceInGroup;
+            rowObject["is_boundary_break"] = row.IsBoundaryBreak;
+            rowObject["group_confidence"] = string.IsNullOrWhiteSpace(row.GroupConfidence) ? null : row.GroupConfidence;
             rowObject["point_identifier"] = row.PointIdentifier;
             rowObject["point_id"] = row.PointIdentifier;
             rowObject["easting"] = row.Easting;
@@ -264,6 +279,11 @@ public sealed class ExtractionReviewPersistenceService
             rowObject["review_length"] = string.IsNullOrWhiteSpace(row.Length) ? null : row.Length;
             rowObject["review_extraction_status"] = row.ExtractionStatus;
             rowObject["review_source_evidence"] = row.SourceEvidence;
+            rowObject["review_parcel_group_id"] = string.IsNullOrWhiteSpace(row.ParcelGroupId) ? null : row.ParcelGroupId;
+            rowObject["review_traverse_id"] = string.IsNullOrWhiteSpace(row.TraverseId) ? null : row.TraverseId;
+            rowObject["review_sequence_in_group"] = row.SequenceInGroup;
+            rowObject["review_is_boundary_break"] = row.IsBoundaryBreak;
+            rowObject["review_group_confidence"] = string.IsNullOrWhiteSpace(row.GroupConfidence) ? null : row.GroupConfidence;
             rowObject["review_unresolved"] = row.Unresolved;
             rowObject["review_unresolved_reason"] = string.IsNullOrWhiteSpace(row.UnresolvedReason) ? null : row.UnresolvedReason;
             rowObject["review_notes"] = string.IsNullOrWhiteSpace(row.ReviewNotes) ? null : row.ReviewNotes;
@@ -372,6 +392,36 @@ public sealed class ExtractionReviewPersistenceService
     {
         var value = node?[propertyName];
         return value is JsonValue jsonValue && jsonValue.TryGetValue<int>(out var result) ? result : 0;
+    }
+
+    private static int? ReadNullableInt(JsonObject? node, params string[] propertyNames)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            var value = node[propertyName];
+            if (value is not JsonValue jsonValue)
+            {
+                continue;
+            }
+
+            if (jsonValue.TryGetValue<int>(out var intValue))
+            {
+                return intValue;
+            }
+
+            if (jsonValue.TryGetValue<string>(out var textValue)
+                && int.TryParse(textValue, out var parsedValue))
+            {
+                return parsedValue;
+            }
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<string> ReadStringArray(JsonObject? node, string propertyName)

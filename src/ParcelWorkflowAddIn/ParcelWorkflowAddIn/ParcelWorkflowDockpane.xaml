@@ -510,8 +510,13 @@
                         Padding="10"
                         Visibility="{Binding HasLoadedReviewData, Converter={StaticResource BooleanToVisibilityConverter}}">
                   <StackPanel>
-                    <DockPanel LastChildFill="False">
-                      <StackPanel>
+                    <Grid>
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+
+                      <StackPanel Grid.Row="0">
                         <TextBlock Text="{Binding ReviewWorkspaceTitle}"
                                    FontSize="12"
                                    FontWeight="SemiBold"
@@ -523,25 +528,45 @@
                                    Foreground="#52616B"
                                    TextWrapping="Wrap" />
                       </StackPanel>
-                      <StackPanel DockPanel.Dock="Right"
-                                  Orientation="Horizontal">
-                        <Border Style="{StaticResource SmallPillBorderStyle}"
-                                Background="#EEF4FF"
-                                BorderBrush="#9DB7E8"
-                                Margin="0,0,6,0">
-                          <TextBlock Text="{Binding ReviewBadgeText}"
+
+                      <Border Grid.Row="1"
+                              Margin="0,8,0,0"
+                              Padding="8"
+                              Background="#FFFFFF"
+                              BorderBrush="#E1E8ED"
+                              BorderThickness="1"
+                              CornerRadius="4">
+                        <DockPanel LastChildFill="False">
+                          <TextBlock Text="Review actions"
                                      FontSize="11"
-                                     Foreground="#1F2933" />
-                        </Border>
-                        <Button Content="{Binding ReviewDetailsToggleText}"
-                                Command="{Binding ToggleReviewDetailsCommand}"
-                                Style="{StaticResource SmallButtonStyle}"
-                                Margin="0,0,6,0" />
-                        <Button Content="Add point"
-                                Command="{Binding AddManualPointCommand}"
-                                Style="{StaticResource SmallButtonStyle}" />
-                      </StackPanel>
-                    </DockPanel>
+                                     FontWeight="SemiBold"
+                                     Foreground="#1F2933"
+                                     VerticalAlignment="Center" />
+                          <StackPanel DockPanel.Dock="Right"
+                                      Orientation="Horizontal">
+                            <Border Style="{StaticResource SmallPillBorderStyle}"
+                                    Background="#EEF4FF"
+                                    BorderBrush="#9DB7E8"
+                                    Margin="0,0,6,0"
+                                    MinWidth="56">
+                              <TextBlock Text="{Binding ReviewBadgeText}"
+                                         FontSize="11"
+                                         Foreground="#1F2933"
+                                         HorizontalAlignment="Center" />
+                            </Border>
+                            <Button Content="{Binding ReviewDetailsToggleText}"
+                                    Command="{Binding ToggleReviewDetailsCommand}"
+                                    Style="{StaticResource SmallButtonStyle}"
+                                    MinWidth="82"
+                                    Margin="0,0,6,0" />
+                            <Button Content="Add Point"
+                                    Command="{Binding AddManualPointCommand}"
+                                    Style="{StaticResource SmallButtonStyle}"
+                                    MinWidth="76" />
+                          </StackPanel>
+                        </DockPanel>
+                      </Border>
+                    </Grid>
 
                     <TextBlock Margin="0,8,0,8"
                                Text="{Binding ReviewGateText}"
@@ -549,7 +574,7 @@
                                Foreground="#52616B"
                                TextWrapping="Wrap" />
 
-                    <Grid>
+                    <Grid MinHeight="420">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="0.95*" />
                         <ColumnDefinition Width="1.25*" />
@@ -561,8 +586,22 @@
                               BorderBrush="#D8E1E7"
                               BorderThickness="1"
                               CornerRadius="4">
-                        <StackPanel>
-                          <DockPanel LastChildFill="False">
+                        <Grid>
+                          <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                          </Grid.RowDefinitions>
+                          <DockPanel Grid.Row="0"
+                                     LastChildFill="False">
                             <TextBlock Text="Source Document"
                                        FontSize="12"
                                        FontWeight="SemiBold"
@@ -576,43 +615,52 @@
                                          Foreground="#1F2933" />
                             </Border>
                           </DockPanel>
-                          <TextBlock Margin="0,8,0,0"
+                          <TextBlock Grid.Row="1"
+                                     Margin="0,8,0,0"
                                      Text="Active review source"
                                      FontSize="12"
                                      FontWeight="SemiBold"
                                      Foreground="#1F2933" />
-                          <ComboBox Margin="0,6,0,0"
+                          <ComboBox Grid.Row="2"
+                                    Margin="0,6,0,0"
                                     ItemsSource="{Binding ReviewSourceOptions}"
                                     SelectedItem="{Binding SelectedReviewSource, Mode=TwoWay}"
                                     DisplayMemberPath="FileLabel"
                                     FontSize="11" />
-                          <TextBlock Margin="0,4,0,0"
+                          <TextBlock Grid.Row="3"
+                                     Margin="0,4,0,0"
                                      Text="{Binding ReviewViewerFileTitle}"
                                      FontSize="12"
                                      FontWeight="SemiBold"
                                      Foreground="#1F2933"
                                      TextWrapping="Wrap" />
-                          <TextBlock Margin="0,4,0,0"
+                          <TextBlock Grid.Row="4"
+                                     Margin="0,4,0,0"
                                      Text="{Binding ReviewViewerRoleLabel}"
                                      FontSize="11"
                                      Foreground="#52616B" />
-                          <TextBlock Margin="0,2,0,0"
+                          <TextBlock Grid.Row="5"
+                                     Margin="0,2,0,0"
                                      Text="{Binding ReviewViewerModeLabel}"
                                      FontSize="11"
                                      Foreground="#52616B" />
-                          <TextBlock Margin="0,4,0,0"
+                          <TextBlock Grid.Row="6"
+                                     Margin="0,4,0,0"
                                      Text="{Binding ReviewViewerDisplayPath}"
                                      FontSize="11"
                                      Foreground="#52616B"
                                      TextWrapping="Wrap" />
-                          <Border Margin="0,10,0,0"
+                          <Border Grid.Row="7"
+                                  Margin="0,10,0,0"
                                   MinHeight="220"
+                                  MaxHeight="260"
                                   Padding="8"
                                   Background="#F8FAFB"
                                   BorderBrush="#D8E1E7"
                                   BorderThickness="1"
-                                  CornerRadius="4">
-                            <Grid>
+                                  CornerRadius="4"
+                                  ClipToBounds="True">
+                            <Grid ClipToBounds="True">
                               <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -653,7 +701,11 @@
                                         BorderThickness="1"
                                         CornerRadius="4"
                                         Visibility="{Binding ReviewViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                  <WebBrowser x:Name="ReviewPdfBrowser" />
+                                  <Grid ClipToBounds="True">
+                                    <WebBrowser x:Name="ReviewPdfBrowser"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch" />
+                                  </Grid>
                                 </Border>
                                 <Border Background="#FFFFFF"
                                         BorderBrush="#E1E8ED"
@@ -676,7 +728,8 @@
                               </Grid>
                             </Grid>
                           </Border>
-                          <Border Margin="0,10,0,0"
+                          <Border Grid.Row="8"
+                                  Margin="0,10,0,0"
                                   Padding="8"
                                   Background="#F3F6F7"
                                   BorderBrush="#E1E8ED"
@@ -687,7 +740,8 @@
                                        Foreground="#52616B"
                                        TextWrapping="Wrap" />
                           </Border>
-                          <StackPanel Margin="0,10,0,0"
+                          <StackPanel Grid.Row="9"
+                                      Margin="0,10,0,0"
                                       Orientation="Horizontal">
                             <Button Content="Open source"
                                     Command="{Binding OpenReviewSourceCommand}"
@@ -697,7 +751,8 @@
                                     Command="{Binding RevealReviewSourceCommand}"
                                     Style="{StaticResource SmallButtonStyle}" />
                           </StackPanel>
-                          <StackPanel Visibility="{Binding ReviewDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                          <StackPanel Grid.Row="10"
+                                      Visibility="{Binding ReviewDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Border Margin="0,10,0,0"
                                     Padding="8"
                                     Background="#EEF4FF"
@@ -725,10 +780,10 @@
                                            FontSize="11"
                                            Foreground="#52616B"
                                            TextWrapping="Wrap" />
-                              </StackPanel>
-                            </Border>
-                          </StackPanel>
-                        </StackPanel>
+                                </StackPanel>
+                              </Border>
+                            </StackPanel>
+                        </Grid>
                       </Border>
 
                       <Border Grid.Column="1"
@@ -784,28 +839,34 @@
                       </Border>
                     </Grid>
 
-                    <DockPanel Margin="0,8,0,0"
-                               LastChildFill="False">
-                      <TextBlock Text="Save updates the working review dataset in place. Approval still requires all unresolved and missing-value blockers to be cleared."
+                    <Grid Margin="0,8,0,0">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="Save keeps your current review edits in this case. Approve review becomes available after all missing or unresolved rows are fixed."
                                  FontSize="11"
                                  Foreground="#52616B"
-                                 TextWrapping="Wrap"
-                                 VerticalAlignment="Center" />
-                      <StackPanel DockPanel.Dock="Right"
-                                  Orientation="Horizontal">
-                        <Button Content="Save review"
-                                Command="{Binding SaveReviewCommand}"
-                                Style="{StaticResource SmallButtonStyle}"
-                                Margin="0,0,6,0" />
-                        <Button Content="Approve review"
-                                Command="{Binding ApproveReviewCommand}"
-                                Style="{StaticResource SmallButtonStyle}"
-                                Background="#1F6B75"
-                                BorderBrush="#1F6B75"
-                                Foreground="#FFFFFF"
-                                FontWeight="SemiBold" />
-                      </StackPanel>
-                    </DockPanel>
+                                  TextWrapping="Wrap"
+                                 VerticalAlignment="Center"
+                                 Margin="0,0,12,0" />
+                      <Button Grid.Column="1"
+                              Content="Save review"
+                              Command="{Binding SaveReviewCommand}"
+                              Style="{StaticResource SmallButtonStyle}"
+                              Margin="0,0,6,0"
+                              VerticalAlignment="Center" />
+                      <Button Grid.Column="2"
+                              Content="Approve review"
+                              Command="{Binding ApproveReviewCommand}"
+                              Style="{StaticResource SmallButtonStyle}"
+                              Background="#1F6B75"
+                              BorderBrush="#1F6B75"
+                              Foreground="#FFFFFF"
+                              FontWeight="SemiBold"
+                              VerticalAlignment="Center" />
+                    </Grid>
                   </StackPanel>
                 </Border>
               </StackPanel>

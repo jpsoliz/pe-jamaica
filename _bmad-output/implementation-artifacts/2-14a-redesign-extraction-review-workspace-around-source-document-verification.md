@@ -163,6 +163,8 @@ GPT-5 Codex
 
 - Reworked the Parcel Workflow dockpane so Preflight defaults to a compact summary with explicit detail toggles and visible blocker/warning/pass counts.
 - Redesigned Extraction Review into a source-first split workspace with source document actions on one side and a compact point grid on the other.
+- Tightened the review footer copy and layout so `Save review` and `Approve review` remain visible in constrained ArcGIS Pro dockpane widths.
+- Stabilized the embedded source viewer pane with a fixed split-workspace viewport so PDF/image verification behaves less like a floating inline element during dockpane scrolling.
 - Reduced the editable review table to business columns only: point, easting, northing, status, and length.
 - Moved row-level evidence and context into a selected-row detail panel instead of keeping them in the main grid.
 - Added review-source resolution that prefers the point-bearing computation document and falls back cleanly to other copied source files.
@@ -187,3 +189,4 @@ GPT-5 Codex
 |---|---:|---|---|
 | 2026-06-12 | 0.1 | Initial story for redesigning extraction review around source-document verification and compact preflight presentation. | Codex |
 | 2026-06-12 | 0.2 | Implemented compact preflight UX, source-first extraction review workspace, compact review grid, persistence updates, and validation/package pass. | Codex |
+| 2026-06-15 | 0.3 | Polished extraction review footer messaging/button visibility and stabilized the embedded source viewer viewport after dockpane usability testing. | Codex |

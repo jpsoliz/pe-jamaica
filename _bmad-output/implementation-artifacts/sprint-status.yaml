@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-06-15
+# last_updated: 2026-06-16
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-06-15
+last_updated: 2026-06-16
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -64,8 +64,10 @@ development_status:
   2-9-configure-processing-and-credential-profiles: backlog
   2-10-display-preflight-results-and-gate-extraction: backlog
   2-11-workflow-rule-resolution-and-script-plan-manifest: done
+  2-12a-introduce-document-type-catalog-v2-for-extraction-routing: review
   2-15-gate-supported-transaction-types-before-workflow-load: ready-for-dev
   2-14a-redesign-extraction-review-workspace-around-source-document-verification: ready-for-dev
+  2-16-apply-document-type-catalog-v2-to-multi-source-extraction-pipelines: review
   epic-2-retrospective: optional
 
   epic-3: backlog

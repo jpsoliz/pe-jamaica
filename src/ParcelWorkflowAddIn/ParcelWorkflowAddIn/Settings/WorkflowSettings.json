@@ -55,7 +55,7 @@
   "innola_allow_invalid_server_certificate": true,
   "innola_check_certificate_revocation_list": false,
   "ocr_engine": "openai",
-  "openai_enabled": false,
+  "openai_enabled": true,
   "openai_model": "gpt-4.1-mini",
   "openai_api_key_environment_variable": "OPENAI_API_KEY",
   "preflight_rules_path": "PreflightRules.json",

@@ -277,6 +277,73 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual(3, summary["payload"]["built_point_count"])
             self.assertEqual([], summary["warnings"])
 
+    def test_output_adapter_respects_parcel_group_boundaries_for_segments(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "approved_review.json"
+            review_path = temp_path / "extraction_review_data.json"
+            output_root = temp_path / "output"
+            output_summary_path = output_root / "output_summary.json"
+
+            manifest_path.write_text(
+                json.dumps({"transaction_id": "100000206", "payload": {"script_plan": {"source_manifest_hash": "hash-123"}}}),
+                encoding="utf-8",
+            )
+            approved_path.write_text(
+                json.dumps({"transaction_number": "100000206", "review_hash": "approved-hash", "approved_by": "tester"}),
+                encoding="utf-8",
+            )
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000206",
+                        "review_hash": "approved-hash",
+                        "rows": [
+                            {"row_id": "1", "parcel_group_id": "parcel-a", "sequence_in_group": 1, "point_identifier": "A1", "easting": "1000.0", "northing": "2000.0"},
+                            {"row_id": "2", "parcel_group_id": "parcel-a", "sequence_in_group": 2, "point_identifier": "A2", "easting": "1010.0", "northing": "2000.0"},
+                            {"row_id": "3", "parcel_group_id": "parcel-b", "sequence_in_group": 1, "point_identifier": "B1", "easting": "2000.0", "northing": "3000.0"},
+                            {"row_id": "4", "parcel_group_id": "parcel-b", "sequence_in_group": 2, "point_identifier": "B2", "easting": "2010.0", "northing": "3000.0"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            previous = os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE")
+            os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = "1"
+            try:
+                exit_code = output_adapter.main(
+                    [
+                        "--manifest",
+                        str(manifest_path),
+                        "--approved-review",
+                        str(approved_path),
+                        "--review-data",
+                        str(review_path),
+                        "--output-root",
+                        str(output_root),
+                        "--output-summary",
+                        str(output_summary_path),
+                    ]
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", None)
+                else:
+                    os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = previous
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(4, summary["payload"]["point_count"])
+            self.assertEqual(2, summary["payload"]["line_count"])
+            self.assertEqual(0, summary["payload"]["polygon_count"])
+
+            geojson = json.loads((output_root / "extracted_geometry.geojson").read_text(encoding="utf-8"))
+            line_features = [feature for feature in geojson["features"] if feature["geometry"]["type"] == "LineString"]
+            self.assertEqual(2, len(line_features))
+            self.assertEqual({"parcel-a", "parcel-b"}, {feature["properties"]["parcel_group_id"] for feature in line_features})
+
 
 if __name__ == "__main__":
     unittest.main()

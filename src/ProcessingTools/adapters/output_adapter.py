@@ -105,6 +105,20 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
         normalized.append(
             {
                 "row_id": _normalize_text(row.get("row_id") or f"row-{index:03d}", 64),
+                "parcel_group_id": _normalize_text(
+                    row.get("review_parcel_group_id") or row.get("parcel_group_id") or "",
+                    64,
+                ),
+                "traverse_id": _normalize_text(
+                    row.get("review_traverse_id") or row.get("traverse_id") or "",
+                    64,
+                ),
+                "sequence_in_group": _parse_int(row.get("review_sequence_in_group") or row.get("sequence_in_group")),
+                "is_boundary_break": _parse_bool(row.get("review_is_boundary_break") if row.get("review_is_boundary_break") is not None else row.get("is_boundary_break")),
+                "group_confidence": _normalize_text(
+                    row.get("review_group_confidence") or row.get("group_confidence") or "",
+                    32,
+                ),
                 "point_identifier": _normalize_text(point_id, 64),
                 "easting": easting,
                 "northing": northing,
@@ -117,21 +131,85 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
-def _polyline_segments(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _parse_int(value: Any) -> int | None:
+    if value is None:
+        return None
+
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _normalized_group_key(point: dict[str, Any], fallback_index: int) -> str:
+    parcel_group_id = str(point.get("parcel_group_id") or "").strip()
+    traverse_id = str(point.get("traverse_id") or "").strip()
+    if parcel_group_id:
+        return parcel_group_id
+    if traverse_id:
+        return f"traverse:{traverse_id}"
+    return f"parcel-{fallback_index}"
+
+
+def _grouped_point_sequences(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not points:
+        return []
+
+    groups: list[dict[str, Any]] = []
+    current_points: list[dict[str, Any]] = []
+    current_group_key: str | None = None
+    implied_group_index = 1
+
+    for point in points:
+        explicit_group_key = str(point.get("parcel_group_id") or point.get("traverse_id") or "").strip() or None
+        boundary_break = bool(point.get("is_boundary_break"))
+
+        if current_points and (boundary_break or (explicit_group_key and explicit_group_key != current_group_key)):
+            groups.append({"group_id": current_group_key or _normalized_group_key(current_points[0], implied_group_index), "points": current_points})
+            implied_group_index += 1
+            current_points = []
+            current_group_key = None
+
+        if not current_points:
+            current_group_key = explicit_group_key or _normalized_group_key(point, implied_group_index)
+
+        current_points.append(point)
+
+    if current_points:
+        groups.append({"group_id": current_group_key or _normalized_group_key(current_points[0], implied_group_index), "points": current_points})
+
+    return groups
+
+
+def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
-    for index in range(len(points) - 1):
-        start = points[index]
-        end = points[index + 1]
-        segments.append(
-            {
-                "segment_index": index + 1,
-                "start_point": start["point_identifier"],
-                "end_point": end["point_identifier"],
-                "start": (start["easting"], start["northing"]),
-                "end": (end["easting"], end["northing"]),
-                "length": end.get("length") or "",
-            }
-        )
+    segment_index = 1
+    for group in point_groups:
+        group_id = group.get("group_id") or ""
+        points = group.get("points") or []
+        for index in range(len(points) - 1):
+            start = points[index]
+            end = points[index + 1]
+            segments.append(
+                {
+                    "segment_index": segment_index,
+                    "parcel_group_id": group_id,
+                    "start_point": start["point_identifier"],
+                    "end_point": end["point_identifier"],
+                    "start": (start["easting"], start["northing"]),
+                    "end": (end["easting"], end["northing"]),
+                    "length": end.get("length") or "",
+                }
+            )
+            segment_index += 1
     return segments
 
 
@@ -157,6 +235,23 @@ def _polygon_points(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
     return cleaned
 
 
+def _polygon_rings(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    polygons: list[dict[str, Any]] = []
+    for index, group in enumerate(point_groups, start=1):
+        group_points = group.get("points") or []
+        coords = _polygon_points(group_points)
+        if not coords:
+            continue
+        polygons.append(
+            {
+                "polygon_index": index,
+                "parcel_group_id": group.get("group_id") or f"parcel-{index}",
+                "coordinates": coords,
+            }
+        )
+    return polygons
+
+
 def _dedupe_consecutive_points(coords: list[tuple[float, float]]) -> list[tuple[float, float]]:
     deduped: list[tuple[float, float]] = []
     for coord in coords:
@@ -177,7 +272,7 @@ def _ring_area(coords: list[tuple[float, float]]) -> float:
     return area / 2.0
 
 
-def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]], polygon_coords: list[tuple[float, float]]) -> dict[str, Any]:
+def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]], polygons: list[dict[str, Any]]) -> dict[str, Any]:
     features: list[dict[str, Any]] = []
 
     for point in points:
@@ -187,6 +282,11 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                 "geometry": {"type": "Point", "coordinates": [point["easting"], point["northing"]]},
                 "properties": {
                     "row_id": point["row_id"],
+                    "parcel_group_id": point.get("parcel_group_id") or "",
+                    "traverse_id": point.get("traverse_id") or "",
+                    "sequence_in_group": point.get("sequence_in_group"),
+                    "is_boundary_break": point.get("is_boundary_break") or False,
+                    "group_confidence": point.get("group_confidence") or "",
                     "point_identifier": point["point_identifier"],
                     "status": point["status"],
                     "length": point["length"],
@@ -202,6 +302,7 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                 "geometry": {"type": "LineString", "coordinates": [list(segment["start"]), list(segment["end"])]},
                 "properties": {
                     "segment_index": segment["segment_index"],
+                    "parcel_group_id": segment.get("parcel_group_id") or "",
                     "start_point": segment["start_point"],
                     "end_point": segment["end_point"],
                     "length": segment["length"],
@@ -209,12 +310,15 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
             }
         )
 
-    if polygon_coords:
+    for polygon in polygons:
         features.append(
             {
                 "type": "Feature",
-                "geometry": {"type": "Polygon", "coordinates": [[list(coord) for coord in polygon_coords]]},
-                "properties": {"name": "parcel_polygon"},
+                "geometry": {"type": "Polygon", "coordinates": [[list(coord) for coord in polygon["coordinates"]]]},
+                "properties": {
+                    "name": f"parcel_polygon_{polygon['polygon_index']}",
+                    "parcel_group_id": polygon.get("parcel_group_id") or "",
+                },
             }
         )
 
@@ -424,7 +528,7 @@ def _create_outputs_with_arcpy(
     template_gdb: Path | None,
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
-    polygon_coords: list[tuple[float, float]],
+    polygons: list[dict[str, Any]],
     review_workspace_mode: str,
     transaction_number: str,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
@@ -450,17 +554,19 @@ def _create_outputs_with_arcpy(
 
     arcpy.management.CreateFeatureclass(str(target_gdb), point_fc.name, "POINT", spatial_reference=spatial_reference)
     arcpy.management.AddField(str(point_fc), "point_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "parcel_grp", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "status_txt", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "length_txt", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "source_txt", "TEXT", field_length=1024)
     arcpy.management.AddField(str(point_fc), "row_id", "TEXT", field_length=64)
 
-    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "status_txt", "length_txt", "source_txt", "row_id"]) as cursor:
+    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "parcel_grp", "status_txt", "length_txt", "source_txt", "row_id"]) as cursor:
         for point in points:
             cursor.insertRow(
                 [
                     (point["easting"], point["northing"]),
                     _normalize_text(point["point_identifier"], 64),
+                    _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
                     _normalize_text(point["status"], 64),
                     _normalize_text(point["length"], 128),
                     _normalize_text(point["source_evidence"], 1024),
@@ -475,10 +581,11 @@ def _create_outputs_with_arcpy(
         arcpy.management.CreateFeatureclass(str(target_gdb), line_fc.name, "POLYLINE", spatial_reference=spatial_reference)
         arcpy.management.AddField(str(line_fc), "start_pt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "end_pt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "parcel_grp", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "length_txt", "TEXT", field_length=128)
         arcpy.management.AddField(str(line_fc), "seg_index", "LONG")
 
-        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "start_pt", "end_pt", "length_txt", "seg_index"]) as cursor:
+        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "start_pt", "end_pt", "parcel_grp", "length_txt", "seg_index"]) as cursor:
             for segment in segments:
                 array = arcpy.Array([arcpy.Point(*segment["start"]), arcpy.Point(*segment["end"])])
                 cursor.insertRow(
@@ -486,24 +593,35 @@ def _create_outputs_with_arcpy(
                         arcpy.Polyline(array, spatial_reference),
                         _normalize_text(segment["start_point"], 64),
                         _normalize_text(segment["end_point"], 64),
+                        _normalize_text(segment.get("parcel_group_id") or "", 64),
                         _normalize_text(segment["length"], 128),
                         segment["segment_index"],
                     ]
                 )
         created_line_fc = str(line_fc)
 
-    if polygon_coords:
+    if polygons:
         try:
             arcpy.management.CreateFeatureclass(str(target_gdb), polygon_fc.name, "POLYGON", spatial_reference=spatial_reference)
             arcpy.management.AddField(str(polygon_fc), "name", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "parcel_grp", "TEXT", field_length=64)
 
-            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "name"]) as cursor:
-                array = arcpy.Array([arcpy.Point(*coord) for coord in polygon_coords])
-                polygon_geometry = arcpy.Polygon(array, spatial_reference)
-                if getattr(polygon_geometry, "isEmpty", False):
-                    raise RuntimeError("ArcPy returned an empty polygon geometry.")
+            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "name", "parcel_grp"]) as cursor:
+                for polygon in polygons:
+                    array = arcpy.Array([arcpy.Point(*coord) for coord in polygon["coordinates"]])
+                    polygon_geometry = arcpy.Polygon(array, spatial_reference)
+                    if getattr(polygon_geometry, "isEmpty", False):
+                        continue
+                    cursor.insertRow(
+                        [
+                            polygon_geometry,
+                            _normalize_text(f"parcel_polygon_{polygon['polygon_index']}", 64),
+                            _normalize_text(polygon.get("parcel_group_id") or "", 64),
+                        ]
+                    )
 
-                cursor.insertRow([polygon_geometry, "parcel_polygon"])
+            if _count_rows(arcpy, str(polygon_fc)) <= 0:
+                raise RuntimeError("ArcPy did not create any valid polygon features from grouped review geometry.")
             created_polygon_fc = str(polygon_fc)
         except Exception as exc:
             warnings.append(f"polygon_generation_skipped: {exc}")
@@ -549,7 +667,7 @@ def _create_outputs_filesystem_fallback(
     target_gdb: Path,
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
-    polygon_coords: list[tuple[float, float]],
+    polygons: list[dict[str, Any]],
     review_workspace_mode: str,
     transaction_number: str,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
@@ -563,13 +681,13 @@ def _create_outputs_filesystem_fallback(
     point_fc.write_text(json.dumps(points, indent=2), encoding="utf-8")
     if segments:
         line_fc.write_text(json.dumps(segments, indent=2), encoding="utf-8")
-    if polygon_coords:
-        polygon_fc.write_text(json.dumps(polygon_coords, indent=2), encoding="utf-8")
+    if polygons:
+        polygon_fc.write_text(json.dumps(polygons, indent=2), encoding="utf-8")
 
     root_paths = {
         "point_fc": str(point_fc),
         "line_fc": str(line_fc) if segments else None,
-        "polygon_fc": str(polygon_fc) if polygon_coords else None,
+        "polygon_fc": str(polygon_fc) if polygons else None,
     }
     warnings: list[str] = []
     review_paths = {
@@ -631,7 +749,7 @@ def _create_outputs_filesystem_fallback(
                 "parcel_record_name": _record_name(transaction_number),
                 "parcel_record_id": None,
                 "parcel_type": PARCEL_FABRIC_PARCEL_TYPE_NAME,
-                "built_parcel_count": 1 if polygon_coords else 0,
+                "built_parcel_count": len(polygons),
                 "built_line_count": len(segments),
                 "built_point_count": len(points),
             }
@@ -650,7 +768,7 @@ def _build_summary(
     review_paths: dict[str, str | None],
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
-    polygon_coords: list[tuple[float, float]],
+    polygons: list[dict[str, Any]],
     operator_id: str | None,
     template_project_path: str | None,
     template_gdb_path: str | None,
@@ -710,7 +828,7 @@ def _build_summary(
         "built_point_count": built_point_count,
         "point_count": len(points),
         "line_count": len(segments),
-        "polygon_count": 1 if polygon_coords else 0,
+        "polygon_count": len(polygons),
         "template_project_path": template_project_path or None,
         "template_gdb_path": template_gdb_path or None,
     }
@@ -762,8 +880,9 @@ def main(argv: list[str] | None = None) -> int:
     if not points:
         raise RuntimeError("Approved review data does not contain any usable point rows for output generation.")
 
-    segments = _polyline_segments(points)
-    polygon_coords = _polygon_points(points)
+    point_groups = _grouped_point_sequences(points)
+    segments = _polyline_segments(point_groups)
+    polygons = _polygon_rings(point_groups)
     transaction_number = review_data.get("transaction_number") or approved_review.get("transaction_number") or manifest.get("transaction_id") or "transaction"
     result_gdb_path = output_root / f"{transaction_number}_parcel_output.gdb"
     geojson_path = output_root / "extracted_geometry.geojson"
@@ -777,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
             template_gdb_path,
             points,
             segments,
-            polygon_coords,
+            polygons,
             review_workspace_mode,
             str(transaction_number),
         )
@@ -786,15 +905,15 @@ def main(argv: list[str] | None = None) -> int:
             result_gdb_path,
             points,
             segments,
-            polygon_coords,
+            polygons,
             review_workspace_mode,
             str(transaction_number),
         )
     else:
         raise RuntimeError("ArcPy is not available for output generation.")
 
-    effective_polygon_coords = polygon_coords if layer_paths.get("polygon_fc") else []
-    _write_json(geojson_path, _build_geojson(points, segments, effective_polygon_coords))
+    effective_polygons = polygons if layer_paths.get("polygon_fc") else []
+    _write_json(geojson_path, _build_geojson(points, segments, effective_polygons))
     summary = _build_summary(
         manifest,
         approved_review,
@@ -805,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
         review_paths,
         points,
         segments,
-        effective_polygon_coords,
+        effective_polygons,
         args.operator,
         args.template_project,
         args.template_gdb,

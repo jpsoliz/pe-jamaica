@@ -17,6 +17,10 @@ internal static class ExtractionReviewPersistenceServiceTests
               "transaction_number": "100000206",
               "rows": [
                 {
+                  "parcel_group_id": "parcel-a",
+                  "traverse_id": "trav-1",
+                  "sequence_in_group": 1,
+                  "group_confidence": "high",
                   "point_id": "P-101",
                   "easting": "731245.22",
                   "northing": "612994.10",
@@ -40,6 +44,10 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("731245.22", reloaded.Rows[0].OriginalValues.Easting, "Original easting should remain preserved.");
         TestAssert.Equal("45.120", reloaded.Rows[0].Length, "Length should persist through compact review projection.");
         TestAssert.Equal("45.120", reloaded.Rows[0].OriginalValues.Length, "Original length should remain preserved.");
+        TestAssert.Equal("parcel-a", reloaded.Rows[0].ParcelGroupId, "Parcel group id should persist.");
+        TestAssert.Equal("trav-1", reloaded.Rows[0].TraverseId, "Traverse id should persist.");
+        TestAssert.Equal(1, reloaded.Rows[0].SequenceInGroup ?? -1, "Sequence in group should persist.");
+        TestAssert.Equal("high", reloaded.Rows[0].GroupConfidence, "Group confidence should persist.");
         TestAssert.True(reloaded.Rows[0].IsEdited, "Edited row should remain marked edited.");
     }
 

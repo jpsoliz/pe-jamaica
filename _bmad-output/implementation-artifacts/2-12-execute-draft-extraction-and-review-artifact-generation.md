@@ -19,10 +19,12 @@ so that I can review and correct extracted points before parcel geometry and `.g
 3. Given a Scenario B transaction includes TXT/CSV points, optional computation source, map source, and DWG reference, when draft extraction runs, then TXT/CSV point normalization is preferred over OCR for point rows and any DWG step remains context-only.
 4. Given OpenAI-assisted extraction is enabled by configuration/profile, when the relevant document extraction step runs, then the selected provider may use OpenAI; when disabled, the workflow remains local-only and does not attempt external AI calls.
 5. Given extraction from documents is incomplete, low-confidence, or ambiguous, when draft review data is written, then the artifact records unresolved or missing rows so the next review story can support manual correction and point entry before parcel build.
-6. Given draft extraction completes, when artifacts are refreshed, then the Parcel Workflow "Open" / Extraction Review action opens the generated review artifact rather than falling back to the case folder.
-7. Given extraction fails, times out, or returns malformed results, when the add-in handles the failure, then the workflow records a redacted user-facing status, preserves prior intake/preflight artifacts, and does not create final geometry, output package artifacts, CADINDEX writes, or Enterprise writes.
-8. Given this story is complete, then parcel build remains out of scope: no `.gdb`, feature classes, validation summary, output summary, or completion action is created here.
-9. Given the story is complete, then focused tests cover Scenario A draft extraction execution, local-only mode, provider toggle behavior, artifact generation, failure handling, and the absence of final output artifacts.
+6. Given a single computation sheet, plan, or image may describe multiple parcels or multiple closed traverses, when draft extraction runs, then the review artifact preserves parcel grouping and/or explicit boundary-break metadata so downstream line creation does not assume that the last point of one parcel is automatically connected to the first point of the next parcel.
+7. Given parcel grouping cannot be determined confidently from the source document, when draft review data is written, then the affected rows are marked for manual review instead of being silently chained into a potentially incorrect parcel sequence.
+8. Given draft extraction completes, when artifacts are refreshed, then the Parcel Workflow "Open" / Extraction Review action opens the generated review artifact rather than falling back to the case folder.
+9. Given extraction fails, times out, or returns malformed results, when the add-in handles the failure, then the workflow records a redacted user-facing status, preserves prior intake/preflight artifacts, and does not create final geometry, output package artifacts, CADINDEX writes, or Enterprise writes.
+10. Given this story is complete, then parcel build remains out of scope: no `.gdb`, feature classes, validation summary, output summary, or completion action is created here.
+11. Given the story is complete, then focused tests cover Scenario A draft extraction execution, local-only mode, provider toggle behavior, artifact generation, multiple-parcel boundary handling, failure handling, and the absence of final output artifacts.
 
 ## Tasks / Subtasks
 
@@ -33,36 +35,42 @@ so that I can review and correct extracted points before parcel geometry and `.g
     - [ ] `WorkflowScriptExecutionResult`
   - [ ] Resolve adapters by stable adapter identifier from the manifest `script_plan`.
   - [ ] Keep execution bounded, cancellable where practical, and independent from final output generation.
-- [ ] Add draft extraction adapter implementation. (AC: 1-5, 7)
+- [ ] Add draft extraction adapter implementation. (AC: 1-7, 9)
   - [ ] Implement a production adapter that can invoke `CreateParcelFromFile.py` or a wrapper entrypoint in review-only mode.
   - [ ] Generate a per-case config/INI file in the Case Folder `working` area instead of depending on the shared legacy INI.
   - [ ] Use transaction-loaded source files from `source/` and write review artifacts into `working/`.
   - [ ] Keep OpenAI provider usage controlled by settings/profile, not hardcoded script defaults.
+- [ ] Capture parcel grouping / boundary metadata in review artifacts. (AC: 5-7)
+  - [ ] Extend the draft extraction contract so each extracted review row can optionally carry grouping fields such as `parcel_group_id`, `traverse_id`, `sequence_in_group`, or a boundary-break marker.
+  - [ ] Preserve source ordering within each parcel/traverse group instead of flattening all extracted rows into one implied parcel sequence.
+  - [ ] Mark rows as unresolved when the extractor cannot confidently determine whether the next row continues the same parcel or starts a new one.
 - [ ] Add per-case config generation. (AC: 2-5, 7)
   - [ ] Build a generated config such as `working/CreateParcelFromFile_case.ini`.
   - [ ] Populate source file paths, results/log directories, transaction number, provider mode, and model settings from the add-in configuration.
   - [ ] Do not persist API keys, bearer tokens, passwords, or certificate private data in generated config or logs.
-- [ ] Generate and register draft review artifacts. (AC: 2, 5, 6, 8)
+- [ ] Generate and register draft review artifacts. (AC: 2, 5-8, 10)
   - [ ] Normalize review output path to `working/extraction_review_data.json`.
+  - [ ] Preserve any parcel/traverse grouping metadata needed by later manual review and output stages.
   - [ ] Register the artifact in `WorkflowSession.AvailableArtifacts`.
   - [ ] Refresh Parcel Workflow extraction-review state from artifact existence.
   - [ ] Ensure parcel-build/final-output artifacts are still absent after this story.
-- [ ] Respect source-family behavior. (AC: 2-5)
+- [ ] Respect source-family behavior. (AC: 2-7)
   - [ ] Scenario A: document extraction path for computation/map PDF/image packages.
   - [ ] Scenario B: prefer TXT/CSV normalization for point rows where present.
   - [ ] DWG remains context-only for this story and must not trigger parcel build.
-- [ ] Add status and failure handling. (AC: 6, 7)
+- [ ] Add status and failure handling. (AC: 8, 9)
   - [ ] Surface execution start, success, and failure in the Parcel Workflow status text.
   - [ ] Redact script stderr/stdout before exposing messages.
   - [ ] Preserve previously written `preflight_summary.json` and manifest state on extraction failure.
-- [ ] Add focused tests. (AC: 1-9)
+- [ ] Add focused tests. (AC: 1-11)
   - [ ] Script plan executes only after valid preflight-passed state.
   - [ ] Scenario A writes `working/extraction_review_data.json`.
   - [ ] Local-only mode avoids OpenAI execution path.
   - [ ] Provider-enabled mode passes provider/model configuration without leaking secrets.
+  - [ ] Multi-parcel input produces explicit group/boundary metadata instead of a single flattened point chain.
   - [ ] Failure/timeout produces sanitized status and no final output artifacts.
   - [ ] Parcel Workflow extraction review action opens the generated review artifact when present.
-- [ ] Validate and package. (AC: 1-9)
+- [ ] Validate and package. (AC: 1-11)
   - [ ] Run `tools\validate_contracts.ps1`.
   - [ ] Run `tools\run_python_tests.ps1`.
   - [ ] Run `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`.
@@ -91,6 +99,8 @@ so that I can review and correct extracted points before parcel geometry and `.g
 - Review/edit is expected and mandatory for imperfect document extraction cases.
 - TXT/CSV flows should remain deterministic and should not depend on OCR by default.
 - OpenAI is optional and must stay settings/profile controlled.
+- When a source document contains multiple parcels or multiple traverses, extraction must preserve parcel boundaries instead of implying one continuous line chain across all extracted rows.
+- If parcel boundary detection is uncertain, the system should prefer flagged manual review over silent geometric assumptions.
 
 ### Recommended Execution Model
 
@@ -98,8 +108,9 @@ so that I can review and correct extracted points before parcel geometry and `.g
 2. Resolve each step to an adapter implementation.
 3. Generate any per-case config required by the adapter.
 4. Execute extraction/normalization steps in order.
-5. Merge or normalize intermediate outputs into `working/extraction_review_data.json`.
-6. Refresh workflow artifacts and status.
+5. Preserve parcel/traverse grouping and any boundary-break signals from extraction.
+6. Merge or normalize intermediate outputs into `working/extraction_review_data.json`.
+7. Refresh workflow artifacts and status.
 
 ### Integration Guidance For `CreateParcelFromFile.py`
 
@@ -111,7 +122,20 @@ so that I can review and correct extracted points before parcel geometry and `.g
   - results/review outputs under `working/`
 - If the script produces a transaction-named review file, normalize or copy it to:
   - `working/extraction_review_data.json`
+- If OpenAI-assisted parsing is used to improve line/point interpretation from low-quality PDFs or images, keep it behind settings and emit structured grouping metadata that downstream review/output stages can trust or challenge.
 - Do not allow the story to proceed into final `.gdb` generation even if the legacy script can do so.
+
+### Parcel Boundary Handling
+
+- The extraction artifact must support more than one parcel/traverse in a single transaction source.
+- Do not assume `row N` and `row N+1` belong to the same parcel boundary unless the source clearly indicates continuity.
+- Preferred extraction output shape includes one or more of:
+  - `parcel_group_id`
+  - `traverse_id`
+  - `sequence_in_group`
+  - `is_boundary_break`
+  - `group_confidence`
+- Later output-generation stories should consume these fields when creating lines and polygons, instead of reconstructing parcel chains from flat row order alone.
 
 ### Files Likely To Extend
 
@@ -162,3 +186,5 @@ TBD
 | Date | Version | Description | Author |
 |---|---:|---|---|
 | 2026-06-12 | 0.1 | Initial story for executing draft extraction and generating review artifacts from transaction-driven script plans. | Codex |
+| 2026-06-15 | 0.2 | Expanded the story to cover optional OpenAI-assisted parsing and explicit multi-parcel boundary/group metadata in draft extraction artifacts. | Codex |
+| 2026-06-16 | 0.3 | Wired draft extraction to the external CreateParcel document-type catalog and required matched `doc_type_id` metadata to be persisted into extraction review artifacts and generated case config. | Codex |
