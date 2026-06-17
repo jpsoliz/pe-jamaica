@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ParcelWorkflowAddIn"
              xmlns:effects="clr-namespace:System.Windows.Media.Effects;assembly=PresentationCore"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
@@ -681,6 +682,42 @@
                                            Foreground="#1F2933" />
                                 <StackPanel DockPanel.Dock="Right"
                                             Orientation="Horizontal">
+                                  <Button Content="◀"
+                                          Command="{Binding PreviousReviewViewerPageCommand}"
+                                          IsEnabled="{Binding CanGoToPreviousReviewViewerPage}"
+                                          Style="{StaticResource SmallButtonStyle}"
+                                          Margin="0,0,6,0" />
+                                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                                          Background="#FFFFFF"
+                                          BorderBrush="#D8E1E7"
+                                          Margin="0,0,6,0">
+                                    <TextBlock Text="{Binding ReviewViewerPageStatusText}"
+                                               FontSize="11"
+                                               Foreground="#1F2933" />
+                                  </Border>
+                                  <Button Content="▶"
+                                          Command="{Binding NextReviewViewerPageCommand}"
+                                          IsEnabled="{Binding CanGoToNextReviewViewerPage}"
+                                          Style="{StaticResource SmallButtonStyle}"
+                                          Margin="0,0,6,0" />
+                                  <Button Content="-"
+                                          Command="{Binding ZoomOutReviewViewerCommand}"
+                                          IsEnabled="{Binding CanZoomReviewViewerOut}"
+                                          Style="{StaticResource SmallButtonStyle}"
+                                          Margin="0,0,6,0" />
+                                  <Border Style="{StaticResource SmallPillBorderStyle}"
+                                          Background="#FFFFFF"
+                                          BorderBrush="#D8E1E7"
+                                          Margin="0,0,6,0">
+                                    <TextBlock Text="{Binding ReviewViewerZoomText}"
+                                               FontSize="11"
+                                               Foreground="#1F2933" />
+                                  </Border>
+                                  <Button Content="+"
+                                          Command="{Binding ZoomInReviewViewerCommand}"
+                                          IsEnabled="{Binding CanZoomReviewViewerIn}"
+                                          Style="{StaticResource SmallButtonStyle}"
+                                          Margin="0,0,6,0" />
                                   <Button Content="{Binding ReviewViewerFitToggleText}"
                                           Command="{Binding ToggleReviewViewerFitCommand}"
                                           IsEnabled="{Binding CanToggleReviewViewerFit}"
@@ -700,7 +737,13 @@
                                   <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                                 VerticalScrollBarVisibility="Auto">
                                     <Image Source="{Binding ReviewViewerImageSource}"
-                                           Stretch="{Binding ReviewViewerImageStretch}" />
+                                           Stretch="{Binding ReviewViewerImageStretch}"
+                                           RenderOptions.BitmapScalingMode="HighQuality">
+                                      <Image.LayoutTransform>
+                                        <ScaleTransform ScaleX="{Binding ReviewViewerImageScale}"
+                                                        ScaleY="{Binding ReviewViewerImageScale}" />
+                                      </Image.LayoutTransform>
+                                    </Image>
                                   </ScrollViewer>
                                 </Border>
                                 <Border Background="#FFFFFF"
@@ -708,11 +751,7 @@
                                         BorderThickness="1"
                                         CornerRadius="4"
                                         Visibility="{Binding ReviewViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                  <Grid ClipToBounds="True">
-                                    <WebBrowser x:Name="ReviewPdfBrowser"
-                                                HorizontalAlignment="Stretch"
-                                                VerticalAlignment="Stretch" />
-                                  </Grid>
+                                  <wv2:WebView2 x:Name="DockpanePdfWebView" />
                                 </Border>
                                 <Border Background="#FFFFFF"
                                         BorderBrush="#E1E8ED"

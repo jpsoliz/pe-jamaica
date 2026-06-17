@@ -513,7 +513,7 @@
               <ComboBox Grid.Column="1"
                         x:Name="PdfViewerModeComboBox"
                         Margin="0,0,0,6">
-                <ComboBoxItem Tag="embedded_browser" Content="Embedded browser" />
+                <ComboBoxItem Tag="embedded_browser" Content="Embedded rendered viewer" />
                 <ComboBoxItem Tag="external_only" Content="External viewer only" />
               </ComboBox>
             </Grid>

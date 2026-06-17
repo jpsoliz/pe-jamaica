@@ -401,7 +401,7 @@ public sealed record InnolaTransactionSettings(
         return value switch
         {
             PdfViewerModeExternalOnly => "External PDF Viewer",
-            _ => "Embedded Browser"
+            _ => "Embedded Rendered Viewer"
         };
     }
 

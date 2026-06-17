@@ -33,9 +33,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ExtractionReviewRowViewModel> VisibleRows { get; }
 
-    public string WindowTitle => "Experimental Jamaica Review Workspace";
+    public string WindowTitle => "Jamaica COGO Tool";
 
-    public string ExperimentalBannerText => "Spike only: live case artifacts with provisional parcel interpretation and preview logic.";
+    public string ExperimentalBannerText => "Review source documents and extracted parcel points together before moving into map-based editing.";
 
     public string TransactionHeader => parent.HeaderTransactionText;
 
@@ -47,7 +47,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         ? "Live extraction review artifact loaded from the current case."
         : "No review artifact loaded yet.";
 
-    public string WorkspaceHostNote => "Preferred host: large floating review window. This shell should validate sizing, scrolling, and region coordination before production build-out.";
+    public string WorkspaceHostNote => "Use this workspace to verify source documents, organize parcel interpretation, and prepare the case for map review.";
 
     public bool UsesLiveArtifacts => parent.HasLoadedReviewData;
 
@@ -67,7 +67,6 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             if (!ReferenceEquals(parent.SelectedReviewSource, value))
             {
                 parent.SelectedReviewSource = value;
-                NotifyViewerProperties();
             }
         }
     }
@@ -80,7 +79,17 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand ToggleReviewViewerFitCommand => parent.ToggleReviewViewerFitCommand;
 
+    public ICommand ZoomInReviewViewerCommand => parent.ZoomInReviewViewerCommand;
+
+    public ICommand ZoomOutReviewViewerCommand => parent.ZoomOutReviewViewerCommand;
+
+    public ICommand PreviousReviewViewerPageCommand => parent.PreviousReviewViewerPageCommand;
+
+    public ICommand NextReviewViewerPageCommand => parent.NextReviewViewerPageCommand;
+
     public ICommand AddManualPointCommand => parent.AddManualPointCommand;
+
+    public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
     public ICommand SaveReviewCommand => parent.SaveReviewCommand;
 
@@ -114,7 +123,21 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public string ViewerFitToggleText => parent.ReviewViewerFitToggleText;
 
+    public bool CanZoomViewerIn => parent.CanZoomReviewViewerIn;
+
+    public bool CanZoomViewerOut => parent.CanZoomReviewViewerOut;
+
+    public bool CanGoToPreviousViewerPage => parent.CanGoToPreviousReviewViewerPage;
+
+    public bool CanGoToNextViewerPage => parent.CanGoToNextReviewViewerPage;
+
+    public string ViewerPageStatusText => parent.ReviewViewerPageStatusText;
+
+    public string ViewerZoomText => parent.ReviewViewerZoomText;
+
     public Stretch ViewerImageStretch => parent.ReviewViewerImageStretch;
+
+    public double ViewerImageScale => parent.ReviewViewerImageScale;
 
     public ImageSource? ViewerImageSource => parent.ReviewViewerImageSource;
 
@@ -274,7 +297,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerShowsFallback):
             case nameof(ParcelWorkflowDockpaneViewModel.CanToggleReviewViewerFit):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerFitToggleText):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanZoomReviewViewerIn):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanZoomReviewViewerOut):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanGoToPreviousReviewViewerPage):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanGoToNextReviewViewerPage):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerPageStatusText):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerZoomText):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerImageStretch):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerImageScale):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerImageSource):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerBrowserUri):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerNavigationKey):
@@ -500,7 +530,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ViewerShowsFallback));
         OnPropertyChanged(nameof(CanToggleViewerFit));
         OnPropertyChanged(nameof(ViewerFitToggleText));
+        OnPropertyChanged(nameof(CanZoomViewerIn));
+        OnPropertyChanged(nameof(CanZoomViewerOut));
+        OnPropertyChanged(nameof(CanGoToPreviousViewerPage));
+        OnPropertyChanged(nameof(CanGoToNextViewerPage));
+        OnPropertyChanged(nameof(ViewerPageStatusText));
+        OnPropertyChanged(nameof(ViewerZoomText));
         OnPropertyChanged(nameof(ViewerImageStretch));
+        OnPropertyChanged(nameof(ViewerImageScale));
         OnPropertyChanged(nameof(ViewerImageSource));
         OnPropertyChanged(nameof(ViewerBrowserUri));
         OnPropertyChanged(nameof(ViewerNavigationKey));

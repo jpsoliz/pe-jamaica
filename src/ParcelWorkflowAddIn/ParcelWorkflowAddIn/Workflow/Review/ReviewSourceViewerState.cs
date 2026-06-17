@@ -4,6 +4,7 @@ internal enum ReviewSourceViewerMode
 {
     None,
     Image,
+    RenderedDocument,
     Pdf,
     PdfExternal,
     Missing,
@@ -22,7 +23,7 @@ internal sealed record ReviewSourceViewerState(
     string FallbackMessage,
     string? FullPath)
 {
-    public bool UsesImage => Mode == ReviewSourceViewerMode.Image;
+    public bool UsesImage => Mode == ReviewSourceViewerMode.Image || Mode == ReviewSourceViewerMode.RenderedDocument;
 
     public bool UsesBrowser => Mode == ReviewSourceViewerMode.Pdf;
 

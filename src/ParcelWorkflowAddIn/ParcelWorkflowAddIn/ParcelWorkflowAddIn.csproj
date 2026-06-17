@@ -48,6 +48,14 @@
       <HintPath>C:\Program Files\ArcGIS\Pro\bin\Extensions\Core\ArcGIS.Desktop.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>C:\Program Files\ArcGIS\Pro\bin\Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Wpf">
+      <HintPath>C:\Program Files\ArcGIS\Pro\bin\Microsoft.Web.WebView2.Wpf.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="ValidateArcGISProSdkPackagingTargets" BeforeTargets="Build" Condition="!Exists('$(ArcGISProSdkTargets)')">

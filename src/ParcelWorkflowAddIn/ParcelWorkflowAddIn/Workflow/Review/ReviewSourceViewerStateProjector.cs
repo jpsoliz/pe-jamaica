@@ -59,7 +59,7 @@ internal static class ReviewSourceViewerStateProjector
             case ".jpg":
             case ".jpeg":
                 return new ReviewSourceViewerState(
-                    ReviewSourceViewerMode.Image,
+                    ReviewSourceViewerMode.RenderedDocument,
                     sourceFile.FileName,
                     roleLabel,
                     displayPath,
@@ -71,7 +71,7 @@ internal static class ReviewSourceViewerStateProjector
             case ".tif":
             case ".tiff":
                 return new ReviewSourceViewerState(
-                    ReviewSourceViewerMode.Image,
+                    ReviewSourceViewerMode.RenderedDocument,
                     sourceFile.FileName,
                     roleLabel,
                     displayPath,
@@ -102,8 +102,8 @@ internal static class ReviewSourceViewerStateProjector
                     displayPath,
                     "PDF source",
                     "Embedded PDF ready",
-                    "Verify extracted points against the embedded PDF. Use Reload if the PDF host needs to refresh.",
-                    "If the PDF host cannot render this file in-pane, use Open source or Reveal.",
+                    "Verify extracted points against the embedded PDF viewer. Use the PDF pane controls for zoom, scroll, and page navigation.",
+                    "If the PDF does not render correctly, use Open source or Reveal.",
                     sourceFile.CopiedPath);
             default:
                 return new ReviewSourceViewerState(

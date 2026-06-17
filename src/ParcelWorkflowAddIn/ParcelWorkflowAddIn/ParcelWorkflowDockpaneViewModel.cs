@@ -18,6 +18,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ArcGIS.Desktop.Framework.Controls;
+using System.Threading;
 
 namespace ParcelWorkflowAddIn;
 
@@ -42,6 +43,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand openCogoReaderCommand;
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
+    private readonly RelayCommand removeManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
     private readonly RelayCommand approveReviewCommand;
     private readonly RelayCommand togglePreflightDetailsCommand;
@@ -51,6 +53,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealReviewSourceCommand;
     private readonly RelayCommand reloadReviewViewerCommand;
     private readonly RelayCommand toggleReviewViewerFitCommand;
+    private readonly RelayCommand zoomInReviewViewerCommand;
+    private readonly RelayCommand zoomOutReviewViewerCommand;
+    private readonly RelayCommand previousReviewViewerPageCommand;
+    private readonly RelayCommand nextReviewViewerPageCommand;
     private readonly RelayCommand openExperimentalReviewWorkspaceCommand;
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand suspendTransactionCommand;
@@ -70,13 +76,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private bool validationSummaryExpanded;
     private bool outputsSummaryExpanded;
     private bool reviewViewerFitToPane = true;
+    private double reviewViewerZoom = 1.0d;
     private bool reviewDirty;
     private int reviewViewerReloadVersion;
+    private int reviewViewerPageIndex;
+    private int reviewViewerPageCount;
     private string? selectedReviewSourceCopiedPath;
     private string? reviewViewerStateCacheKey;
     private BitmapSource? reviewViewerImageSource;
+    private readonly RenderedReviewDocumentService renderedReviewDocumentService = new();
+    private CancellationTokenSource? reviewViewerLoadCancellation;
     private ReviewSourceViewerState reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
     private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
+    private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
 
     public ParcelWorkflowDockpaneViewModel()
     {
@@ -96,6 +108,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked);
+        removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow?.IsManual == true);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
         approveReviewCommand = new RelayCommand(ApproveReview, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
         togglePreflightDetailsCommand = new RelayCommand(TogglePreflightDetails, () => HasPreflightResults);
@@ -105,6 +118,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealReviewSourceCommand = new RelayCommand(RevealReviewSource, () => SelectedReviewSource is not null);
         reloadReviewViewerCommand = new RelayCommand(ReloadReviewViewer, () => SelectedReviewSource is not null);
         toggleReviewViewerFitCommand = new RelayCommand(ToggleReviewViewerFit, () => CanToggleReviewViewerFit);
+        zoomInReviewViewerCommand = new RelayCommand(ZoomInReviewViewer, () => CanZoomReviewViewerIn);
+        zoomOutReviewViewerCommand = new RelayCommand(ZoomOutReviewViewer, () => CanZoomReviewViewerOut);
+        previousReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(-1), () => CanGoToPreviousReviewViewerPage);
+        nextReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(1), () => CanGoToNextReviewViewerPage);
         openExperimentalReviewWorkspaceCommand = new RelayCommand(async () => await OpenExperimentalReviewWorkspaceAsync(), () => CanOpenExperimentalReviewWorkspace);
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
@@ -222,8 +239,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanAddSourceFiles => false;
 
-    public IReadOnlyList<SourceFileListItem> SourceFiles =>
-        workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
+    public IReadOnlyList<SourceFileListItem> SourceFiles => sourceFileItems;
 
     public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
 
@@ -314,6 +330,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand AddManualPointCommand => addManualPointCommand;
 
+    public ICommand RemoveManualPointCommand => removeManualPointCommand;
+
     public ICommand SaveReviewCommand => saveReviewCommand;
 
     public ICommand ApproveReviewCommand => approveReviewCommand;
@@ -331,6 +349,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand ReloadReviewViewerCommand => reloadReviewViewerCommand;
 
     public ICommand ToggleReviewViewerFitCommand => toggleReviewViewerFitCommand;
+
+    public ICommand ZoomInReviewViewerCommand => zoomInReviewViewerCommand;
+
+    public ICommand ZoomOutReviewViewerCommand => zoomOutReviewViewerCommand;
+
+    public ICommand PreviousReviewViewerPageCommand => previousReviewViewerPageCommand;
+
+    public ICommand NextReviewViewerPageCommand => nextReviewViewerPageCommand;
 
     public ICommand OpenExperimentalReviewWorkspaceCommand => openExperimentalReviewWorkspaceCommand;
 
@@ -487,6 +513,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 SetProperty(ref selectedReviewRow, value, () => SelectedReviewRow);
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsTitle));
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsText));
+                removeManualPointCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -503,6 +530,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             {
                 selectedReviewSourceCopiedPath = nextPath;
                 reviewViewerStateCacheKey = null;
+                reviewViewerPageIndex = 0;
+                reviewViewerPageCount = 0;
+                reviewViewerFitToPane = true;
+                reviewViewerZoom = 1.0d;
                 RefreshWorkflowProperties();
             }
         }
@@ -536,13 +567,30 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool ReviewViewerUsesImage => reviewViewerState.UsesImage && reviewViewerImageSource is not null;
 
-    public bool ReviewViewerUsesBrowser => reviewViewerState.UsesBrowser;
+    public bool ReviewViewerUsesBrowser => reviewViewerState.UsesBrowser && !string.IsNullOrWhiteSpace(reviewViewerState.FullPath);
 
     public bool ReviewViewerShowsFallback => !reviewViewerState.CanRenderEmbedded || (reviewViewerState.UsesImage && reviewViewerImageSource is null);
 
     public bool CanToggleReviewViewerFit => ReviewViewerUsesImage;
 
-    public string ReviewViewerFitToggleText => reviewViewerFitToPane ? "Actual size" : "Fit to pane";
+    public bool CanZoomReviewViewerIn => ReviewViewerUsesImage;
+
+    public bool CanZoomReviewViewerOut => ReviewViewerUsesImage && (!reviewViewerFitToPane || reviewViewerZoom > 0.30d);
+
+    public bool CanGoToPreviousReviewViewerPage => ReviewViewerUsesImage && reviewViewerPageCount > 1 && reviewViewerPageIndex > 0;
+
+    public bool CanGoToNextReviewViewerPage => ReviewViewerUsesImage && reviewViewerPageCount > 1 && reviewViewerPageIndex < reviewViewerPageCount - 1;
+
+    public string ReviewViewerFitToggleText => reviewViewerFitToPane ? "Actual size" : "Fit";
+
+    public string ReviewViewerPageStatusText =>
+        reviewViewerPageCount > 1
+            ? $"Page {reviewViewerPageIndex + 1} / {reviewViewerPageCount}"
+            : "Single page";
+
+    public string ReviewViewerZoomText => reviewViewerFitToPane ? "Fit" : $"{Math.Round(reviewViewerZoom * 100d)}%";
+
+    public double ReviewViewerImageScale => reviewViewerFitToPane ? 1.0d : reviewViewerZoom;
 
     public Stretch ReviewViewerImageStretch => reviewViewerFitToPane ? Stretch.Uniform : Stretch.None;
 
@@ -961,6 +1009,41 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    private void RemoveSelectedManualPoint()
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (loadedReviewDocument is null || SelectedReviewRow is null)
+        {
+            workflowSession.SetValidationFailure("Select a manual point before removing it.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (!SelectedReviewRow.IsManual)
+        {
+            workflowSession.SetValidationFailure("Only manual points can be removed from this review workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var rowToRemove = SelectedReviewRow;
+        var removedIndex = ReviewRows.IndexOf(rowToRemove);
+        loadedReviewDocument.Rows.Remove(rowToRemove.Model);
+        ReviewRows.Remove(rowToRemove);
+        SelectedReviewRow = removedIndex >= 0 && removedIndex < ReviewRows.Count
+            ? ReviewRows[removedIndex]
+            : ReviewRows.LastOrDefault();
+        reviewDirty = true;
+        workflowSession.SetValidationFailure("Selected manual point removed. Save review to persist the change.");
+        RefreshWorkflowProperties();
+    }
+
     private void SaveReviewChanges()
     {
         if (IsReviewLocked)
@@ -1176,12 +1259,55 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         reviewViewerReloadVersion++;
         reviewViewerStateCacheKey = null;
+        renderedReviewDocumentService.Invalidate(reviewViewerState.FullPath);
         RefreshWorkflowProperties();
     }
 
     private void ToggleReviewViewerFit()
     {
         reviewViewerFitToPane = !reviewViewerFitToPane;
+        RefreshWorkflowProperties();
+    }
+
+    private void ZoomInReviewViewer()
+    {
+        if (!ReviewViewerUsesImage)
+        {
+            return;
+        }
+
+        reviewViewerFitToPane = false;
+        reviewViewerZoom = Math.Min(4.0d, Math.Round((reviewViewerZoom + 0.20d) * 100d) / 100d);
+        RefreshWorkflowProperties();
+    }
+
+    private void ZoomOutReviewViewer()
+    {
+        if (!ReviewViewerUsesImage)
+        {
+            return;
+        }
+
+        reviewViewerFitToPane = false;
+        reviewViewerZoom = Math.Max(0.25d, Math.Round((reviewViewerZoom - 0.20d) * 100d) / 100d);
+        RefreshWorkflowProperties();
+    }
+
+    private void ChangeReviewViewerPage(int delta)
+    {
+        if (reviewViewerPageCount <= 1)
+        {
+            return;
+        }
+
+        var nextPageIndex = Math.Clamp(reviewViewerPageIndex + delta, 0, reviewViewerPageCount - 1);
+        if (nextPageIndex == reviewViewerPageIndex)
+        {
+            return;
+        }
+
+        reviewViewerPageIndex = nextPageIndex;
+        reviewViewerStateCacheKey = null;
         RefreshWorkflowProperties();
     }
 
@@ -1269,13 +1395,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private SourceFileListItem? ResolveReviewSource()
     {
-        if (SourceFiles.Count == 0)
+        if (sourceFileItems.Count == 0)
         {
             return null;
         }
 
         var resolved = ReviewSourceSelectionResolver.Resolve(
-            SourceFiles.Select(item => item.SourceFile).ToArray(),
+            sourceFileItems.Select(item => item.SourceFile).ToArray(),
             selectedReviewSourceCopiedPath);
 
         if (resolved is null)
@@ -1283,19 +1409,27 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return null;
         }
 
-        return SourceFiles.FirstOrDefault(item =>
+        return sourceFileItems.FirstOrDefault(item =>
             string.Equals(item.SourceFile.CopiedPath, resolved.CopiedPath, StringComparison.OrdinalIgnoreCase)
             && string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
-            ?? SourceFiles.FirstOrDefault(item => string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
-            ?? SourceFiles.FirstOrDefault();
+            ?? sourceFileItems.FirstOrDefault(item => string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
+            ?? sourceFileItems.FirstOrDefault();
     }
 
     private void RefreshReviewViewerState()
     {
+        reviewViewerLoadCancellation?.Cancel();
+        reviewViewerLoadCancellation?.Dispose();
+        reviewViewerLoadCancellation = new CancellationTokenSource();
+        _ = RefreshReviewViewerStateAsync(reviewViewerLoadCancellation.Token);
+    }
+
+    private async Task RefreshReviewViewerStateAsync(CancellationToken cancellationToken)
+    {
         var sourceFile = SelectedReviewSource?.SourceFile;
         var pdfViewerMode = InnolaTransactionSettings.Load().PdfViewerMode;
         var projected = ReviewSourceViewerStateProjector.Build(sourceFile, pdfViewerMode);
-        var cacheKey = $"{projected.Mode}|{projected.FullPath}|{reviewViewerReloadVersion}";
+        var cacheKey = $"{projected.Mode}|{projected.FullPath}|{reviewViewerReloadVersion}|{reviewViewerPageIndex}";
         if (string.Equals(reviewViewerStateCacheKey, cacheKey, StringComparison.Ordinal))
         {
             return;
@@ -1304,30 +1438,38 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewViewerStateCacheKey = cacheKey;
         reviewViewerState = projected;
         reviewViewerImageSource = null;
+        reviewViewerPageCount = 0;
 
         if (!reviewViewerState.UsesImage || string.IsNullOrWhiteSpace(reviewViewerState.FullPath))
         {
+            RefreshViewerOnlyProperties();
             return;
         }
 
         try
         {
-            reviewViewerImageSource = LoadReviewViewerImage(reviewViewerState.FullPath);
+            var renderedPage = await renderedReviewDocumentService.RenderAsync(reviewViewerState.FullPath, reviewViewerPageIndex, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            reviewViewerPageIndex = renderedPage.PageIndex;
+            reviewViewerPageCount = renderedPage.PageCount;
+            reviewViewerImageSource = renderedPage.ImageSource;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException)
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             reviewViewerState = ReviewSourceViewerStateProjector.BuildRenderFailure(sourceFile, exception.Message);
         }
-    }
-
-    private static BitmapSource LoadReviewViewerImage(string path)
-    {
-        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-        var frame = decoder.Frames.FirstOrDefault()
-            ?? throw new FileFormatException("The image file does not contain a readable frame.");
-        frame.Freeze();
-        return frame;
+        finally
+        {
+            RefreshViewerOnlyProperties();
+        }
     }
 
     public async Task StartOrClaimTransactionAsync()
@@ -1736,6 +1878,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private void RefreshWorkflowProperties()
     {
+        sourceFileItems = workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
         RefreshReviewViewerState();
         NotifyPropertyChanged(nameof(TransactionId));
         NotifyPropertyChanged(nameof(OutputLocation));
@@ -1825,7 +1968,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewViewerUsesBrowser));
         NotifyPropertyChanged(nameof(ReviewViewerShowsFallback));
         NotifyPropertyChanged(nameof(CanToggleReviewViewerFit));
+        NotifyPropertyChanged(nameof(CanZoomReviewViewerIn));
+        NotifyPropertyChanged(nameof(CanZoomReviewViewerOut));
+        NotifyPropertyChanged(nameof(CanGoToPreviousReviewViewerPage));
+        NotifyPropertyChanged(nameof(CanGoToNextReviewViewerPage));
         NotifyPropertyChanged(nameof(ReviewViewerFitToggleText));
+        NotifyPropertyChanged(nameof(ReviewViewerPageStatusText));
+        NotifyPropertyChanged(nameof(ReviewViewerZoomText));
+        NotifyPropertyChanged(nameof(ReviewViewerImageScale));
         NotifyPropertyChanged(nameof(ReviewViewerImageStretch));
         NotifyPropertyChanged(nameof(ReviewViewerImageSource));
         NotifyPropertyChanged(nameof(ReviewViewerBrowserUri));
@@ -1866,6 +2016,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         loadSpatialReviewLayersCommand.RaiseCanExecuteChanged();
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
+        removeManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();
         approveReviewCommand.RaiseCanExecuteChanged();
         togglePreflightDetailsCommand.RaiseCanExecuteChanged();
@@ -1875,6 +2026,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealReviewSourceCommand.RaiseCanExecuteChanged();
         reloadReviewViewerCommand.RaiseCanExecuteChanged();
         toggleReviewViewerFitCommand.RaiseCanExecuteChanged();
+        zoomInReviewViewerCommand.RaiseCanExecuteChanged();
+        zoomOutReviewViewerCommand.RaiseCanExecuteChanged();
+        previousReviewViewerPageCommand.RaiseCanExecuteChanged();
+        nextReviewViewerPageCommand.RaiseCanExecuteChanged();
         openExperimentalReviewWorkspaceCommand.RaiseCanExecuteChanged();
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         suspendTransactionCommand.RaiseCanExecuteChanged();
@@ -1925,14 +2080,54 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         validationSummaryExpanded = false;
         outputsSummaryExpanded = false;
         reviewViewerFitToPane = true;
+        reviewViewerZoom = 1.0d;
         reviewDirty = false;
         reviewViewerReloadVersion = 0;
+        reviewViewerPageIndex = 0;
+        reviewViewerPageCount = 0;
         selectedReviewSourceCopiedPath = null;
         reviewViewerStateCacheKey = null;
         reviewViewerImageSource = null;
+        reviewViewerLoadCancellation?.Cancel();
+        reviewViewerLoadCancellation?.Dispose();
+        reviewViewerLoadCancellation = null;
         reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         ReviewRows.Clear();
         RefreshWorkflowProperties();
+    }
+
+    private void RefreshViewerOnlyProperties()
+    {
+        NotifyPropertyChanged(nameof(ReviewViewerState));
+        NotifyPropertyChanged(nameof(ReviewViewerFileTitle));
+        NotifyPropertyChanged(nameof(ReviewViewerRoleLabel));
+        NotifyPropertyChanged(nameof(ReviewViewerDisplayPath));
+        NotifyPropertyChanged(nameof(ReviewViewerModeLabel));
+        NotifyPropertyChanged(nameof(ReviewViewerLoadState));
+        NotifyPropertyChanged(nameof(ReviewViewerGuidance));
+        NotifyPropertyChanged(nameof(ReviewViewerFallbackMessage));
+        NotifyPropertyChanged(nameof(ReviewViewerUsesImage));
+        NotifyPropertyChanged(nameof(ReviewViewerUsesBrowser));
+        NotifyPropertyChanged(nameof(ReviewViewerShowsFallback));
+        NotifyPropertyChanged(nameof(CanToggleReviewViewerFit));
+        NotifyPropertyChanged(nameof(CanZoomReviewViewerIn));
+        NotifyPropertyChanged(nameof(CanZoomReviewViewerOut));
+        NotifyPropertyChanged(nameof(CanGoToPreviousReviewViewerPage));
+        NotifyPropertyChanged(nameof(CanGoToNextReviewViewerPage));
+        NotifyPropertyChanged(nameof(ReviewViewerFitToggleText));
+        NotifyPropertyChanged(nameof(ReviewViewerPageStatusText));
+        NotifyPropertyChanged(nameof(ReviewViewerZoomText));
+        NotifyPropertyChanged(nameof(ReviewViewerImageScale));
+        NotifyPropertyChanged(nameof(ReviewViewerImageStretch));
+        NotifyPropertyChanged(nameof(ReviewViewerImageSource));
+        NotifyPropertyChanged(nameof(ReviewViewerBrowserUri));
+        NotifyPropertyChanged(nameof(ReviewViewerNavigationKey));
+        reloadReviewViewerCommand.RaiseCanExecuteChanged();
+        toggleReviewViewerFitCommand.RaiseCanExecuteChanged();
+        zoomInReviewViewerCommand.RaiseCanExecuteChanged();
+        zoomOutReviewViewerCommand.RaiseCanExecuteChanged();
+        previousReviewViewerPageCommand.RaiseCanExecuteChanged();
+        nextReviewViewerPageCommand.RaiseCanExecuteChanged();
     }
 
     private static string BlankIfEmpty(string? value)

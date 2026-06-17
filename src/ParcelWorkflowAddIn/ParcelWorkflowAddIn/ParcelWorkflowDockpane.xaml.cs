@@ -1,72 +1,78 @@
 using System;
 using System.ComponentModel;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace ParcelWorkflowAddIn;
 
 public partial class ParcelWorkflowDockpane : UserControl
 {
-    private ParcelWorkflowDockpaneViewModel? viewModel;
-    private string? lastBrowserNavigationKey;
-
     public ParcelWorkflowDockpane()
     {
         InitializeComponent();
+        Loaded += OnLoaded;
         DataContextChanged += OnDataContextChanged;
-        Loaded += (_, _) => SyncEmbeddedPdfViewer();
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        await RefreshPdfViewerAsync();
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (viewModel is not null)
+        if (e.OldValue is ParcelWorkflowDockpaneViewModel oldViewModel)
         {
-            viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            oldViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
 
-        viewModel = e.NewValue as ParcelWorkflowDockpaneViewModel;
-        if (viewModel is not null)
+        if (e.NewValue is ParcelWorkflowDockpaneViewModel newViewModel)
         {
-            viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        }
-
-        lastBrowserNavigationKey = null;
-        SyncEmbeddedPdfViewer();
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerNavigationKey)
-            || e.PropertyName == nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerUsesBrowser))
-        {
-            SyncEmbeddedPdfViewer();
+            newViewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
     }
 
-    private void SyncEmbeddedPdfViewer()
+    private async void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (ReviewPdfBrowser is null || viewModel is null)
+        if (e.PropertyName is nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerBrowserUri)
+            or nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerUsesBrowser))
+        {
+            await RefreshPdfViewerAsync();
+        }
+    }
+
+    private async Task RefreshPdfViewerAsync()
+    {
+        if (DockpanePdfWebView is null || DataContext is not ParcelWorkflowDockpaneViewModel viewModel)
         {
             return;
         }
 
         if (!viewModel.ReviewViewerUsesBrowser || viewModel.ReviewViewerBrowserUri is null)
         {
-            if (lastBrowserNavigationKey is not null)
+            if (DockpanePdfWebView.CoreWebView2 is not null)
             {
-                ReviewPdfBrowser.Navigate("about:blank");
-                lastBrowserNavigationKey = null;
+                DockpanePdfWebView.CoreWebView2.Navigate("about:blank");
             }
 
             return;
         }
 
-        if (string.Equals(lastBrowserNavigationKey, viewModel.ReviewViewerNavigationKey, StringComparison.Ordinal))
+        if (!File.Exists(viewModel.ReviewViewerBrowserUri.LocalPath))
         {
             return;
         }
 
-        lastBrowserNavigationKey = viewModel.ReviewViewerNavigationKey;
-        ReviewPdfBrowser.Navigate(viewModel.ReviewViewerBrowserUri);
+        DockpanePdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
+        {
+            UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "ParcelWorkflowDockpane")
+        };
+
+        await DockpanePdfWebView.EnsureCoreWebView2Async();
+        DockpanePdfWebView.CoreWebView2.Navigate(viewModel.ReviewViewerBrowserUri.AbsoluteUri);
     }
 }
