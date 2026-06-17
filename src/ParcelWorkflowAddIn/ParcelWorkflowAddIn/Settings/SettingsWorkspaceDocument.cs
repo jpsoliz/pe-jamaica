@@ -31,6 +31,7 @@ public sealed class SettingsWorkspaceDocument
 
     public string OcrEngine { get; set; } = string.Empty;
     public bool OpenAiEnabled { get; set; }
+    public string OpenAiExtractionProfile { get; set; } = string.Empty;
     public string OpenAiModel { get; set; } = string.Empty;
     public string OpenAiApiKeyEnvironmentVariable { get; set; } = string.Empty;
 
@@ -56,6 +57,7 @@ public sealed class SettingsWorkspaceDocument
     public bool InnolaCheckCertificateRevocationList { get; set; }
 
     public string ReviewWorkspaceMode { get; set; } = string.Empty;
+    public string PdfViewerMode { get; set; } = string.Empty;
     public bool EnterpriseWorkingEnabled { get; set; }
     public string EnterpriseWorkingServiceRoot { get; set; } = string.Empty;
     public string EnterpriseWorkingWorkspaceName { get; set; } = string.Empty;

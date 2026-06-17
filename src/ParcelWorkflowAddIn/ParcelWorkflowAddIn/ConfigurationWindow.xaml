@@ -169,6 +169,22 @@
                 <ColumnDefinition Width="190" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
+              <TextBlock Text="Extraction profile" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <ComboBox Grid.Column="1"
+                        x:Name="OpenAiExtractionProfileComboBox"
+                        SelectionChanged="OpenAiExtractionProfileComboBox_SelectionChanged"
+                        Margin="0,0,0,6">
+                <ComboBoxItem Tag="balanced" Content="Balanced" />
+                <ComboBoxItem Tag="high_accuracy" Content="High accuracy" />
+                <ComboBoxItem Tag="custom" Content="Custom" />
+              </ComboBox>
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
               <TextBlock Text="OpenAI model" FontWeight="SemiBold" Margin="0,6,8,6" />
               <TextBox Grid.Column="1"
                        x:Name="OpenAiModelTextBox"
@@ -487,6 +503,20 @@
                        Foreground="#53636A"
                        Margin="0,0,0,12"
                        TextWrapping="Wrap" />
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="PDF viewer mode" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <ComboBox Grid.Column="1"
+                        x:Name="PdfViewerModeComboBox"
+                        Margin="0,0,0,6">
+                <ComboBoxItem Tag="embedded_browser" Content="Embedded browser" />
+                <ComboBoxItem Tag="external_only" Content="External viewer only" />
+              </ComboBox>
+            </Grid>
 
             <Grid Margin="0,0,0,8">
               <Grid.ColumnDefinitions>

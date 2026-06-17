@@ -63,6 +63,11 @@ public partial class ConfigurationWindow : ProWindow
         ApplyGsiPasswordModePresentation();
     }
 
+    private void OpenAiExtractionProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyOpenAiExtractionProfilePresentation();
+    }
+
     private void ReloadWorkspace(string? footerMessage = null)
     {
         currentDocument = settingsWorkspaceService.Load();
@@ -88,6 +93,7 @@ public partial class ConfigurationWindow : ProWindow
 
         SetSelectedTag(OcrEngineComboBox, document.OcrEngine);
         OpenAiEnabledCheckBox.IsChecked = document.OpenAiEnabled;
+        SetSelectedTag(OpenAiExtractionProfileComboBox, document.OpenAiExtractionProfile);
         OpenAiModelTextBox.Text = document.OpenAiModel;
         OpenAiApiKeyEnvironmentVariableTextBox.Text = document.OpenAiApiKeyEnvironmentVariable;
 
@@ -116,6 +122,7 @@ public partial class ConfigurationWindow : ProWindow
         RenderPreflightRules(document.PreflightRules);
 
         SetSelectedTag(ReviewWorkspaceModeComboBox, document.ReviewWorkspaceMode);
+        SetSelectedTag(PdfViewerModeComboBox, document.PdfViewerMode);
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
         EnterpriseWorkingWorkspaceNameTextBox.Text = document.EnterpriseWorkingWorkspaceName;
@@ -138,6 +145,7 @@ public partial class ConfigurationWindow : ProWindow
 
         ApplyReviewWorkspacePresentation();
         ApplyGsiPasswordModePresentation();
+        ApplyOpenAiExtractionProfilePresentation();
     }
 
     private SettingsWorkspaceDocument BuildDocumentFromUi()
@@ -155,6 +163,7 @@ public partial class ConfigurationWindow : ProWindow
 
         document.OcrEngine = GetSelectedTag(OcrEngineComboBox, "local");
         document.OpenAiEnabled = OpenAiEnabledCheckBox.IsChecked == true;
+        document.OpenAiExtractionProfile = GetSelectedTag(OpenAiExtractionProfileComboBox, SettingsWorkspaceService.OpenAiExtractionProfileCustom);
         document.OpenAiModel = OpenAiModelTextBox.Text.Trim();
         document.OpenAiApiKeyEnvironmentVariable = OpenAiApiKeyEnvironmentVariableTextBox.Text.Trim();
 
@@ -180,6 +189,7 @@ public partial class ConfigurationWindow : ProWindow
         document.InnolaCheckCertificateRevocationList = InnolaCheckCertificateRevocationListCheckBox.IsChecked == true;
 
         document.ReviewWorkspaceMode = GetSelectedTag(ReviewWorkspaceModeComboBox, InnolaTransactionSettings.ReviewWorkspaceModeNormal);
+        document.PdfViewerMode = GetSelectedTag(PdfViewerModeComboBox, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         document.EnterpriseWorkingEnabled = EnterpriseWorkingEnabledCheckBox.IsChecked == true;
         document.EnterpriseWorkingServiceRoot = EnterpriseWorkingServiceRootTextBox.Text.Trim();
         document.EnterpriseWorkingWorkspaceName = EnterpriseWorkingWorkspaceNameTextBox.Text.Trim();
@@ -314,6 +324,23 @@ public partial class ConfigurationWindow : ProWindow
 
         EnterpriseWorkingExpander.Opacity = enterpriseModeSelected ? 1.0 : 0.58;
         EnterpriseWorkingExpander.IsExpanded = enterpriseModeSelected;
+    }
+
+    private void ApplyOpenAiExtractionProfilePresentation()
+    {
+        var profile = GetSelectedTag(OpenAiExtractionProfileComboBox, SettingsWorkspaceService.OpenAiExtractionProfileCustom);
+        var recommendedModel = profile switch
+        {
+            SettingsWorkspaceService.OpenAiExtractionProfileBalanced => "gpt-4.1-mini",
+            SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy => "gpt-4.1",
+            _ => null
+        };
+
+        OpenAiModelTextBox.IsEnabled = string.Equals(profile, SettingsWorkspaceService.OpenAiExtractionProfileCustom, StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(recommendedModel) && !OpenAiModelTextBox.IsKeyboardFocusWithin)
+        {
+            OpenAiModelTextBox.Text = recommendedModel;
+        }
     }
 
     private void ApplyGsiPasswordModePresentation()

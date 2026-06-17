@@ -15,6 +15,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private const string ReviewReportJsonKey = "review_report_json";
     private const string RouteArtifactPathKey = "route_artifact_path";
     private const string DefaultDocumentTypeCatalogPath = @"C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\Scripts\CreateParcel_doc_types.json";
+    private const string TextStructuredExtractionScriptRelativePath = @"src\ProcessingTools\adapters\pdf_text_structured_extraction.py";
 
     private readonly IProcessRunner processRunner;
     private readonly string documentTypeCatalogPath;
@@ -75,12 +76,60 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         var reviewArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_review_data.json");
         var routeArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_route.json");
         var transactionNumber = manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId;
-        WriteRouteArtifact(routeArtifactPath, route, transactionNumber);
-        context.SharedItems[RouteArtifactPathKey] = routeArtifactPath;
 
         if (route.UnsafeToAutomate)
         {
+            WriteRouteArtifact(routeArtifactPath, route, transactionNumber, CreateRuntimeDiagnostics(route.ActiveExtractorId, route.ProviderUsed, route.FallbackReason));
+            context.SharedItems[RouteArtifactPathKey] = routeArtifactPath;
             return WorkflowScriptStepExecutionResult.Failed(route.OperatorMessage ?? "No supported extraction route is available for the selected source package.");
+        }
+
+        context.SharedItems[RouteArtifactPathKey] = routeArtifactPath;
+
+        ExtractionRuntimeDiagnostics? runtimeDiagnostics = null;
+        if (ShouldAttemptStructuredTextExtraction(route))
+        {
+            var textAttempt = await TryExecuteStructuredTextExtractionAsync(
+                context,
+                route,
+                transactionNumber,
+                reviewArtifactPath,
+                cancellationToken).ConfigureAwait(false);
+
+            if (textAttempt.Outcome == StructuredTextExtractionOutcome.Success)
+            {
+                route = textAttempt.Route;
+                runtimeDiagnostics = textAttempt.Diagnostics;
+                context.SharedItems[ReviewArtifactPathKey] = reviewArtifactPath;
+                context.SharedItems[ReviewReportJsonKey] = textAttempt.ReportJson;
+                EnrichReviewArtifact(reviewArtifactPath, route, runtimeDiagnostics);
+                WriteRouteArtifact(routeArtifactPath, route, transactionNumber, runtimeDiagnostics);
+
+                var artifactPaths = new List<string> { reviewArtifactPath, routeArtifactPath };
+                using var textReportDocument = JsonDocument.Parse(textAttempt.ReportJson!);
+                foreach (var outputArtifact in context.Step.OutputArtifacts)
+                {
+                    var stepArtifactPath = ResolveArtifactPath(context, outputArtifact);
+                    WriteStepArtifactSummary(stepArtifactPath, textReportDocument.RootElement, transactionNumber, route, textAttempt.Elapsed);
+                    artifactPaths.Add(stepArtifactPath);
+                }
+
+                return WorkflowScriptStepExecutionResult.Passed(artifactPaths.ToArray());
+            }
+
+            if (textAttempt.Outcome == StructuredTextExtractionOutcome.FatalFailure)
+            {
+                WriteRouteArtifact(routeArtifactPath, route, transactionNumber, textAttempt.Diagnostics);
+                return WorkflowScriptStepExecutionResult.Failed(textAttempt.ErrorMessage ?? "Structured PDF extraction failed.");
+            }
+
+            route = textAttempt.Route;
+            runtimeDiagnostics = textAttempt.Diagnostics;
+            if (route.UnsafeToAutomate)
+            {
+                WriteRouteArtifact(routeArtifactPath, route, transactionNumber, runtimeDiagnostics);
+                return WorkflowScriptStepExecutionResult.Failed(route.OperatorMessage ?? "No supported extraction route is available for the selected source package.");
+            }
         }
 
         WriteGeneratedConfig(
@@ -127,8 +176,13 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 return WorkflowScriptStepExecutionResult.Failed("Draft extraction finished without producing the review JSON output.");
             }
 
-            File.Copy(reviewJsonPath, reviewArtifactPath, overwrite: true);
-            EnrichReviewArtifact(reviewArtifactPath, route);
+            CopyFileIfDifferent(reviewJsonPath, reviewArtifactPath);
+            runtimeDiagnostics ??= CreateRuntimeDiagnostics(
+                route.ActiveExtractorId,
+                route.ProviderUsed,
+                route.FallbackReason);
+            EnrichReviewArtifact(reviewArtifactPath, route, runtimeDiagnostics);
+            WriteRouteArtifact(routeArtifactPath, route, transactionNumber, runtimeDiagnostics);
             context.SharedItems[ReviewArtifactPathKey] = reviewArtifactPath;
             context.SharedItems[ReviewReportJsonKey] = result.StandardOutput;
 
@@ -142,6 +196,106 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
             return WorkflowScriptStepExecutionResult.Passed(artifactPaths.ToArray());
         }
+    }
+
+    private async Task<StructuredTextExtractionAttemptResult> TryExecuteStructuredTextExtractionAsync(
+        WorkflowScriptExecutionContext context,
+        ResolvedExtractionRoute route,
+        string transactionNumber,
+        string reviewArtifactPath,
+        CancellationToken cancellationToken)
+    {
+        if (route.PrimarySource is null)
+        {
+            return StructuredTextExtractionAttemptResult.Fatal("No primary computation PDF is available for structured text extraction.");
+        }
+
+        var scriptPath = ResolveTextStructuredExtractionScriptPath(context.ExecutionSettings);
+        Debug.WriteLine(
+            $"Innola structured text extraction script resolution. TransactionNumber={transactionNumber}; ResolvedPath={scriptPath ?? "(missing)"}; OutputAdapter={context.ExecutionSettings.OutputAdapterScriptPath}; ValidationAdapter={context.ExecutionSettings.ValidationAdapterScriptPath}.");
+        if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
+        {
+            var missingScriptReason = "text_parser_script_missing";
+            return StructuredTextExtractionAttemptResult.FallbackRequested(
+                ApplyRuntimeFallback(route, missingScriptReason),
+                CreateRuntimeDiagnostics(
+                    "pdf_text_structured_computation",
+                    route.ProviderUsed,
+                    missingScriptReason,
+                    textLayerProbeStatus: "script_missing",
+                    textLayerAvailable: null));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        var processResult = await processRunner.RunAsync(
+            context.ExecutionSettings.PythonExecutable,
+            BuildTextStructuredScriptArguments(scriptPath, route.PrimarySource.CopiedPath, reviewArtifactPath, transactionNumber),
+            TimeSpan.FromSeconds(Math.Max(30, context.Step.TimeoutSeconds)),
+            environmentVariables: null,
+            cancellationToken).ConfigureAwait(false);
+        stopwatch.Stop();
+
+        if (processResult.TimedOut)
+        {
+            var timeoutReason = "text_parser_timeout";
+            return StructuredTextExtractionAttemptResult.FallbackRequested(
+                ApplyRuntimeFallback(route, timeoutReason),
+                CreateRuntimeDiagnostics(
+                    "pdf_text_structured_computation",
+                    route.ProviderUsed,
+                    timeoutReason,
+                    textLayerProbeStatus: "timed_out",
+                    textLayerAvailable: null),
+                elapsed: stopwatch.Elapsed);
+        }
+
+        if (!TryParseStructuredTextEnvelope(processResult.StandardOutput, out var envelope))
+        {
+            var parseReason = processResult.ExitCode == 0 ? "text_parser_malformed_output" : "text_parser_error";
+            return StructuredTextExtractionAttemptResult.FallbackRequested(
+                ApplyRuntimeFallback(route, parseReason),
+                CreateRuntimeDiagnostics(
+                    "pdf_text_structured_computation",
+                    route.ProviderUsed,
+                    parseReason,
+                    textLayerProbeStatus: "malformed_output",
+                    textLayerAvailable: null),
+                elapsed: stopwatch.Elapsed);
+        }
+
+        if (string.Equals(envelope.Status, "success", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(envelope.ReviewJsonPath)
+            && File.Exists(envelope.ReviewJsonPath))
+        {
+            CopyFileIfDifferent(envelope.ReviewJsonPath, reviewArtifactPath);
+            return StructuredTextExtractionAttemptResult.Success(
+                ApplyStructuredTextSuccess(route),
+                CreateRuntimeDiagnostics(
+                    "pdf_text_structured_computation",
+                    "pdf_text_structured_computation",
+                    fallbackReason: null,
+                    textLayerProbeStatus: envelope.ParserStatus ?? "parsed",
+                    textLayerAvailable: envelope.TextLayerAvailable,
+                    parsedParcelCount: envelope.ParsedParcelCount,
+                    parsedRowCount: envelope.ParsedRowCount),
+                processResult.StandardOutput,
+                stopwatch.Elapsed);
+        }
+
+        var fallbackReason = envelope.FallbackReason
+                             ?? envelope.ParserStatus
+                             ?? "text_first_fallback_requested";
+        return StructuredTextExtractionAttemptResult.FallbackRequested(
+            ApplyRuntimeFallback(route, fallbackReason),
+            CreateRuntimeDiagnostics(
+                "pdf_text_structured_computation",
+                route.ProviderUsed,
+                fallbackReason,
+                textLayerProbeStatus: envelope.ParserStatus ?? "fallback_requested",
+                textLayerAvailable: envelope.TextLayerAvailable,
+                parsedParcelCount: envelope.ParsedParcelCount,
+                parsedRowCount: envelope.ParsedRowCount),
+            elapsed: stopwatch.Elapsed);
     }
 
     private static WorkflowScriptStepExecutionResult CreatePlanOcrArtifact(WorkflowScriptExecutionContext context)
@@ -203,6 +357,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     {
         var openAiEnabled = route.AiUsed;
         var outputGdbName = $"{transactionNumber}_submission_work.gdb";
+        var effectiveOpenAiModel = ResolveEffectiveOpenAiModel(context.RuleSettings);
         var builder = new StringBuilder();
         builder.AppendLine("[paths]");
         builder.AppendLine($"scanned_images_dir = {context.Layout.SourceDirectory}");
@@ -245,13 +400,14 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         builder.AppendLine($"ai_requested = {BoolToIni(route.AiRequested)}");
         builder.AppendLine($"ai_available = {BoolToIni(route.AiAvailable)}");
         builder.AppendLine($"ai_used = {BoolToIni(route.AiUsed)}");
+        builder.AppendLine($"openai_profile = {context.RuleSettings.OpenAiExtractionProfile}");
         builder.AppendLine($"provider_used = {route.ProviderUsed}");
         builder.AppendLine($"fallback_reason = {route.FallbackReason ?? string.Empty}");
         builder.AppendLine();
         builder.AppendLine("[openai]");
         builder.AppendLine("api_key = ");
         builder.AppendLine("api_base = https://api.openai.com/v1");
-        builder.AppendLine($"model = {context.RuleSettings.OpenAiModel}");
+        builder.AppendLine($"model = {effectiveOpenAiModel}");
         builder.AppendLine();
         builder.AppendLine("[parcel_builder]");
         builder.AppendLine("input_coordinate_system = JAD 2001 Jamaica Grid");
@@ -364,10 +520,10 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             .Where(extractor => !string.IsNullOrWhiteSpace(extractor))
             .Select(extractor => extractor.Trim())
             .ToArray();
-        var aiRequested = primaryMatch.Definition.Extraction.AiAssisted;
+        var aiRequested = AllowsAiFallback(primaryMatch);
         var aiAvailable = aiRequested && context.Step.OpenAiEnabled && context.RuleSettings.OpenAiEnabled && HasConfiguredOpenAiApiKey(context.RuleSettings);
         var activeExtractorId = ResolveActiveExtractorId(primaryMatch, aiAvailable);
-        var aiUsed = aiRequested && aiAvailable && string.Equals(activeExtractorId, primaryMatch.Definition.Extraction.ExtractorId, StringComparison.OrdinalIgnoreCase);
+        var aiUsed = aiRequested && aiAvailable && ExtractorRequiresAi(activeExtractorId);
         var providerUsed = aiUsed ? "openai" : activeExtractorId;
         var fallbackReason = ResolveFallbackReason(primaryMatch, aiRequested, aiAvailable, activeExtractorId);
         var unsafeToAutomate = primaryMatch.LowConfidence
@@ -394,7 +550,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ResolveOperatorMessage(primaryMatch, activeExtractorId));
     }
 
-    private static void EnrichReviewArtifact(string reviewArtifactPath, ResolvedExtractionRoute route)
+    private static void EnrichReviewArtifact(string reviewArtifactPath, ResolvedExtractionRoute route, ExtractionRuntimeDiagnostics? diagnostics)
     {
         var rootNode = JsonNode.Parse(File.ReadAllText(reviewArtifactPath)) as JsonObject;
         if (rootNode is null)
@@ -426,7 +582,12 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         rootNode["ai_used"] = route.AiUsed;
         rootNode["provider_used"] = route.ProviderUsed;
         rootNode["fallback_reason"] = route.FallbackReason;
-        rootNode["routing_contract_version"] = "2.16";
+        rootNode["extraction_method"] = diagnostics?.ExtractionMethod ?? route.ActiveExtractorId;
+        rootNode["text_layer_probe_status"] = diagnostics?.TextLayerProbeStatus;
+        rootNode["text_layer_available"] = diagnostics?.TextLayerAvailable;
+        rootNode["parsed_parcel_count"] = diagnostics?.ParsedParcelCount;
+        rootNode["parsed_row_count"] = diagnostics?.ParsedRowCount;
+        rootNode["routing_contract_version"] = "2.16b";
         rootNode["routing_case_extraction_mode"] = route.CaseExtractionMode;
         ApplyGroupingMetadata(rootNode, route);
 
@@ -526,11 +687,11 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         return Path.GetFullPath(Path.Combine(context.Layout.RootDirectory, normalized));
     }
 
-    private static void WriteRouteArtifact(string routeArtifactPath, ResolvedExtractionRoute route, string transactionNumber)
+    private static void WriteRouteArtifact(string routeArtifactPath, ResolvedExtractionRoute route, string transactionNumber, ExtractionRuntimeDiagnostics? diagnostics)
     {
         var payload = new Dictionary<string, object?>
         {
-            ["schema_version"] = "2.16",
+            ["schema_version"] = "2.16b",
             ["transaction_number"] = transactionNumber,
             ["doc_type_id"] = route.DocumentTypeMatch.Definition.DocTypeId,
             ["doc_type_name"] = route.DocumentTypeMatch.Definition.Name,
@@ -561,6 +722,11 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ["ai_used"] = route.AiUsed,
             ["provider_used"] = route.ProviderUsed,
             ["fallback_reason"] = route.FallbackReason,
+            ["extraction_method"] = diagnostics?.ExtractionMethod ?? route.ActiveExtractorId,
+            ["text_layer_probe_status"] = diagnostics?.TextLayerProbeStatus,
+            ["text_layer_available"] = diagnostics?.TextLayerAvailable,
+            ["parsed_parcel_count"] = diagnostics?.ParsedParcelCount,
+            ["parsed_row_count"] = diagnostics?.ParsedRowCount,
             ["case_extraction_mode"] = route.CaseExtractionMode,
             ["unsafe_to_automate"] = route.UnsafeToAutomate,
             ["operator_message"] = route.OperatorMessage
@@ -614,15 +780,36 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(configuredVariable));
     }
 
+    private static string ResolveEffectiveOpenAiModel(WorkflowRuleSettings ruleSettings)
+    {
+        var configuredModel = ruleSettings.OpenAiModel?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredModel))
+        {
+            return configuredModel;
+        }
+
+        return ruleSettings.OpenAiExtractionProfile?.Trim().ToLowerInvariant() switch
+        {
+            "balanced" => "gpt-4.1-mini",
+            "high_accuracy" => "gpt-4.1",
+            _ => "gpt-4.1-mini"
+        };
+    }
+
     private static string ResolveActiveExtractorId(DocumentTypeMatchResult match, bool aiAvailable)
     {
         var configuredExtractor = match.Definition.Extraction.ExtractorId;
-        if (!match.Definition.Extraction.AiAssisted)
+        if (string.IsNullOrWhiteSpace(configuredExtractor))
         {
-            return string.IsNullOrWhiteSpace(configuredExtractor) ? "manual_only_source" : configuredExtractor;
+            return "manual_only_source";
         }
 
-        if (aiAvailable && !string.IsNullOrWhiteSpace(configuredExtractor))
+        if (!ExtractorRequiresAi(configuredExtractor))
+        {
+            return configuredExtractor;
+        }
+
+        if (aiAvailable)
         {
             return configuredExtractor;
         }
@@ -672,11 +859,228 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     {
         return activeExtractorId switch
         {
+            "pdf_text_structured_computation" => "text_structured_pdf",
             "openai_table_pdf" => "openai_table",
             "structured_csv_points" or "structured_txt_points" => "structured_points",
             "ocr_table_pdf" or "text_regex_pdf" => "local",
             _ => "manual"
         };
+    }
+
+    private static ResolvedExtractionRoute ApplyStructuredTextSuccess(ResolvedExtractionRoute route)
+    {
+        var extractorId = "pdf_text_structured_computation";
+        var unsafeToAutomate = route.DocumentTypeMatch.LowConfidence
+            || string.Equals(route.DocumentTypeMatch.Definition.Family, "unknown", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extractorId, "manual_only_source", StringComparison.OrdinalIgnoreCase);
+
+        return route with
+        {
+            ActiveExtractorId = extractorId,
+            AiUsed = false,
+            ProviderUsed = extractorId,
+            FallbackReason = null,
+            CaseExtractionMode = ResolveCaseExtractionMode(extractorId),
+            UnsafeToAutomate = unsafeToAutomate,
+            OperatorMessage = ResolveOperatorMessage(route.DocumentTypeMatch, extractorId)
+        };
+    }
+
+    private static bool ExtractorRequiresAi(string extractorId)
+    {
+        return string.Equals(extractorId, "openai_table_pdf", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool AllowsAiFallback(DocumentTypeMatchResult match)
+    {
+        return match.Definition.Extraction.AiAssisted
+               || ExtractorRequiresAi(match.Definition.Extraction.ExtractorId)
+               || match.Definition.Extraction.FallbackExtractors.Any(ExtractorRequiresAi);
+    }
+
+    private static bool ShouldAttemptStructuredTextExtraction(ResolvedExtractionRoute route)
+    {
+        if (route.PrimarySource is null)
+        {
+            return false;
+        }
+
+        if (!string.Equals(Path.GetExtension(route.PrimarySource.CopiedPath), ".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(route.ActiveExtractorId, "pdf_text_structured_computation", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return route.DocumentTypeMatch.Definition.Extraction.PrefersTextLayer
+               || (string.Equals(route.DocumentTypeMatch.Definition.Family, "computation_sheet", StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(route.DocumentTypeMatch.Definition.Extraction.ParserMode, "parcel_block_rows", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryParseStructuredTextEnvelope(string? standardOutput, out StructuredTextExtractionEnvelope envelope)
+    {
+        envelope = StructuredTextExtractionEnvelope.Empty;
+        if (string.IsNullOrWhiteSpace(standardOutput))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(standardOutput);
+            var root = document.RootElement;
+            envelope = new StructuredTextExtractionEnvelope(
+                ReadString(root, "status") ?? string.Empty,
+                ReadBoolOrNull(root, "text_layer_available"),
+                ReadString(root, "parser_status"),
+                ReadString(root, "fallback_reason"),
+                ReadIntOrNull(root, "parsed_parcel_count"),
+                ReadIntOrNull(root, "parsed_row_count"),
+                ResolveReviewJsonPath(root));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string BuildTextStructuredScriptArguments(string scriptPath, string sourcePdfPath, string outputJsonPath, string transactionNumber)
+    {
+        return $"\"{scriptPath}\" --source-pdf \"{sourcePdfPath}\" --output-json \"{outputJsonPath}\" --transaction-number \"{transactionNumber}\"";
+    }
+
+    private static string? ResolveTextStructuredExtractionScriptPath(WorkflowExecutionSettings executionSettings)
+    {
+        var configuredAdapterCandidates = new[]
+        {
+            executionSettings.OutputAdapterScriptPath,
+            executionSettings.ValidationAdapterScriptPath
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Select(path => Path.GetDirectoryName(path!))
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Select(path => Path.Combine(path!, Path.GetFileName(TextStructuredExtractionScriptRelativePath)))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidate in configuredAdapterCandidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return ResolveProjectFile(TextStructuredExtractionScriptRelativePath);
+    }
+
+    private static string? ResolveProjectFile(string relativePath)
+    {
+        var searchRoots = new[]
+        {
+            Path.GetDirectoryName(typeof(CreateParcelDraftExtractionAdapter).Assembly.Location),
+            AppContext.BaseDirectory,
+            Environment.CurrentDirectory
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var root in searchRoots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var current = new DirectoryInfo(root);
+            while (current is not null)
+            {
+                var candidate = Path.Combine(current.FullName, relativePath);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        return null;
+    }
+
+    private static ExtractionRuntimeDiagnostics CreateRuntimeDiagnostics(
+        string extractionMethod,
+        string providerUsed,
+        string? fallbackReason,
+        string? textLayerProbeStatus = null,
+        bool? textLayerAvailable = null,
+        int? parsedParcelCount = null,
+        int? parsedRowCount = null)
+    {
+        return new ExtractionRuntimeDiagnostics(
+            extractionMethod,
+            providerUsed,
+            fallbackReason,
+            textLayerProbeStatus,
+            textLayerAvailable,
+            parsedParcelCount,
+            parsedRowCount);
+    }
+
+    private static ResolvedExtractionRoute ApplyRuntimeFallback(ResolvedExtractionRoute route, string fallbackReason)
+    {
+        var nextExtractor = ResolveRuntimeFallbackExtractor(route);
+        var aiUsed = string.Equals(nextExtractor, "openai_table_pdf", StringComparison.OrdinalIgnoreCase) && route.AiAvailable;
+        var providerUsed = aiUsed ? "openai" : nextExtractor;
+        var unsafeToAutomate = route.DocumentTypeMatch.LowConfidence
+            || string.Equals(route.DocumentTypeMatch.Definition.Family, "unknown", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(nextExtractor, "manual_only_source", StringComparison.OrdinalIgnoreCase);
+
+        return route with
+        {
+            ActiveExtractorId = nextExtractor,
+            AiUsed = aiUsed,
+            ProviderUsed = providerUsed,
+            FallbackReason = fallbackReason,
+            CaseExtractionMode = ResolveCaseExtractionMode(nextExtractor),
+            UnsafeToAutomate = unsafeToAutomate,
+            OperatorMessage = ResolveOperatorMessage(route.DocumentTypeMatch, nextExtractor)
+        };
+    }
+
+    private static string ResolveRuntimeFallbackExtractor(ResolvedExtractionRoute route)
+    {
+        foreach (var extractor in route.FallbackExtractors)
+        {
+            if (string.IsNullOrWhiteSpace(extractor))
+            {
+                continue;
+            }
+
+            if (ExtractorRequiresAi(extractor) && !route.AiAvailable)
+            {
+                continue;
+            }
+
+            return extractor;
+        }
+
+        return "manual_only_source";
+    }
+
+    private static void CopyFileIfDifferent(string sourcePath, string destinationPath)
+    {
+        var normalizedSource = Path.GetFullPath(sourcePath);
+        var normalizedDestination = Path.GetFullPath(destinationPath);
+        if (string.Equals(normalizedSource, normalizedDestination, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        File.Copy(normalizedSource, normalizedDestination, overwrite: true);
     }
 
     private static int GetSourcePriority(ManifestSourceFile source, IReadOnlyList<string> preferredRoles)
@@ -759,6 +1163,20 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             : 0;
     }
 
+    private static int? ReadIntOrNull(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
+            ? result
+            : null;
+    }
+
+    private static bool? ReadBoolOrNull(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+
     private static IReadOnlyList<string> ReadArray(JsonElement element, string name)
     {
         if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
@@ -796,4 +1214,58 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         string CaseExtractionMode,
         bool UnsafeToAutomate,
         string OperatorMessage);
+
+    private sealed record ExtractionRuntimeDiagnostics(
+        string ExtractionMethod,
+        string ProviderUsed,
+        string? FallbackReason,
+        string? TextLayerProbeStatus,
+        bool? TextLayerAvailable,
+        int? ParsedParcelCount,
+        int? ParsedRowCount);
+
+    private sealed record StructuredTextExtractionEnvelope(
+        string Status,
+        bool? TextLayerAvailable,
+        string? ParserStatus,
+        string? FallbackReason,
+        int? ParsedParcelCount,
+        int? ParsedRowCount,
+        string? ReviewJsonPath)
+    {
+        public static StructuredTextExtractionEnvelope Empty { get; } = new(string.Empty, null, null, null, null, null, null);
+    }
+
+    private sealed record StructuredTextExtractionAttemptResult(
+        StructuredTextExtractionOutcome Outcome,
+        ResolvedExtractionRoute Route,
+        ExtractionRuntimeDiagnostics Diagnostics,
+        string? ReportJson,
+        TimeSpan Elapsed,
+        string? FallbackReason,
+        string? ErrorMessage)
+    {
+        public static StructuredTextExtractionAttemptResult Success(
+            ResolvedExtractionRoute route,
+            ExtractionRuntimeDiagnostics diagnostics,
+            string reportJson,
+            TimeSpan elapsed)
+            => new(StructuredTextExtractionOutcome.Success, route, diagnostics, reportJson, elapsed, null, null);
+
+        public static StructuredTextExtractionAttemptResult FallbackRequested(
+            ResolvedExtractionRoute route,
+            ExtractionRuntimeDiagnostics diagnostics,
+            TimeSpan? elapsed = null)
+            => new(StructuredTextExtractionOutcome.FallbackRequested, route, diagnostics, null, elapsed ?? TimeSpan.Zero, diagnostics.FallbackReason, null);
+
+        public static StructuredTextExtractionAttemptResult Fatal(string errorMessage)
+            => new(StructuredTextExtractionOutcome.FatalFailure, default!, CreateRuntimeDiagnostics("pdf_text_structured_computation", "pdf_text_structured_computation", "fatal_error"), null, TimeSpan.Zero, null, errorMessage);
+    }
+
+    private enum StructuredTextExtractionOutcome
+    {
+        Success,
+        FallbackRequested,
+        FatalFailure
+    }
 }

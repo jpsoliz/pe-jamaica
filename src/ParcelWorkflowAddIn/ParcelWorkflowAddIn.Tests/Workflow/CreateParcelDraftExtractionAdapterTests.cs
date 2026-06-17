@@ -72,7 +72,8 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("GEOLAND_COMPUTATION_TABLE_V2", root.GetProperty("doc_type_id").GetString(), "Matched doc type id should be persisted.");
         TestAssert.Equal("GeoLand Computation Table", root.GetProperty("doc_type_name").GetString(), "Matched doc type name should be persisted.");
         TestAssert.Equal("computation_sheet", root.GetProperty("doc_type_family").GetString(), "Matched doc type family should be persisted.");
-        TestAssert.Equal("openai_table_pdf", root.GetProperty("extractor_id").GetString(), "Resolved extractor id should be persisted.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extractor_id").GetString(), "Resolved extractor id should be persisted.");
+        TestAssert.Equal("openai_table_pdf", root.GetProperty("active_extractor_id").GetString(), "Active extractor should reflect the runtime fallback route.");
         TestAssert.Equal("parcel_rows_with_group_breaks", root.GetProperty("geometry_mode").GetString(), "Resolved geometry mode should be persisted.");
         TestAssert.Equal("geoland_computation_v1", root.GetProperty("validation_profile").GetString(), "Resolved validation profile should be persisted.");
         TestAssert.Equal("point_review", root.GetProperty("review_mode").GetString(), "Resolved review mode should be persisted.");
@@ -81,12 +82,13 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("BELLEV029GEOLANCOMSHEET.pdf", root.GetProperty("primary_source_file").GetString(), "Primary source file should be persisted.");
         TestAssert.True(root.GetProperty("ai_requested").GetBoolean(), "AI request should be persisted.");
         TestAssert.Equal("openai", root.GetProperty("provider_used").GetString(), "Provider should be persisted.");
+        TestAssert.Equal("openai_table_pdf", root.GetProperty("extraction_method").GetString(), "Extraction method should reflect the actual runtime extractor.");
 
         var iniPath = Path.Combine(layout.WorkingDirectory, "CreateParcelFromFile_case.ini");
         var iniText = File.ReadAllText(iniPath);
         TestAssert.True(iniText.Contains("matched_doc_type_id = GEOLAND_COMPUTATION_TABLE_V2", StringComparison.Ordinal), "Generated ini should include matched doc type id.");
         TestAssert.True(iniText.Contains($"catalog_json = {catalogPath}", StringComparison.Ordinal), "Generated ini should include document type catalog path.");
-        TestAssert.True(iniText.Contains("matched_extractor_id = openai_table_pdf", StringComparison.Ordinal), "Generated ini should include extractor id.");
+        TestAssert.True(iniText.Contains("matched_extractor_id = pdf_text_structured_computation", StringComparison.Ordinal), "Generated ini should include configured extractor id.");
         TestAssert.True(iniText.Contains("matched_active_extractor_id = openai_table_pdf", StringComparison.Ordinal), "Generated ini should include active extractor id.");
     }
 
@@ -224,7 +226,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.True(!root.GetProperty("ai_used").GetBoolean(), "AI should not be marked used when disabled.");
         TestAssert.Equal("ocr_table_pdf", root.GetProperty("active_extractor_id").GetString(), "First fallback extractor should become active.");
         TestAssert.Equal("ocr_table_pdf", root.GetProperty("provider_used").GetString(), "Fallback provider should be persisted.");
-        TestAssert.Equal("ai_disabled_or_unavailable", root.GetProperty("fallback_reason").GetString(), "Fallback reason should explain AI bypass.");
+        TestAssert.Equal("text_parser_malformed_output", root.GetProperty("fallback_reason").GetString(), "Fallback reason should explain why text-first routing moved to the non-text chain.");
     }
 
     public static void ExtractionAdapterPreservesGroupingFieldsForGroupedGeometryModes()
@@ -320,6 +322,279 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("UNKNOWN_GENERIC_SOURCE_V1", root.GetProperty("doc_type_id").GetString(), "Blocked route should expose the fallback document type.");
     }
 
+    public static void ExtractionAdapterUsesTextFirstStructuredPdfWhenConfiguredAndTextProbeSucceeds()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000211");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        File.WriteAllText(catalogPath, BuildCatalogJson(includeStructuredPoints: false));
+        File.WriteAllText(sourcePath, "computation");
+        File.WriteAllText(planPath, "plan");
+
+        var reviewOutputPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var runCalls = new List<string>();
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            runCalls.Add(arguments);
+            if (arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase))
+            {
+                File.WriteAllText(
+                    reviewOutputPath,
+                    $$"""
+                    {
+                      "transaction_number": "100000211",
+                      "row_count": 2,
+                      "rows": [
+                        {
+                          "parcel_group_id": "parcel-001",
+                          "parcel_name": "110402901",
+                          "point_order": 1,
+                          "segment_no": 1,
+                          "point_identifier": "339",
+                          "easting": "680920.044",
+                          "northing": "639209.180",
+                          "source_page": 1
+                        },
+                        {
+                          "parcel_group_id": "parcel-002",
+                          "parcel_name": "110402902",
+                          "point_order": 1,
+                          "segment_no": 1,
+                          "point_identifier": "440",
+                          "easting": "680930.044",
+                          "northing": "639219.180",
+                          "source_page": 2,
+                          "is_boundary_break": true
+                        }
+                      ],
+                      "outputs": {
+                        "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                      }
+                    }
+                    """);
+
+                var stdout = $$"""
+                {
+                  "status": "success",
+                  "text_layer_available": true,
+                  "parser_status": "parsed",
+                  "parsed_parcel_count": 2,
+                  "parsed_row_count": 2,
+                  "outputs": {
+                    "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """;
+                return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+            }
+
+            throw new InvalidOperationException("Fallback runner should not execute when text-first parsing succeeds.");
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(layout, sourcePath, planPath, openAiEnabled: false);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Text-first extraction should succeed.");
+        TestAssert.Equal(1, runCalls.Count, "Only the text-first helper should execute.");
+        var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        using var reviewDocument = JsonDocument.Parse(File.ReadAllText(reviewArtifactPath));
+        var root = reviewDocument.RootElement;
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("active_extractor_id").GetString(), "Text-first extractor should remain active on success.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extraction_method").GetString(), "Review artifact should record the structured text method.");
+        TestAssert.True(!root.GetProperty("ai_used").GetBoolean(), "Deterministic text-first extraction should not mark AI as used.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("provider_used").GetString(), "Provider should reflect the deterministic structured text parser.");
+        TestAssert.True(root.GetProperty("text_layer_available").GetBoolean(), "Text-layer detection should be persisted.");
+        TestAssert.Equal("parsed", root.GetProperty("text_layer_probe_status").GetString(), "Probe status should indicate parsed text.");
+
+        var rows = root.GetProperty("rows").EnumerateArray().ToArray();
+        TestAssert.Equal("parcel-001", rows[0].GetProperty("parcel_group_id").GetString(), "First parcel group should be preserved.");
+        TestAssert.Equal("parcel-002", rows[1].GetProperty("parcel_group_id").GetString(), "Second parcel group should be preserved.");
+        TestAssert.Equal(1, rows[0].GetProperty("point_order").GetInt32(), "Point order should be preserved from the text parser.");
+        TestAssert.Equal(1, rows[1].GetProperty("point_order").GetInt32(), "Point order should reset per parcel group.");
+    }
+
+    public static void ExtractionAdapterFallsBackFromTextFirstWhenNoUsableTextLayerExists()
+    {
+        using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000212");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        File.WriteAllText(catalogPath, BuildCatalogJson(includeStructuredPoints: false));
+        File.WriteAllText(sourcePath, "computation");
+        File.WriteAllText(planPath, "plan");
+
+        var reviewOutputPath = Path.Combine(layout.WorkingDirectory, "100000212_review_data.json");
+        var runCalls = new List<string>();
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            runCalls.Add(arguments);
+            if (arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase))
+            {
+                var stdout = """
+                {
+                  "status": "fallback_requested",
+                  "text_layer_available": false,
+                  "parser_status": "no_usable_text_layer",
+                  "fallback_reason": "no_usable_text_layer",
+                  "parsed_parcel_count": 0,
+                  "parsed_row_count": 0
+                }
+                """;
+                return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+            }
+
+            File.WriteAllText(
+                reviewOutputPath,
+                $$"""
+                {
+                  "transaction_number": "100000212",
+                  "row_count": 1,
+                  "rows": [
+                    {
+                      "point_identifier": "338",
+                      "easting": "680920.044",
+                      "northing": "639209.180"
+                    }
+                  ],
+                  "outputs": {
+                    "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """);
+
+            var fallbackStdout = $$"""
+            {
+              "transaction_number": "100000212",
+              "row_count": 1,
+              "outputs": {
+                "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, fallbackStdout, string.Empty, false));
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(layout, sourcePath, planPath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Fallback extraction should succeed after text-first probe fallback.");
+        TestAssert.Equal(2, runCalls.Count, "Text-first probe and fallback extractor should both execute.");
+        TestAssert.True(runCalls[0].Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase), "The first call should be the text-first helper.");
+
+        var routeArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_route.json");
+        using var routeDocument = JsonDocument.Parse(File.ReadAllText(routeArtifactPath));
+        var routeRoot = routeDocument.RootElement;
+        TestAssert.Equal("openai_table_pdf", routeRoot.GetProperty("active_extractor_id").GetString(), "Route diagnostics should record the runtime fallback extractor.");
+        TestAssert.Equal("no_usable_text_layer", routeRoot.GetProperty("fallback_reason").GetString(), "Fallback reason should explain the probe outcome.");
+        TestAssert.True(!routeRoot.GetProperty("text_layer_available").GetBoolean(), "Route diagnostics should preserve text-layer availability.");
+    }
+
+    public static void ExtractionAdapterLegacyCatalogUsesDeterministicTextRouteMetadataOnSuccess()
+    {
+        using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000213");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "LegacyComputationSheet.pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "LegacyPlan.pdf");
+        File.WriteAllText(catalogPath,
+            """
+            {
+              "default_doc_type_id": "CASE1_COMPUTATION_TABLE_V1",
+              "doc_types": [
+                {
+                  "doc_type_id": "CASE1_COMPUTATION_TABLE_V1",
+                  "name": "Case1 Computation Table",
+                  "match": {
+                    "source_ext_in": [".pdf"],
+                    "filename_contains_any": ["COMPUTATION", "SHEET"]
+                  },
+                  "expected_schema": {
+                    "metadata_fields": ["parish"],
+                    "parcel_fields": ["parcel_name"],
+                    "row_fields": ["segment_no", "north", "east"]
+                  },
+                  "validation": {
+                    "required_metadata_fields": ["parish"],
+                    "required_row_fields": ["north", "east"]
+                  }
+                }
+              ]
+            }
+            """);
+        File.WriteAllText(sourcePath, "computation");
+        File.WriteAllText(planPath, "plan");
+
+        var reviewOutputPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            if (!arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Legacy compatibility route should succeed in the text-first helper without invoking fallback extraction.");
+            }
+
+            File.WriteAllText(
+                reviewOutputPath,
+                $$"""
+                {
+                  "transaction_number": "100000213",
+                  "row_count": 1,
+                  "rows": [
+                    {
+                      "parcel_group_id": "parcel-001",
+                      "parcel_name": "Legacy Parcel",
+                      "point_order": 1,
+                      "point_identifier": "339",
+                      "easting": "680920.044",
+                      "northing": "639209.180",
+                      "source_page": 1
+                    }
+                  ],
+                  "outputs": {
+                    "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """);
+
+            var stdout = $$"""
+            {
+              "status": "success",
+              "text_layer_available": true,
+              "parser_status": "parsed",
+              "parsed_parcel_count": 1,
+              "parsed_row_count": 1,
+              "outputs": {
+                "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(layout, sourcePath, planPath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Legacy compatibility route should succeed.");
+        using var reviewDocument = JsonDocument.Parse(File.ReadAllText(reviewOutputPath));
+        var root = reviewDocument.RootElement;
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extractor_id").GetString(), "Legacy compatibility should map computation sheets to the deterministic text-first extractor.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("active_extractor_id").GetString(), "Runtime metadata should preserve the deterministic active extractor.");
+        TestAssert.True(root.GetProperty("ai_requested").GetBoolean(), "Legacy route should still advertise AI-capable fallback availability.");
+        TestAssert.True(!root.GetProperty("ai_used").GetBoolean(), "Legacy deterministic success should not mark AI as used.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("provider_used").GetString(), "Provider should reflect the deterministic parser on success.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extraction_method").GetString(), "Extraction method should reflect the text-first execution path.");
+    }
+
     private static WorkflowScriptExecutionContext CreateContext(
         CaseFolderLayout layout,
         string sourcePath,
@@ -410,7 +685,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
             manifest,
             manifest.Payload.ScriptPlan,
             step,
-            new WorkflowRuleSettings("openai", openAiEnabled, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            new WorkflowRuleSettings("openai", openAiEnabled, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
             executionSettings,
             new Dictionary<string, object?>());
     }
@@ -487,6 +762,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
                   "extraction": {
                     "extractor_id": "structured_csv_points",
                     "parser_mode": "structured_points",
+                    "prefers_text_layer": false,
                     "ai_assisted": false,
                     "ai_profile": "",
                     "fallback_extractors": ["structured_txt_points"],
@@ -557,11 +833,12 @@ internal static class CreateParcelDraftExtractionAdapterTests
                 }
               },
               "extraction": {
-                "extractor_id": "openai_table_pdf",
+                "extractor_id": "pdf_text_structured_computation",
                 "parser_mode": "parcel_block_rows",
+                "prefers_text_layer": true,
                 "ai_assisted": true,
                 "ai_profile": "survey_table_vision_v1",
-                "fallback_extractors": ["ocr_table_pdf"],
+                "fallback_extractors": ["openai_table_pdf", "ocr_table_pdf", "text_regex_pdf"],
                 "expected_outputs": ["rows"]
               },
               "schema": { "metadata_fields": [], "parcel_fields": [], "row_fields": [] },

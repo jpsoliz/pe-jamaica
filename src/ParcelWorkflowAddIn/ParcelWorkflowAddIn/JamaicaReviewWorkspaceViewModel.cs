@@ -1,0 +1,545 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using ParcelWorkflowAddIn.Workflow.Review;
+
+namespace ParcelWorkflowAddIn;
+
+internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
+{
+    private const double PreviewWidth = 280d;
+    private const double PreviewHeight = 210d;
+    private readonly ParcelWorkflowDockpaneViewModel parent;
+    private JamaicaParcelGroupViewModel? selectedParcelGroup;
+    private ExtractionReviewRowViewModel? selectedVisibleRow;
+
+    internal JamaicaReviewWorkspaceViewModel(ParcelWorkflowDockpaneViewModel parent)
+    {
+        this.parent = parent;
+        parent.PropertyChanged += OnParentPropertyChanged;
+        parent.ReviewRows.CollectionChanged += OnReviewRowsCollectionChanged;
+        VisibleRows = [];
+        ParcelGroups = [];
+        RefreshProjection();
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public ObservableCollection<JamaicaParcelGroupViewModel> ParcelGroups { get; }
+
+    public ObservableCollection<ExtractionReviewRowViewModel> VisibleRows { get; }
+
+    public string WindowTitle => "Experimental Jamaica Review Workspace";
+
+    public string ExperimentalBannerText => "Spike only: live case artifacts with provisional parcel interpretation and preview logic.";
+
+    public string TransactionHeader => parent.HeaderTransactionText;
+
+    public string TransactionTypeHeader => parent.HeaderTaskNameText;
+
+    public string StageHeader => parent.CurrentStepBadge;
+
+    public string WorkspaceStatus => parent.HasLoadedReviewData
+        ? "Live extraction review artifact loaded from the current case."
+        : "No review artifact loaded yet.";
+
+    public string WorkspaceHostNote => "Preferred host: large floating review window. This shell should validate sizing, scrolling, and region coordination before production build-out.";
+
+    public bool UsesLiveArtifacts => parent.HasLoadedReviewData;
+
+    public string DataBindingModeText => parent.HasLoadedReviewData
+        ? "Live case artifact mode"
+        : "No loaded review artifact";
+
+    public string PlaceholderModeText => "Parcel preview and interpretation remain provisional in this spike.";
+
+    public IReadOnlyList<SourceFileListItem> ReviewSourceOptions => parent.ReviewSourceOptions;
+
+    public SourceFileListItem? SelectedReviewSource
+    {
+        get => parent.SelectedReviewSource;
+        set
+        {
+            if (!ReferenceEquals(parent.SelectedReviewSource, value))
+            {
+                parent.SelectedReviewSource = value;
+                NotifyViewerProperties();
+            }
+        }
+    }
+
+    public ICommand OpenReviewSourceCommand => parent.OpenReviewSourceCommand;
+
+    public ICommand RevealReviewSourceCommand => parent.RevealReviewSourceCommand;
+
+    public ICommand ReloadReviewViewerCommand => parent.ReloadReviewViewerCommand;
+
+    public ICommand ToggleReviewViewerFitCommand => parent.ToggleReviewViewerFitCommand;
+
+    public ICommand AddManualPointCommand => parent.AddManualPointCommand;
+
+    public ICommand SaveReviewCommand => parent.SaveReviewCommand;
+
+    public ICommand ApproveReviewCommand => parent.ApproveReviewCommand;
+
+    public string ViewerFileTitle => parent.ReviewViewerFileTitle;
+
+    public string ActiveSourceInstruction => ReviewSourceOptions.Count > 1
+        ? "One source document is shown at a time. Switch the active document here when you need to verify a different file."
+        : "This workspace shows one source document at a time for focused verification.";
+
+    public string ViewerRoleLabel => parent.ReviewViewerRoleLabel;
+
+    public string ViewerDisplayPath => parent.ReviewViewerDisplayPath;
+
+    public string ViewerModeLabel => parent.ReviewViewerModeLabel;
+
+    public string ViewerLoadState => parent.ReviewViewerLoadState;
+
+    public string ViewerGuidance => parent.ReviewViewerGuidance;
+
+    public string ViewerFallbackMessage => parent.ReviewViewerFallbackMessage;
+
+    public bool ViewerUsesImage => parent.ReviewViewerUsesImage;
+
+    public bool ViewerUsesBrowser => parent.ReviewViewerUsesBrowser;
+
+    public bool ViewerShowsFallback => parent.ReviewViewerShowsFallback;
+
+    public bool CanToggleViewerFit => parent.CanToggleReviewViewerFit;
+
+    public string ViewerFitToggleText => parent.ReviewViewerFitToggleText;
+
+    public Stretch ViewerImageStretch => parent.ReviewViewerImageStretch;
+
+    public ImageSource? ViewerImageSource => parent.ReviewViewerImageSource;
+
+    public Uri? ViewerBrowserUri => parent.ReviewViewerBrowserUri;
+
+    public string ViewerNavigationKey => parent.ReviewViewerNavigationKey;
+
+    public string UnsupportedFallbackSummary
+    {
+        get
+        {
+            var unsupported = ReviewSourceOptions
+                .Where(item => !IsEmbeddable(item.SourceFile.FileType))
+                .Select(item => item.FileLabel)
+                .ToArray();
+
+            return unsupported.Length > 0
+                ? $"Fallback path demonstrated by unsupported source(s): {string.Join(", ", unsupported)}. Use Open source or Reveal instead of embedded rendering."
+                : "Fallback path in this spike: TXT/CSV and other unsupported formats should stay reviewable through the center grid while opening externally from the source tools.";
+        }
+    }
+
+    public JamaicaParcelGroupViewModel? SelectedParcelGroup
+    {
+        get => selectedParcelGroup;
+        set
+        {
+            if (ReferenceEquals(selectedParcelGroup, value))
+            {
+                return;
+            }
+
+            selectedParcelGroup = value;
+            RebuildVisibleRows();
+            OnPropertyChanged(nameof(SelectedParcelGroup));
+            OnPropertyChanged(nameof(SelectedParcelTitle));
+            OnPropertyChanged(nameof(ParcelInterpretationSummary));
+            OnPropertyChanged(nameof(ParcelInterpretationIssues));
+            OnPropertyChanged(nameof(ParcelPreviewPoints));
+            OnPropertyChanged(nameof(SelectedPointPreview));
+        }
+    }
+
+    public ExtractionReviewRowViewModel? SelectedVisibleRow
+    {
+        get => selectedVisibleRow;
+        set
+        {
+            if (ReferenceEquals(selectedVisibleRow, value))
+            {
+                return;
+            }
+
+            selectedVisibleRow = value;
+            parent.SelectedReviewRow = value;
+            OnPropertyChanged(nameof(SelectedVisibleRow));
+            OnPropertyChanged(nameof(SelectedPointPreview));
+            OnPropertyChanged(nameof(SelectedRowSummary));
+            OnPropertyChanged(nameof(ParcelPreviewPoints));
+        }
+    }
+
+    public string SelectedParcelTitle => SelectedParcelGroup is null
+        ? "No parcel group selected"
+        : $"{SelectedParcelGroup.DisplayName} - current review focus";
+
+    public string ParcelInterpretationSummary
+    {
+        get
+        {
+            if (SelectedParcelGroup is null)
+            {
+                return "Parcel interpretation becomes available after review data is loaded.";
+            }
+
+            return $"{SelectedParcelGroup.RowCount} row(s), {SelectedParcelGroup.UnresolvedCount} unresolved, {SelectedParcelGroup.EditedCount} edited, {SelectedParcelGroup.BoundaryBreakCount} boundary break(s).";
+        }
+    }
+
+    public string ParcelInterpretationIssues
+    {
+        get
+        {
+            if (SelectedParcelGroup is null)
+            {
+                return "No parcel grouping issues available.";
+            }
+
+            var issues = new List<string>();
+            if (SelectedParcelGroup.BoundaryBreakCount > 0)
+            {
+                issues.Add($"{SelectedParcelGroup.BoundaryBreakCount} boundary break marker(s) suggest one source document may contain multiple parcel sequences.");
+            }
+
+            if (SelectedParcelGroup.UnresolvedCount > 0)
+            {
+                issues.Add($"{SelectedParcelGroup.UnresolvedCount} row(s) still require examiner confirmation before approval.");
+            }
+
+            if (SelectedParcelGroup.LowConfidenceCount > 0)
+            {
+                issues.Add($"{SelectedParcelGroup.LowConfidenceCount} row(s) use low or unknown group confidence.");
+            }
+
+            return issues.Count > 0
+                ? string.Join(Environment.NewLine, issues)
+                : "No provisional parcel-group warnings are active for this parcel in the current spike view.";
+        }
+    }
+
+    public string SelectedRowSummary => SelectedVisibleRow is null
+        ? "Select a row to inspect its point, sequence, and preview marker."
+        : $"Selected point {BlankIfEmpty(SelectedVisibleRow.PointIdentifier)} - Easting {BlankIfEmpty(SelectedVisibleRow.Easting)}, Northing {BlankIfEmpty(SelectedVisibleRow.Northing)}, Status {BlankIfEmpty(SelectedVisibleRow.ExtractionStatus)}.";
+
+    public PointCollection ParcelPreviewPoints => BuildPreviewPoints();
+
+    public PreviewMarker? SelectedPointPreview => BuildSelectedMarker();
+
+    public string ApprovalGuidance => parent.ReviewGateText;
+
+    public string ReviewBadge => parent.ReviewBadgeText;
+
+    public bool IsReviewLocked => parent.IsReviewLocked;
+
+    public void Detach()
+    {
+        parent.PropertyChanged -= OnParentPropertyChanged;
+        parent.ReviewRows.CollectionChanged -= OnReviewRowsCollectionChanged;
+    }
+
+    private void OnReviewRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RefreshProjection();
+    }
+
+    private void OnParentPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ParcelWorkflowDockpaneViewModel.SelectedReviewRow):
+                selectedVisibleRow = parent.SelectedReviewRow;
+                OnPropertyChanged(nameof(SelectedVisibleRow));
+                OnPropertyChanged(nameof(SelectedRowSummary));
+                OnPropertyChanged(nameof(ParcelPreviewPoints));
+                OnPropertyChanged(nameof(SelectedPointPreview));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.SelectedReviewSource):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerFileTitle):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerRoleLabel):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerDisplayPath):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerModeLabel):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerLoadState):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerGuidance):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerFallbackMessage):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerUsesImage):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerUsesBrowser):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerShowsFallback):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanToggleReviewViewerFit):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerFitToggleText):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerImageStretch):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerImageSource):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerBrowserUri):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewViewerNavigationKey):
+                NotifyViewerProperties();
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewRows):
+            case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
+            case nameof(ParcelWorkflowDockpaneViewModel.IsReviewLocked):
+                RefreshProjection();
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.CurrentStepBadge):
+            case nameof(ParcelWorkflowDockpaneViewModel.HeaderTransactionText):
+            case nameof(ParcelWorkflowDockpaneViewModel.HeaderTaskNameText):
+                OnPropertyChanged(nameof(StageHeader));
+                OnPropertyChanged(nameof(TransactionHeader));
+                OnPropertyChanged(nameof(TransactionTypeHeader));
+                break;
+        }
+    }
+
+    private void RefreshProjection()
+    {
+        var grouped = parent.ReviewRows
+            .GroupBy(row => string.IsNullOrWhiteSpace(row.ParcelGroupId) ? "Ungrouped" : row.ParcelGroupId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new JamaicaParcelGroupViewModel(
+                group.Key,
+                ResolveParcelDisplayName(group.Key, group.ToArray()),
+                group.ToArray()))
+            .OrderBy(group => group.SortKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        ParcelGroups.Clear();
+        foreach (var group in grouped)
+        {
+            ParcelGroups.Add(group);
+        }
+
+        var preferredGroupKey = parent.SelectedReviewRow?.ParcelGroupId;
+        SelectedParcelGroup = ParcelGroups.FirstOrDefault(group =>
+                                 string.Equals(group.GroupId, preferredGroupKey, StringComparison.OrdinalIgnoreCase))
+                             ?? ParcelGroups.FirstOrDefault(group =>
+                                 string.Equals(group.GroupId, selectedParcelGroup?.GroupId, StringComparison.OrdinalIgnoreCase))
+                             ?? ParcelGroups.FirstOrDefault();
+
+        RebuildVisibleRows();
+        OnPropertyChanged(nameof(UsesLiveArtifacts));
+        OnPropertyChanged(nameof(WorkspaceStatus));
+        OnPropertyChanged(nameof(DataBindingModeText));
+        OnPropertyChanged(nameof(UnsupportedFallbackSummary));
+        OnPropertyChanged(nameof(ApprovalGuidance));
+        OnPropertyChanged(nameof(ReviewBadge));
+        OnPropertyChanged(nameof(IsReviewLocked));
+    }
+
+    private void RebuildVisibleRows()
+    {
+        var rows = SelectedParcelGroup?.Rows ?? parent.ReviewRows.ToArray();
+        VisibleRows.Clear();
+        foreach (var row in rows)
+        {
+            VisibleRows.Add(row);
+        }
+
+        SelectedVisibleRow = rows.FirstOrDefault(row => ReferenceEquals(row, parent.SelectedReviewRow))
+            ?? rows.FirstOrDefault();
+    }
+
+    private PointCollection BuildPreviewPoints()
+    {
+        var rows = VisibleRows.ToArray();
+        if (rows.Length == 0)
+        {
+            return [];
+        }
+
+        var actualPoints = rows
+            .Select((row, index) => TryBuildActualPoint(row, index))
+            .ToArray();
+
+        if (actualPoints.All(item => item.HasValue))
+        {
+            return ScaleToPreview(actualPoints.Select(item => item!.Value).ToArray());
+        }
+
+        return BuildSyntheticPreview(rows.Length);
+    }
+
+    private PreviewMarker? BuildSelectedMarker()
+    {
+        if (SelectedVisibleRow is null)
+        {
+            return null;
+        }
+
+        var points = ParcelPreviewPoints;
+        var index = VisibleRows.IndexOf(SelectedVisibleRow);
+        if (index < 0 || index >= points.Count)
+        {
+            return null;
+        }
+
+        return new PreviewMarker(points[index].X, points[index].Y, BlankIfEmpty(SelectedVisibleRow.PointIdentifier));
+    }
+
+    private static Point? TryBuildActualPoint(ExtractionReviewRowViewModel row, int index)
+    {
+        if (!TryParseCoordinate(row.Easting, out var easting) || !TryParseCoordinate(row.Northing, out var northing))
+        {
+            return null;
+        }
+
+        return new Point(easting, northing + index * 0.000001d);
+    }
+
+    private static bool TryParseCoordinate(string? value, out double coordinate)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out coordinate))
+        {
+            return true;
+        }
+
+        return double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out coordinate);
+    }
+
+    private static PointCollection ScaleToPreview(IReadOnlyList<Point> source)
+    {
+        if (source.Count == 0)
+        {
+            return [];
+        }
+
+        var minX = source.Min(point => point.X);
+        var maxX = source.Max(point => point.X);
+        var minY = source.Min(point => point.Y);
+        var maxY = source.Max(point => point.Y);
+
+        var width = Math.Max(maxX - minX, 1d);
+        var height = Math.Max(maxY - minY, 1d);
+        var scaleX = (PreviewWidth - 40d) / width;
+        var scaleY = (PreviewHeight - 40d) / height;
+        var scale = Math.Min(scaleX, scaleY);
+
+        var points = new PointCollection();
+        foreach (var point in source)
+        {
+            var x = 20d + ((point.X - minX) * scale);
+            var y = PreviewHeight - 20d - ((point.Y - minY) * scale);
+            points.Add(new Point(x, y));
+        }
+
+        return points;
+    }
+
+    private static PointCollection BuildSyntheticPreview(int rowCount)
+    {
+        var points = new PointCollection();
+        if (rowCount <= 0)
+        {
+            return points;
+        }
+
+        var step = Math.Max(30d, (PreviewWidth - 60d) / Math.Max(1, rowCount - 1));
+        for (var index = 0; index < rowCount; index++)
+        {
+            var x = 30d + (index * step);
+            var y = 45d + ((index % 2 == 0 ? 1 : -1) * (18d + (index % 3) * 8d)) + (index * 6d);
+            points.Add(new Point(Math.Min(PreviewWidth - 25d, x), Math.Max(22d, Math.Min(PreviewHeight - 25d, y))));
+        }
+
+        return points;
+    }
+
+    private static bool IsEmbeddable(string? extension)
+    {
+        return extension?.ToLowerInvariant() switch
+        {
+            ".pdf" or ".png" or ".jpg" or ".jpeg" or ".tif" or ".tiff" => true,
+            _ => false
+        };
+    }
+
+    private static string ResolveParcelDisplayName(string groupId, IReadOnlyList<ExtractionReviewRowViewModel> rows)
+    {
+        if (rows.Count > 0)
+        {
+            var parcelName = rows[0].Model.ParcelName?.Trim();
+            if (!string.IsNullOrWhiteSpace(parcelName))
+            {
+                return parcelName;
+            }
+        }
+
+        if (string.Equals(groupId, "Ungrouped", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Ungrouped";
+        }
+
+        return groupId.StartsWith("parcel", StringComparison.OrdinalIgnoreCase) ? groupId : $"Parcel {groupId}";
+    }
+
+    private static string BlankIfEmpty(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "--" : value;
+    }
+
+    private void NotifyViewerProperties()
+    {
+        OnPropertyChanged(nameof(ReviewSourceOptions));
+        OnPropertyChanged(nameof(SelectedReviewSource));
+        OnPropertyChanged(nameof(ActiveSourceInstruction));
+        OnPropertyChanged(nameof(ViewerFileTitle));
+        OnPropertyChanged(nameof(ViewerRoleLabel));
+        OnPropertyChanged(nameof(ViewerDisplayPath));
+        OnPropertyChanged(nameof(ViewerModeLabel));
+        OnPropertyChanged(nameof(ViewerLoadState));
+        OnPropertyChanged(nameof(ViewerGuidance));
+        OnPropertyChanged(nameof(ViewerFallbackMessage));
+        OnPropertyChanged(nameof(ViewerUsesImage));
+        OnPropertyChanged(nameof(ViewerUsesBrowser));
+        OnPropertyChanged(nameof(ViewerShowsFallback));
+        OnPropertyChanged(nameof(CanToggleViewerFit));
+        OnPropertyChanged(nameof(ViewerFitToggleText));
+        OnPropertyChanged(nameof(ViewerImageStretch));
+        OnPropertyChanged(nameof(ViewerImageSource));
+        OnPropertyChanged(nameof(ViewerBrowserUri));
+        OnPropertyChanged(nameof(ViewerNavigationKey));
+        OnPropertyChanged(nameof(UnsupportedFallbackSummary));
+    }
+
+    private void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+internal sealed class JamaicaParcelGroupViewModel
+{
+    public JamaicaParcelGroupViewModel(string groupId, string displayName, IReadOnlyList<ExtractionReviewRowViewModel> rows)
+    {
+        GroupId = groupId;
+        DisplayName = displayName;
+        Rows = rows;
+    }
+
+    public string GroupId { get; }
+
+    public string DisplayName { get; }
+
+    public string SortKey => GroupId;
+
+    public IReadOnlyList<ExtractionReviewRowViewModel> Rows { get; }
+
+    public int RowCount => Rows.Count;
+
+    public int UnresolvedCount => Rows.Count(row => row.Unresolved || row.HasMissingRequiredValues);
+
+    public int EditedCount => Rows.Count(row => row.IsEdited);
+
+    public int BoundaryBreakCount => Rows.Count(row => row.IsBoundaryBreak);
+
+    public int LowConfidenceCount => Rows.Count(row => row.GroupConfidence.Contains("low", StringComparison.OrdinalIgnoreCase)
+        || row.GroupConfidence.Contains("unknown", StringComparison.OrdinalIgnoreCase));
+}
+
+internal sealed record PreviewMarker(double X, double Y, string Label);

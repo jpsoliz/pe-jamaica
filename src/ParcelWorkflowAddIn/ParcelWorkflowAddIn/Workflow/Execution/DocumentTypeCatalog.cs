@@ -189,6 +189,7 @@ public sealed record DocumentTypeClassifierWeights(
 public sealed record DocumentTypeExtractionDefinition(
     string ExtractorId,
     string ParserMode,
+    bool PrefersTextLayer,
     bool AiAssisted,
     string AiProfile,
     IReadOnlyList<string> FallbackExtractors,

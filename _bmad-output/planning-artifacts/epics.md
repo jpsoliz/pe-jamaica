@@ -896,6 +896,51 @@ So that I can visually inspect transaction results in the normal ArcGIS Pro work
 **And** added-layer actions are recorded in the audit trail when audit identity is available
 **And** the output artifacts remain unchanged by the map-add action.
 
+### Story 5.11: Design Jamaica COGO-Style Review Workspace
+
+As a cadastral examiner using the Sidwell Co ArcGIS Pro add-in,  
+I want a Jamaica-specific review workspace inspired by COGO Reader,  
+So that I can inspect source documents, review OCR/AI extraction results, and understand parcel/line interpretation in one controlled transaction workflow before spatial editing begins.
+
+**Acceptance Criteria:**
+
+**Given** the product needs a Jamaica-specific alternative to Esri's built-in COGO Reader  
+**When** the UX story is completed  
+**Then** it defines a custom review workspace pattern rather than relying on unsupported automation inside the built-in COGO Reader  
+**And** the design defines left-panel source viewing, center extraction review, right-side parcel interpretation, and a compact parcel/point preview  
+**And** it distinguishes review-workspace responsibilities from later `Map Review` responsibilities  
+**And** it produces concrete layout, interaction, and microcopy guidance for implementation.
+
+### Story 5.12: Define Architecture For Jamaica COGO-Style Review Workspace
+
+As the Sidwell Co architecture and delivery team,  
+I want a clear architecture for a Jamaica-specific COGO-style review workspace,  
+So that source verification, OCR/AI extraction review, parcel grouping, and Parcel Fabric handoff are implemented inside a supported, maintainable ArcGIS Pro boundary.
+
+**Acceptance Criteria:**
+
+**Given** the built-in COGO Reader is not a safe core automation surface  
+**When** the architecture story is completed  
+**Then** it defines a custom transaction-controlled review boundary  
+**And** it documents the end-to-end contract from Innola transaction files through extraction, review approval, and Parcel Fabric/map-review handoff  
+**And** it defines durable contracts for document-type-aware extraction, parcel grouping, manual edits, and review approval  
+**And** it identifies the service seams and supported ArcGIS Pro boundaries for later implementation.
+
+### Story 5.13: Build Dev Spike For Jamaica COGO-Style Review Workspace Shell
+
+As the Sidwell Co product delivery team,  
+I want a development spike that builds the shell of the Jamaica-specific COGO-style review workspace,  
+So that we can validate ArcGIS Pro hosting, workspace sizing, source-viewer integration, center-table behavior, and parcel-preview layout before full production implementation.
+
+**Acceptance Criteria:**
+
+**Given** the proposed review workspace is larger and denser than the current extraction review pane  
+**When** the spike is implemented  
+**Then** it creates an experimental workspace shell inside ArcGIS Pro  
+**And** it proves the feasibility of a source-viewer region, extracted-results region, and parcel-preview region using real case artifacts where practical  
+**And** it does not replace the existing production workflow  
+**And** it records what worked, what did not fit, and whether the team should proceed to full implementation.
+
 ## Epic 6: Sync Readiness, Audit Trail & v1 Acceptance Fixtures
 
 Goal: Cadastral staff and project stakeholders can confirm the case is ready for future CADINDEX/Enterprise evolution through a no-op Sync Facade, Enterprise candidate metadata, audit records, and executable Case 1-4 acceptance fixtures.

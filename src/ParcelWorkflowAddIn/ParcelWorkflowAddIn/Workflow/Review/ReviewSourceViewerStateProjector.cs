@@ -5,7 +5,7 @@ namespace ParcelWorkflowAddIn.Workflow.Review;
 
 internal static class ReviewSourceViewerStateProjector
 {
-    public static ReviewSourceViewerState Build(SourceFileCopyResult? sourceFile)
+    public static ReviewSourceViewerState Build(SourceFileCopyResult? sourceFile, string? pdfViewerMode = null)
     {
         if (sourceFile is null)
         {
@@ -81,6 +81,20 @@ internal static class ReviewSourceViewerStateProjector
                     "If the raster does not render correctly, use Open source or Reveal.",
                     sourceFile.CopiedPath);
             case ".pdf":
+                if (string.Equals(pdfViewerMode, Innola.InnolaTransactionSettings.PdfViewerModeExternalOnly, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ReviewSourceViewerState(
+                        ReviewSourceViewerMode.PdfExternal,
+                        sourceFile.FileName,
+                        roleLabel,
+                        displayPath,
+                        "PDF source - external viewer",
+                        "External viewer recommended",
+                        "This build is set to open PDFs in your default viewer for a cleaner, more stable reading experience.",
+                        "Use Open source to inspect the PDF in your default viewer, or Reveal to jump to the case folder copy.",
+                        sourceFile.CopiedPath);
+                }
+
                 return new ReviewSourceViewerState(
                     ReviewSourceViewerMode.Pdf,
                     sourceFile.FileName,
@@ -107,7 +121,7 @@ internal static class ReviewSourceViewerStateProjector
 
     public static ReviewSourceViewerState BuildRenderFailure(SourceFileCopyResult? sourceFile, string? failureReason)
     {
-        var state = Build(sourceFile);
+        var state = Build(sourceFile, Innola.InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         var reason = string.IsNullOrWhiteSpace(failureReason) ? "The embedded viewer could not render this file." : failureReason.Trim();
 
         return state with

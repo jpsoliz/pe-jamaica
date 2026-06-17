@@ -388,7 +388,7 @@ public sealed partial class CaseFolderStore
             issues.Add(new RecoverabilityIssue(
                 "interrupted_preflight",
                 "warning",
-                "Case was reopened from an interrupted preflight run. Run Preflight again.",
+                "Case was reopened from interrupted Processing Checks. Run Processing Checks again.",
                 null,
                 false));
             return WorkflowState.Intake;

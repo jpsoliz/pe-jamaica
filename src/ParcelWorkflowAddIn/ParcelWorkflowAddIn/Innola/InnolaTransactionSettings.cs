@@ -11,6 +11,7 @@ public sealed record InnolaTransactionSettings(
     string CaseFolderOutputRoot,
     string ReviewWorkspaceMode,
     string? ReviewWorkspaceModeWarning,
+    string PdfViewerMode,
     EnterpriseWorkingReviewSettings EnterpriseWorkingReview,
     IReadOnlyList<string> SupportedTransactionTypes,
     string? SupportedTransactionTypesWarning,
@@ -43,6 +44,8 @@ public sealed record InnolaTransactionSettings(
     public const string ReviewWorkspaceModeParcelFabricLocal = "parcel_fabric_local";
     public const string ReviewWorkspaceModeEnterpriseWorkingLayers = "enterprise_working_layers";
     public const string ReviewWorkspaceModeParcelFabricLegacy = "parcel_fabric";
+    public const string PdfViewerModeEmbeddedBrowser = "embedded_browser";
+    public const string PdfViewerModeExternalOnly = "external_only";
 
     public static InnolaTransactionSettings Default { get; } = new(
         InnolaSettings.DefaultServerUrl,
@@ -51,6 +54,7 @@ public sealed record InnolaTransactionSettings(
         DefaultCaseFolderOutputRoot(),
         ReviewWorkspaceModeNormal,
         null,
+        PdfViewerModeEmbeddedBrowser,
         EnterpriseWorkingReviewSettings.Default,
         SafeDefaultSupportedTransactionTypes,
         null,
@@ -89,6 +93,7 @@ public sealed record InnolaTransactionSettings(
             using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
             var root = document.RootElement;
             var reviewWorkspaceMode = ResolveReviewWorkspaceMode(root);
+            var pdfViewerMode = ResolvePdfViewerMode(root);
             var enterpriseWorkingReview = EnterpriseWorkingReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
@@ -112,6 +117,7 @@ public sealed record InnolaTransactionSettings(
                 string.IsNullOrWhiteSpace(outputRoot) ? Default.CaseFolderOutputRoot : ExpandPath(outputRoot),
                 reviewWorkspaceMode.Value,
                 reviewWorkspaceMode.Warning,
+                pdfViewerMode,
                 enterpriseWorkingReview,
                 supportedTypes.Values,
                 supportedTypes.Warning,
@@ -325,6 +331,22 @@ public sealed record InnolaTransactionSettings(
         };
     }
 
+    private static string ResolvePdfViewerMode(JsonElement root)
+    {
+        var configuredValue = ReadString(root, "pdf_viewer_mode");
+        if (string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return PdfViewerModeEmbeddedBrowser;
+        }
+
+        return configuredValue.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant() switch
+        {
+            PdfViewerModeExternalOnly => PdfViewerModeExternalOnly,
+            "external" => PdfViewerModeExternalOnly,
+            _ => PdfViewerModeEmbeddedBrowser
+        };
+    }
+
     private static string DefaultCaseFolderOutputRoot()
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -371,6 +393,15 @@ public sealed record InnolaTransactionSettings(
             ReviewWorkspaceModeEnterpriseWorkingLayers => "Shared ArcGIS Enterprise working layers for distributed review and cross-session collaboration.",
             ReviewWorkspaceModeNormal => "Local transaction geodatabase using standard point, line, and polygon feature classes.",
             _ => "Local transaction geodatabase using standard point, line, and polygon feature classes."
+        };
+    }
+
+    internal static string FormatPdfViewerMode(string? value)
+    {
+        return value switch
+        {
+            PdfViewerModeExternalOnly => "External PDF Viewer",
+            _ => "Embedded Browser"
         };
     }
 

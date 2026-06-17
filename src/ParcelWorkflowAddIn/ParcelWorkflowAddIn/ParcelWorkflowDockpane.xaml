@@ -272,7 +272,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Source Intake"
+                <TextBlock Text="Transaction Sources"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <Border DockPanel.Dock="Right"
@@ -350,7 +350,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Preflight"
+                <TextBlock Text="Processing Checks"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -464,7 +464,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Extraction Review"
+                <TextBlock Text="Review Extracted Points"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <Border DockPanel.Dock="Right"
@@ -498,6 +498,13 @@
                           Content="{Binding ExtractionReviewActionLabel}"
                           Command="{Binding RunExtractionReviewCommand}"
                           IsEnabled="{Binding CanRunExtractionReview}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="0,3,6,3" />
+                  <Button Grid.Column="1"
+                          HorizontalAlignment="Right"
+                          Content="Open workspace"
+                          Command="{Binding OpenExperimentalReviewWorkspaceCommand}"
+                          IsEnabled="{Binding CanOpenExperimentalReviewWorkspace}"
                           Style="{StaticResource SmallButtonStyle}"
                           Margin="0,3,4,3" />
                 </Grid>
@@ -668,7 +675,7 @@
                               <DockPanel Grid.Row="0"
                                          LastChildFill="False"
                                          Margin="0,0,0,8">
-                                <TextBlock Text="Embedded verification viewer"
+                                <TextBlock Text="Verification viewer"
                                            FontSize="11"
                                            FontWeight="SemiBold"
                                            Foreground="#1F2933" />
@@ -714,10 +721,10 @@
                                         Padding="10"
                                         Visibility="{Binding ReviewViewerShowsFallback, Converter={StaticResource BooleanToVisibilityConverter}}">
                                   <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Embedded viewer fallback"
-                                               FontSize="12"
-                                               FontWeight="SemiBold"
-                                               Foreground="#1F2933" />
+                                      <TextBlock Text="Viewer guidance"
+                                                 FontSize="12"
+                                                 FontWeight="SemiBold"
+                                                 Foreground="#1F2933" />
                                     <TextBlock Margin="0,6,0,0"
                                                Text="{Binding ReviewViewerFallbackMessage}"
                                                FontSize="11"
@@ -880,7 +887,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Validation"
+                <TextBlock Text="Quality Check"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -1000,7 +1007,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Spatial Review"
+                <TextBlock Text="Map Review"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -1015,6 +1022,11 @@
                   <Button Content="Load layers"
                           Command="{Binding LoadSpatialReviewLayersCommand}"
                           IsEnabled="{Binding CanLoadSpatialReviewLayers}"
+                          Style="{StaticResource SmallButtonStyle}"
+                          Margin="0,0,6,0" />
+                  <Button Content="COGO Reader"
+                          Command="{Binding OpenCogoReaderCommand}"
+                          IsEnabled="{Binding CanOpenCogoReader}"
                           Style="{StaticResource SmallButtonStyle}"
                           Margin="0,0,6,0" />
                   <Button Content="Mark reviewed"
@@ -1049,7 +1061,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Ready to Complete"
+                <TextBlock Text="Finalize Case"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -1089,7 +1101,7 @@
           <Expander IsExpanded="{Binding IntakeSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Source Intake"
+                <TextBlock Text="Transaction Sources"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1121,7 +1133,7 @@
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Preflight"
+                <TextBlock Text="Processing Checks"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1152,7 +1164,7 @@
           <Expander IsExpanded="{Binding ExtractionSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Extraction Review"
+                <TextBlock Text="Review Extracted Points"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1183,7 +1195,7 @@
           <Expander IsExpanded="{Binding ValidationSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Validation"
+                <TextBlock Text="Quality Check"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1214,7 +1226,7 @@
           <Expander IsExpanded="{Binding OutputsSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Outputs"
+                <TextBlock Text="Create Spatial Outputs"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}">

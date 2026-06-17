@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jamaica Review Workspace - Docked Fallback</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --warning: #B7791F;
+      --success: #2F7D4F;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #DDE3E7;
+      padding: 24px;
+      color: var(--text-primary);
+    }
+    .shell {
+      width: 560px;
+      min-height: 860px;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.18);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 12px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .meta, .caption {
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .caption { color: var(--text-muted); font-size: 11px; }
+    .pills, .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .pills { margin-top: 10px; }
+    .pill {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 2px;
+      padding: 2px 6px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pill.warning { background: #F7E7C2; border-color: #D8B46D; }
+    .pill.success { background: #EAF5EE; border-color: #B8D4C2; }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 8px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-subtle);
+    }
+    .step {
+      min-height: 30px;
+      padding: 6px;
+      border: 1px solid var(--border-default);
+      border-left: 3px solid transparent;
+      border-radius: 4px;
+      background: var(--surface-panel);
+      font-size: 11px;
+    }
+    .step.done { border-left-color: var(--success); }
+    .step.active { border-left-color: var(--primary); font-weight: 600; }
+    .step.locked { color: var(--text-muted); background: #F1F3F5; }
+    main {
+      flex: 1;
+      overflow: auto;
+      padding: 12px;
+    }
+    section {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .section-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .section-head h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .section-body {
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .workspace-summary {
+      background: #E9F1FA;
+      border-left: 4px solid #2B6CB0;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .workspace-summary strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .compact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .card {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .viewer {
+      height: 220px;
+      border: 1px solid var(--border-default);
+      background: #2B2B2B;
+      border-radius: 4px;
+      margin-top: 8px;
+      display: grid;
+      place-items: center;
+    }
+    .sheet {
+      width: 76%;
+      height: 80%;
+      background: white;
+      padding: 12px;
+      font-size: 10px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    th, td {
+      padding: 6px 5px;
+      border-bottom: 1px solid #E6EBEF;
+      text-align: left;
+    }
+    th {
+      font-size: 11px;
+      color: var(--text-secondary);
+      background: var(--surface-inset);
+    }
+    .footer {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: default;
+    }
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>Parcel Workflow [Compute]</h1>
+      <div class="meta">Transaction Number: 100000236</div>
+      <div class="meta">Transaction Type: Assign Computation Task</div>
+      <div class="pills">
+        <span class="pill">Review Extracted Points</span>
+        <span class="pill warning">2 issues</span>
+        <span class="pill">New Case</span>
+      </div>
+    </header>
+
+    <nav class="steps">
+      <div class="step done">Sources</div>
+      <div class="step done">Checks</div>
+      <div class="step active">Point Review</div>
+      <div class="step locked">Quality</div>
+      <div class="step locked">Outputs</div>
+      <div class="step locked">Map Review</div>
+    </nav>
+
+    <main>
+      <section>
+        <div class="section-head">
+          <h2>Docked review mode</h2>
+          <button class="btn">Open full workspace</button>
+        </div>
+        <div class="section-body">
+          <div class="workspace-summary">
+            <strong>This docked version is only the compact fallback.</strong>
+            Use it for quick inspection, then open the full review workspace when you need side-by-side source verification, parcel grouping, and a larger editing surface.
+          </div>
+          <div class="compact-grid">
+            <div class="card">
+              <div class="caption">Active source</div>
+              <div>Heathfield Block 43 Sheet 007 Computer Sheet.pdf</div>
+              <div class="viewer">
+                <div class="sheet">
+                  <strong>GEOLAND</strong><br><br>
+                  From PNT Bearing Distance Northing Easting To Pnt<br>
+                  338 N78°08'35"W 7.60 639209.180 680920.044 339<br>
+                  339 S04°21'32"W 1.99 639210.742 680912.604 340<br>
+                  340 N88°01'14"W 19.11 639208.761 680912.453 326
+                </div>
+              </div>
+              <div class="row" style="margin-top:8px;">
+                <button class="btn">Open externally</button>
+                <button class="btn">Reveal</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="caption">Parcel focus</div>
+              <div>Parcel 3</div>
+              <div class="pills" style="margin-top:8px;">
+                <span class="pill">24 rows</span>
+                <span class="pill warning">2 unresolved</span>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Point</th><th>Easting</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>338</td><td>680920.044</td><td>Matched</td></tr>
+                  <tr><td>326</td><td>680893.357</td><td>Check break</td></tr>
+                  <tr><td>330</td><td>680896.737</td><td>Edited</td></tr>
+                  <tr><td>337</td><td>680921.968</td><td>Needs confirm</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>What this mode preserves</h2>
+          <span class="pill success">Review-safe</span>
+        </div>
+        <div class="section-body">
+          <ul style="margin:0; padding-left:18px;">
+            <li>Quick visibility into the active source file and active parcel.</li>
+            <li>Fast route to the full workspace when the examiner needs deeper verification.</li>
+            <li>Clear separation between review correction here and final spatial editing later in Map Review.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <div class="footer">
+      <div class="caption">Compact docked review should not be the only way to review multi-parcel Jamaica source sheets.</div>
+      <div class="row">
+        <button class="btn">Cancel</button>
+        <button class="btn">Save review</button>
+        <button class="btn primary">Approve review</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

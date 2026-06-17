@@ -10,6 +10,9 @@ public sealed class SettingsWorkspaceService
 {
     public const string GsiPasswordModeEnvironmentVariable = "environment_variable";
     public const string GsiPasswordModeDirect = "direct";
+    public const string OpenAiExtractionProfileCustom = "custom";
+    public const string OpenAiExtractionProfileBalanced = "balanced";
+    public const string OpenAiExtractionProfileHighAccuracy = "high_accuracy";
 
     private readonly PreflightRuleCatalogLoader ruleCatalogLoader;
 
@@ -50,6 +53,7 @@ public sealed class SettingsWorkspaceService
             OutputAdapterTimeoutSeconds = ReadPositiveInt(settingsRoot, "output_adapter_timeout_seconds") ?? executionSettings.OutputAdapterTimeoutSeconds,
             OcrEngine = ReadString(settingsRoot, "ocr_engine") ?? "local",
             OpenAiEnabled = ReadBool(settingsRoot, "openai_enabled") ?? false,
+            OpenAiExtractionProfile = NormalizeOpenAiExtractionProfile(ReadString(settingsRoot, "openai_extraction_profile")),
             OpenAiModel = ReadString(settingsRoot, "openai_model") ?? string.Empty,
             OpenAiApiKeyEnvironmentVariable = ReadString(settingsRoot, "openai_api_key_environment_variable") ?? "OPENAI_API_KEY",
             InnolaServerUrl = transactionSettings.ServerUrl,
@@ -73,6 +77,7 @@ public sealed class SettingsWorkspaceService
             InnolaAllowInvalidServerCertificate = transactionSettings.ClientCertificate.AllowInvalidServerCertificate,
             InnolaCheckCertificateRevocationList = transactionSettings.ClientCertificate.CheckCertificateRevocationList,
             ReviewWorkspaceMode = transactionSettings.ReviewWorkspaceMode,
+            PdfViewerMode = transactionSettings.PdfViewerMode,
             EnterpriseWorkingEnabled = transactionSettings.EnterpriseWorkingReview.Enabled,
             EnterpriseWorkingServiceRoot = transactionSettings.EnterpriseWorkingReview.ServiceRoot ?? string.Empty,
             EnterpriseWorkingWorkspaceName = transactionSettings.EnterpriseWorkingReview.WorkspaceName,
@@ -132,6 +137,11 @@ public sealed class SettingsWorkspaceService
         if (document.OpenAiEnabled && string.IsNullOrWhiteSpace(document.OpenAiApiKeyEnvironmentVariable))
         {
             messages.Add(new("AI Toolset", "API Key Source", "An OpenAI API key environment variable is required when OpenAI is enabled."));
+        }
+
+        if (!IsSupportedOpenAiExtractionProfile(document.OpenAiExtractionProfile))
+        {
+            messages.Add(new("AI Toolset", "Extraction Profile", $"OpenAI extraction profile '{document.OpenAiExtractionProfile}' is not supported."));
         }
 
         if (string.Equals(document.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
@@ -199,6 +209,7 @@ public sealed class SettingsWorkspaceService
         root["output_adapter_timeout_seconds"] = document.OutputAdapterTimeoutSeconds;
         SetString(root, "ocr_engine", document.OcrEngine);
         root["openai_enabled"] = document.OpenAiEnabled;
+        SetString(root, "openai_extraction_profile", NormalizeOpenAiExtractionProfile(document.OpenAiExtractionProfile));
         SetString(root, "openai_model", document.OpenAiModel);
         SetString(root, "openai_api_key_environment_variable", document.OpenAiApiKeyEnvironmentVariable);
         SetString(root, "innola_server_url", document.InnolaServerUrl);
@@ -222,6 +233,7 @@ public sealed class SettingsWorkspaceService
         root["innola_allow_invalid_server_certificate"] = document.InnolaAllowInvalidServerCertificate;
         root["innola_check_certificate_revocation_list"] = document.InnolaCheckCertificateRevocationList;
         SetString(root, "review_workspace_mode", document.ReviewWorkspaceMode);
+        SetString(root, "pdf_viewer_mode", NormalizePdfViewerMode(document.PdfViewerMode));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
         SetString(root, "gsi_username", document.GsiUsername);
@@ -413,6 +425,32 @@ public sealed class SettingsWorkspaceService
         {
             GsiPasswordModeDirect => GsiPasswordModeDirect,
             _ => GsiPasswordModeEnvironmentVariable
+        };
+    }
+
+    private static string NormalizeOpenAiExtractionProfile(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            OpenAiExtractionProfileBalanced => OpenAiExtractionProfileBalanced,
+            OpenAiExtractionProfileHighAccuracy => OpenAiExtractionProfileHighAccuracy,
+            _ => OpenAiExtractionProfileCustom
+        };
+    }
+
+    private static bool IsSupportedOpenAiExtractionProfile(string? value)
+    {
+        return string.Equals(value, OpenAiExtractionProfileCustom, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OpenAiExtractionProfileBalanced, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OpenAiExtractionProfileHighAccuracy, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePdfViewerMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            InnolaTransactionSettings.PdfViewerModeExternalOnly => InnolaTransactionSettings.PdfViewerModeExternalOnly,
+            _ => InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser
         };
     }
 

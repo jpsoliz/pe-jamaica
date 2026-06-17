@@ -34,11 +34,12 @@ internal static class DocumentTypeCatalogLoaderTests
                     }
                   },
                   "extraction": {
-                    "extractor_id": "openai_table_pdf",
+                    "extractor_id": "pdf_text_structured_computation",
                     "parser_mode": "parcel_block_rows",
+                    "prefers_text_layer": true,
                     "ai_assisted": true,
                     "ai_profile": "survey_table_vision_v1",
-                    "fallback_extractors": ["ocr_table_pdf"],
+                    "fallback_extractors": ["openai_table_pdf", "ocr_table_pdf"],
                     "expected_outputs": ["rows"]
                   },
                   "schema": { "metadata_fields": [], "parcel_fields": [], "row_fields": [] },
@@ -94,11 +95,12 @@ internal static class DocumentTypeCatalogLoaderTests
                     }
                   },
                   "extraction": {
-                    "extractor_id": "openai_table_pdf",
+                    "extractor_id": "pdf_text_structured_computation",
                     "parser_mode": "parcel_block_rows",
+                    "prefers_text_layer": true,
                     "ai_assisted": true,
                     "ai_profile": "survey_table_vision_v1",
-                    "fallback_extractors": ["ocr_table_pdf"],
+                    "fallback_extractors": ["openai_table_pdf", "ocr_table_pdf"],
                     "expected_outputs": ["rows"]
                   },
                   "schema": { "metadata_fields": [], "parcel_fields": [], "row_fields": [] },
@@ -143,7 +145,7 @@ internal static class DocumentTypeCatalogLoaderTests
 
         TestAssert.True(!catalog.UsingSafeDefaults, "Valid V2 catalog should load directly.");
         TestAssert.Equal("GEOLAND_COMPUTATION_TABLE_V2", match.Definition.DocTypeId, "Weighted match should prefer the more specific GeoLand computation family.");
-        TestAssert.Equal("openai_table_pdf", match.Definition.Extraction.ExtractorId, "Resolved route should expose extractor id.");
+        TestAssert.Equal("pdf_text_structured_computation", match.Definition.Extraction.ExtractorId, "Resolved route should expose extractor id.");
         TestAssert.Equal("parcel_rows_with_group_breaks", match.Definition.Geometry.GeometryMode, "Resolved route should expose geometry mode.");
         TestAssert.True(match.MatchConfidence >= 1d, "Specific weighted match should meet threshold.");
     }
@@ -179,10 +181,13 @@ internal static class DocumentTypeCatalogLoaderTests
             """);
 
         var catalog = new DocumentTypeCatalogLoader(catalogPath).Load();
+        var match = catalog.ResolveBestMatch(new DocumentTypeMatchCandidate("points_source", "Legacy Computation Sheet.pdf", ".pdf"));
 
         TestAssert.True(!catalog.UsingSafeDefaults, "Legacy catalog should load through compatibility mapping.");
         TestAssert.True(!string.IsNullOrWhiteSpace(catalog.LoadWarning), "Legacy catalog should note compatibility mode.");
         TestAssert.True(catalog.DocumentTypes.Any(definition => definition.DocTypeId == "STRUCTURED_POINTS_TEXT_V1"), "Compatibility load should still expose structured points fallback family.");
+        TestAssert.Equal("pdf_text_structured_computation", match.Definition.Extraction.ExtractorId, "Legacy computation sheets should map to the deterministic text-first extractor.");
+        TestAssert.True(match.Definition.Extraction.PrefersTextLayer, "Legacy compatibility should preserve text-layer preference for computation sheets.");
     }
 
     public static void PartiallyInvalidV2CatalogFallsBackWithWarning()

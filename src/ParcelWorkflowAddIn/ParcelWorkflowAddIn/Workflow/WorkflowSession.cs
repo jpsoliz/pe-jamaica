@@ -472,7 +472,7 @@ public sealed class WorkflowSession
     {
         if (preflightRunActive)
         {
-            StatusText = "Preflight is already running.";
+            StatusText = "Processing Checks are already running.";
             return new PreflightSummaryDocument(
                 "1.0.0",
                 TransactionId ?? string.Empty,
@@ -487,7 +487,7 @@ public sealed class WorkflowSession
 
         if (!CanRunPreflightStateInternal() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Create or reopen a Case Folder before running preflight.";
+            StatusText = "Create or reopen a Case Folder before running Processing Checks.";
             var failedCheck = PreflightCheck.Blocker(
                 "active_case_required",
                 StatusText,
@@ -510,7 +510,7 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = "Preflight running: environment checks.";
+        StatusText = "Processing Checks running: environment and readiness checks.";
         preflightRunActive = true;
 
         try
@@ -529,8 +529,8 @@ public sealed class WorkflowSession
             UpsertAvailableArtifact(new AvailableArtifact("preflight_summary.json", layout.PreflightSummaryPath));
 
             StatusText = finalState == WorkflowState.PreflightBlocked
-                ? $"Preflight blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
-                : "Preflight passed: manifest and environment checks complete.";
+                ? $"Processing Checks blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
+                : "Processing Checks passed: manifest and environment checks complete.";
 
             return summary;
         }
@@ -1016,7 +1016,7 @@ public sealed class WorkflowSession
 
         if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Run preflight successfully before starting extraction review.";
+            StatusText = "Run Processing Checks successfully before starting Review Extracted Points.";
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
@@ -1093,7 +1093,7 @@ public sealed class WorkflowSession
         ClearPreflightResults();
         preflightBlockers.Add(blocker);
         CurrentState = WorkflowState.PreflightBlocked;
-        StatusText = $"Preflight blocked: {message.ToLowerInvariant()}";
+        StatusText = $"Processing Checks blocked: {message.ToLowerInvariant()}";
 
         var summary = new PreflightSummaryDocument(
             "1.0.0",

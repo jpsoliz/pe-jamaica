@@ -5,7 +5,7 @@
       "rule_id": "detected_profile_presence",
       "category": "manifest",
       "display_name": "Detected profile present",
-      "description": "Detected intake profile must be present before preflight can continue.",
+      "description": "Detected intake profile must be present before Processing Checks can continue.",
       "enabled": true,
       "severity": "blocker",
       "locked": true

@@ -37,6 +37,16 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
 
     public string RowId => Model.RowId;
 
+    public string ParcelGroupId => string.IsNullOrWhiteSpace(Model.ParcelGroupId) ? "Parcel ?" : Model.ParcelGroupId;
+
+    public string TraverseId => string.IsNullOrWhiteSpace(Model.TraverseId) ? "Traverse ?" : Model.TraverseId;
+
+    public int? SequenceInGroup => Model.SequenceInGroup;
+
+    public bool IsBoundaryBreak => Model.IsBoundaryBreak;
+
+    public string GroupConfidence => string.IsNullOrWhiteSpace(Model.GroupConfidence) ? "unknown" : Model.GroupConfidence;
+
     public string PointIdentifier
     {
         get => pointIdentifier;

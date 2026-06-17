@@ -123,7 +123,7 @@ internal static class WorkflowRuleResolverTests
             "parcel_workflow",
             profile,
             sources,
-            new WorkflowRuleSettings("openai", true, "gpt-4.1-mini", "sk-test-secret", "Bearer token"));
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "sk-test-secret", "Bearer token"));
 
         var result = resolver.Resolve(context);
         var serialized = JsonSerializer.Serialize(result.ScriptPlan);
@@ -149,7 +149,7 @@ internal static class WorkflowRuleResolverTests
             "parcel_workflow",
             profile,
             sources,
-            new WorkflowRuleSettings("openai", true, "gpt-4.1-mini", "OPENAI_API_KEY", "local"));
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"));
     }
 
     private static ManifestSourceFile Source(string fileName, string fileType, string? sourceRole)

@@ -141,7 +141,7 @@ public sealed class ManifestPreflightService
         {
             blockers.Add(PreflightCheck.Blocker(
                 "detected_profile_supported",
-                "Unsupported intake cannot pass preflight.",
+                "Unsupported intake cannot pass Processing Checks.",
                 layout.ManifestPath,
                 null,
                 "Add supported source files and refresh intake."));
@@ -152,7 +152,7 @@ public sealed class ManifestPreflightService
         {
             blockers.Add(PreflightCheck.Blocker(
                 "detected_profile_complete",
-                "Incomplete intake cannot pass preflight.",
+                "Incomplete intake cannot pass Processing Checks.",
                 layout.ManifestPath,
                 null,
                 "Resolve missing intake roles and refresh intake."));

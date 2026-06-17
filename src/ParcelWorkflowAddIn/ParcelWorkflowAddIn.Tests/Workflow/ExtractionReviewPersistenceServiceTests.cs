@@ -149,6 +149,56 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.True(approvedBeforeEdit.Contains("\"review_hash\"", StringComparison.OrdinalIgnoreCase), "Approved review artifact should contain review hash.");
     }
 
+    public static void LoadDerivesParcelGroupingFromParcelNameWhenGroupIdsAreMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000232");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "transaction_number": "100000232",
+              "rows": [
+                {
+                  "point_id": "110900201_1",
+                  "parcel_name": "110900201",
+                  "easting": "670077.022",
+                  "northing": "644221.7717",
+                  "status": "Matched",
+                  "source_evidence": "page 1"
+                },
+                {
+                  "point_id": "110900201_2",
+                  "parcel_name": "110900201",
+                  "easting": "670069.022",
+                  "northing": "644266.6157",
+                  "status": "Matched",
+                  "source_evidence": "page 1"
+                },
+                {
+                  "point_id": "110900202_1",
+                  "parcel_name": "110900202",
+                  "easting": "670000.000",
+                  "northing": "644000.000",
+                  "status": "Matched",
+                  "source_evidence": "page 2"
+                }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+
+        TestAssert.Equal("110900201", document.Rows[0].ParcelGroupId, "Parcel group id should derive from parcel_name.");
+        TestAssert.Equal("110900201", document.Rows[0].TraverseId, "Traverse id should derive from parcel_name when missing.");
+        TestAssert.Equal(1, document.Rows[0].SequenceInGroup ?? -1, "First row in a derived parcel group should start at sequence 1.");
+        TestAssert.Equal(2, document.Rows[1].SequenceInGroup ?? -1, "Second row in the same derived parcel group should increment sequence.");
+        TestAssert.Equal("110900202", document.Rows[2].ParcelGroupId, "A new parcel_name should start a new derived parcel group.");
+        TestAssert.Equal(1, document.Rows[2].SequenceInGroup ?? -1, "The first row of a new derived parcel group should reset sequence.");
+        TestAssert.Equal("derived_from_parcel_name", document.Rows[0].GroupConfidence, "Derived grouping should carry an explicit confidence label.");
+    }
+
     private static CaseFolderLayout CreateLayout(string root, string transactionNumber)
     {
         var layout = CaseFolderLayout.For(root, transactionNumber);

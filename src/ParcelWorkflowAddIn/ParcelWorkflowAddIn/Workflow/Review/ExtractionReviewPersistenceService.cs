@@ -55,6 +55,8 @@ public sealed class ExtractionReviewPersistenceService
             }
         }
 
+        ApplyDerivedGrouping(document.Rows);
+
         document.RowCount = document.Rows.Count > 0 ? document.Rows.Count : document.RowCount;
         if (string.IsNullOrWhiteSpace(document.ReviewHash))
         {
@@ -150,6 +152,7 @@ public sealed class ExtractionReviewPersistenceService
             {
                 row_id = row.RowId,
                 parcel_group_id = row.ParcelGroupId,
+                parcel_name = row.ParcelName,
                 traverse_id = row.TraverseId,
                 sequence_in_group = row.SequenceInGroup,
                 is_boundary_break = row.IsBoundaryBreak,
@@ -194,6 +197,7 @@ public sealed class ExtractionReviewPersistenceService
         {
             RowId = ReadFirstString(rowObject, "row_id", "review_row_id") ?? pointIdentifier ?? $"row-{index:000}",
             ParcelGroupId = ReadFirstString(rowObject, "review_parcel_group_id", "parcel_group_id") ?? string.Empty,
+            ParcelName = ReadFirstString(rowObject, "review_parcel_name", "parcel_name") ?? string.Empty,
             TraverseId = ReadFirstString(rowObject, "review_traverse_id", "traverse_id") ?? string.Empty,
             SequenceInGroup = ReadNullableInt(rowObject, "review_sequence_in_group", "sequence_in_group"),
             IsBoundaryBreak = ReadBool(rowObject, "review_is_boundary_break") || ReadBool(rowObject, "is_boundary_break"),
@@ -261,6 +265,7 @@ public sealed class ExtractionReviewPersistenceService
             var rowObject = CloneObject(row.RawRow);
             rowObject["row_id"] = row.RowId;
             rowObject["parcel_group_id"] = string.IsNullOrWhiteSpace(row.ParcelGroupId) ? null : row.ParcelGroupId;
+            rowObject["parcel_name"] = string.IsNullOrWhiteSpace(row.ParcelName) ? null : row.ParcelName;
             rowObject["traverse_id"] = string.IsNullOrWhiteSpace(row.TraverseId) ? null : row.TraverseId;
             rowObject["sequence_in_group"] = row.SequenceInGroup;
             rowObject["is_boundary_break"] = row.IsBoundaryBreak;
@@ -280,6 +285,7 @@ public sealed class ExtractionReviewPersistenceService
             rowObject["review_extraction_status"] = row.ExtractionStatus;
             rowObject["review_source_evidence"] = row.SourceEvidence;
             rowObject["review_parcel_group_id"] = string.IsNullOrWhiteSpace(row.ParcelGroupId) ? null : row.ParcelGroupId;
+            rowObject["review_parcel_name"] = string.IsNullOrWhiteSpace(row.ParcelName) ? null : row.ParcelName;
             rowObject["review_traverse_id"] = string.IsNullOrWhiteSpace(row.TraverseId) ? null : row.TraverseId;
             rowObject["review_sequence_in_group"] = row.SequenceInGroup;
             rowObject["review_is_boundary_break"] = row.IsBoundaryBreak;
@@ -350,6 +356,59 @@ public sealed class ExtractionReviewPersistenceService
     private static bool HasOverride(string current, string original)
     {
         return !string.Equals(current?.Trim(), original?.Trim(), StringComparison.Ordinal);
+    }
+
+    private static void ApplyDerivedGrouping(IReadOnlyList<ExtractionReviewRow> rows)
+    {
+        var sequencesByGroup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            var effectiveGroupId = ResolveEffectiveGroupId(row);
+            if (string.IsNullOrWhiteSpace(effectiveGroupId))
+            {
+                row.GroupConfidence = string.IsNullOrWhiteSpace(row.GroupConfidence) ? "unknown" : row.GroupConfidence;
+                continue;
+            }
+
+            row.ParcelGroupId = string.IsNullOrWhiteSpace(row.ParcelGroupId) ? effectiveGroupId : row.ParcelGroupId;
+            row.TraverseId = string.IsNullOrWhiteSpace(row.TraverseId) ? row.ParcelGroupId : row.TraverseId;
+
+            if (!sequencesByGroup.TryGetValue(row.ParcelGroupId, out var currentSequence))
+            {
+                currentSequence = 0;
+            }
+
+            currentSequence++;
+            sequencesByGroup[row.ParcelGroupId] = currentSequence;
+            row.SequenceInGroup ??= currentSequence;
+
+            if (string.IsNullOrWhiteSpace(row.GroupConfidence))
+            {
+                row.GroupConfidence = string.IsNullOrWhiteSpace(row.ParcelName)
+                    ? "inferred_single_group"
+                    : "derived_from_parcel_name";
+            }
+        }
+    }
+
+    private static string ResolveEffectiveGroupId(ExtractionReviewRow row)
+    {
+        if (!string.IsNullOrWhiteSpace(row.ParcelGroupId))
+        {
+            return row.ParcelGroupId.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.TraverseId))
+        {
+            return row.TraverseId.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.ParcelName))
+        {
+            return row.ParcelName.Trim();
+        }
+
+        return string.Empty;
     }
 
     private static JsonObject CloneObject(JsonObject? source)

@@ -399,7 +399,7 @@ internal static class InnolaTransactionLoadServiceTests
             new AttachmentSourceFileWriter(() => FixedNow()),
             new SourceInputProfileDetector(() => FixedNow()),
             workflowRuleResolver ?? new WorkflowRuleResolver(),
-            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            () => new WorkflowRuleSettings("openai", false, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => outputRoot,
             () => FixedNow());

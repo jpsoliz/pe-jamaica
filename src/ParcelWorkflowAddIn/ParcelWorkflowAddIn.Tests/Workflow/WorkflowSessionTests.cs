@@ -158,7 +158,7 @@ internal static class WorkflowSessionTests
             new SourceFileActionAuditService(),
             new ManifestPreflightService(),
             new WorkflowRuleResolver(new WorkflowRuleRegistry(() => rules.Path), () => new DateTimeOffset(2026, 6, 9, 3, 0, 0, TimeSpan.Zero)),
-            () => new WorkflowRuleSettings("openai", false, "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            () => new WorkflowRuleSettings("openai", false, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
             new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Not used.")));
         var caseResult = session.CreateCase("100000206", tempRoot.Path, "tester");
         var computationPath = Path.Combine(caseResult.Layout!.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");

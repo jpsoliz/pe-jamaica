@@ -5,6 +5,7 @@ internal enum ReviewSourceViewerMode
     None,
     Image,
     Pdf,
+    PdfExternal,
     Missing,
     Unsupported,
     Error

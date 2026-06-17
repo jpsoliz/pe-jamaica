@@ -31,10 +31,10 @@ public static class WorkflowStateExtensions
         return state switch
         {
             WorkflowState.NoCase => "No Case",
-            WorkflowState.Intake => "Intake",
-            WorkflowState.PreflightRunning => "Preflight Running",
-            WorkflowState.PreflightBlocked => "Preflight Blocked",
-            WorkflowState.PreflightPassed => "Preflight Passed",
+            WorkflowState.Intake => "Transaction Sources",
+            WorkflowState.PreflightRunning => "Processing Checks Running",
+            WorkflowState.PreflightBlocked => "Processing Checks Blocked",
+            WorkflowState.PreflightPassed => "Processing Checks Passed",
             WorkflowState.ExtractionRunning => "Extraction Running",
             WorkflowState.ExtractionFailed => "Extraction Failed",
             WorkflowState.ReviewPending => "Review Pending",

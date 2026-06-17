@@ -17,7 +17,7 @@ public sealed class DocumentTypeCatalogLoader
             0,
             new DocumentTypeMatchDefinition(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), 999),
             new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
-            new DocumentTypeExtractionDefinition("manual_only_source", "manual", false, string.Empty, Array.Empty<string>(), Array.Empty<string>()),
+            new DocumentTypeExtractionDefinition("manual_only_source", "manual", false, false, string.Empty, Array.Empty<string>(), Array.Empty<string>()),
             new DocumentTypeSchemaDefinition(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()),
             new DocumentTypeGeometryDefinition("manual_constructed", "manual", "manual", "manual", false, false, false, "manual_only"),
             new DocumentTypeValidationDefinition("generic_minimum", Array.Empty<string>(), Array.Empty<string>(), 0, 0, Array.Empty<string>(), new[] { "low_match_confidence" }),
@@ -36,7 +36,7 @@ public sealed class DocumentTypeCatalogLoader
                 Array.Empty<string>(),
                 20),
             new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
-            new DocumentTypeExtractionDefinition("openai_table_pdf", "parcel_block_rows", true, "survey_table_vision_v1", new[] { "ocr_table_pdf", "text_regex_pdf" }, new[] { "metadata", "parcel_groups", "rows" }),
+            new DocumentTypeExtractionDefinition("pdf_text_structured_computation", "parcel_block_rows", true, false, "survey_table_vision_v1", new[] { "openai_table_pdf", "ocr_table_pdf", "text_regex_pdf" }, new[] { "metadata", "parcel_groups", "rows" }),
             new DocumentTypeSchemaDefinition(
                 new[] { "property_name", "parish", "date_of_survey", "surveyor", "block", "sheet" },
                 new[] { "parcel_number", "area_square_meters" },
@@ -58,7 +58,7 @@ public sealed class DocumentTypeCatalogLoader
                 Array.Empty<string>(),
                 20),
             new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
-            new DocumentTypeExtractionDefinition("openai_table_pdf", "parcel_block_rows", true, "survey_table_vision_v1", new[] { "ocr_table_pdf", "text_regex_pdf" }, new[] { "metadata", "parcel_groups", "rows" }),
+            new DocumentTypeExtractionDefinition("pdf_text_structured_computation", "parcel_block_rows", true, false, "survey_table_vision_v1", new[] { "openai_table_pdf", "ocr_table_pdf", "text_regex_pdf" }, new[] { "metadata", "parcel_groups", "rows" }),
             new DocumentTypeSchemaDefinition(
                 new[] { "volume", "folio", "block", "parish", "date_checked" },
                 new[] { "parcel_name" },
@@ -80,7 +80,7 @@ public sealed class DocumentTypeCatalogLoader
                 Array.Empty<string>(),
                 1),
             new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
-            new DocumentTypeExtractionDefinition("structured_csv_points", "structured_points", false, string.Empty, new[] { "structured_txt_points" }, new[] { "rows" }),
+            new DocumentTypeExtractionDefinition("structured_csv_points", "structured_points", false, false, string.Empty, new[] { "structured_txt_points" }, new[] { "rows" }),
             new DocumentTypeSchemaDefinition(Array.Empty<string>(), Array.Empty<string>(), new[] { "point_id", "northing", "easting" }),
             new DocumentTypeGeometryDefinition("point_list_only", "row_vertices", "from_to_pairs", "group_closed_ring", true, true, true, "do_not_chain_across_groups"),
             new DocumentTypeValidationDefinition("structured_points_v1", Array.Empty<string>(), new[] { "point_id", "northing", "easting" }, 1, 1, new[] { "missing_required_fields", "invalid_coordinates" }, Array.Empty<string>()),
@@ -246,9 +246,10 @@ public sealed class DocumentTypeCatalogLoader
                 new DocumentTypeExtractionDefinition(
                     InferLegacyExtractorId(family),
                     family == "structured_points" ? "structured_points" : "parcel_block_rows",
+                    string.Equals(family, "computation_sheet", StringComparison.OrdinalIgnoreCase),
                     item.TryGetProperty("openai", out _),
                     item.TryGetProperty("openai", out _) ? "survey_table_vision_v1" : string.Empty,
-                    family == "structured_points" ? new[] { "structured_txt_points" } : new[] { "ocr_table_pdf", "text_regex_pdf" },
+                    family == "structured_points" ? new[] { "structured_txt_points" } : new[] { "openai_table_pdf", "ocr_table_pdf", "text_regex_pdf" },
                     family == "structured_points" ? new[] { "rows" } : new[] { "metadata", "parcel_groups", "rows" }),
                 new DocumentTypeSchemaDefinition(
                     ReadStringArray(item, "expected_schema", "metadata_fields"),
@@ -328,12 +329,13 @@ public sealed class DocumentTypeCatalogLoader
     {
         if (!item.TryGetProperty(propertyName, out var node) || node.ValueKind != JsonValueKind.Object)
         {
-            return new DocumentTypeExtractionDefinition("manual_only_source", "manual", false, string.Empty, Array.Empty<string>(), Array.Empty<string>());
+            return new DocumentTypeExtractionDefinition("manual_only_source", "manual", false, false, string.Empty, Array.Empty<string>(), Array.Empty<string>());
         }
 
         return new DocumentTypeExtractionDefinition(
             ReadString(node, "extractor_id") ?? "manual_only_source",
             ReadString(node, "parser_mode") ?? "manual",
+            ReadBool(node, "prefers_text_layer", false),
             ReadBool(node, "ai_assisted", false),
             ReadString(node, "ai_profile") ?? string.Empty,
             ReadStringArray(node, "fallback_extractors"),
@@ -441,8 +443,8 @@ public sealed class DocumentTypeCatalogLoader
         return family switch
         {
             "structured_points" => "structured_csv_points",
-            "computation_sheet" => "openai_table_pdf",
-            "traverse_report" => "openai_table_pdf",
+            "computation_sheet" => "pdf_text_structured_computation",
+            "traverse_report" => "pdf_text_structured_computation",
             _ => "manual_only_source"
         };
     }

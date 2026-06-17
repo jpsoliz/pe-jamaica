@@ -1,3 +1,4 @@
+using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Contracts;
 using Microsoft.Win32;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -16,6 +17,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ArcGIS.Desktop.Framework.Controls;
 
 namespace ParcelWorkflowAddIn;
 
@@ -37,6 +39,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand runValidationCommand;
     private readonly RelayCommand runOutputsCommand;
     private readonly RelayCommand loadSpatialReviewLayersCommand;
+    private readonly RelayCommand openCogoReaderCommand;
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
@@ -48,6 +51,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealReviewSourceCommand;
     private readonly RelayCommand reloadReviewViewerCommand;
     private readonly RelayCommand toggleReviewViewerFitCommand;
+    private readonly RelayCommand openExperimentalReviewWorkspaceCommand;
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand suspendTransactionCommand;
     private readonly RelayCommand cancelProcessCommand;
@@ -71,7 +75,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private string? selectedReviewSourceCopiedPath;
     private string? reviewViewerStateCacheKey;
     private BitmapSource? reviewViewerImageSource;
-    private ReviewSourceViewerState reviewViewerState = ReviewSourceViewerStateProjector.Build(null);
+    private ReviewSourceViewerState reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+    private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
 
     public ParcelWorkflowDockpaneViewModel()
     {
@@ -88,6 +93,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         runValidationCommand = new RelayCommand(async () => await RunValidationAsync(), () => CanRunValidation);
         runOutputsCommand = new RelayCommand(async () => await RunOutputsAsync(), () => CanRunOutputs);
         loadSpatialReviewLayersCommand = new RelayCommand(async () => await LoadSpatialReviewLayersAsync(), () => CanLoadSpatialReviewLayers);
+        openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
@@ -99,12 +105,18 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealReviewSourceCommand = new RelayCommand(RevealReviewSource, () => SelectedReviewSource is not null);
         reloadReviewViewerCommand = new RelayCommand(ReloadReviewViewer, () => SelectedReviewSource is not null);
         toggleReviewViewerFitCommand = new RelayCommand(ToggleReviewViewerFit, () => CanToggleReviewViewerFit);
+        openExperimentalReviewWorkspaceCommand = new RelayCommand(async () => await OpenExperimentalReviewWorkspaceAsync(), () => CanOpenExperimentalReviewWorkspace);
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
         cancelProcessCommand = new RelayCommand(CancelProcess, () => ShellState.Session.CanCancelActiveProcess);
         completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
+    }
+
+    internal static void Show()
+    {
+        FrameworkApplication.DockPaneManager.Find(DockPaneId)?.Activate();
     }
 
     public ObservableCollection<ExtractionReviewRowViewModel> ReviewRows { get; } = [];
@@ -180,10 +192,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
             if (HasPreflightResults)
             {
-                return "Preflight clear";
+                return "Checks clear";
             }
 
-            return "Preflight pending";
+            return "Checks pending";
         }
     }
 
@@ -237,6 +249,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public bool IsOutputsStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.Outputs;
 
     public bool IsSpatialReviewStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.SpatialReview;
+
+    public bool CanOpenCogoReader => HasActiveCase && CanUseWorkflowActions;
 
     public bool ShowIntakeSummary => HasActiveCase && !IsIntakeStageActive;
 
@@ -294,6 +308,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand LoadSpatialReviewLayersCommand => loadSpatialReviewLayersCommand;
 
+    public ICommand OpenCogoReaderCommand => openCogoReaderCommand;
+
     public ICommand ApproveSpatialReviewCommand => approveSpatialReviewCommand;
 
     public ICommand AddManualPointCommand => addManualPointCommand;
@@ -315,6 +331,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand ReloadReviewViewerCommand => reloadReviewViewerCommand;
 
     public ICommand ToggleReviewViewerFitCommand => toggleReviewViewerFitCommand;
+
+    public ICommand OpenExperimentalReviewWorkspaceCommand => openExperimentalReviewWorkspaceCommand;
 
     public ICommand StartOrClaimTransactionCommand => startOrClaimTransactionCommand;
 
@@ -402,7 +420,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             if (!HasPreflightResults)
             {
-                return "No preflight results yet.";
+                return "No processing check results yet.";
             }
 
             return $"{PreflightBlockers.Count} blocker(s), {PreflightWarnings.Count} warning(s), {PreflightPassedChecks.Count} passed.";
@@ -414,7 +432,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? $"Blocking now: {PreflightBlockers[0].Message}"
             : PreflightWarnings.Count > 0
                 ? $"Attention: {PreflightWarnings[0].Message}"
-                : "All current preflight checks passed.";
+                : "All current processing checks passed.";
 
     public bool PreflightSummaryExpanded
     {
@@ -453,8 +471,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Review data is approved. Outputs now own the downstream geometry stage and review remains read-only.",
             WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Draft review data is ready to inspect and correct before parcel build.",
             WorkflowState.PreflightPassed => "Extraction review will generate draft review data from the selected transaction files.",
-            WorkflowState.PreflightBlocked => "Extraction review is unavailable until preflight blockers are resolved.",
-            _ => "Extraction review is enabled after Process completes."
+            WorkflowState.PreflightBlocked => "Review Extracted Points is unavailable until processing check blockers are resolved.",
+            _ => "Review Extracted Points is enabled after Processing Checks complete."
         };
 
     public bool HasLoadedReviewData => loadedReviewDocument is not null && ReviewRows.Count > 0;
@@ -491,6 +509,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     }
 
     public string ReviewWorkspaceTitle => "Source Verification Workspace";
+
+    public bool CanOpenExperimentalReviewWorkspace => CanUseWorkflowActions && HasActiveCase && (HasLoadedReviewData || HasExtractionArtifact || workflowSession.CanRunExtractionReview);
 
     public string SelectedReviewSourceTitle => SelectedReviewSource is null
         ? "Source document not resolved"
@@ -828,11 +848,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private async Task RunOrOpenExtractionReviewAsync()
     {
+        await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
+        RefreshWorkflowProperties();
+    }
+
+    private async Task<bool> EnsureExtractionReviewLoadedAsync()
+    {
         if (string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
         {
             workflowSession.SetValidationFailure("Create or reopen a Case Folder before opening extraction review.");
             RefreshWorkflowProperties();
-            return;
+            return false;
         }
 
         var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
@@ -845,7 +871,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             if (!extractionResult.Success)
             {
                 RefreshWorkflowProperties();
-                return;
+                return false;
             }
 
             artifactPath = SelectExtractionReviewArtifact(layout);
@@ -854,7 +880,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             {
                 workflowSession.SetValidationFailure("Draft extraction completed but no extraction review artifact was found.");
                 RefreshWorkflowProperties();
-                return;
+                return false;
             }
         }
 
@@ -862,13 +888,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         if (reviewDocument is null)
         {
             RefreshWorkflowProperties();
-            return;
+            return false;
         }
 
         LoadReviewDocumentIntoPane(reviewDocument);
         workflowSession.SetValidationFailure($"Extraction review loaded from {Path.GetFileName(artifactPath)}.");
-
-        RefreshWorkflowProperties();
+        return true;
     }
 
     private void LoadReviewDocumentIntoPane(ExtractionReviewDocument document)
@@ -1049,6 +1074,31 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    private async Task OpenCogoReaderAsync()
+    {
+        const string cogoReaderCommandId = "esri_editing_openCogoReaderPaneButton";
+
+        try
+        {
+            var executeCommand = FrameworkApplication.ExecuteCommand(cogoReaderCommandId);
+            if (executeCommand is null)
+            {
+                workflowSession.SetValidationFailure("COGO Reader command is not available in this ArcGIS Pro session.");
+                RefreshWorkflowProperties();
+                return;
+            }
+
+            await executeCommand().ConfigureAwait(true);
+            workflowSession.SetValidationFailure("Requested ArcGIS Pro to open COGO Reader. If nothing opens, confirm the active map supports parcel fabric editing and the built-in command is enabled.");
+        }
+        catch (Exception exception)
+        {
+            workflowSession.SetValidationFailure($"Could not launch COGO Reader: {exception.Message}");
+        }
+
+        RefreshWorkflowProperties();
+    }
+
     private void ApproveSpatialReview()
     {
         var confirmation = MessageBox.Show(
@@ -1151,6 +1201,35 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    private async Task OpenExperimentalReviewWorkspaceAsync()
+    {
+        var loaded = await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
+        if (!loaded)
+        {
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (experimentalReviewWorkspaceWindow is not null)
+        {
+            experimentalReviewWorkspaceWindow.Activate();
+            experimentalReviewWorkspaceWindow.Focus();
+            workflowSession.SetValidationFailure("Experimental Jamaica review workspace is already open.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var viewModel = new JamaicaReviewWorkspaceViewModel(this);
+        experimentalReviewWorkspaceWindow = new JamaicaReviewWorkspaceWindow(viewModel)
+        {
+            Owner = FrameworkApplication.Current.MainWindow
+        };
+        experimentalReviewWorkspaceWindow.Closed += (_, _) => experimentalReviewWorkspaceWindow = null;
+        experimentalReviewWorkspaceWindow.Show();
+        workflowSession.SetValidationFailure("Experimental Jamaica review workspace opened with the current case artifacts.");
+        RefreshWorkflowProperties();
+    }
+
     private string? SelectExtractionReviewArtifact(CaseFolderLayout layout)
     {
         var preferredPaths = new[]
@@ -1214,7 +1293,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void RefreshReviewViewerState()
     {
         var sourceFile = SelectedReviewSource?.SourceFile;
-        var projected = ReviewSourceViewerStateProjector.Build(sourceFile);
+        var pdfViewerMode = InnolaTransactionSettings.Load().PdfViewerMode;
+        var projected = ReviewSourceViewerStateProjector.Build(sourceFile, pdfViewerMode);
         var cacheKey = $"{projected.Mode}|{projected.FullPath}|{reviewViewerReloadVersion}";
         if (string.Equals(reviewViewerStateCacheKey, cacheKey, StringComparison.Ordinal))
         {
@@ -1574,13 +1654,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         return new WorkflowLifecycleStep[]
         {
-            new WorkflowLifecycleStep("Intake", intakeState, GetLifecycleStepIcon(intakeState)),
-            new WorkflowLifecycleStep("Preflight", preflightState, GetLifecycleStepIcon(preflightState)),
-            new WorkflowLifecycleStep("Extraction Review", extractionState, GetLifecycleStepIcon(extractionState)),
-            new WorkflowLifecycleStep("Validation", validationState, GetLifecycleStepIcon(validationState)),
+            new WorkflowLifecycleStep("Sources", intakeState, GetLifecycleStepIcon(intakeState)),
+            new WorkflowLifecycleStep("Checks", preflightState, GetLifecycleStepIcon(preflightState)),
+            new WorkflowLifecycleStep("Point Review", extractionState, GetLifecycleStepIcon(extractionState)),
+            new WorkflowLifecycleStep("Quality", validationState, GetLifecycleStepIcon(validationState)),
             new WorkflowLifecycleStep("Outputs", outputState, GetLifecycleStepIcon(outputState)),
-            new WorkflowLifecycleStep("Spatial Review", spatialReviewState, GetLifecycleStepIcon(spatialReviewState)),
-            new WorkflowLifecycleStep("Ready to Complete", readyState, GetLifecycleStepIcon(readyState))
+            new WorkflowLifecycleStep("Map Review", spatialReviewState, GetLifecycleStepIcon(spatialReviewState)),
+            new WorkflowLifecycleStep("Finalize", readyState, GetLifecycleStepIcon(readyState))
         };
     }
 
@@ -1602,14 +1682,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private static string GetWorkspaceStageLabel(WorkflowWorkspaceStage stage) =>
         stage switch
         {
-            WorkflowWorkspaceStage.Intake => "Intake",
-            WorkflowWorkspaceStage.Preflight => "Preflight",
-            WorkflowWorkspaceStage.ExtractionReview => "Extraction Review",
-            WorkflowWorkspaceStage.Validation => "Validation",
-            WorkflowWorkspaceStage.Outputs => "Outputs",
-            WorkflowWorkspaceStage.SpatialReview => "Spatial Review",
-            WorkflowWorkspaceStage.ReadyToComplete => "Ready to Complete",
-            _ => "Intake"
+            WorkflowWorkspaceStage.Intake => "Transaction Sources",
+            WorkflowWorkspaceStage.Preflight => "Processing Checks",
+            WorkflowWorkspaceStage.ExtractionReview => "Review Extracted Points",
+            WorkflowWorkspaceStage.Validation => "Quality Check",
+            WorkflowWorkspaceStage.Outputs => "Create Spatial Outputs",
+            WorkflowWorkspaceStage.SpatialReview => "Map Review",
+            WorkflowWorkspaceStage.ReadyToComplete => "Finalize Case",
+            _ => "Transaction Sources"
         };
 
     private string? ResolveSelectedTransactionType()
@@ -1705,6 +1785,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
+        NotifyPropertyChanged(nameof(CanOpenExperimentalReviewWorkspace));
         NotifyPropertyChanged(nameof(CanRunValidation));
         NotifyPropertyChanged(nameof(CanRunOutputs));
         NotifyPropertyChanged(nameof(CanLoadSpatialReviewLayers));
@@ -1794,6 +1875,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealReviewSourceCommand.RaiseCanExecuteChanged();
         reloadReviewViewerCommand.RaiseCanExecuteChanged();
         toggleReviewViewerFitCommand.RaiseCanExecuteChanged();
+        openExperimentalReviewWorkspaceCommand.RaiseCanExecuteChanged();
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         suspendTransactionCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
@@ -1848,7 +1930,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         selectedReviewSourceCopiedPath = null;
         reviewViewerStateCacheKey = null;
         reviewViewerImageSource = null;
-        reviewViewerState = ReviewSourceViewerStateProjector.Build(null);
+        reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         ReviewRows.Clear();
         RefreshWorkflowProperties();
     }

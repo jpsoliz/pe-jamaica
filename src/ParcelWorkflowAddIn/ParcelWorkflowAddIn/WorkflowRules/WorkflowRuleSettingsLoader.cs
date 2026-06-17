@@ -21,6 +21,7 @@ public static class WorkflowRuleSettingsLoader
             return new WorkflowRuleSettings(
                 ReadString(root, "ocr_engine") ?? WorkflowRuleSettings.Default.OcrEngine,
                 ReadBool(root, "openai_enabled") ?? WorkflowRuleSettings.Default.OpenAiEnabled,
+                ReadString(root, "openai_extraction_profile") ?? WorkflowRuleSettings.Default.OpenAiExtractionProfile,
                 ReadString(root, "openai_model") ?? WorkflowRuleSettings.Default.OpenAiModel,
                 ReadString(root, "openai_api_key_environment_variable") ?? WorkflowRuleSettings.Default.OpenAiApiKeyEnvironmentVariable,
                 ReadString(root, "credential_profile") ?? WorkflowRuleSettings.Default.CredentialProfile);

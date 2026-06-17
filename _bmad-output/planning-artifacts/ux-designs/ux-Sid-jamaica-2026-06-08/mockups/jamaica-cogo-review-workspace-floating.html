@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jamaica Review Workspace - Floating</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --success: #2F7D4F;
+      --warning: #B7791F;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #D6DEE4;
+      color: var(--text-primary);
+      padding: 22px;
+    }
+    .window {
+      width: 1380px;
+      min-height: 860px;
+      margin: 0 auto;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 18px 40px rgba(31, 41, 51, 0.2);
+      display: flex;
+      flex-direction: column;
+    }
+    .titlebar {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 14px 16px 10px;
+    }
+    .title-row, .meta-row, .status-row, .action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title-row h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .meta-row {
+      margin-top: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    .status-row {
+      margin-top: 10px;
+    }
+    .status-left, .status-right {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .pill {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 2px;
+      padding: 2px 7px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pill.success { background: #EAF5EE; border-color: #B8D4C2; color: #1F5D3B; }
+    .pill.warning { background: #F7E7C2; border-color: #D8B46D; color: #6B4A00; }
+    .pill.danger { background: #FDECEC; border-color: #D8A4A1; color: #8D1E13; }
+    .pill.info { background: #E9F1FA; border-color: #AFC4DE; color: #1F4E83; }
+    .btn {
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      border-radius: 4px;
+      padding: 6px 11px;
+      font-size: 12px;
+      cursor: default;
+    }
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+    .btn.ghost {
+      background: transparent;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: 360px 10px minmax(0, 1fr) 10px 320px;
+      gap: 0;
+      padding: 14px;
+      flex: 1;
+      min-height: 0;
+    }
+    .splitter {
+      background: #E1E8ED;
+      border-left: 1px solid #D5DDE3;
+      border-right: 1px solid #F7F8FA;
+      cursor: col-resize;
+      margin: 0 8px;
+      border-radius: 4px;
+    }
+    .panel {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .panel-header {
+      border-bottom: 1px solid var(--border-default);
+      padding: 9px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-header h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .panel-header .tools {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .panel-body {
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      min-height: 0;
+      overflow: auto;
+    }
+    .viewer-shell {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 10px;
+      height: 100%;
+    }
+    .selector, .note {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .selector label, .note strong, .field-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text-secondary);
+    }
+    .selector .value {
+      font-size: 12px;
+    }
+    .viewer {
+      border: 1px solid var(--border-default);
+      background: #2B2B2B;
+      border-radius: 4px;
+      min-height: 420px;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .pdf-sheet {
+      width: 74%;
+      height: 84%;
+      background: #FFF;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+      padding: 18px;
+      overflow: hidden;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #222;
+    }
+    .pdf-sheet .doc-title {
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #244C8E;
+    }
+    .center-shell {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 10px;
+      height: 100%;
+    }
+    .parcel-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .parcel-tab {
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      background: var(--surface-panel);
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .parcel-tab.active {
+      border-color: var(--primary);
+      background: #E9F5F6;
+      font-weight: 600;
+    }
+    .summary-band {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .summary-box {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .summary-box strong {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #E6EBEF;
+      padding: 6px 6px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--surface-inset);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    tr.flag td { background: #FFF7E6; }
+    tr.edited td { background: #EDF7F1; }
+    tr.focus td:first-child {
+      border-left: 3px solid var(--primary);
+      padding-left: 3px;
+    }
+    .right-shell {
+      display: grid;
+      grid-template-rows: auto auto auto minmax(220px, 1fr);
+      gap: 10px;
+      height: 100%;
+    }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .metric {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 8px;
+    }
+    .metric strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+    .issue-list {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .issue-list li {
+      margin-bottom: 6px;
+    }
+    .preview {
+      border: 1px solid var(--border-default);
+      background: #EEF2F0;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+      min-height: 220px;
+    }
+    .preview svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .footer {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .footer-copy {
+      font-size: 12px;
+      color: var(--text-secondary);
+      max-width: 760px;
+    }
+    .footer-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="title-row">
+        <h1>Parcel Workflow [Compute] - Jamaica Review Workspace</h1>
+        <div class="action-row">
+          <button class="btn">Open externally</button>
+          <button class="btn">Reveal source</button>
+          <button class="btn">Reload</button>
+        </div>
+      </div>
+      <div class="meta-row">
+        <div>Transaction Number: 100000236</div>
+        <div>Transaction Type: Assign Computation Task</div>
+        <div>Source file: Heathfield Block 43 Sheet 007 Computer Sheet.pdf</div>
+      </div>
+      <div class="status-row">
+        <div class="status-left">
+          <span class="pill info">Parcel 3 in focus</span>
+          <span class="pill warning">2 unresolved rows</span>
+          <span class="pill">75 point rows loaded</span>
+          <span class="pill success">Edited values saved</span>
+        </div>
+        <div class="status-right">
+          <span class="pill">Left: verify source</span>
+          <span class="pill">Center: edit extracted rows</span>
+          <span class="pill">Right: inspect parcel interpretation</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Source Verification</h2>
+          <div class="tools">
+            <span class="pill">PDF</span>
+            <button class="btn">Page 1 / 5</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="viewer-shell">
+            <div class="selector">
+              <label>Active source document</label>
+              <div class="value">Heathfield Block 43 Sheet 007 Computer Sheet.pdf</div>
+            </div>
+            <div class="note">
+              <strong>Single-document review</strong>
+              Only one source file is shown at a time in this workspace. Switch the active document when you need to verify a different attachment.
+            </div>
+            <div class="note">
+              <strong>Verification goal</strong>
+              Confirm that the active parcel rows match the source sheet before spatial editing begins. Use external opening only when embedded viewing is not enough.
+            </div>
+            <div class="viewer" aria-label="Embedded PDF viewer mockup">
+              <div class="pdf-sheet">
+                <div class="doc-title">GEOLAND</div>
+                <div><strong>Property name:</strong> Part of Heathfield</div>
+                <div><strong>Survey date:</strong> August 29, 2023 - October 17, 2023</div>
+                <div><strong>Computer sheet:</strong> Block 43 Sheet 007</div>
+                <br>
+                <div>From PNT &nbsp;&nbsp; Bearing &nbsp;&nbsp; Distance &nbsp;&nbsp; Northing &nbsp;&nbsp; Easting &nbsp;&nbsp; To Pnt</div>
+                <div>338 &nbsp; N78°08'35"W &nbsp; 7.60 &nbsp; 639209.180 &nbsp; 680920.044 &nbsp; 339</div>
+                <div>339 &nbsp; S04°21'32"W &nbsp; 1.99 &nbsp; 639210.742 &nbsp; 680912.604 &nbsp; 340</div>
+                <div>340 &nbsp; N88°01'14"W &nbsp; 19.11 &nbsp; 639208.761 &nbsp; 680912.453 &nbsp; 326</div>
+                <div>326 &nbsp; N02°05'57"W &nbsp; 29.40 &nbsp; 639209.421 &nbsp; 680893.357 &nbsp; 329</div>
+                <div>329 &nbsp; N36°08'26"E &nbsp; 7.56 &nbsp; 639238.806 &nbsp; 680892.280 &nbsp; 330</div>
+                <div>330 &nbsp; S83°19'16"E &nbsp; 29.68 &nbsp; 639244.909 &nbsp; 680896.737 &nbsp; 333</div>
+              </div>
+            </div>
+            <div class="note">
+              <strong>Fallback behavior</strong>
+              TXT and CSV sources keep the center review grid active but use external opening instead of embedded rendering.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Review Extracted Points</h2>
+          <div class="tools">
+            <button class="btn">Add point</button>
+            <button class="btn">Show unresolved</button>
+            <button class="btn">Show all</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="center-shell">
+            <div class="parcel-tabs">
+              <div class="parcel-tab">Parcel 1</div>
+              <div class="parcel-tab">Parcel 2</div>
+              <div class="parcel-tab active">Parcel 3</div>
+              <div class="parcel-tab">Parcel 4</div>
+              <div class="parcel-tab">Parcel 5</div>
+            </div>
+            <div class="summary-band">
+              <div class="summary-box"><strong>24</strong><span>rows in parcel</span></div>
+              <div class="summary-box"><strong>2</strong><span>need review</span></div>
+              <div class="summary-box"><strong>1</strong><span>manual row</span></div>
+              <div class="summary-box"><strong>1</strong><span>sequence break</span></div>
+            </div>
+            <div style="border:1px solid var(--border-default); border-radius:4px; overflow:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:68px;">Point</th>
+                    <th style="width:108px;">Easting</th>
+                    <th style="width:108px;">Northing</th>
+                    <th style="width:104px;">Bearing</th>
+                    <th style="width:78px;">Distance</th>
+                    <th style="width:86px;">Parcel</th>
+                    <th style="width:110px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="focus"><td>338</td><td>680920.044</td><td>639209.180</td><td>N78°08'35"W</td><td>7.60</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr><td>339</td><td>680912.604</td><td>639210.742</td><td>S04°21'32"W</td><td>1.99</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr><td>340</td><td>680912.453</td><td>639208.761</td><td>N88°01'14"W</td><td>19.11</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr class="flag"><td>326</td><td>680893.357</td><td>639209.421</td><td>N02°05'57"W</td><td>29.40</td><td>Parcel 3</td><td>Check parcel break</td></tr>
+                  <tr><td>329</td><td>680892.280</td><td>639238.806</td><td>N36°08'26"E</td><td>7.56</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr class="edited"><td>330</td><td>680896.737</td><td>639244.909</td><td>S83°19'16"E</td><td>29.68</td><td>Parcel 3</td><td>Edited</td></tr>
+                  <tr><td>333</td><td>680926.216</td><td>639241.457</td><td>S00°53'37"W</td><td>12.57</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr><td>335</td><td>680924.020</td><td>639228.893</td><td>S08°26'49"W</td><td>7.26</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr><td>336</td><td>680924.953</td><td>639221.708</td><td>S29°44'03"W</td><td>6.02</td><td>Parcel 3</td><td>Matched</td></tr>
+                  <tr class="flag"><td>337</td><td>680921.968</td><td>639216.482</td><td>S14°45'41"W</td><td>7.55</td><td>Parcel 3</td><td>Needs confirm</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Parcel Interpretation</h2>
+          <div class="tools">
+            <span class="pill warning">Review in progress</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="right-shell">
+            <div class="selector">
+              <label>Active parcel</label>
+              <div class="value">Parcel 3 - current review focus</div>
+            </div>
+            <div class="mini-grid">
+              <div class="metric"><strong>10</strong><span>traverse stations</span></div>
+              <div class="metric"><strong>128.74</strong><span>total traverse</span></div>
+              <div class="metric"><strong>0.01</strong><span>misclose</span></div>
+              <div class="metric"><strong>1</strong><span>break flagged</span></div>
+            </div>
+            <div class="note">
+              <strong>Why this parcel is flagged</strong>
+              <ul class="issue-list">
+                <li>Point 326 may start a new parcel sequence instead of continuing the prior parcel.</li>
+                <li>One line remains user-edited and needs final confirmation before approval.</li>
+                <li>Closure is acceptable, but parcel grouping still needs examiner confirmation.</li>
+              </ul>
+            </div>
+            <div class="preview">
+              <svg viewBox="0 0 300 240" xmlns="http://www.w3.org/2000/svg" aria-label="Parcel preview">
+                <rect x="0" y="0" width="300" height="240" fill="#EEF2F0"/>
+                <polyline points="46,182 62,72 156,46 242,84 222,184 112,198 46,182" fill="none" stroke="#1F6B75" stroke-width="4"/>
+                <polyline points="62,72 156,46 242,84 222,184" fill="none" stroke="#75838F" stroke-dasharray="5 4" stroke-width="2"/>
+                <circle cx="46" cy="182" r="5" fill="#B42318"/>
+                <circle cx="62" cy="72" r="5" fill="#2F7D4F"/>
+                <circle cx="156" cy="46" r="5" fill="#2F7D4F"/>
+                <circle cx="242" cy="84" r="5" fill="#2F7D4F"/>
+                <circle cx="222" cy="184" r="5" fill="#B7791F"/>
+                <circle cx="112" cy="198" r="5" fill="#2F7D4F"/>
+                <text x="52" y="198" font-size="11" fill="#1F2933">338</text>
+                <text x="68" y="67" font-size="11" fill="#1F2933">339</text>
+                <text x="161" y="40" font-size="11" fill="#1F2933">340</text>
+                <text x="247" y="79" font-size="11" fill="#1F2933">326</text>
+                <text x="228" y="198" font-size="11" fill="#1F2933">337</text>
+                <text x="118" y="214" font-size="11" fill="#1F2933">338</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer">
+      <div class="footer-copy">
+        Review this parcel here, then continue spatial correction in Map Review. Approval should mean the extracted parcel groups and point values are ready for map-based editing, not that final geometry editing is finished.
+      </div>
+      <div class="footer-actions">
+        <button class="btn">Cancel</button>
+        <button class="btn">Save review</button>
+        <button class="btn primary">Approve review</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

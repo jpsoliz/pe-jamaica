@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-06-16
+# last_updated: 2026-06-17
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-06-16
+last_updated: 2026-06-17
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -68,6 +68,7 @@ development_status:
   2-15-gate-supported-transaction-types-before-workflow-load: ready-for-dev
   2-14a-redesign-extraction-review-workspace-around-source-document-verification: ready-for-dev
   2-16-apply-document-type-catalog-v2-to-multi-source-extraction-pipelines: review
+  2-16b-add-embedded-pdf-text-first-structured-computation-extraction: review
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -97,6 +98,7 @@ development_status:
   5-6-add-spatial-review-stage-for-in-map-editing-and-manual-cogo: ready-for-dev
   5-7-evaluate-parcel-fabric-review-workspace-pilot: ready-for-dev
   5-8-implement-true-local-parcel-fabric-output-mode: review
+  5-13-build-dev-spike-for-jamaica-cogo-style-review-workspace-shell: review
   epic-5-retrospective: optional
 
   epic-6: backlog

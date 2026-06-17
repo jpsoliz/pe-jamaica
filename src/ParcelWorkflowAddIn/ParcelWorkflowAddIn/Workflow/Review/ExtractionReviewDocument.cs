@@ -35,6 +35,8 @@ public sealed class ExtractionReviewRow
 
     public string ParcelGroupId { get; set; } = string.Empty;
 
+    public string ParcelName { get; set; } = string.Empty;
+
     public string TraverseId { get; set; } = string.Empty;
 
     public int? SequenceInGroup { get; set; }

@@ -13,6 +13,7 @@ public sealed record WorkflowRuleResolutionContext(
 public sealed record WorkflowRuleSettings(
     string OcrEngine,
     bool OpenAiEnabled,
+    string OpenAiExtractionProfile,
     string OpenAiModel,
     string OpenAiApiKeyEnvironmentVariable,
     string CredentialProfile)
@@ -20,6 +21,7 @@ public sealed record WorkflowRuleSettings(
     public static WorkflowRuleSettings Default { get; } = new(
         "local",
         false,
+        "custom",
         string.Empty,
         "OPENAI_API_KEY",
         "local");

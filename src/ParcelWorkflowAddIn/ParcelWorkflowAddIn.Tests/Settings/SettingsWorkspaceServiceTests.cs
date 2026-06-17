@@ -22,8 +22,10 @@ internal static class SettingsWorkspaceServiceTests
               "arcgis_python_executable": "C:\\Python\\python.exe",
               "ocr_engine": "openai",
               "openai_enabled": true,
+              "openai_extraction_profile": "balanced",
               "openai_model": "gpt-4.1-mini",
               "openai_api_key_environment_variable": "OPENAI_API_KEY",
+              "pdf_viewer_mode": "external_only",
               "gsi_server_url": "https://gsi.local/",
               "gsi_username": "gsi-user",
               "gsi_password_mode": "environment_variable",
@@ -156,6 +158,8 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://example.local/", document.InnolaServerUrl, "Innola server mismatch.");
         TestAssert.Equal("openai", document.OcrEngine, "OCR engine mismatch.");
         TestAssert.True(document.OpenAiEnabled, "OpenAI enabled mismatch.");
+        TestAssert.Equal("balanced", document.OpenAiExtractionProfile, "OpenAI extraction profile mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.PdfViewerModeExternalOnly, document.PdfViewerMode, "PDF viewer mode mismatch.");
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
@@ -304,6 +308,9 @@ internal static class SettingsWorkspaceServiceTests
         document.SupportedTransactionTypes = new List<string> { "Plan Examination", "Cadastral Plan Examination" };
         document.ComputeWorkflowStages = new List<string> { "Compute Survey Plan", "Assign Computation Task" };
         document.OutputAdapterTimeoutSeconds = 600;
+        document.OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy;
+        document.OpenAiModel = "gpt-4.1";
+        document.PdfViewerMode = InnolaTransactionSettings.PdfViewerModeExternalOnly;
         document.GsiServerUrl = "https://gsi.local/";
         document.GsiUsername = "gsi-user";
         document.GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect;
@@ -319,6 +326,9 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal(2, reloaded.SupportedTransactionTypes.Count, "Supported transaction types save mismatch.");
         TestAssert.Equal(2, reloaded.ComputeWorkflowStages.Count, "Compute workflow stages save mismatch.");
         TestAssert.Equal(600, reloaded.OutputAdapterTimeoutSeconds, "Output timeout save mismatch.");
+        TestAssert.Equal(SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy, reloaded.OpenAiExtractionProfile, "OpenAI extraction profile save mismatch.");
+        TestAssert.Equal("gpt-4.1", reloaded.OpenAiModel, "OpenAI model save mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.PdfViewerModeExternalOnly, reloaded.PdfViewerMode, "PDF viewer mode save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeDirect, reloaded.GsiPasswordMode, "GSI password mode save mismatch.");
         TestAssert.Equal("masked-secret", reloaded.GsiPassword, "GSI password save mismatch.");
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
@@ -340,6 +350,7 @@ internal static class SettingsWorkspaceServiceTests
             SupportedTransactionTypes = new List<string> { "Plan Examination" },
             ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
             OutputAdapterTimeoutSeconds = 120,
+            OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
             GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect,
             GsiPassword = ""
         };
@@ -348,6 +359,6 @@ internal static class SettingsWorkspaceServiceTests
 
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Working Review"), "Expected enterprise enablement validation message.");
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Targets"), "Expected enterprise targets validation message.");
-        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "GSI Password"), "Expected direct GSI password validation message.");
+        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "ArcGIS Enterprise Password"), "Expected direct GSI password validation message.");
     }
 }

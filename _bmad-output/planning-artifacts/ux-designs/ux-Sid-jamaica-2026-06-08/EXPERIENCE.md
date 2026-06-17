@@ -4,7 +4,7 @@ status: final
 sources:
   - _bmad-output/planning-artifacts/prds/prd-Sid-jamaica-2026-06-08/prd.md
   - _bmad-output/planning-artifacts/prds/prd-Sid-jamaica-2026-06-08/addendum.md
-updated: 2026-06-08
+updated: 2026-06-16
 ---
 
 # NLA Parcel Workflow Add-in - Experience Spine
@@ -27,6 +27,7 @@ Visual tokens live in `DESIGN.md`. Behavioral references use the visual token na
 | Intake | New case / reopen case | Create or reopen transaction, choose source scenario, copy source files into Case Folder |
 | Preflight | After valid intake | Check required files, extensions, DWG readability, write access, ArcGIS/Python environment, coordinate/profile settings |
 | Extraction Review | After preflight passes | Run extraction, review extracted points/lines/segments/metadata, edit values, add missing data, approve review data |
+| Jamaica Review Workspace | Open from Extraction Review | Large examiner workspace for source verification, parcel grouping review, OCR/AI result correction, and parcel interpretation before spatial editing |
 | Validation | After review approval | Run rules, inspect severity findings, see score/percentage where available, decide whether to continue or route to Manual Process |
 | Outputs | After validation path allows completion | Generate local GDB, GeoJSON, reports, logs, annotations where possible, and add outputs to ArcGIS Pro map |
 | Sync Readiness | After output creation | Show CADINDEX Sync Facade metadata and confirm no live Enterprise update is performed in v1 |
@@ -60,6 +61,11 @@ Use "case", "transaction", "source files", "review data", "validation", "output"
 | Preflight checklist | Preflight | Groups blockers and warnings. Blocking rows must name the failed condition and a concrete correction. |
 | Processing progress | Extraction/Validation/Outputs | Shows current step, elapsed time, cancellable state when technically available, and last written artifact. Does not freeze ArcGIS Pro UI. |
 | Review table | Extraction Review | Supports inline edit, add point/data row, mark unresolved, evidence link, confidence indicator, and original-vs-edited value comparison. |
+| Jamaica review workspace shell | Jamaica Review Workspace | Preferred as a large floating workspace or dedicated review window. It contains four coordinated regions: source viewer, extracted review grid, parcel interpretation panel, and parcel preview inset. |
+| Embedded source viewer | Jamaica Review Workspace | Supports PDF and image verification in-pane. TXT/CSV and unsupported formats use a compact metadata placeholder with `Open externally` and `Reveal in folder` fallback actions. |
+| Parcel group switcher | Jamaica Review Workspace | Shows parcel tabs or parcel chips when one source contains multiple parcels. Switching parcels updates the review grid, interpretation panel, and preview together. |
+| Parcel interpretation panel | Jamaica Review Workspace | Summarizes the active parcel, line sequence, closure/misclose, suspicious transitions, and unresolved row counts. It does not perform map edits. |
+| Parcel preview inset | Jamaica Review Workspace | Displays a compact traverse/parcel sketch for the active parcel and the currently selected row. It is only an orientation aid, not the authoritative spatial editor. |
 | Validation findings list | Validation | Groups by Critical, High, Warning, Info, Passed. Critical/high findings appear first. Each finding can open evidence/details. |
 | Manual Process decision panel | Validation | Appears when zero usable extraction/validation occurs or when user chooses manual path. Requires explicit user confirmation and records decision. |
 | Output artifact list | Outputs | Lists GDB, feature classes, GeoJSON, reports, and logs. Each artifact has open/reveal/add-to-map actions where applicable. |
@@ -77,6 +83,10 @@ Use "case", "transaction", "source files", "review data", "validation", "output"
 | Extraction running | Extraction Review | Disable destructive changes. Show progress, current method, and artifact path. |
 | Zero usable extraction | Extraction Review | Mark extraction failed, show Manual Process recommendation, allow user to add/correct data manually if workflow profile permits. |
 | Nonzero incomplete extraction | Extraction Review | Continue to review/manual adjustment. Low-confidence and missing data rows remain flagged. |
+| Jamaica workspace loading | Jamaica Review Workspace | Viewer, parcel list, and review grid skeleton-load independently. The user can see which region is still loading without freezing the whole workspace. |
+| Jamaica workspace unresolved | Jamaica Review Workspace | Unresolved and low-confidence rows remain prominent. `Approve review` stays disabled until blockers are cleared or explicitly routed onward by workflow policy. |
+| Jamaica workspace approved | Jamaica Review Workspace | Review grid becomes read-only by default, parcel interpretation stays visible, and the handoff message points the user to `Map Review` for final spatial correction. |
+| Unsupported source type | Jamaica Review Workspace | The workspace keeps the extracted table active but replaces the embedded viewer with a fallback panel that explains why external opening is required. |
 | Review approved | Extraction Review | Lock approved data for validation unless user chooses Reopen Review. Record timestamp/operator when available. |
 | Critical validation failure | Validation | Automated output completion disabled. User may explicitly route to Manual Process. |
 | Output complete | Outputs | Show generated GDB, GeoJSON, HTML/PDF/JSON reports, logs, counts, and Add to Map option. |
@@ -114,6 +124,14 @@ This is a desktop ArcGIS Pro add-in. It does not need phone or browser responsiv
 
 The active ArcGIS Pro map is a companion surface, not a separate designed screen. The add-in should add/select/navigate map layers rather than recreating a map preview inside the pane.
 
+For the Jamaica review workspace specifically:
+
+| Host shape | Behavior |
+|---|---|
+| Floating / dedicated review window | Preferred. Supports full three-column review with bottom preview and keeps source verification, extracted rows, and parcel interpretation visible together. Target minimum is roughly 1180px by 760px. |
+| Wide docked pane | Acceptable fallback. Keeps the same regions but allows the source viewer to collapse to a narrower column and the parcel preview to become an inset. |
+| Narrow docked pane | Not preferred for active review. The pane should offer a concise summary plus an `Open Review Workspace` action instead of forcing the full multi-region review UI into a cramped width. |
+
 ## Product-Specific UX Rules
 
 - Output creation must never feel like the first moment of review. The review approval step is mandatory.
@@ -121,6 +139,8 @@ The active ArcGIS Pro map is a companion surface, not a separate designed screen
 - Low extraction quality should push the user toward editing/correction, not hide the partial data.
 - Sync readiness must not imply live CADINDEX update in v1.
 - Plaintext credential configuration is a v1 constraint. The UX should not expose raw secrets in logs, reports, or ordinary status views.
+- The Jamaica review workspace owns document verification, extracted-row correction, parcel grouping review, and review approval. It does not own parcel-fabric editing, snapping, or final map edits.
+- When one source document contains multiple parcels, parcel switching must be explicit. The UI cannot assume the next row always belongs to the next segment of the current parcel.
 
 ## Key Flows
 
@@ -153,7 +173,17 @@ The active ArcGIS Pro map is a companion surface, not a separate designed screen
 5. **Climax:** She selects Route to Manual Process, confirms the decision, and the pane records the Manual Process state with COGO/manual ArcGIS Pro guidance.
 6. Failure: user tries Create Outputs while critical findings remain. The action is disabled and explains why.
 
-### Flow 4 - Output creation and sync readiness
+### Flow 4 - Jamaica review workspace before map review
+
+1. Nadia completes Processing Checks and opens the Jamaica review workspace from Review Extracted Points.
+2. The workspace opens in a large floating window with the source PDF on the left, the extracted point/line table in the center, parcel tabs and interpretation on the right, and a parcel sketch preview below.
+3. She switches from Parcel 1 to Parcel 3 because the source sheet contains multiple parcels and one sequence break looks suspicious.
+4. The grid updates to Parcel 3 rows only, and the right-side interpretation panel flags one unresolved transition between two line groups.
+5. Nadia corrects one point, adds one missing row, and verifies the bearing sequence against the source document.
+6. **Climax:** She approves the review. The workspace locks the edited result set, shows a handoff message to `Map Review`, and closes back to the main workflow shell.
+7. Failure: the source is a TXT-only attachment. The grid remains usable, but the viewer pane explains that embedded preview is unavailable and offers `Open externally` and `Reveal in folder`.
+
+### Flow 5 - Output creation and sync readiness
 
 1. Nadia has approved review data and acceptable validation status.
 2. She selects Create Outputs.
@@ -170,6 +200,8 @@ The active ArcGIS Pro map is a companion surface, not a separate designed screen
 | Intake | Mocked in `mockups/dock-pane-workflow.html` |
 | Preflight | Mocked in `mockups/dock-pane-workflow.html` |
 | Extraction Review | Mocked in `mockups/dock-pane-workflow.html` and `mockups/dock-pane-review-before-output.html` |
+| Jamaica Review Workspace - preferred floating layout | Mocked in `mockups/jamaica-cogo-review-workspace-floating.html` |
+| Jamaica Review Workspace - docked fallback layout | Mocked in `mockups/jamaica-cogo-review-workspace-docked.html` |
 | Zero-result extraction failure | Mocked in `mockups/dock-pane-failed-extraction-manual-process.html` |
 | Manual Process decision | Mocked in `mockups/dock-pane-failed-extraction-manual-process.html` |
 | Review-before-geometry lock | Mocked in `mockups/dock-pane-review-before-output.html` |
