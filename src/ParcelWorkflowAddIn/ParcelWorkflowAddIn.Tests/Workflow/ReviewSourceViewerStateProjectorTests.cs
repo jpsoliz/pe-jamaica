@@ -43,7 +43,7 @@ internal static class ReviewSourceViewerStateProjectorTests
             "Copied",
             true));
 
-        TestAssert.Equal(ReviewSourceViewerMode.Image, state.Mode, "TIFF source should project to embedded image mode.");
+        TestAssert.Equal(ReviewSourceViewerMode.RenderedDocument, state.Mode, "TIFF source should project to the unified rendered-document viewer mode.");
         TestAssert.True(state.CanRenderEmbedded, "TIFF source should be embeddable.");
     }
 

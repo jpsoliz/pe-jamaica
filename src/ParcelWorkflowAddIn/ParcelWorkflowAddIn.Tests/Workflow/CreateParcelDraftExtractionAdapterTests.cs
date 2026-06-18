@@ -82,7 +82,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("BELLEV029GEOLANCOMSHEET.pdf", root.GetProperty("primary_source_file").GetString(), "Primary source file should be persisted.");
         TestAssert.True(root.GetProperty("ai_requested").GetBoolean(), "AI request should be persisted.");
         TestAssert.Equal("openai", root.GetProperty("provider_used").GetString(), "Provider should be persisted.");
-        TestAssert.Equal("openai_table_pdf", root.GetProperty("extraction_method").GetString(), "Extraction method should reflect the actual runtime extractor.");
+        TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extraction_method").GetString(), "Extraction method should preserve the attempted text-first route while active_extractor_id captures the runtime fallback.");
 
         var iniPath = Path.Combine(layout.WorkingDirectory, "CreateParcelFromFile_case.ini");
         var iniText = File.ReadAllText(iniPath);
@@ -226,7 +226,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.True(!root.GetProperty("ai_used").GetBoolean(), "AI should not be marked used when disabled.");
         TestAssert.Equal("ocr_table_pdf", root.GetProperty("active_extractor_id").GetString(), "First fallback extractor should become active.");
         TestAssert.Equal("ocr_table_pdf", root.GetProperty("provider_used").GetString(), "Fallback provider should be persisted.");
-        TestAssert.Equal("text_parser_malformed_output", root.GetProperty("fallback_reason").GetString(), "Fallback reason should explain why text-first routing moved to the non-text chain.");
+        TestAssert.Equal("text_first_fallback_requested", root.GetProperty("fallback_reason").GetString(), "Fallback reason should reflect the configured text-first route yielding to the non-AI fallback chain.");
     }
 
     public static void ExtractionAdapterPreservesGroupingFieldsForGroupedGeometryModes()

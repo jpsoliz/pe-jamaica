@@ -10,6 +10,12 @@ public interface IOutputExecutionService
         ManifestDocument manifest,
         string? operatorId,
         CancellationToken cancellationToken = default);
+
+    Task<OutputExecutionResult> RunManualReviewAsync(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        string? operatorId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record OutputExecutionResult(

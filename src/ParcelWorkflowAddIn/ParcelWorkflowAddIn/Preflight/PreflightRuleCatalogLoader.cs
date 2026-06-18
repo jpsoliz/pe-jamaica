@@ -12,7 +12,7 @@ public sealed class PreflightRuleCatalogLoader
 
     private static readonly IReadOnlyList<PreflightRuleDefinition> DefaultRules = new[]
     {
-        new PreflightRuleDefinition("detected_profile_presence", "manifest", "Detected profile present", "Detected intake profile must be present before Processing Checks can continue.", true, "blocker", true),
+        new PreflightRuleDefinition("detected_profile_presence", "manifest", "Detected profile present", "Detected intake profile must be present before Data Extraction can continue.", true, "blocker", true),
         new PreflightRuleDefinition("detected_profile_complete", "manifest", "Detected profile complete", "Incomplete intake remains blocked until required source roles are resolved.", true, "blocker", true),
         new PreflightRuleDefinition("required_source_roles", "manifest", "Required source roles", "Each workflow profile must provide the required copied source roles.", true, "blocker", true),
         new PreflightRuleDefinition("source_file_integrity", "manifest", "Copied source integrity", "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.", true, "blocker", true),

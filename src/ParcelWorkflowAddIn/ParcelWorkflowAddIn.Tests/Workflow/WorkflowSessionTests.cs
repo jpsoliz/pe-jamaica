@@ -11,6 +11,7 @@ using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
@@ -37,7 +38,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(result.Success, "Workflow case creation should succeed.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Workflow should move to intake.");
         TestAssert.Equal("TR-SMD-0000001", session.TransactionId, "Transaction ID should be exposed.");
-        TestAssert.Equal("Intake", session.CurrentStep, "Current step should be intake.");
+        TestAssert.Equal("Attachments", session.CurrentStep, "Current step should be attachments.");
         TestAssert.Equal("Case created", session.StatusText, "Status text should indicate creation.");
     }
 
@@ -316,6 +317,46 @@ internal static class WorkflowSessionTests
         TestAssert.True(!session.CanRunExtractionReview, "Approved review should lock draft extraction rerun.");
     }
 
+    public static void WorkflowSessionManualCogoFallbackRequiresExtractedReviewArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ReviewPending.ToContractValue() } });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!switched, "Manual COGO fallback should require an extracted review artifact.");
+        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Failed manual fallback should keep the existing review state.");
+        TestAssert.True(session.StatusText.Contains("only available after extracted point review data exists", StringComparison.OrdinalIgnoreCase), "Manual fallback failure should explain the missing review artifact.");
+    }
+
+    public static void WorkflowSessionManualCogoFallbackSetsManualStateAndBlocksValidation()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"), "{}");
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ReviewPending.ToContractValue() } });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
+        var validation = session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(switched, "Manual COGO fallback should succeed when extracted review data exists.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Manual fallback should prepare the spatial editing path and move the workflow into map review.");
+        TestAssert.True(session.CurrentOutputSummary is not null, "Manual fallback should produce an output summary for the configured edit workspace.");
+        TestAssert.Equal(ReviewResultOwnership.ManualSpatialReview, session.CurrentOutputSummary!.Payload.ReviewResultOwner, "Manual fallback should mark the review result as owned by the manual spatial branch.");
+        TestAssert.True(!session.CanRunValidation, "Validation should stay blocked once the case has moved into the manual spatial branch.");
+        TestAssert.True(!validation.Success, "Validation should not run from the manual review branch.");
+    }
+
     public static void WorkflowSessionReportsReopenFailuresWithoutReplacingActiveCase()
     {
         using var tempRoot = new TempDirectory();
@@ -537,7 +578,7 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blockers should move workflow to preflight blocked.");
-        TestAssert.Equal("Preflight blocked: missing plan/map reference.", session.StatusText, "Blocked preflight status mismatch.");
+        TestAssert.Equal("Data Extraction blocked: missing plan/map reference.", session.StatusText, "Blocked data extraction status mismatch.");
         TestAssert.Equal(1, session.PreflightBlockers.Count, "Session should expose preflight blockers.");
         TestAssert.Equal(0, session.PreflightWarnings.Count, "Session should expose preflight warnings.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Session should expose passed checks.");
@@ -562,7 +603,7 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Preflight passed: manifest and environment checks complete.", session.StatusText, "Passed preflight status mismatch.");
+        TestAssert.Equal("Data Extraction passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
@@ -586,13 +627,36 @@ internal static class WorkflowSessionTests
             {
                 var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
                 Directory.CreateDirectory(layout.WorkingDirectory);
-                File.WriteAllText(reviewArtifactPath, "{\"transaction_number\":\"100000206\",\"rows\":[]}");
+                File.WriteAllText(
+                    reviewArtifactPath,
+                    """
+                    {
+                      "transaction_number": "100000206",
+                      "rows": [
+                        {
+                          "row_id": "row-001",
+                          "parcel_group_id": "parcel-001",
+                          "point_identifier": "P1",
+                          "easting": "680920.044",
+                          "northing": "639209.180"
+                        }
+                      ]
+                    }
+                    """);
                 return new WorkflowScriptExecutionResult(
                     true,
                     null,
                     reviewArtifactPath,
                     new[] { new AvailableArtifact("extraction_review_data.json", reviewArtifactPath) });
-            }));
+            }),
+            new ExtractionReviewPersistenceService(),
+            new FakeValidationExecutionService(blocked: false),
+            new ValidationSummaryPersistenceService(),
+            new FakeOutputExecutionService(shouldFail: false),
+            new OutputSummaryPersistenceService(),
+            new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
+            new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
+            new SpatialReviewApprovalPersistenceService());
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunManifestPreflight("tester");
@@ -603,7 +667,7 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Successful draft extraction should move to review pending.");
         TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Draft extraction should create extraction review artifact.");
         TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "extraction_review_data.json"), "Review artifact should be registered.");
-        TestAssert.Equal("Draft extraction complete: review artifact generated.", session.StatusText, "Draft extraction success status mismatch.");
+        TestAssert.Equal("Validate Points is ready in Points Validation Tool.", session.StatusText, "Draft extraction success status mismatch.");
     }
 
     public static void WorkflowSessionDraftExtractionFailureStaysContained()
@@ -654,7 +718,127 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
-        TestAssert.Equal("Run preflight successfully before starting extraction review.", session.StatusText, "Blocked extraction status mismatch.");
+        TestAssert.Equal("Run Data Extraction successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
+    }
+
+    public static void WorkflowSessionWeakExtractionTriggersDecisionGate()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+                Directory.CreateDirectory(layout.WorkingDirectory);
+                File.WriteAllText(reviewArtifactPath, "{\"transaction_number\":\"100000206\",\"rows\":[]}");
+                return new WorkflowScriptExecutionResult(
+                    true,
+                    null,
+                    reviewArtifactPath,
+                    new[] { new AvailableArtifact("extraction_review_data.json", reviewArtifactPath) });
+            }));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Weak extraction should still complete as a routed review result.");
+        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Weak extraction should route into review pending.");
+        TestAssert.True(session.ExtractionResultRequiresDecision, "Weak extraction should require a decision gate.");
+        TestAssert.True(!session.HasUsableExtractionReview, "Weak extraction should not be treated as usable review.");
+        TestAssert.True(session.StatusText.Contains("Re-process extraction", StringComparison.OrdinalIgnoreCase)
+                        || session.StatusText.Contains("Manual COGO Review", StringComparison.OrdinalIgnoreCase),
+            "Weak extraction guidance should explain rerun vs manual review.");
+    }
+
+    public static void WorkflowSessionRerunExtractionTracksAttemptsAndEscalatesManualGuidance()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var executionCount = 0;
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                executionCount++;
+                var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+                Directory.CreateDirectory(layout.WorkingDirectory);
+                File.WriteAllText(reviewArtifactPath, "{\"transaction_number\":\"100000206\",\"rows\":[]}");
+                return new WorkflowScriptExecutionResult(
+                    true,
+                    null,
+                    reviewArtifactPath,
+                    new[] { new AvailableArtifact("extraction_review_data.json", reviewArtifactPath) });
+            }));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+        _ = session.RunDraftExtractionAsync(forceReprocess: true).GetAwaiter().GetResult();
+
+        var decisionState = JsonSerializer.Deserialize<ExtractionDecisionGateState>(
+            File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_decision_gate.json")));
+
+        TestAssert.Equal(2, executionCount, "Force reprocess should invoke extraction again.");
+        TestAssert.Equal(2, decisionState!.AttemptCount, "Decision gate state should track rerun count.");
+        TestAssert.Equal(2, decisionState.WeakAttemptCount, "Repeated weak reruns should be counted.");
+        TestAssert.True(session.CurrentExtractionDecisionGate.StronglyRecommendManual, "Repeated weak reruns should escalate toward manual review.");
+    }
+
+    public static void WorkflowSessionManualCogoReviewRecordsDecisionGateRoute()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+                Directory.CreateDirectory(layout.WorkingDirectory);
+                File.WriteAllText(reviewArtifactPath, "{\"transaction_number\":\"100000206\",\"rows\":[]}");
+                return new WorkflowScriptExecutionResult(
+                    true,
+                    null,
+                    reviewArtifactPath,
+                    new[] { new AvailableArtifact("extraction_review_data.json", reviewArtifactPath) });
+            }));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+        _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
+        var decisionState = JsonSerializer.Deserialize<ExtractionDecisionGateState>(
+            File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_decision_gate.json")));
+
+        TestAssert.True(switched, "Manual COGO Review should be selectable after weak extraction.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Manual COGO Review should prepare the configured map-edit path after weak extraction.");
+        TestAssert.Equal(ReviewResultOwnership.ManualSpatialReview, session.CurrentOutputSummary?.Payload.ReviewResultOwner, "Weak extraction manual branch should mark the output summary as manual-owned.");
+        TestAssert.Equal("manual_cogo_review", decisionState!.LastRoute, "Decision gate state should record the manual route.");
     }
 
     public static void WorkflowSessionAddingSourceAfterPreflightInvalidatesPreflight()
@@ -731,7 +915,7 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("blocked", summary.Payload.Status, "Corrupt manifest should return a blocked summary.");
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "manifest_readable"), "Corrupt manifest blocker should be present.");
         TestAssert.True(session.PreflightBlockers.Any(check => check.CheckId == "manifest_readable"), "Session should expose corrupt manifest blocker.");
-        TestAssert.Equal("Preflight blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
+        TestAssert.Equal("Data Extraction blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
     }
 
     public static void WorkflowSessionReopensPreflightArtifactWithoutDownstreamCommands()
@@ -1170,9 +1354,19 @@ internal static class WorkflowSessionTests
 
         public Task<OutputExecutionResult> RunAsync(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, CancellationToken cancellationToken = default)
         {
+            return Task.FromResult(BuildResult(layout, manifest, operatorId, ReviewResultOwnership.ApprovedReview));
+        }
+
+        public Task<OutputExecutionResult> RunManualReviewAsync(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(BuildResult(layout, manifest, operatorId, ReviewResultOwnership.ManualSpatialReview));
+        }
+
+        private OutputExecutionResult BuildResult(CaseFolderLayout layout, ManifestDocument manifest, string? operatorId, string reviewResultOwner)
+        {
             if (shouldFail)
             {
-                return Task.FromResult(OutputExecutionResult.Failed("Injected output failure."));
+                return OutputExecutionResult.Failed("Injected output failure.");
             }
 
             Directory.CreateDirectory(layout.OutputDirectory);
@@ -1214,12 +1408,13 @@ internal static class WorkflowSessionTests
                     2,
                     1,
                     null,
-                    null),
+                    null,
+                    reviewResultOwner),
                 Array.Empty<string>(),
                 Array.Empty<string>());
             var summaryPath = Path.Combine(layout.OutputDirectory, "output_summary.json");
             File.WriteAllText(summaryPath, System.Text.Json.JsonSerializer.Serialize(summary));
-            return Task.FromResult(new OutputExecutionResult(true, null, summaryPath, summary));
+            return new OutputExecutionResult(true, null, summaryPath, summary);
         }
     }
 

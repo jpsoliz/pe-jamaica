@@ -643,6 +643,35 @@ So that the Parcel Workflow knows which processing scripts will run, with which 
 **And** the resolved rule/profile and ordered script plan are persisted in `manifest.json`
 **And** the script plan contains only safe configuration/profile references, never API keys, passwords, tokens, or certificate secrets.
 
+### Story 2.17: Stabilize Transaction Return And Refresh After Workflow Exit
+
+As a cadastral examiner working from the Transaction List,
+I want the add-in to reliably return me to the transaction list after canceling or completing a workflow,
+So that I can safely move to the next transaction without stale locks, stale selection state, or inconsistent refresh behavior.
+
+**Acceptance Criteria:**
+
+**Given** a transaction is active in `Parcel Workflow [Compute]`
+**When** the user cancels the workflow process
+**Then** the add-in returns to the Transaction List context
+**And** clears the active workflow lock
+**And** disables the workflow for that transaction until it is started again.
+
+**Given** a transaction completes successfully
+**When** the completion flow finishes
+**Then** the add-in returns to the Transaction List context
+**And** clears the active transaction state
+**And** refreshes the transaction list so the completed transaction no longer appears as available work when Innola no longer returns it.
+
+**Given** the workflow returns to the Transaction List after cancel, suspend, or complete
+**When** the list is shown again
+**Then** search, filter, sort, row selection, and action buttons are restored to a valid interactive state.
+
+**Given** the user presses Refresh in the Transaction List after workflow exit
+**When** the refresh succeeds
+**Then** the visible list reflects the latest available transactions
+**And** does not retain stale active-row markers from the prior workflow session.
+
 ## Epic 3: Extraction & Review Before Geometry
 
 Goal: Cadastral staff can run extraction using optional AI/OCR/local/manual profiles, review extracted points/segments/metadata, correct or add data, mark unresolved items, and approve review data before geometry/output generation.
@@ -812,6 +841,22 @@ So that I can fix issues and rerun validation without restarting the transaction
 **And** the user must approve the updated review data before rerunning validation
 **And** previous validation artifacts remain available for audit history.
 
+### Story 4.6: Add Extraction Result Decision Gate For Rerun Vs Manual Review
+
+As a cadastral technical staff user,
+I want the add-in to explicitly decide what to do when extraction results are weak or empty,
+So that extraction-quality failures are handled after Point Review rather than being confused with Files Checks readiness failures.
+
+**Acceptance Criteria:**
+
+**Given** `Files Checks` has passed
+**When** extraction runs from `Point Review`
+**Then** the add-in evaluates extraction result quality separately from file-readiness checks
+**And** zero rows, no usable matches, unusable grouping, invalid coordinate thresholds, and similar weak-result conditions trigger a result-decision prompt rather than a Files Checks failure
+**And** the examiner can choose `Re-process extraction`, `Use Manual COGO Review`, or `Open Jamaica COGO Tool` when usable extracted review artifacts exist
+**And** reruns are logged with attempt count and timestamp
+**And** manual branch selection does not falsely mark extracted review approved.
+
 ## Epic 5: Output Package, Map Integration & Reports
 
 Goal: Cadastral staff can generate the local output package, including GDB feature classes, GeoJSON, reports, process logs, optional DWG-derived annotations, and add generated layers to the active ArcGIS Pro map.
@@ -936,10 +981,140 @@ So that we can validate ArcGIS Pro hosting, workspace sizing, source-viewer inte
 
 **Given** the proposed review workspace is larger and denser than the current extraction review pane  
 **When** the spike is implemented  
-**Then** it creates an experimental workspace shell inside ArcGIS Pro  
-**And** it proves the feasibility of a source-viewer region, extracted-results region, and parcel-preview region using real case artifacts where practical  
-**And** it does not replace the existing production workflow  
+**Then** it creates an experimental workspace shell inside ArcGIS Pro
+**And** it proves the feasibility of a source-viewer region, extracted-results region, and parcel-preview region using real case artifacts where practical
+**And** it does not replace the existing production workflow
 **And** it records what worked, what did not fit, and whether the team should proceed to full implementation.
+
+### Story 5.16: Align Compute Workflow Stage Copy And Jamaica COGO Handoff
+
+As a cadastral examiner using `Parcel Workflow [Compute]`,
+I want the workflow stages and actions to use business-friendly names and clearly hand off extracted-point review into the Jamaica COGO Tool,
+So that I can understand where I am in the process and what to do next without confusing the broader transaction workflow with the detailed review tool.
+
+**Acceptance Criteria:**
+
+**Given** the compute workflow shell is displayed
+**When** stage labels are shown in the dock pane and status messages
+**Then** the user-facing names align to the agreed workflow vocabulary:
+`Attachments`, `Files Checks`, `Point Review`, `Quality Check`, `Create Spatial Outputs`, `Map Review`, and `Finalize`.
+
+**Given** extraction has produced usable review artifacts
+**When** the user reaches `Point Review`
+**Then** the primary review action launches the `Jamaica COGO Tool`
+**And** the shell clearly distinguishes point interpretation from later `Map Review`.
+
+**Given** review approval is completed in the Jamaica COGO Tool
+**When** the compute workflow resumes
+**Then** the shell communicates that the next downstream action is `Create Spatial Outputs`
+**And** later `Map Review`.
+
+**Given** user-facing warnings, footer text, and stage status text are shown
+**When** legacy wording still refers to `preflight`, `extraction review`, or other outdated labels
+**Then** those messages are updated to the current approved vocabulary where the meaning has changed.
+
+### Story 5.17: Add Manual COGO Fallback Branch From Point Review
+
+As a cadastral examiner reviewing extracted points from transaction PDFs,
+I want a clear manual COGO fallback when automated point review is not good enough,
+So that I can continue the case using regular ArcGIS Pro/COGO editing instead of being blocked by weak extraction results.
+
+**Acceptance Criteria:**
+
+**Given** extraction has produced a review artifact for the active transaction
+**When** the examiner reaches `Point Review`
+**Then** the workflow offers a primary path to review the extracted data in the Jamaica COGO Tool.
+
+**Given** extraction exists but the examiner decides the automated result is not good enough
+**When** the examiner chooses the manual fallback option
+**Then** the workflow branches into a manual COGO-oriented path
+**And** does not force continued use of the extracted review surface.
+
+**Given** the manual fallback path is chosen
+**When** the workflow updates state
+**Then** the shell clearly records that the case moved from extracted-point review into a manual review path
+**And** explains what the user should do next.
+
+**Given** the examiner remains on the extracted-point path
+**When** Jamaica COGO review is approved
+**Then** the workflow continues toward `Create Spatial Outputs`
+**And** later `Map Review`.
+
+### Story 5.18: Route Manual Review Branch Into Configured GDB And Map Editing Path
+
+As a cadastral technical staff user,
+I want the manual review branch to open the configured spatial editing path and persist reviewed work into case outputs,
+So that I can continue a case with standard ArcGIS Pro tools when automated extraction is not good enough.
+
+**Acceptance Criteria:**
+
+**Given** the examiner chooses manual review
+**When** the branch is confirmed
+**Then** the add-in routes into the configured spatial mode rather than leaving the case in an ambiguous state
+**And** the configured mode may be normal local `.gdb`, local parcel fabric, or enterprise-backed working-layer review
+**And** the transaction PDFs remain the source reference
+**And** the selected mode prepares the correct editing workspace in ArcGIS Pro
+**And** saved manual edits become the owned reviewed-data path for downstream outputs and map review
+**And** extracted review is not silently treated as approved.
+
+### Story 5.16A: Realign Compute Workflow Vocabulary Around Data Extraction And Points Validation
+
+As a cadastral examiner using `Parcel Workflow [Compute]`,
+I want the workflow stages and tool names to match the real operational sequence,
+So that the shell describes extraction, validation, spatial creation, and final review in plain business language rather than legacy internal labels.
+
+**Acceptance Criteria:**
+
+**Given** the compute workflow shell is displayed
+**When** stage labels, status chips, helper text, and warnings are shown
+**Then** the user-facing workflow stages read:
+`Attachments`, `Data Extraction`, `Validate Points`, `Create Spatial Units`, `Final Review`, and `Finalize`
+**And** outdated stage names such as `Files Checks`, `Point Review`, `Quality Check`, `Create Spatial Outputs`, and `Map Review` are removed where the meaning has changed.
+
+**Given** the dedicated parcel-point review window is shown
+**When** its title, buttons, or references appear in the shell
+**Then** the user-facing name is `Points Validation Tool`
+**And** legacy user-facing references to `Jamaica COGO Tool` are removed from the compute workflow path where the new name is intended.
+
+**Given** the workflow describes each stage
+**When** the user reads the guidance
+**Then** the shell communicates:
+- `Attachments` = load transaction source files
+- `Data Extraction` = derive candidate points/data from source documents
+- `Validate Points` = review and correct extracted points in the dedicated tool
+- `Create Spatial Units` = create parcel fabric/spatial geometry from validated points
+- `Final Review` = approve, reject, or postpone after spatial creation
+- `Finalize` = commit the result back to Innola.
+
+### Story 5.16B: Implement Points Validation Tool Save/Return Flow And Downstream Stage Handoff
+
+As a cadastral examiner validating extracted parcel points,
+I want the `Points Validation Tool` to save edited point data and return me to the workflow at the correct next stage,
+So that point validation and spatial creation are clearly separated and I do not lose work or get confused about what happens next.
+
+**Acceptance Criteria:**
+
+**Given** the `Points Validation Tool` is open
+**When** the user has not changed any point data
+**Then** the `Save` button is disabled
+**And** `Close` exits without changing the saved review dataset.
+
+**Given** the user edits, adds, or removes point data
+**When** unsaved changes exist
+**Then** the `Save` button becomes enabled
+**And** saving persists the current validated points into the review data file used by downstream stages.
+
+**Given** the user presses `Save`
+**When** save completes successfully
+**Then** the tool asks whether the examiner wants to continue with the saved validated points into spatial creation
+**And** choosing yes returns to `Parcel Workflow [Compute]`
+**And** the next visible actionable stage becomes `Create Spatial Units`.
+
+**Given** spatial creation is complete
+**When** the workflow advances
+**Then** the next stage becomes `Final Review`
+**And** the examiner can `Approve`, `Reject`, or `Postpone`
+**And** `Finalize` remains the last step that commits the result back to Innola.
 
 ## Epic 6: Sync Readiness, Audit Trail & v1 Acceptance Fixtures
 

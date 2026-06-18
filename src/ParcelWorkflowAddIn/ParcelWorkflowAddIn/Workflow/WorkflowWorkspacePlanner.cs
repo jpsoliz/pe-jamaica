@@ -22,7 +22,7 @@ internal static class WorkflowWorkspacePlanner
             WorkflowState.Intake => WorkflowWorkspaceStage.Intake,
             WorkflowState.PreflightRunning or WorkflowState.PreflightBlocked => WorkflowWorkspaceStage.Preflight,
             WorkflowState.PreflightPassed => WorkflowWorkspaceStage.ExtractionReview,
-            WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending => WorkflowWorkspaceStage.ExtractionReview,
+            WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewManualPending => WorkflowWorkspaceStage.ExtractionReview,
             WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked => WorkflowWorkspaceStage.Validation,
             WorkflowState.ValidationPassed or WorkflowState.OutputRunning => WorkflowWorkspaceStage.Outputs,
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => WorkflowWorkspaceStage.SpatialReview,

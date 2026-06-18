@@ -41,6 +41,7 @@ public sealed record OutputSummaryPayload(
     [property: JsonPropertyName("polygon_count")] int PolygonCount,
     [property: JsonPropertyName("template_project_path")] string? TemplateProjectPath,
     [property: JsonPropertyName("template_gdb_path")] string? TemplateGdbPath,
+    [property: JsonPropertyName("review_result_owner")] string? ReviewResultOwner,
     [property: JsonPropertyName("enterprise_working_publish")] EnterpriseWorkingPublishSummary? EnterpriseWorkingPublish = null);
 
 public sealed record EnterpriseWorkingPublishSummary(

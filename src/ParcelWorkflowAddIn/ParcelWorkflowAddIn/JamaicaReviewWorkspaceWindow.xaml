@@ -4,7 +4,7 @@
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
                     x:ClassModifier="internal"
-                    Title="Jamaica COGO Tool"
+                    Title="Points Validation Tool"
                     Width="1320"
                     Height="860"
                     MinWidth="1180"
@@ -209,51 +209,65 @@
                           Content="&#xE72C;"
                           Command="{Binding ReloadReviewViewerCommand}"
                           ToolTip="Reload viewer" />
-                  <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE76B;"
-                          Command="{Binding PreviousReviewViewerPageCommand}"
-                          IsEnabled="{Binding CanGoToPreviousViewerPage}"
-                          ToolTip="Previous page" />
-                  <Border Background="#FFFFFF"
+                  <Border Background="#F3F6F7"
                           BorderBrush="#D8E1E7"
                           BorderThickness="1"
                           CornerRadius="2"
                           Padding="6,2"
-                          Margin="0,0,6,0">
-                    <TextBlock Text="{Binding ViewerPageStatusText}"
+                          Margin="4,0,0,0"
+                          Visibility="{Binding ShowPdfViewerHelp, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{Binding PdfViewerHelpText}"
                                FontSize="11"
-                               Foreground="#1F2933" />
+                               Foreground="#52616B" />
                   </Border>
-                  <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE76C;"
-                          Command="{Binding NextReviewViewerPageCommand}"
-                          IsEnabled="{Binding CanGoToNextViewerPage}"
-                          ToolTip="Next page" />
-                  <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE71F;"
-                          Command="{Binding ZoomOutReviewViewerCommand}"
-                          IsEnabled="{Binding CanZoomViewerOut}"
-                          ToolTip="Zoom out" />
-                  <Border Background="#FFFFFF"
-                          BorderBrush="#D8E1E7"
-                          BorderThickness="1"
-                          CornerRadius="2"
-                          Padding="6,2"
-                          Margin="0,0,6,0">
-                    <TextBlock Text="{Binding ViewerZoomText}"
-                               FontSize="11"
-                               Foreground="#1F2933" />
-                  </Border>
-                  <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE710;"
-                          Command="{Binding ZoomInReviewViewerCommand}"
-                          IsEnabled="{Binding CanZoomViewerIn}"
-                          ToolTip="Zoom in" />
-                  <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE9A6;"
-                          Command="{Binding ToggleReviewViewerFitCommand}"
-                          IsEnabled="{Binding CanToggleViewerFit}"
-                          ToolTip="{Binding ViewerFitToggleText}" />
+                  <StackPanel Orientation="Horizontal"
+                              Visibility="{Binding ShowCustomViewerControls, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Button Style="{StaticResource IconButtonStyle}"
+                            Content="&#xE76B;"
+                            Command="{Binding PreviousReviewViewerPageCommand}"
+                            IsEnabled="{Binding CanGoToPreviousViewerPage}"
+                            ToolTip="Previous page" />
+                    <Border Background="#FFFFFF"
+                            BorderBrush="#D8E1E7"
+                            BorderThickness="1"
+                            CornerRadius="2"
+                            Padding="6,2"
+                            Margin="0,0,6,0">
+                      <TextBlock Text="{Binding ViewerPageStatusText}"
+                                 FontSize="11"
+                                 Foreground="#1F2933" />
+                    </Border>
+                    <Button Style="{StaticResource IconButtonStyle}"
+                            Content="&#xE76C;"
+                            Command="{Binding NextReviewViewerPageCommand}"
+                            IsEnabled="{Binding CanGoToNextViewerPage}"
+                            ToolTip="Next page" />
+                    <Button Style="{StaticResource IconButtonStyle}"
+                            Content="&#xE71F;"
+                            Command="{Binding ZoomOutReviewViewerCommand}"
+                            IsEnabled="{Binding CanZoomViewerOut}"
+                            ToolTip="Zoom out" />
+                    <Border Background="#FFFFFF"
+                            BorderBrush="#D8E1E7"
+                            BorderThickness="1"
+                            CornerRadius="2"
+                            Padding="6,2"
+                            Margin="0,0,6,0">
+                      <TextBlock Text="{Binding ViewerZoomText}"
+                                 FontSize="11"
+                                 Foreground="#1F2933" />
+                    </Border>
+                    <Button Style="{StaticResource IconButtonStyle}"
+                            Content="&#xE710;"
+                            Command="{Binding ZoomInReviewViewerCommand}"
+                            IsEnabled="{Binding CanZoomViewerIn}"
+                            ToolTip="Zoom in" />
+                    <Button Style="{StaticResource IconButtonStyle}"
+                            Content="&#xE9A6;"
+                            Command="{Binding ToggleReviewViewerFitCommand}"
+                            IsEnabled="{Binding CanToggleViewerFit}"
+                            ToolTip="{Binding ViewerFitToggleText}" />
+                  </StackPanel>
                 </StackPanel>
               </DockPanel>
 
@@ -346,7 +360,7 @@
 
           <DockPanel Grid.Row="0"
                      LastChildFill="False">
-            <TextBlock Text="Review Extracted Points"
+            <TextBlock Text="Validate Points"
                        FontSize="13"
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
@@ -361,13 +375,19 @@
                       Command="{Binding RemoveManualPointCommand}"
                       ToolTip="Remove selected manual point" />
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                      Content="&#xE711;"
+                      Command="{Binding CancelPendingManualPointCommand}"
+                      ToolTip="Discard in-progress manual point" />
+              <Button Style="{StaticResource ReviewActionIconButtonStyle}"
                       Content="&#xE74E;"
-                      Command="{Binding SaveReviewCommand}"
+                      IsEnabled="{Binding CanSaveReview}"
+                      Click="SaveButton_Click"
                       ToolTip="Save review" />
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
                       Content="&#xE73E;"
-                      Command="{Binding ApproveReviewCommand}"
-                      ToolTip="Approve review" />
+                      IsEnabled="{Binding CanCompleteValidation}"
+                      Click="ValidationCompleteButton_Click"
+                      ToolTip="Validation complete" />
             </StackPanel>
           </DockPanel>
 
@@ -472,12 +492,12 @@
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
             <Border DockPanel.Dock="Right"
-                    Background="#F3F6F7"
-                    BorderBrush="#C9D2D8"
+                    Background="#EEF4FF"
+                    BorderBrush="#9DB7E8"
                     BorderThickness="1"
                     CornerRadius="2"
                     Padding="5,1">
-              <TextBlock Text="Provisional"
+              <TextBlock Text="Live review"
                          FontSize="11"
                          Foreground="#1F2933" />
             </Border>
@@ -494,6 +514,8 @@
                     ItemsSource="{Binding ParcelGroups}"
                     SelectedItem="{Binding SelectedParcelGroup, Mode=TwoWay}"
                     DisplayMemberPath="DisplayName"
+                    IsEnabled="{Binding CanChangeParcelGroup}"
+                    ToolTip="Parcel selection is locked while a manual point is in progress."
                     FontSize="11" />
 
           <StackPanel Grid.Row="3"
@@ -581,15 +603,27 @@
             CornerRadius="4"
             Padding="10">
       <DockPanel LastChildFill="False">
-        <TextBlock Text="This workspace supports live review artifacts, parcel switching, source viewing, and parcel preview. Final spatial editing still belongs in Map Review."
+        <TextBlock Text="This workspace supports parcel-scoped review, live source viewing, manual point correction, and parcel preview. Create Spatial Units comes next, and final spatial editing still belongs in Final Review."
                    FontSize="11"
                    Foreground="#52616B"
                    TextWrapping="Wrap"
                    Width="860" />
-        <Button DockPanel.Dock="Right"
-                Content="Close"
-                Width="92"
-                Click="CloseButton_Click" />
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal">
+          <Button Content="Validation Complete"
+                  Width="142"
+                  Margin="0,0,8,0"
+                  IsEnabled="{Binding CanCompleteValidation}"
+                  Click="ValidationCompleteButton_Click" />
+          <Button Content="Save"
+                  Width="92"
+                  Margin="0,0,8,0"
+                  IsEnabled="{Binding CanSaveReview}"
+                  Click="SaveButton_Click" />
+          <Button Content="Close"
+                  Width="92"
+                  Click="CloseButton_Click" />
+        </StackPanel>
       </DockPanel>
     </Border>
   </Grid>

@@ -62,9 +62,9 @@ public sealed class InnolaSessionManager
     public bool CanOpenParcelWorkflow => IsLoggedIn
         && IsTransactionLoaded
         && SelectedTransaction is not null
-        && LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
+        && (LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
             or InnolaTransactionLifecycleStatus.CompleteBlocked
-            or InnolaTransactionLifecycleStatus.Error;
+            or InnolaTransactionLifecycleStatus.Error);
 
     public bool CanStartOrClaimTransaction => IsLoggedIn
         && IsTransactionLoaded
@@ -75,10 +75,10 @@ public sealed class InnolaSessionManager
         && IsTransactionLoaded
         && SelectedTransaction is not null
         && IsCurrentUserLifecycleOwner
-        && LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
+        && (LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
             or InnolaTransactionLifecycleStatus.SaveProgress
             or InnolaTransactionLifecycleStatus.CompleteBlocked
-            or InnolaTransactionLifecycleStatus.Error;
+            or InnolaTransactionLifecycleStatus.Error);
 
     public bool CanCancelActiveProcess => IsLoggedIn
         && IsTransactionLoaded
@@ -90,10 +90,10 @@ public sealed class InnolaSessionManager
         && IsTransactionLoaded
         && SelectedTransaction is not null
         && IsCurrentUserLifecycleOwner
-        && LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
+        && (LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
             or InnolaTransactionLifecycleStatus.SaveProgress
             or InnolaTransactionLifecycleStatus.CompleteBlocked
-            or InnolaTransactionLifecycleStatus.Error;
+            or InnolaTransactionLifecycleStatus.Error);
 
     public bool CanSwitchTransaction => !IsTransactionLoaded
         || LifecycleStatus is InnolaTransactionLifecycleStatus.Completed
@@ -102,10 +102,10 @@ public sealed class InnolaSessionManager
     public bool HasActiveTransaction => IsLoggedIn
         && IsTransactionLoaded
         && SelectedTransaction is not null
-        && LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
+        && (LifecycleStatus is InnolaTransactionLifecycleStatus.InProgress
             or InnolaTransactionLifecycleStatus.SaveProgress
             or InnolaTransactionLifecycleStatus.CompleteBlocked
-            or InnolaTransactionLifecycleStatus.Error;
+            or InnolaTransactionLifecycleStatus.Error);
 
     private bool IsCurrentUserLifecycleOwner => !string.IsNullOrWhiteSpace(LifecycleOwnerUser)
         && CurrentUser is not null

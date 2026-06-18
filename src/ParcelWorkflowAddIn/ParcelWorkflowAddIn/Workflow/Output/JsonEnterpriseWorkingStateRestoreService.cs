@@ -370,6 +370,7 @@ public sealed class JsonEnterpriseWorkingStateRestoreService : IEnterpriseWorkin
                 ResolveCount(restoredLayers, "polygons", layerPayloads),
                 null,
                 null,
+                null,
                 publishSummary),
             Array.Empty<string>(),
             Array.Empty<string>());

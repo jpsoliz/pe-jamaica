@@ -10,6 +10,9 @@ from typing import Any
 
 REVIEW_WORKSPACE_MODE_NORMAL = "normal"
 REVIEW_WORKSPACE_MODE_PARCEL_FABRIC = "parcel_fabric"
+REVIEW_WORKSPACE_MODE_ENTERPRISE = "enterprise_working_layers"
+REVIEW_RESULT_OWNER_APPROVED = "approved_review"
+REVIEW_RESULT_OWNER_MANUAL = "manual_spatial_review"
 PARCEL_FABRIC_MODE_PILOT = "pilot"
 PARCEL_FABRIC_MODE_TRUE = "true"
 PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
@@ -79,8 +82,15 @@ def _normalize_review_workspace_mode(value: Any) -> str:
     text = "" if value is None else str(value).strip().replace(" ", "_").lower()
     if text in {REVIEW_WORKSPACE_MODE_PARCEL_FABRIC, "parcel-fabric", "parcelfabric"}:
         return REVIEW_WORKSPACE_MODE_PARCEL_FABRIC
+    if text in {REVIEW_WORKSPACE_MODE_ENTERPRISE, "enterprise-working-layers"}:
+        return REVIEW_WORKSPACE_MODE_ENTERPRISE
 
     return REVIEW_WORKSPACE_MODE_NORMAL
+
+
+def _normalize_review_result_owner(value: Any) -> str:
+    text = "" if value is None else str(value).strip().lower()
+    return REVIEW_RESULT_OWNER_MANUAL if text == REVIEW_RESULT_OWNER_MANUAL else REVIEW_RESULT_OWNER_APPROVED
 
 
 def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -414,15 +424,17 @@ def _create_true_parcel_fabric_with_arcpy(
     root_paths: dict[str, str | None],
     transaction_number: str,
 ) -> tuple[dict[str, str | None], dict[str, Any]]:
-    if not root_paths.get("polygon_fc"):
-        raise RuntimeError("Parcel Fabric mode requires a polygon candidate generated from approved review data.")
-
     fabric_dataset = target_gdb / PARCEL_FABRIC_DATASET_NAME
     if arcpy.Exists(str(fabric_dataset)):
         arcpy.management.Delete(str(fabric_dataset))
 
-    polygon_description = arcpy.Describe(root_paths["polygon_fc"])
-    spatial_reference = getattr(polygon_description, "spatialReference", None)
+    spatial_reference = None
+    if root_paths.get("polygon_fc"):
+        polygon_description = arcpy.Describe(root_paths["polygon_fc"])
+        spatial_reference = getattr(polygon_description, "spatialReference", None)
+    elif root_paths.get("point_fc"):
+        point_description = arcpy.Describe(root_paths["point_fc"])
+        spatial_reference = getattr(point_description, "spatialReference", None)
     if spatial_reference is None:
         raise RuntimeError("Could not determine spatial reference for Parcel Fabric output generation.")
 
@@ -455,21 +467,22 @@ def _create_true_parcel_fabric_with_arcpy(
     parcel_polygon_fc = str(fabric_dataset / polygon_type_names[0])
     parcel_line_fc = str(fabric_dataset / line_type_names[0]) if line_type_names else None
 
-    print("Parcel fabric step: copying approved polygon into parcel type polygons.")
-    _append_features(arcpy, root_paths["polygon_fc"], parcel_polygon_fc)
-
     record_name = _record_name(transaction_number)
-    record_expression = _arcade_string_literal(record_name)
-    print(f"Parcel fabric step: creating parcel record '{record_name}'.")
-    arcpy.parcel.CreateParcelRecords(
-        parcel_polygon_fc,
-        None,
-        record_expression,
-        "EXPRESSION",
-    )
+    if root_paths.get("polygon_fc"):
+        print("Parcel fabric step: copying approved polygon into parcel type polygons.")
+        _append_features(arcpy, root_paths["polygon_fc"], parcel_polygon_fc)
 
-    print(f"Parcel fabric step: building parcel fabric for record '{record_name}'.")
-    arcpy.parcel.BuildParcelFabric(fabric_path, None, record_name)
+        record_expression = _arcade_string_literal(record_name)
+        print(f"Parcel fabric step: creating parcel record '{record_name}'.")
+        arcpy.parcel.CreateParcelRecords(
+            parcel_polygon_fc,
+            None,
+            record_expression,
+            "EXPRESSION",
+        )
+
+        print(f"Parcel fabric step: building parcel fabric for record '{record_name}'.")
+        arcpy.parcel.BuildParcelFabric(fabric_path, None, record_name)
 
     parcel_points_fc = None
     point_feature_classes = _existing_feature_classes(arcpy, fabric_dataset).get("POINT", [])
@@ -484,7 +497,7 @@ def _create_true_parcel_fabric_with_arcpy(
             "PROXIMITY",
             "1 Meters",
             "ALL",
-            record_name,
+            record_name if root_paths.get("polygon_fc") else None,
             None,
             None,
             "UPDATE_AND_CREATE",
@@ -512,7 +525,7 @@ def _create_true_parcel_fabric_with_arcpy(
             "parcel_fabric_mode": PARCEL_FABRIC_MODE_TRUE,
             "parcel_fabric_dataset_path": str(fabric_dataset),
             "parcel_fabric_layer_path": fabric_path,
-            "parcel_record_name": record_name,
+            "parcel_record_name": record_name if root_paths.get("polygon_fc") else None,
             "parcel_record_id": None,
             "parcel_type": PARCEL_FABRIC_PARCEL_TYPE_NAME,
             "built_parcel_count": _count_rows(arcpy, parcel_polygon_fc),
@@ -774,6 +787,7 @@ def _build_summary(
     template_gdb_path: str | None,
     warnings: list[str],
     review_workspace_mode: str,
+    review_result_owner: str,
     parcel_fabric_mode: str | None,
     parcel_fabric_dataset_path: str | None,
     parcel_fabric_layer_path: str | None,
@@ -831,6 +845,7 @@ def _build_summary(
         "polygon_count": len(polygons),
         "template_project_path": template_project_path or None,
         "template_gdb_path": template_gdb_path or None,
+        "review_result_owner": review_result_owner,
     }
 
     return {
@@ -849,9 +864,10 @@ def _build_summary(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate transaction output geodatabase from approved review data.")
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--approved-review", required=True)
+    parser.add_argument("--approved-review")
     parser.add_argument("--review-data", required=True)
     parser.add_argument("--review-workspace-mode", default=REVIEW_WORKSPACE_MODE_NORMAL)
+    parser.add_argument("--review-source-route", default=REVIEW_RESULT_OWNER_APPROVED)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output-summary", required=True)
     parser.add_argument("--operator")
@@ -860,24 +876,29 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     manifest_path = Path(args.manifest)
-    approved_review_path = Path(args.approved_review)
+    approved_review_path = Path(args.approved_review) if args.approved_review else None
     review_data_path = Path(args.review_data)
     review_workspace_mode = _normalize_review_workspace_mode(args.review_workspace_mode)
+    review_result_owner = _normalize_review_result_owner(args.review_source_route)
     output_root = Path(args.output_root)
     output_summary_path = Path(args.output_summary)
     template_gdb_path = Path(args.template_gdb) if args.template_gdb else None
 
     manifest = _read_json(manifest_path)
-    approved_review = _read_json(approved_review_path)
+    approved_review = _read_json(approved_review_path) if approved_review_path and approved_review_path.exists() else {}
     review_data = _read_json(review_data_path)
 
-    approved_hash = approved_review.get("review_hash")
-    review_hash = review_data.get("review_hash")
-    if approved_hash and review_hash and str(approved_hash).strip().lower() != str(review_hash).strip().lower():
-        raise RuntimeError("Approved review hash does not match current review data.")
+    if review_result_owner != REVIEW_RESULT_OWNER_MANUAL:
+        if approved_review_path is None or not approved_review_path.exists():
+            raise RuntimeError("Approved review data is required for output generation.")
+
+        approved_hash = approved_review.get("review_hash")
+        review_hash = review_data.get("review_hash")
+        if approved_hash and review_hash and str(approved_hash).strip().lower() != str(review_hash).strip().lower():
+            raise RuntimeError("Approved review hash does not match current review data.")
 
     points = _normalize_points(review_data)
-    if not points:
+    if not points and review_result_owner != REVIEW_RESULT_OWNER_MANUAL:
         raise RuntimeError("Approved review data does not contain any usable point rows for output generation.")
 
     point_groups = _grouped_point_sequences(points)
@@ -930,6 +951,7 @@ def main(argv: list[str] | None = None) -> int:
         args.template_gdb,
         warnings,
         review_workspace_mode,
+        review_result_owner,
         review_paths.get("parcel_fabric_mode"),
         review_paths.get("parcel_fabric_dataset_path"),
         review_paths.get("parcel_fabric_layer_path"),

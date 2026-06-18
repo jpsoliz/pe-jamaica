@@ -27,6 +27,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     internal const string DockPaneId = "ParcelWorkflow_Dockpane";
     private readonly WorkflowSession workflowSession = new(new CaseFolderStore());
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
+    private readonly ParcelScopedManualPointService manualPointService = new();
+    private readonly ParcelScopedReviewValidationService reviewValidationService = new();
     private readonly RelayCommand createCaseCommand;
     private readonly RelayCommand browseOutputLocationCommand;
     private readonly RelayCommand addSourceFilesCommand;
@@ -37,6 +39,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
     private readonly RelayCommand runExtractionReviewCommand;
+    private readonly RelayCommand useManualCogoFallbackCommand;
     private readonly RelayCommand runValidationCommand;
     private readonly RelayCommand runOutputsCommand;
     private readonly RelayCommand loadSpatialReviewLayersCommand;
@@ -44,6 +47,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
     private readonly RelayCommand removeManualPointCommand;
+    private readonly RelayCommand cancelPendingManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
     private readonly RelayCommand approveReviewCommand;
     private readonly RelayCommand togglePreflightDetailsCommand;
@@ -78,6 +82,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private bool reviewViewerFitToPane = true;
     private double reviewViewerZoom = 1.0d;
     private bool reviewDirty;
+    private string? pendingManualRowId;
+    private string? activeReviewParcelGroupId;
+    private string? activeReviewParcelName;
+    private string? activeReviewTraverseId;
+    private int reviewContentVersion;
     private int reviewViewerReloadVersion;
     private int reviewViewerPageIndex;
     private int reviewViewerPageCount;
@@ -102,15 +111,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
         runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
         runExtractionReviewCommand = new RelayCommand(async () => await RunOrOpenExtractionReviewAsync(), () => CanRunExtractionReview);
+        useManualCogoFallbackCommand = new RelayCommand(async () => await UseManualCogoFallbackAsync(), () => CanUseManualCogoFallback);
         runValidationCommand = new RelayCommand(async () => await RunValidationAsync(), () => CanRunValidation);
         runOutputsCommand = new RelayCommand(async () => await RunOutputsAsync(), () => CanRunOutputs);
         loadSpatialReviewLayersCommand = new RelayCommand(async () => await LoadSpatialReviewLayersAsync(), () => CanLoadSpatialReviewLayers);
         openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
-        addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked);
-        removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow?.IsManual == true);
-        saveReviewCommand = new RelayCommand(SaveReviewChanges, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
-        approveReviewCommand = new RelayCommand(ApproveReview, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked);
+        addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode);
+        removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null);
+        cancelPendingManualPointCommand = new RelayCommand(CancelPendingManualPointEdit, () => CanCancelPendingManualPointEdit);
+        saveReviewCommand = new RelayCommand(SaveReviewChanges, () => CanSaveReviewChangesFromWorkspace);
+        approveReviewCommand = new RelayCommand(ApproveReview, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked && !ReviewHasBlockers && !IsManualReviewEditMode);
         togglePreflightDetailsCommand = new RelayCommand(TogglePreflightDetails, () => HasPreflightResults);
         toggleOutputPreviewCommand = new RelayCommand(ToggleOutputPreview);
         toggleReviewDetailsCommand = new RelayCommand(ToggleReviewDetails, () => HasLoadedReviewData);
@@ -209,10 +220,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
             if (HasPreflightResults)
             {
-                return "Checks clear";
+                return "Files clear";
             }
 
-            return "Checks pending";
+            return "Files pending";
         }
     }
 
@@ -287,6 +298,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
 
+    public bool CanUseManualCogoFallback => CanUseWorkflowActions && workflowSession.CanChooseManualCogoReview && !IsReviewApproved;
+
     public bool CanRunOutputs => CanUseWorkflowActions && workflowSession.CanRunOutputs;
 
     public bool CanLoadSpatialReviewLayers =>
@@ -318,6 +331,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand RunExtractionReviewCommand => runExtractionReviewCommand;
 
+    public ICommand UseManualCogoFallbackCommand => useManualCogoFallbackCommand;
+
     public ICommand RunValidationCommand => runValidationCommand;
 
     public ICommand RunOutputsCommand => runOutputsCommand;
@@ -331,6 +346,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand AddManualPointCommand => addManualPointCommand;
 
     public ICommand RemoveManualPointCommand => removeManualPointCommand;
+
+    public ICommand CancelPendingManualPointCommand => cancelPendingManualPointCommand;
 
     public ICommand SaveReviewCommand => saveReviewCommand;
 
@@ -426,12 +443,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string IntakeSummaryText =>
         SourceFiles.Count == 0
-            ? "No source files copied into the case folder yet."
-            : $"{SourceFiles.Count} source file(s) copied. {DetectedProfileLabel}";
+            ? "No transaction attachments have been loaded into the case folder yet."
+            : $"{SourceFiles.Count} attachment file(s) loaded from the selected transaction. {DetectedProfileLabel}";
 
     public string IntakeDetailText =>
         IntakeIssues.Count == 0
-            ? "Source intake is preserved as case-folder context for downstream stages."
+            ? "Transaction attachments are copied into the case folder and kept as source context for the remaining compute stages."
             : string.Join(Environment.NewLine, IntakeIssues);
 
     public bool IntakeSummaryExpanded
@@ -446,7 +463,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             if (!HasPreflightResults)
             {
-                return "No processing check results yet.";
+                return "No file-check results yet.";
             }
 
             return $"{PreflightBlockers.Count} blocker(s), {PreflightWarnings.Count} warning(s), {PreflightPassedChecks.Count} passed.";
@@ -456,9 +473,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string PreflightCollapsedHint =>
         PreflightBlockers.Count > 0
             ? $"Blocking now: {PreflightBlockers[0].Message}"
-            : PreflightWarnings.Count > 0
+        : PreflightWarnings.Count > 0
                 ? $"Attention: {PreflightWarnings[0].Message}"
-                : "All current processing checks passed.";
+                : "All current file checks passed.";
 
     public bool PreflightSummaryExpanded
     {
@@ -471,6 +488,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             WorkflowState.ExtractionRunning => "Processing",
             WorkflowState.ExtractionFailed => "Blocked",
+            WorkflowState.ReviewManualPending => "Manual",
             WorkflowState.ReviewApproved => "Approved",
             WorkflowState.ValidationRunning => "Approved",
             WorkflowState.ValidationBlocked => "Approved",
@@ -485,21 +503,46 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
 
     public string ExtractionReviewActionLabel =>
-        HasLoadedReviewData ? "Reload" : HasExtractionReviewArtifact(workflowSession) ? "Open" : "Run";
+        HasLoadedReviewData
+            ? "Reload"
+            : workflowSession.ExtractionResultRequiresDecision
+                ? "Re-process extraction"
+                : workflowSession.HasUsableExtractionReview
+                    ? "Continue in Points Validation Tool"
+                    : HasExtractionReviewArtifact(workflowSession)
+                        ? "Open review data"
+                        : "Run";
 
     public string ExtractionReviewHelpText =>
+        workflowSession.ExtractionResultRequiresDecision || workflowSession.HasUsableExtractionReview
+            ? workflowSession.CurrentExtractionDecisionGate.GuidanceText
+            :
         workflowSession.CurrentState switch
         {
-            WorkflowState.ExtractionRunning => "Draft extraction is running from the current script plan.",
-            WorkflowState.ExtractionFailed => "Draft extraction failed. Review the status line, then try again.",
-            WorkflowState.ReviewApproved => "Review data is approved. The review workspace is now read-only for this case state.",
-            WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Review data is approved. Validation now owns the next workflow gate and review remains read-only.",
-            WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Review data is approved. Outputs now own the downstream geometry stage and review remains read-only.",
-            WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Draft review data is ready to inspect and correct before parcel build.",
-            WorkflowState.PreflightPassed => "Extraction review will generate draft review data from the selected transaction files.",
-            WorkflowState.PreflightBlocked => "Review Extracted Points is unavailable until processing check blockers are resolved.",
-            _ => "Review Extracted Points is enabled after Processing Checks complete."
+            WorkflowState.ExtractionRunning => "Validate Points preparation is running from the current compute plan.",
+            WorkflowState.ExtractionFailed => "Validate Points preparation failed. Review the status line, then try again.",
+            WorkflowState.ReviewManualPending => "Manual review workspace is being prepared. The extracted review stays available as reference, but it is not treated as approved.",
+            WorkflowState.ReviewApproved => "Validate Points is approved. Points Validation Tool is now read-only for this saved case state.",
+            WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Validate Points is approved. Create Spatial Units now owns the next workflow gate and Points Validation Tool remains read-only.",
+            WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
+            WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point review in Points Validation Tool, then approve the review before Create Spatial Units and Final Review.",
+            WorkflowState.PreflightPassed => "Generate the extracted point package from the selected transaction attachments, then continue in Points Validation Tool to inspect and correct the parcel points.",
+            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Data Extraction blockers are resolved.",
+            _ => "Validate Points is enabled after Data Extraction completes."
         };
+
+    public bool ShowExtractionDecisionGate => workflowSession.ExtractionResultRequiresDecision;
+
+    public string ExtractionDecisionSummaryText => workflowSession.CurrentExtractionDecisionGate.SummaryText;
+
+    public string ExtractionDecisionGuidanceText => workflowSession.CurrentExtractionDecisionGate.GuidanceText;
+
+    public string ExtractionDecisionAttemptText =>
+        workflowSession.CurrentExtractionDecisionGate.AttemptCount <= 0
+            ? "No extraction attempt has been recorded yet."
+            : workflowSession.CurrentExtractionDecisionGate.StronglyRecommendManual
+                ? $"Attempt {workflowSession.CurrentExtractionDecisionGate.AttemptCount}. Manual review is now strongly recommended."
+                : $"Attempt {workflowSession.CurrentExtractionDecisionGate.AttemptCount}. You can rerun extraction, or continue with the manual review workspace.";
 
     public bool HasLoadedReviewData => loadedReviewDocument is not null && ReviewRows.Count > 0;
 
@@ -539,9 +582,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public string ReviewWorkspaceTitle => "Source Verification Workspace";
+    public string ReviewWorkspaceTitle => "Points Validation Tool";
 
-    public bool CanOpenExperimentalReviewWorkspace => CanUseWorkflowActions && HasActiveCase && (HasLoadedReviewData || HasExtractionArtifact || workflowSession.CanRunExtractionReview);
+    public bool CanOpenExperimentalReviewWorkspace => CanUseWorkflowActions && HasActiveCase && workflowSession.HasUsableExtractionReview;
+
+    public bool ShowExperimentalReviewWorkspaceAction => workflowSession.HasUsableExtractionReview;
+
+    public bool IsManualCogoFallbackSelected => workflowSession.CurrentState == WorkflowState.ReviewManualPending;
+
+    public bool ShowManualCogoFallbackAction =>
+        HasExtractionArtifact
+        && workflowSession.CurrentState is WorkflowState.ReviewPending or WorkflowState.ReviewManualPending;
 
     public string SelectedReviewSourceTitle => SelectedReviewSource is null
         ? "Source document not resolved"
@@ -679,7 +730,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public bool ReviewHasBlockers => ReviewSummary.UnresolvedRows > 0 || ReviewSummary.MissingRequiredRows > 0;
+    public bool ReviewHasBlockers => HasLoadedReviewData && ReviewValidationResult.HasBlockers;
 
     public ExtractionReviewSummary ReviewSummary =>
         loadedReviewDocument is null
@@ -688,28 +739,64 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReviewSummaryText =>
         !HasLoadedReviewData
-            ? "Open extraction review to inspect and correct extracted points."
+            ? "Continue point review in Points Validation Tool to inspect and correct the extracted parcel points."
+            : IsManualCogoFallbackSelected
+                ? $"{ReviewSummary.TotalRows} point row(s) loaded. Manual review workspace is active, so the extracted review stays available as reference only and is not treated as approved."
             : IsReviewApproved
-                ? $"{ReviewSummary.TotalRows} point row(s) loaded, review approved and locked for editing."
-                : $"{ReviewSummary.TotalRows} point row(s) loaded, {ReviewSummary.EditedRows} edited, {ReviewSummary.ManualRows} manual, {ReviewSummary.UnresolvedRows} unresolved.";
+                ? $"{ReviewSummary.TotalRows} point row(s) loaded. Validate Points is approved and locked for editing."
+                : IsManualReviewEditMode
+                    ? $"{ReviewSummary.TotalRows} point row(s) loaded, {ReviewSummary.EditedRows} edited, {ReviewSummary.ManualRows} manual, {ReviewSummary.UnresolvedRows} unresolved. Manual point edit is active for the current parcel."
+                    : $"{ReviewSummary.TotalRows} point row(s) loaded, {ReviewSummary.EditedRows} edited, {ReviewSummary.ManualRows} manual, {ReviewSummary.UnresolvedRows} unresolved.";
+
+    public ParcelScopedReviewValidationResult ReviewValidationResult =>
+        loadedReviewDocument is null
+            ? new ParcelScopedReviewValidationResult(new[] { "Review data not loaded." })
+            : reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId);
+
+    public bool IsManualReviewEditMode => !string.IsNullOrWhiteSpace(pendingManualRowId);
+
+    public bool CanCancelPendingManualPointEdit => IsManualReviewEditMode && !IsReviewLocked;
+
+    public bool CanChangeReviewParcelSelection => !IsManualReviewEditMode;
+
+    public bool HasSingleReviewParcelGroup =>
+        ReviewRows
+            .Select(row => NormalizeReviewParcelGroupId(row.ParcelGroupId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .Count() <= 1;
 
     public string ReviewGateText =>
         !HasLoadedReviewData
             ? "Review data not loaded."
+            : IsManualCogoFallbackSelected
+                ? "Manual review workspace is active. Use the ArcGIS Pro map for editing, keep the transaction attachments as source context, and do not treat the extracted review as approved for Create Spatial Units."
             : IsReviewApproved
-                ? "Review approved. Details remain available for verification, but editing is disabled."
-            : ReviewSummary.CanApprove
-                ? "Review is complete for this stage."
-                : $"{ReviewSummary.UnresolvedRows} unresolved row(s) and {ReviewSummary.MissingRequiredRows} row(s) missing required values block approval.";
+                ? "Validate Points is approved. Points Validation Tool stays available for verification, and the next steps are Create Spatial Units followed by Final Review."
+            : IsManualReviewEditMode
+                ? "Manual point edit is in progress. Save review or discard the pending row before switching parcels or approving."
+                : ReviewValidationResult.HasBlockers
+                    ? ReviewValidationResult.SummaryText
+                    : "Validate Points is complete for this stage. Continue in Points Validation Tool when you need parcel-by-parcel verification before Create Spatial Units.";
 
     public string ReviewBadgeText =>
         !HasLoadedReviewData
             ? "Not loaded"
             : reviewDirty
                 ? "Unsaved"
+                : IsManualReviewEditMode
+                    ? "Editing"
+                : IsManualCogoFallbackSelected
+                    ? "Manual path"
                 : IsReviewApproved
                     ? "Approved"
                     : "Loaded";
+
+    internal bool HasUnsavedReviewChanges => reviewDirty;
+
+    internal bool CanSaveReviewChangesFromWorkspace => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked && reviewDirty;
+
+    public int ReviewContentVersion => reviewContentVersion;
 
     public bool ExtractionSummaryExpanded
     {
@@ -736,17 +823,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string SpatialReviewSummaryText =>
         workflowSession.CurrentState switch
         {
-            WorkflowState.SpatialReviewApproved => "Map-based spatial review is complete. The reviewed parcel layers are ready for final transaction completion.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Open or reuse the generated parcel layers in ArcGIS Pro, inspect geometry in-map, and apply any needed snapping or COGO edits before marking the review complete.",
-            _ => "Spatial review becomes available after output generation succeeds."
+            WorkflowState.SpatialReviewApproved => "Final Review is complete. The reviewed parcel layers are ready for final transaction completion.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace prepared the editable parcel layers. Use the ArcGIS Pro map to refine geometry while keeping the transaction PDFs open as source reference.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Open or reuse the generated parcel layers in ArcGIS Pro, inspect geometry in-map, and apply any needed snapping or COGO edits after Create Spatial Units finishes.",
+            _ => "Final Review becomes available after spatial unit creation succeeds."
         };
 
     public string SpatialReviewHelpText =>
         workflowSession.CurrentState switch
         {
-            WorkflowState.SpatialReviewApproved => "Spatial review has been approved. If outputs are regenerated later, this approval will be cleared automatically and the geometry must be reviewed again.",
+            WorkflowState.SpatialReviewApproved => "Final Review has been approved. If spatial units are regenerated later, this approval will be cleared automatically and the geometry must be reviewed again.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace prepared. Edit the prepared map layers directly in ArcGIS Pro and save progress there before final approval.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Use the ArcGIS Pro map as the editing surface. Standard edit, snapping, and COGO-capable tools should be used there rather than inside this dock pane.",
-            _ => "Run Outputs first. When geometry is available, this stage will guide the in-map review handoff."
+            _ => "Run Create Spatial Units first. When geometry is available, this stage will guide the in-map review handoff."
         };
 
     public string OutputPreviewSummaryText =>
@@ -761,9 +850,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? BuildOutputPreviewBodyText()
             : workflowSession.CurrentState switch
             {
-                WorkflowState.OutputRunning => "Output generation is running. Local geodatabase layers and geometry artifacts will appear here when the stage finishes.",
-                WorkflowState.ValidationPassed => "Validation passed. Run Outputs to build the transaction-local geodatabase and map-ready geometry.",
-                _ => "Output preview stays unavailable until validation passes. This stage creates the local geometry package used by Spatial Review."
+                WorkflowState.OutputRunning => "Create Spatial Units is running. Local geodatabase layers and geometry artifacts will appear here when the stage finishes.",
+                WorkflowState.ValidationPassed => "Create Spatial Units is ready. Run it to build the transaction-local geodatabase and map-ready geometry.",
+                _ => "Create Spatial Units stays unavailable until point validation is approved and quality requirements pass. This stage creates the geometry package used by Final Review."
             };
 
     public bool OutputsSummaryExpanded
@@ -791,13 +880,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReadyToCompleteSummaryText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Map review is complete. When you approve the transaction, the reviewed result will be shared and the task will be finalized."
-            : "Ready to Complete becomes available after outputs are reviewed and spatial review is marked complete.";
+            ? "Final Review is complete. When you approve the transaction, the reviewed result will be shared and the compute task will be finalized."
+            : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Use the ArcGIS Pro map to do a final visual check, confirm the output artifacts look right, then select Approve to publish the completed review and close the transaction. Select Suspend if you need to save this state and come back later."
-            : "Finish Outputs and complete Spatial Review first. That review is the gate that unlocks final transaction completion.";
+            ? "Use the ArcGIS Pro map to do a final visual check, confirm the created spatial outputs look right, then select Approve to publish the completed review and close the transaction. Select Suspend if you need to save this state and come back later."
+            : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks final transaction completion.";
 
     public string ValidationBadge =>
         workflowSession.CurrentState switch
@@ -808,6 +897,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning => "Passed",
             WorkflowState.OutputCreated => "Passed",
             WorkflowState.ReviewApproved => "Ready",
+            WorkflowState.ReviewManualPending => "Manual path",
             _ => "Not started"
         };
 
@@ -818,9 +908,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             var summary = workflowSession.CurrentValidationSummary;
             if (summary is null)
             {
-                return workflowSession.CurrentState == WorkflowState.ReviewApproved
-                    ? "Approved review data is ready for validation."
-                    : "Validation has not produced a summary yet.";
+                return workflowSession.CurrentState == WorkflowState.ReviewManualPending
+                    ? "Create Spatial Units is not the active path while the manual review workspace is selected."
+                    : workflowSession.CurrentState == WorkflowState.ReviewApproved
+                    ? "Approved point-review data is ready for spatial-unit checks."
+                    : "Create Spatial Units has not produced a summary yet.";
             }
 
             var counts = summary.Payload.FindingCounts;
@@ -831,15 +923,23 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string ValidationHelpText =>
         workflowSession.CurrentState switch
         {
-            WorkflowState.ValidationRunning => "Validation is running against the approved review snapshot.",
-            WorkflowState.ValidationBlocked => "Validation completed with blocking findings. Review the validation summary before output generation.",
-            WorkflowState.ValidationPassed => "Validation passed. Run Outputs to generate the transaction-local geodatabase.",
-            WorkflowState.OutputRunning => "Validation passed. Output generation is currently building the local geometry package.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Validation passed. Local outputs are created and now need spatial review in the ArcGIS Pro map.",
-            WorkflowState.SpatialReviewApproved => "Validation passed. Spatial review is approved, so final completion may proceed when transaction-level readiness is met.",
-            WorkflowState.ReviewApproved => "Run validation on the approved review data before outputs.",
-            _ => "Validation becomes available after extraction review is approved."
+            WorkflowState.ValidationRunning => "Create Spatial Units checks are running against the approved review snapshot.",
+            WorkflowState.ValidationBlocked => "Create Spatial Units checks completed with blocking findings. Review the validation summary before spatial creation.",
+            WorkflowState.ValidationPassed => "Create Spatial Units checks passed. Run Create Spatial Units to generate the transaction-local geodatabase.",
+            WorkflowState.OutputRunning => "Create Spatial Units checks passed. Create Spatial Units is currently building the local geometry package.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace now owns the reviewed geometry. Continue in Final Review and use the transaction PDFs as the source reference while editing.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Create Spatial Units checks passed. Spatial outputs are created and now need Final Review in the ArcGIS Pro map.",
+            WorkflowState.SpatialReviewApproved => "Create Spatial Units passed. Final Review is approved, so final completion may proceed when transaction-level readiness is met.",
+            WorkflowState.ReviewManualPending => "Manual review workspace is active. Continue with transaction PDFs as source context and ArcGIS Pro map editing instead of running Create Spatial Units on extracted review approval.",
+            WorkflowState.ReviewApproved => "Run Create Spatial Units checks on the approved point-review data before spatial creation.",
+            _ => "Create Spatial Units becomes available after Validate Points is approved."
         };
+
+    private bool IsManualSpatialReviewRoute =>
+        string.Equals(
+            workflowSession.CurrentOutputSummary?.Payload.ReviewResultOwner,
+            ReviewResultOwnership.ManualSpatialReview,
+            StringComparison.OrdinalIgnoreCase);
 
     public bool ValidationSummaryExpanded
     {
@@ -896,11 +996,47 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private async Task RunOrOpenExtractionReviewAsync()
     {
-        await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
+        if (workflowSession.HasUsableExtractionReview && !workflowSession.ExtractionResultRequiresDecision && !HasLoadedReviewData)
+        {
+            var loadedForTool = await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
+            if (loadedForTool)
+            {
+                await OpenExperimentalReviewWorkspaceAsync().ConfigureAwait(true);
+            }
+
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        await EnsureExtractionReviewLoadedAsync(workflowSession.ExtractionResultRequiresDecision).ConfigureAwait(true);
         RefreshWorkflowProperties();
     }
 
-    private async Task<bool> EnsureExtractionReviewLoadedAsync()
+    private async Task UseManualCogoFallbackAsync()
+    {
+        var confirmation = MessageBox.Show(
+            "Prepare the manual review workspace for this case? The extracted point review will stay available as reference, but it will not be treated as approved for Create Spatial Units.",
+            "Prepare Manual Review Workspace",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            workflowSession.SetValidationFailure("Manual review workspace preparation cancelled.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        RefreshWorkflowProperties();
+        var switched = await workflowSession.UseManualCogoReviewAsync(Environment.UserName).ConfigureAwait(true);
+        if (switched)
+        {
+            await LoadSpatialReviewLayersAsync().ConfigureAwait(true);
+        }
+
+        RefreshWorkflowProperties();
+    }
+
+    private async Task<bool> EnsureExtractionReviewLoadedAsync(bool forceReprocess = false)
     {
         if (string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
         {
@@ -910,10 +1046,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
-        var artifactPath = SelectExtractionReviewArtifact(layout);
+        var artifactPath = forceReprocess ? null : SelectExtractionReviewArtifact(layout);
         if (artifactPath is null)
         {
-            var extractionTask = workflowSession.RunDraftExtractionAsync();
+            var extractionTask = workflowSession.RunDraftExtractionAsync(forceReprocess);
             RefreshWorkflowProperties();
             var extractionResult = await extractionTask.ConfigureAwait(true);
             if (!extractionResult.Success)
@@ -948,6 +1084,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         loadedReviewDocument = document;
         reviewDirty = false;
+        pendingManualRowId = null;
+        reviewContentVersion = 0;
         ReviewRows.Clear();
         foreach (var row in document.Rows)
         {
@@ -960,6 +1098,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void OnReviewRowChanged()
     {
         reviewDirty = true;
+        reviewContentVersion++;
         if (loadedReviewDocument is not null)
         {
             foreach (var row in ReviewRows)
@@ -971,8 +1110,30 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    internal void SetReviewWorkspaceParcelContext(string? parcelGroupId, string? parcelName, string? traverseId, bool refreshProperties = true)
+    {
+        var nextGroupId = NormalizeReviewParcelGroupId(parcelGroupId);
+        var nextParcelName = string.IsNullOrWhiteSpace(parcelName) ? nextGroupId : parcelName.Trim();
+        var nextTraverseId = string.IsNullOrWhiteSpace(traverseId) ? nextGroupId : traverseId.Trim();
+        if (string.Equals(activeReviewParcelGroupId, nextGroupId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(activeReviewParcelName, nextParcelName, StringComparison.Ordinal)
+            && string.Equals(activeReviewTraverseId, nextTraverseId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        activeReviewParcelGroupId = nextGroupId;
+        activeReviewParcelName = nextParcelName;
+        activeReviewTraverseId = nextTraverseId;
+        if (refreshProperties)
+        {
+            RefreshWorkflowProperties();
+        }
+    }
+
     private void AddManualPoint()
     {
+        ClearPendingManualPointIfStale();
         if (IsReviewLocked)
         {
             workflowSession.SetValidationFailure("Review is already approved and locked.");
@@ -985,32 +1146,24 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        var nextIndex = ReviewRows.Count + 1;
-        var manualRow = new ExtractionReviewRow
-        {
-            RowId = $"manual-{nextIndex:000}",
-            PointIdentifier = $"P-{nextIndex:000}",
-            Easting = string.Empty,
-            Northing = string.Empty,
-            Length = string.Empty,
-            ExtractionStatus = "Manual entry",
-            SourceEvidence = "Manual correction",
-            RowProvenance = "manual",
-            IsManual = true,
-            IsEdited = true,
-            OriginalValues = new ExtractionReviewOriginalValues()
-        };
+        var parcelGroupId = ResolveActiveReviewParcelGroupId();
+        var parcelName = ResolveActiveReviewParcelName();
+        var traverseId = ResolveActiveReviewTraverseId();
+        var manualRow = manualPointService.CreateManualRow(loadedReviewDocument, parcelGroupId, parcelName, traverseId);
         loadedReviewDocument.Rows.Add(manualRow);
         var reviewRow = new ExtractionReviewRowViewModel(manualRow, OnReviewRowChanged);
         ReviewRows.Add(reviewRow);
         SelectedReviewRow = reviewRow;
         reviewDirty = true;
-        workflowSession.SetValidationFailure("Manual review row added. Complete point id and coordinates before approval.");
+        pendingManualRowId = manualRow.RowId;
+        reviewContentVersion++;
+        workflowSession.SetValidationFailure($"Manual point added to parcel {parcelGroupId}. Complete the row, save review, or discard it before switching parcels.");
         RefreshWorkflowProperties();
     }
 
     private void RemoveSelectedManualPoint()
     {
+        ClearPendingManualPointIfStale();
         if (IsReviewLocked)
         {
             workflowSession.SetValidationFailure("Review is already approved and locked.");
@@ -1025,13 +1178,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        if (!SelectedReviewRow.IsManual)
-        {
-            workflowSession.SetValidationFailure("Only manual points can be removed from this review workspace.");
-            RefreshWorkflowProperties();
-            return;
-        }
-
         var rowToRemove = SelectedReviewRow;
         var removedIndex = ReviewRows.IndexOf(rowToRemove);
         loadedReviewDocument.Rows.Remove(rowToRemove.Model);
@@ -1040,24 +1186,167 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? ReviewRows[removedIndex]
             : ReviewRows.LastOrDefault();
         reviewDirty = true;
-        workflowSession.SetValidationFailure("Selected manual point removed. Save review to persist the change.");
+        reviewContentVersion++;
+        workflowSession.SetValidationFailure(rowToRemove.IsManual
+            ? "Selected manual point removed. Save review to persist the change."
+            : "Selected extracted point removed from the review dataset. Save review to persist the change.");
+        if (string.Equals(pendingManualRowId, rowToRemove.RowId, StringComparison.Ordinal))
+        {
+            pendingManualRowId = null;
+        }
+        RefreshWorkflowProperties();
+    }
+
+    private void CancelPendingManualPointEdit()
+    {
+        ClearPendingManualPointIfStale();
+        if (loadedReviewDocument is null || string.IsNullOrWhiteSpace(pendingManualRowId))
+        {
+            workflowSession.SetValidationFailure("No in-progress manual point is available to discard.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var rowToDiscard = ReviewRows.FirstOrDefault(row => string.Equals(row.RowId, pendingManualRowId, StringComparison.Ordinal));
+        if (rowToDiscard is null)
+        {
+            pendingManualRowId = null;
+            workflowSession.SetValidationFailure("The in-progress manual point was already cleared.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        loadedReviewDocument.Rows.Remove(rowToDiscard.Model);
+        var removedIndex = ReviewRows.IndexOf(rowToDiscard);
+        ReviewRows.Remove(rowToDiscard);
+        SelectedReviewRow = removedIndex >= 0 && removedIndex < ReviewRows.Count
+            ? ReviewRows[removedIndex]
+            : ReviewRows.LastOrDefault();
+        pendingManualRowId = null;
+        reviewDirty = true;
+        reviewContentVersion++;
+        workflowSession.SetValidationFailure("In-progress manual point discarded. Save review to persist the removal.");
+        RefreshWorkflowProperties();
+    }
+
+    internal void DiscardPendingManualPointIfAny(bool silent = false)
+    {
+        ClearPendingManualPointIfStale();
+        if (loadedReviewDocument is null || string.IsNullOrWhiteSpace(pendingManualRowId))
+        {
+            return;
+        }
+
+        var rowToDiscard = ReviewRows.FirstOrDefault(row => string.Equals(row.RowId, pendingManualRowId, StringComparison.Ordinal));
+        if (rowToDiscard is null)
+        {
+            pendingManualRowId = null;
+            return;
+        }
+
+        loadedReviewDocument.Rows.Remove(rowToDiscard.Model);
+        var removedIndex = ReviewRows.IndexOf(rowToDiscard);
+        ReviewRows.Remove(rowToDiscard);
+        SelectedReviewRow = removedIndex >= 0 && removedIndex < ReviewRows.Count
+            ? ReviewRows[removedIndex]
+            : ReviewRows.LastOrDefault();
+        pendingManualRowId = null;
+        reviewDirty = true;
+        reviewContentVersion++;
+        if (!silent)
+        {
+            workflowSession.SetValidationFailure("In-progress manual point discarded.");
+        }
+
+        RefreshWorkflowProperties();
+    }
+
+    internal bool SaveReviewChangesFromWorkspace()
+    {
+        return SaveReviewChangesCore("Validated points saved. Continue into Create Spatial Units when you are ready.");
+    }
+
+    internal bool ContinueToCreateSpatialUnitsFromWorkspace()
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Validated points are already approved. Continue in Create Spatial Units.");
+            RefreshWorkflowProperties();
+            return true;
+        }
+
+        if (reviewDirty && !SaveReviewChangesCore(null))
+        {
+            return false;
+        }
+
+        return ApproveReviewCore("Validated points are approved. Continue in Create Spatial Units.");
+    }
+
+    internal bool DiscardUnsavedReviewChangesFromWorkspace()
+    {
+        if (!reviewDirty && !IsManualReviewEditMode)
+        {
+            return true;
+        }
+
+        var reviewDocument = workflowSession.LoadExtractionReview();
+        if (reviewDocument is null)
+        {
+            workflowSession.SetValidationFailure("Could not reload the last saved point review data.");
+            RefreshWorkflowProperties();
+            return false;
+        }
+
+        LoadReviewDocumentIntoPane(reviewDocument);
+        workflowSession.SetValidationFailure("Unsaved point changes were discarded. Previous saved review data remains available.");
+        RefreshWorkflowProperties();
+        return true;
+    }
+
+    internal void HandlePointsValidationWorkspaceClosed(bool reviewSaved, bool continuedToCreateSpatialUnits, bool discardedUnsavedChanges)
+    {
+        if (experimentalReviewWorkspaceWindow is not null)
+        {
+            experimentalReviewWorkspaceWindow = null;
+        }
+
+        workflowSession.SetValidationFailure(
+            PointsValidationWorkspaceMessages.BuildCloseStatusText(
+                reviewSaved,
+                continuedToCreateSpatialUnits,
+                discardedUnsavedChanges,
+                workflowSession.CurrentState));
         RefreshWorkflowProperties();
     }
 
     private void SaveReviewChanges()
     {
+        SaveReviewChangesCore("Validated points saved. Continue into Create Spatial Units when you are ready.");
+    }
+
+    private bool SaveReviewChangesCore(string? successMessage)
+    {
         if (IsReviewLocked)
         {
             workflowSession.SetValidationFailure("Review is already approved and locked.");
             RefreshWorkflowProperties();
-            return;
+            return false;
         }
 
         if (loadedReviewDocument is null || string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
         {
             workflowSession.SetValidationFailure("Review data is not loaded.");
             RefreshWorkflowProperties();
-            return;
+            return false;
+        }
+
+        var reviewIssues = reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId, includePendingManualBarrier: false);
+        if (!string.IsNullOrWhiteSpace(pendingManualRowId) && reviewIssues.HasBlockers)
+        {
+            workflowSession.SetValidationFailure(reviewIssues.SummaryText);
+            RefreshWorkflowProperties();
+            return false;
         }
 
         foreach (var row in ReviewRows)
@@ -1070,9 +1359,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             loadedReviewDocument = saveResult.Document;
             reviewDirty = false;
+            pendingManualRowId = null;
+            if (!string.IsNullOrWhiteSpace(successMessage))
+            {
+                workflowSession.SetValidationFailure(successMessage);
+            }
         }
 
         RefreshWorkflowProperties();
+        return saveResult.Success;
     }
 
     private void ApproveReview()
@@ -1084,30 +1379,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        if (loadedReviewDocument is null)
-        {
-            workflowSession.SetValidationFailure("Review data is not loaded.");
-            RefreshWorkflowProperties();
-            return;
-        }
-
-        if (reviewDirty)
-        {
-            SaveReviewChanges();
-            if (reviewDirty)
-            {
-                return;
-            }
-        }
-
-        foreach (var row in ReviewRows)
-        {
-            row.SyncBackToModel();
-        }
-
         var confirmation = MessageBox.Show(
-            "Approve this extraction review? After approval, the review workspace will become read-only until the process is reset.",
-            "Approve Extraction Review",
+            "Approve Validate Points? After approval, Points Validation Tool will become read-only until the process is reset.",
+            "Approve Validate Points",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
         if (confirmation != MessageBoxResult.Yes)
@@ -1117,14 +1391,61 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        ApproveReviewCore(null);
+    }
+
+    private bool ApproveReviewCore(string? successMessage)
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return false;
+        }
+
+        if (loadedReviewDocument is null)
+        {
+            workflowSession.SetValidationFailure("Review data is not loaded.");
+            RefreshWorkflowProperties();
+            return false;
+        }
+
+        if (reviewDirty)
+        {
+            SaveReviewChangesCore(null);
+            if (reviewDirty)
+            {
+                return false;
+            }
+        }
+
+        foreach (var row in ReviewRows)
+        {
+            row.SyncBackToModel();
+        }
+
+        var reviewIssues = reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId);
+        if (reviewIssues.HasBlockers)
+        {
+            workflowSession.SetValidationFailure(reviewIssues.SummaryText);
+            RefreshWorkflowProperties();
+            return false;
+        }
+
         var approvalResult = workflowSession.ApproveExtractionReview(loadedReviewDocument, Environment.UserName);
         if (approvalResult.Success)
         {
             reviewDirty = false;
+            pendingManualRowId = null;
             reviewDetailsExpanded = false;
+            if (!string.IsNullOrWhiteSpace(successMessage))
+            {
+                workflowSession.SetValidationFailure(successMessage);
+            }
         }
 
         RefreshWorkflowProperties();
+        return approvalResult.Success;
     }
 
     private async Task RunValidationAsync()
@@ -1352,7 +1673,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
         experimentalReviewWorkspaceWindow.Closed += (_, _) => experimentalReviewWorkspaceWindow = null;
         experimentalReviewWorkspaceWindow.Show();
-        workflowSession.SetValidationFailure("Experimental Jamaica review workspace opened with the current case artifacts.");
+        workflowSession.SetValidationFailure("Points Validation Tool opened with the current case artifacts.");
         RefreshWorkflowProperties();
     }
 
@@ -1494,10 +1815,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        var suspendedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
         var result = await ShellState.LifecycleCoordinator.SaveAndCloseAsync();
         if (result.Success)
         {
-            ResetWorkflowView(result.StatusMessage ?? "Transaction suspended.");
+            await ReturnToTransactionListAsync(
+                suspendedTransactionNumber,
+                result.StatusMessage ?? "Transaction suspended.",
+                preserveSavedMarker: true,
+                suppressTransactionFromList: false,
+                refreshTransactions: false);
             return;
         }
 
@@ -1527,10 +1854,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        var cancelledTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
         var result = ShellState.LifecycleCoordinator.CancelActiveProcess();
         if (result.Success)
         {
-            ResetWorkflowView(result.StatusMessage ?? "Cancelled locally.");
+            ReturnToTransactionListAsync(
+                cancelledTransactionNumber,
+                result.StatusMessage ?? "Cancelled locally.",
+                preserveSavedMarker: false,
+                suppressTransactionFromList: false,
+                refreshTransactions: false).GetAwaiter().GetResult();
             return;
         }
 
@@ -1556,10 +1889,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        var completedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
         var result = await ShellState.LifecycleCoordinator.CompleteAsync();
         if (result.Success)
         {
-            ResetWorkflowView(result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.");
+            await ReturnToTransactionListAsync(
+                completedTransactionNumber,
+                result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.",
+                preserveSavedMarker: false,
+                suppressTransactionFromList: true,
+                refreshTransactions: true);
             return;
         }
 
@@ -1650,6 +1989,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionRunning => "done",
             WorkflowState.ExtractionFailed => "done",
             WorkflowState.ReviewPending => "done",
+            WorkflowState.ReviewManualPending => "done",
             WorkflowState.ReviewApproved => "done",
             WorkflowState.ValidationRunning => "done",
             WorkflowState.ValidationBlocked => "done",
@@ -1675,6 +2015,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionRunning => "done",
             WorkflowState.ExtractionFailed => "done",
             WorkflowState.ReviewPending => "done",
+            WorkflowState.ReviewManualPending => "done",
             WorkflowState.ReviewApproved => "done",
             WorkflowState.ValidationRunning => "done",
             WorkflowState.ValidationBlocked => "done",
@@ -1698,6 +2039,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ExtractionRunning => "active",
             WorkflowState.ExtractionFailed => "blocked",
             WorkflowState.ReviewPending => "done",
+            WorkflowState.ReviewManualPending => "active",
             WorkflowState.ReviewApproved => "done",
             WorkflowState.ValidationRunning => "done",
             WorkflowState.ValidationBlocked => "done",
@@ -1724,7 +2066,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.SpatialReviewPending => "done",
             WorkflowState.SpatialReviewApproved => "done",
             WorkflowState.ReviewApproved => "active",
-            WorkflowState.NoCase or WorkflowState.Intake or WorkflowState.PreflightRunning or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending => "pending",
+            WorkflowState.NoCase or WorkflowState.Intake or WorkflowState.PreflightRunning or WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewManualPending => "pending",
             _ => "pending"
         };
     }
@@ -1793,17 +2135,38 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var outputState = GetStepStateForOutputs(currentState);
         var spatialReviewState = GetStepStateForSpatialReview(currentState);
         var readyState = GetStepStateForReadyToComplete(currentState);
+        var spatialUnitsState = MergeStepState(validationState, outputState);
+        var finalReviewState = spatialReviewState;
 
         return new WorkflowLifecycleStep[]
         {
-            new WorkflowLifecycleStep("Sources", intakeState, GetLifecycleStepIcon(intakeState)),
-            new WorkflowLifecycleStep("Checks", preflightState, GetLifecycleStepIcon(preflightState)),
-            new WorkflowLifecycleStep("Point Review", extractionState, GetLifecycleStepIcon(extractionState)),
-            new WorkflowLifecycleStep("Quality", validationState, GetLifecycleStepIcon(validationState)),
-            new WorkflowLifecycleStep("Outputs", outputState, GetLifecycleStepIcon(outputState)),
-            new WorkflowLifecycleStep("Map Review", spatialReviewState, GetLifecycleStepIcon(spatialReviewState)),
+            new WorkflowLifecycleStep("Attachments", intakeState, GetLifecycleStepIcon(intakeState)),
+            new WorkflowLifecycleStep("Data Extraction", preflightState, GetLifecycleStepIcon(preflightState)),
+            new WorkflowLifecycleStep("Validate Points", extractionState, GetLifecycleStepIcon(extractionState)),
+            new WorkflowLifecycleStep("Create Spatial Units", spatialUnitsState, GetLifecycleStepIcon(spatialUnitsState)),
+            new WorkflowLifecycleStep("Final Review", finalReviewState, GetLifecycleStepIcon(finalReviewState)),
             new WorkflowLifecycleStep("Finalize", readyState, GetLifecycleStepIcon(readyState))
         };
+    }
+
+    private static string MergeStepState(string first, string second)
+    {
+        if (string.Equals(first, "blocked", StringComparison.OrdinalIgnoreCase) || string.Equals(second, "blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "blocked";
+        }
+
+        if (string.Equals(first, "active", StringComparison.OrdinalIgnoreCase) || string.Equals(second, "active", StringComparison.OrdinalIgnoreCase))
+        {
+            return "active";
+        }
+
+        if (string.Equals(first, "done", StringComparison.OrdinalIgnoreCase) || string.Equals(second, "done", StringComparison.OrdinalIgnoreCase))
+        {
+            return "done";
+        }
+
+        return "pending";
     }
 
     private static bool IsReviewLockedState(WorkflowState state)
@@ -1824,14 +2187,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private static string GetWorkspaceStageLabel(WorkflowWorkspaceStage stage) =>
         stage switch
         {
-            WorkflowWorkspaceStage.Intake => "Transaction Sources",
-            WorkflowWorkspaceStage.Preflight => "Processing Checks",
-            WorkflowWorkspaceStage.ExtractionReview => "Review Extracted Points",
-            WorkflowWorkspaceStage.Validation => "Quality Check",
-            WorkflowWorkspaceStage.Outputs => "Create Spatial Outputs",
-            WorkflowWorkspaceStage.SpatialReview => "Map Review",
-            WorkflowWorkspaceStage.ReadyToComplete => "Finalize Case",
-            _ => "Transaction Sources"
+            WorkflowWorkspaceStage.Intake => "Attachments",
+            WorkflowWorkspaceStage.Preflight => "Data Extraction",
+            WorkflowWorkspaceStage.ExtractionReview => "Validate Points",
+            WorkflowWorkspaceStage.Validation => "Create Spatial Units",
+            WorkflowWorkspaceStage.Outputs => "Create Spatial Units",
+            WorkflowWorkspaceStage.SpatialReview => "Final Review",
+            WorkflowWorkspaceStage.ReadyToComplete => "Finalize",
+            _ => "Attachments"
         };
 
     private string? ResolveSelectedTransactionType()
@@ -1914,15 +2277,24 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ExtractionReviewBadge));
         NotifyPropertyChanged(nameof(ExtractionReviewActionLabel));
         NotifyPropertyChanged(nameof(ExtractionReviewHelpText));
+        NotifyPropertyChanged(nameof(ShowExtractionDecisionGate));
+        NotifyPropertyChanged(nameof(ExtractionDecisionSummaryText));
+        NotifyPropertyChanged(nameof(ExtractionDecisionGuidanceText));
+        NotifyPropertyChanged(nameof(ExtractionDecisionAttemptText));
         NotifyPropertyChanged(nameof(HasLoadedReviewData));
         NotifyPropertyChanged(nameof(ReviewSummary));
         NotifyPropertyChanged(nameof(ReviewSummaryText));
+        NotifyPropertyChanged(nameof(ReviewValidationResult));
         NotifyPropertyChanged(nameof(ReviewHasBlockers));
         NotifyPropertyChanged(nameof(ReviewGateText));
         NotifyPropertyChanged(nameof(ReviewBadgeText));
         NotifyPropertyChanged(nameof(ExtractionSummaryExpanded));
         NotifyPropertyChanged(nameof(IsReviewApproved));
         NotifyPropertyChanged(nameof(IsReviewLocked));
+        NotifyPropertyChanged(nameof(IsManualReviewEditMode));
+        NotifyPropertyChanged(nameof(CanCancelPendingManualPointEdit));
+        NotifyPropertyChanged(nameof(CanChangeReviewParcelSelection));
+        NotifyPropertyChanged(nameof(HasSingleReviewParcelGroup));
         NotifyPropertyChanged(nameof(ReviewDetailsExpanded));
         NotifyPropertyChanged(nameof(ReviewDetailsToggleText));
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
@@ -1980,9 +2352,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewViewerImageSource));
         NotifyPropertyChanged(nameof(ReviewViewerBrowserUri));
         NotifyPropertyChanged(nameof(ReviewViewerNavigationKey));
+        NotifyPropertyChanged(nameof(ReviewContentVersion));
         NotifyPropertyChanged(nameof(SelectedReviewRowDetailsTitle));
         NotifyPropertyChanged(nameof(SelectedReviewRowDetailsText));
         NotifyPropertyChanged(nameof(ReviewWorkspaceTitle));
+        NotifyPropertyChanged(nameof(ShowExperimentalReviewWorkspaceAction));
+        NotifyPropertyChanged(nameof(IsManualCogoFallbackSelected));
+        NotifyPropertyChanged(nameof(ShowManualCogoFallbackAction));
         NotifyPropertyChanged(nameof(OutputPreviewExpanded));
         NotifyPropertyChanged(nameof(OutputPreviewToggleText));
         NotifyPropertyChanged(nameof(OutputArtifacts));
@@ -2011,12 +2387,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
         runExtractionReviewCommand.RaiseCanExecuteChanged();
+        useManualCogoFallbackCommand.RaiseCanExecuteChanged();
         runValidationCommand.RaiseCanExecuteChanged();
         runOutputsCommand.RaiseCanExecuteChanged();
         loadSpatialReviewLayersCommand.RaiseCanExecuteChanged();
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
         removeManualPointCommand.RaiseCanExecuteChanged();
+        cancelPendingManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();
         approveReviewCommand.RaiseCanExecuteChanged();
         togglePreflightDetailsCommand.RaiseCanExecuteChanged();
@@ -2064,6 +2442,69 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    private string ResolveActiveReviewParcelGroupId()
+    {
+        if (!string.IsNullOrWhiteSpace(activeReviewParcelGroupId))
+        {
+            return activeReviewParcelGroupId!;
+        }
+
+        if (!string.IsNullOrWhiteSpace(SelectedReviewRow?.ParcelGroupId))
+        {
+            return NormalizeReviewParcelGroupId(SelectedReviewRow.ParcelGroupId);
+        }
+
+        return NormalizeReviewParcelGroupId(ReviewRows.FirstOrDefault()?.ParcelGroupId);
+    }
+
+    private string ResolveActiveReviewParcelName()
+    {
+        if (!string.IsNullOrWhiteSpace(activeReviewParcelName))
+        {
+            return activeReviewParcelName!;
+        }
+
+        return ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), ResolveActiveReviewParcelGroupId(), StringComparison.OrdinalIgnoreCase))
+            ?.Model.ParcelName
+            ?.Trim()
+            ?? ResolveActiveReviewParcelGroupId();
+    }
+
+    private string ResolveActiveReviewTraverseId()
+    {
+        if (!string.IsNullOrWhiteSpace(activeReviewTraverseId))
+        {
+            return activeReviewTraverseId!;
+        }
+
+        return ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), ResolveActiveReviewParcelGroupId(), StringComparison.OrdinalIgnoreCase))
+            ?.TraverseId
+            ?.Trim()
+            ?? ResolveActiveReviewParcelGroupId();
+    }
+
+    private void ClearPendingManualPointIfStale()
+    {
+        if (string.IsNullOrWhiteSpace(pendingManualRowId))
+        {
+            return;
+        }
+
+        if (ReviewRows.Any(row => string.Equals(row.RowId, pendingManualRowId, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        pendingManualRowId = null;
+    }
+
+    private static string NormalizeReviewParcelGroupId(string? parcelGroupId)
+    {
+        return string.IsNullOrWhiteSpace(parcelGroupId) || string.Equals(parcelGroupId.Trim(), "Parcel ?", StringComparison.OrdinalIgnoreCase)
+            ? "parcel-001"
+            : parcelGroupId.Trim();
+    }
+
     private void ResetWorkflowView(string statusText)
     {
         workflowSession.ResetToDefault(statusText);
@@ -2082,6 +2523,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewViewerFitToPane = true;
         reviewViewerZoom = 1.0d;
         reviewDirty = false;
+        pendingManualRowId = null;
+        activeReviewParcelGroupId = null;
+        activeReviewParcelName = null;
+        activeReviewTraverseId = null;
+        reviewContentVersion = 0;
         reviewViewerReloadVersion = 0;
         reviewViewerPageIndex = 0;
         reviewViewerPageCount = 0;
@@ -2094,6 +2540,30 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         ReviewRows.Clear();
         RefreshWorkflowProperties();
+    }
+
+    private async Task ReturnToTransactionListAsync(
+        string? transactionNumber,
+        string statusText,
+        bool preserveSavedMarker,
+        bool suppressTransactionFromList,
+        bool refreshTransactions)
+    {
+        ResetWorkflowView(statusText);
+
+        if (FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId) is TransactionPanelDockpaneViewModel transactionPane)
+        {
+            await transactionPane.State.HandleWorkflowExitAsync(
+                transactionNumber,
+                statusText,
+                preserveSavedMarker,
+                suppressTransactionFromList,
+                refreshTransactions).ConfigureAwait(true);
+            transactionPane.Activate();
+            return;
+        }
+
+        FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId)?.Activate();
     }
 
     private void RefreshViewerOnlyProperties()

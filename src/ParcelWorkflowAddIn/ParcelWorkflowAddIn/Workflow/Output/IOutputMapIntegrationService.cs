@@ -95,6 +95,13 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
     private static string BuildSuccessMessage(OutputSummaryDocument summary)
     {
+        if (string.Equals(summary.Payload.ReviewResultOwner, ReviewResultOwnership.ManualSpatialReview, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
+                ? "Manual COGO review layers were added to the active map and zoomed for editing. Keep the transaction PDFs open as the source reference while you work."
+                : "Manual COGO review layers were added to the active map and zoomed for editing. Keep the transaction PDFs open as the source reference while you work.";
+        }
+
         return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
                 ? "Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry."

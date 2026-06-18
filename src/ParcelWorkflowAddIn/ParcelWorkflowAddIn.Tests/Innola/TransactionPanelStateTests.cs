@@ -365,6 +365,118 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(null, panel.SelectedRow, "Complete should clear row selection.");
     }
 
+    public static async Task WorkflowExitSuspendRestoresTransactionListContext()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock);
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+        manager.ClearLoadedTransaction();
+
+        await panel.HandleWorkflowExitAsync(
+            "TR100000004",
+            "Suspended. Resume package uploaded and case is ready to reopen later.",
+            preserveSavedMarker: true,
+            suppressTransactionFromList: false,
+            refreshTransactions: false);
+
+        TestAssert.True(!panel.IsTransactionPanelLocked, "Suspend exit should restore transaction list interaction.");
+        TestAssert.True(panel.CanRefresh, "Suspend exit should re-enable refresh.");
+        TestAssert.True(panel.CanUseListControls, "Suspend exit should restore list controls.");
+        TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Suspend exit should keep the transaction selected for context.");
+        TestAssert.Equal("TR100000004", panel.SavedTransactionNumber, "Suspend exit should mark the transaction as saved.");
+    }
+
+    public static async Task WorkflowExitCancelRestoresTransactionListContext()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock);
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+        LifecycleCoordinator(manager, clock).CancelActiveProcess();
+
+        await panel.HandleWorkflowExitAsync(
+            "TR100000004",
+            "Cancelled locally.",
+            preserveSavedMarker: false,
+            suppressTransactionFromList: false,
+            refreshTransactions: false);
+
+        TestAssert.True(!panel.IsTransactionPanelLocked, "Cancel exit should unlock the transaction list.");
+        TestAssert.True(panel.CanRefresh, "Cancel exit should re-enable refresh.");
+        TestAssert.True(panel.CanUseListControls, "Cancel exit should restore list controls.");
+        TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Cancel exit should keep the transaction selected for context.");
+        TestAssert.Equal(null, panel.SavedTransactionNumber, "Cancel exit should not mark the transaction as saved.");
+    }
+
+    public static async Task WorkflowExitCompleteRefreshesAndSuppressesCompletedTransaction()
+    {
+        using var tempRoot = new TempDirectory();
+        var staleRow = Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00");
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { staleRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var coordinator = LifecycleCoordinator(manager, clock, new AlwaysReadyCompletionReadinessService());
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            coordinator,
+            null,
+            clock);
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+        await coordinator.CompleteAsync();
+
+        await panel.HandleWorkflowExitAsync(
+            "TR100000004",
+            "Completed. Final package uploaded and transaction closed.",
+            preserveSavedMarker: false,
+            suppressTransactionFromList: true,
+            refreshTransactions: true);
+
+        TestAssert.True(!panel.IsTransactionPanelLocked, "Complete exit should unlock the transaction list.");
+        TestAssert.True(panel.CanRefresh, "Complete exit should leave refresh enabled.");
+        TestAssert.Equal(0, panel.Rows.Count, "Complete exit should suppress stale completed rows after refresh.");
+        TestAssert.Equal(null, panel.SelectedRow, "Complete exit should clear selection.");
+    }
+
     public static async Task FailedLoadPreservesPreviouslyLoadedTransaction()
     {
         using var tempRoot = new TempDirectory();

@@ -88,3 +88,17 @@ Capture sprint-level learnings that affect future planning, implementation behav
 
 ### Action item
 - In Story 2-8, validate DWG readiness against the resolved script plan and keep extraction execution deferred to Epic 3.
+
+## Points Validation Tool Learnings (2026-06-18)
+
+### What we observed
+- Examiners treat “save my changes” and “I am done, continue the process” as two different intentions. A single save/close pattern was not enough once the validation work moved into a separate tool window.
+- The shell and the dedicated validation window can easily drift into duplicate messaging or duplicate review surfaces if ownership of each stage is not explicit.
+- Test coverage was stable, but live ArcGIS Pro behavior still depends on a noisier add-in build/deploy path than the local test harness.
+
+### What to improve
+- Keep stage ownership explicit: the dedicated validation tool owns point review, and the Parcel Workflow pane should only show the next actionable step after the tool closes.
+- Treat live ArcGIS Pro verification as required evidence for window-flow changes, not just unit-test coverage.
+
+### Action item
+- Run a focused live verification pass for `Validation Complete` and then clean up the Parcel Workflow pane so it only presents `Create Spatial Units` after point validation is finished.

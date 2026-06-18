@@ -28,6 +28,7 @@ internal static class WorkflowWorkspacePlannerTests
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ExtractionRunning, false, true), "Extraction running should focus extraction review.");
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ExtractionFailed, false, true), "Extraction failed should focus extraction review.");
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ReviewPending, false, true), "Review pending should focus extraction review.");
+        TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ReviewManualPending, false, true), "Manual review pending should keep focus on extraction review.");
     }
 
     public static void ValidationStatesResolveToValidationWorkspace()

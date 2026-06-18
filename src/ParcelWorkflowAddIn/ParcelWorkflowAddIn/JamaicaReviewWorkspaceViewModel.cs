@@ -16,6 +16,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     private readonly ParcelWorkflowDockpaneViewModel parent;
     private JamaicaParcelGroupViewModel? selectedParcelGroup;
     private ExtractionReviewRowViewModel? selectedVisibleRow;
+    private bool isRefreshingProjection;
+    private bool isApplyingSelectedParcelGroup;
+    private bool suppressParentParcelContextSync;
+    private bool suppressParentRowSelectionSync;
 
     internal JamaicaReviewWorkspaceViewModel(ParcelWorkflowDockpaneViewModel parent)
     {
@@ -33,9 +37,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ExtractionReviewRowViewModel> VisibleRows { get; }
 
-    public string WindowTitle => "Jamaica COGO Tool";
+    public string WindowTitle => "Points Validation Tool";
 
-    public string ExperimentalBannerText => "Review source documents and extracted parcel points together before moving into map-based editing.";
+    public string ExperimentalBannerText => "Review source documents and extracted parcel points together before Create Spatial Units and map-based editing.";
 
     public string TransactionHeader => parent.HeaderTransactionText;
 
@@ -47,7 +51,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         ? "Live extraction review artifact loaded from the current case."
         : "No review artifact loaded yet.";
 
-    public string WorkspaceHostNote => "Use this workspace to verify source documents, organize parcel interpretation, and prepare the case for map review.";
+    public string WorkspaceHostNote => "Use this workspace to verify source documents, organize parcel interpretation, and prepare the case for Create Spatial Units and later Final Review.";
 
     public bool UsesLiveArtifacts => parent.HasLoadedReviewData;
 
@@ -55,7 +59,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         ? "Live case artifact mode"
         : "No loaded review artifact";
 
-    public string PlaceholderModeText => "Parcel preview and interpretation remain provisional in this spike.";
+    public string PlaceholderModeText => "Parcel preview and interpretation remain part of the active review workspace.";
 
     public IReadOnlyList<SourceFileListItem> ReviewSourceOptions => parent.ReviewSourceOptions;
 
@@ -91,9 +95,19 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
+    public ICommand CancelPendingManualPointCommand => parent.CancelPendingManualPointCommand;
+
     public ICommand SaveReviewCommand => parent.SaveReviewCommand;
 
-    public ICommand ApproveReviewCommand => parent.ApproveReviewCommand;
+    public bool HasUnsavedReviewChanges => parent.HasUnsavedReviewChanges;
+
+    public bool CanSaveReview => parent.CanSaveReviewChangesFromWorkspace;
+
+    public bool CanCompleteValidation =>
+        parent.HasLoadedReviewData
+        && !parent.IsReviewLocked
+        && !parent.ReviewHasBlockers
+        && !parent.IsManualReviewEditMode;
 
     public string ViewerFileTitle => parent.ReviewViewerFileTitle;
 
@@ -118,6 +132,12 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public bool ViewerUsesBrowser => parent.ReviewViewerUsesBrowser;
 
     public bool ViewerShowsFallback => parent.ReviewViewerShowsFallback;
+
+    public bool ShowCustomViewerControls => parent.ReviewViewerUsesImage;
+
+    public bool ShowPdfViewerHelp => parent.ReviewViewerUsesBrowser;
+
+    public string PdfViewerHelpText => "Use the built-in PDF toolbar below for page navigation and zoom.";
 
     public bool CanToggleViewerFit => parent.CanToggleReviewViewerFit;
 
@@ -156,7 +176,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             return unsupported.Length > 0
                 ? $"Fallback path demonstrated by unsupported source(s): {string.Join(", ", unsupported)}. Use Open source or Reveal instead of embedded rendering."
-                : "Fallback path in this spike: TXT/CSV and other unsupported formats should stay reviewable through the center grid while opening externally from the source tools.";
+                : "TXT/CSV and other unsupported formats should stay reviewable through the center grid while opening externally from the source tools.";
         }
     }
 
@@ -165,19 +185,44 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         get => selectedParcelGroup;
         set
         {
+            if (!CanChangeParcelGroup && selectedParcelGroup is not null && !ReferenceEquals(selectedParcelGroup, value))
+            {
+                return;
+            }
+
             if (ReferenceEquals(selectedParcelGroup, value))
             {
                 return;
             }
 
+            if (isApplyingSelectedParcelGroup)
+            {
+                selectedParcelGroup = value;
+                return;
+            }
+
             selectedParcelGroup = value;
+            if (!suppressParentParcelContextSync)
+            {
+                parent.SetReviewWorkspaceParcelContext(value?.GroupId, value?.DisplayName, value?.TraverseId, refreshProperties: false);
+            }
+
+            selectedVisibleRow = null;
             RebuildVisibleRows();
+            if (selectedVisibleRow is not null)
+            {
+                parent.SelectedReviewRow = selectedVisibleRow;
+            }
+
+            OnPropertyChanged(nameof(VisibleRows));
             OnPropertyChanged(nameof(SelectedParcelGroup));
             OnPropertyChanged(nameof(SelectedParcelTitle));
             OnPropertyChanged(nameof(ParcelInterpretationSummary));
             OnPropertyChanged(nameof(ParcelInterpretationIssues));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
             OnPropertyChanged(nameof(SelectedPointPreview));
+            OnPropertyChanged(nameof(SelectedRowSummary));
+            OnPropertyChanged(nameof(CanChangeParcelGroup));
         }
     }
 
@@ -192,7 +237,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             }
 
             selectedVisibleRow = value;
-            parent.SelectedReviewRow = value;
+            if (!suppressParentRowSelectionSync)
+            {
+                parent.SelectedReviewRow = value;
+            }
+
             OnPropertyChanged(nameof(SelectedVisibleRow));
             OnPropertyChanged(nameof(SelectedPointPreview));
             OnPropertyChanged(nameof(SelectedRowSummary));
@@ -203,6 +252,12 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public string SelectedParcelTitle => SelectedParcelGroup is null
         ? "No parcel group selected"
         : $"{SelectedParcelGroup.DisplayName} - current review focus";
+
+    public bool CanChangeParcelGroup => parent.CanChangeReviewParcelSelection && ParcelGroups.Count > 1;
+
+    public bool IsParcelSelectionReadOnly => ParcelGroups.Count <= 1;
+
+    public bool IsManualReviewEditMode => parent.IsManualReviewEditMode;
 
     public string ParcelInterpretationSummary
     {
@@ -244,7 +299,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             return issues.Count > 0
                 ? string.Join(Environment.NewLine, issues)
-                : "No provisional parcel-group warnings are active for this parcel in the current spike view.";
+                : "No parcel-group warnings are active for this parcel in the current review.";
         }
     }
 
@@ -266,6 +321,26 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     {
         parent.PropertyChanged -= OnParentPropertyChanged;
         parent.ReviewRows.CollectionChanged -= OnReviewRowsCollectionChanged;
+    }
+
+    public bool SaveReviewChanges()
+    {
+        return parent.SaveReviewChangesFromWorkspace();
+    }
+
+    public bool ContinueToCreateSpatialUnits()
+    {
+        return parent.ContinueToCreateSpatialUnitsFromWorkspace();
+    }
+
+    public bool DiscardUnsavedReviewChanges()
+    {
+        return parent.DiscardUnsavedReviewChangesFromWorkspace();
+    }
+
+    public void HandleWindowClosed(bool reviewSaved, bool continuedToCreateSpatialUnits, bool discardedUnsavedChanges)
+    {
+        parent.HandlePointsValidationWorkspaceClosed(reviewSaved, continuedToCreateSpatialUnits, discardedUnsavedChanges);
     }
 
     private void OnReviewRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -312,10 +387,42 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewRows):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
-            case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
-            case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
-            case nameof(ParcelWorkflowDockpaneViewModel.IsReviewLocked):
+            case nameof(ParcelWorkflowDockpaneViewModel.HasSingleReviewParcelGroup):
                 RefreshProjection();
+                OnPropertyChanged(nameof(HasUnsavedReviewChanges));
+                OnPropertyChanged(nameof(CanSaveReview));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
+                OnPropertyChanged(nameof(ApprovalGuidance));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
+                OnPropertyChanged(nameof(ReviewBadge));
+                OnPropertyChanged(nameof(HasUnsavedReviewChanges));
+                OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(CanCompleteValidation));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.IsReviewLocked):
+                OnPropertyChanged(nameof(IsReviewLocked));
+                OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(CanCompleteValidation));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.IsManualReviewEditMode):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanChangeReviewParcelSelection):
+                OnPropertyChanged(nameof(IsManualReviewEditMode));
+                OnPropertyChanged(nameof(CanChangeParcelGroup));
+                OnPropertyChanged(nameof(IsParcelSelectionReadOnly));
+                OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(CanCompleteValidation));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewContentVersion):
+                OnPropertyChanged(nameof(ParcelInterpretationSummary));
+                OnPropertyChanged(nameof(ParcelInterpretationIssues));
+                OnPropertyChanged(nameof(ParcelPreviewPoints));
+                OnPropertyChanged(nameof(SelectedPointPreview));
+                OnPropertyChanged(nameof(SelectedRowSummary));
+                OnPropertyChanged(nameof(HasUnsavedReviewChanges));
+                OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(CanCompleteValidation));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.CurrentStepBadge):
             case nameof(ParcelWorkflowDockpaneViewModel.HeaderTransactionText):
@@ -329,36 +436,67 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     private void RefreshProjection()
     {
-        var grouped = parent.ReviewRows
-            .GroupBy(row => string.IsNullOrWhiteSpace(row.ParcelGroupId) ? "Ungrouped" : row.ParcelGroupId, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new JamaicaParcelGroupViewModel(
-                group.Key,
-                ResolveParcelDisplayName(group.Key, group.ToArray()),
-                group.ToArray()))
-            .OrderBy(group => group.SortKey, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        ParcelGroups.Clear();
-        foreach (var group in grouped)
+        if (isRefreshingProjection)
         {
-            ParcelGroups.Add(group);
+            return;
         }
 
-        var preferredGroupKey = parent.SelectedReviewRow?.ParcelGroupId;
-        SelectedParcelGroup = ParcelGroups.FirstOrDefault(group =>
-                                 string.Equals(group.GroupId, preferredGroupKey, StringComparison.OrdinalIgnoreCase))
-                             ?? ParcelGroups.FirstOrDefault(group =>
-                                 string.Equals(group.GroupId, selectedParcelGroup?.GroupId, StringComparison.OrdinalIgnoreCase))
-                             ?? ParcelGroups.FirstOrDefault();
+        isRefreshingProjection = true;
+        try
+        {
+            var grouped = parent.ReviewRows
+                .GroupBy(row => string.IsNullOrWhiteSpace(row.ParcelGroupId) ? "Ungrouped" : row.ParcelGroupId, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new JamaicaParcelGroupViewModel(
+                    group.Key,
+                    ResolveParcelDisplayName(group.Key, group.ToArray()),
+                    group.ToArray()))
+                .OrderBy(group => group.SortKey, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
-        RebuildVisibleRows();
-        OnPropertyChanged(nameof(UsesLiveArtifacts));
-        OnPropertyChanged(nameof(WorkspaceStatus));
-        OnPropertyChanged(nameof(DataBindingModeText));
-        OnPropertyChanged(nameof(UnsupportedFallbackSummary));
-        OnPropertyChanged(nameof(ApprovalGuidance));
-        OnPropertyChanged(nameof(ReviewBadge));
-        OnPropertyChanged(nameof(IsReviewLocked));
+            ParcelGroups.Clear();
+            foreach (var group in grouped)
+            {
+                ParcelGroups.Add(group);
+            }
+
+            var preferredGroupKey = selectedParcelGroup?.GroupId;
+            var nextGroup = ParcelGroups.FirstOrDefault(group =>
+                                string.Equals(group.GroupId, preferredGroupKey, StringComparison.OrdinalIgnoreCase))
+                            ?? ParcelGroups.FirstOrDefault(group =>
+                                string.Equals(group.GroupId, parent.SelectedReviewRow?.ParcelGroupId, StringComparison.OrdinalIgnoreCase))
+                            ?? ParcelGroups.FirstOrDefault();
+
+            suppressParentParcelContextSync = true;
+            isApplyingSelectedParcelGroup = true;
+            try
+            {
+                SelectedParcelGroup = nextGroup;
+            }
+            finally
+            {
+                isApplyingSelectedParcelGroup = false;
+                suppressParentParcelContextSync = false;
+            }
+
+            RebuildVisibleRows();
+            OnPropertyChanged(nameof(UsesLiveArtifacts));
+            OnPropertyChanged(nameof(WorkspaceStatus));
+            OnPropertyChanged(nameof(DataBindingModeText));
+            OnPropertyChanged(nameof(UnsupportedFallbackSummary));
+            OnPropertyChanged(nameof(ApprovalGuidance));
+            OnPropertyChanged(nameof(ReviewBadge));
+            OnPropertyChanged(nameof(IsReviewLocked));
+            OnPropertyChanged(nameof(IsManualReviewEditMode));
+            OnPropertyChanged(nameof(CanChangeParcelGroup));
+            OnPropertyChanged(nameof(IsParcelSelectionReadOnly));
+            OnPropertyChanged(nameof(HasUnsavedReviewChanges));
+            OnPropertyChanged(nameof(CanSaveReview));
+            OnPropertyChanged(nameof(CanCompleteValidation));
+        }
+        finally
+        {
+            isRefreshingProjection = false;
+        }
     }
 
     private void RebuildVisibleRows()
@@ -370,8 +508,20 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             VisibleRows.Add(row);
         }
 
-        SelectedVisibleRow = rows.FirstOrDefault(row => ReferenceEquals(row, parent.SelectedReviewRow))
-            ?? rows.FirstOrDefault();
+        suppressParentRowSelectionSync = true;
+        try
+        {
+            SelectedVisibleRow = rows.FirstOrDefault(row => ReferenceEquals(row, parent.SelectedReviewRow))
+                ?? rows.FirstOrDefault();
+        }
+        finally
+        {
+            suppressParentRowSelectionSync = false;
+        }
+
+        OnPropertyChanged(nameof(ParcelPreviewPoints));
+        OnPropertyChanged(nameof(SelectedPointPreview));
+        OnPropertyChanged(nameof(SelectedRowSummary));
     }
 
     private PointCollection BuildPreviewPoints()
@@ -528,6 +678,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ViewerUsesImage));
         OnPropertyChanged(nameof(ViewerUsesBrowser));
         OnPropertyChanged(nameof(ViewerShowsFallback));
+        OnPropertyChanged(nameof(ShowCustomViewerControls));
+        OnPropertyChanged(nameof(ShowPdfViewerHelp));
+        OnPropertyChanged(nameof(PdfViewerHelpText));
         OnPropertyChanged(nameof(CanToggleViewerFit));
         OnPropertyChanged(nameof(ViewerFitToggleText));
         OnPropertyChanged(nameof(CanZoomViewerIn));
@@ -566,6 +719,8 @@ internal sealed class JamaicaParcelGroupViewModel
     public string SortKey => GroupId;
 
     public IReadOnlyList<ExtractionReviewRowViewModel> Rows { get; }
+
+    public string TraverseId => Rows.FirstOrDefault()?.TraverseId ?? GroupId;
 
     public int RowCount => Rows.Count;
 

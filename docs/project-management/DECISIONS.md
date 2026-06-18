@@ -19,6 +19,15 @@ Use this as the permanent, append-only decision log for product, architecture, a
 
 ## Accepted Decisions
 
+- **DEC-2026-013** — 2026-06-18 — **Separate save from workflow continuation in Points Validation Tool**
+  - **Owner:** Team + Mary + current model
+  - **Status:** Accepted
+  - **Decision:** In `Points Validation Tool`, `Save` is only for persisting point edits; workflow progression uses a separate completion action (`Validation Complete`) that can continue into `Create Spatial Units` with or without prior edits.
+  - **Rationale:** Examiners need a clean “data is now good, continue the process” path even when no point edits were required. Reusing save as progression created ambiguity.
+  - **Alternatives considered:** using only `Save` + `Close`, rejected because the no-edit path was unclear and too easy to misread as unfinished work.
+  - **Impacts:** `JamaicaReviewWorkspaceWindow`, `JamaicaReviewWorkspaceViewModel`, `ParcelWorkflowDockpaneViewModel`, workflow shell wording, and live ArcGIS Pro validation flow.
+  - **Revisions:** Follow-up shell cleanup still needed so the Parcel Workflow pane does not duplicate the dedicated validation surface after tool close.
+
 - **DEC-2026-001** — 2026-06-08 — **Architecture lane and integration model**
   - **Owner:** Team + Amelia + Mary
   - **Status:** Accepted

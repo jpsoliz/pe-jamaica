@@ -69,6 +69,7 @@ development_status:
   2-14a-redesign-extraction-review-workspace-around-source-document-verification: ready-for-dev
   2-16-apply-document-type-catalog-v2-to-multi-source-extraction-pipelines: review
   2-16b-add-embedded-pdf-text-first-structured-computation-extraction: review
+  2-17-stabilize-transaction-return-and-refresh-after-workflow-exit: review
   epic-2-retrospective: optional
 
   epic-3: backlog
@@ -87,6 +88,7 @@ development_status:
   4-3-save-and-resume-transaction-cases-through-innola-resume-package: ready-for-dev
   4-4-route-case-to-manual-process-by-user-decision: backlog
   4-5-externalize-configurable-preflight-rules-and-expose-them-in-configuration-panel: review
+  4-6-add-extraction-result-decision-gate-for-rerun-vs-manual-review: review
   epic-4-retrospective: optional
 
   epic-5: backlog
@@ -98,7 +100,11 @@ development_status:
   5-6-add-spatial-review-stage-for-in-map-editing-and-manual-cogo: ready-for-dev
   5-7-evaluate-parcel-fabric-review-workspace-pilot: ready-for-dev
   5-8-implement-true-local-parcel-fabric-output-mode: review
+  5-16-align-compute-workflow-stage-copy-and-jamaica-cogo-handoff: review
+  5-16a-realign-compute-workflow-vocabulary-around-data-extraction-and-points-validation: review
+  5-16b-implement-points-validation-tool-save-return-flow-and-downstream-stage-handoff: review
   5-13-build-dev-spike-for-jamaica-cogo-style-review-workspace-shell: review
+  5-18-route-manual-review-branch-into-configured-gdb-map-editing-path: review
   epic-5-retrospective: optional
 
   epic-6: backlog

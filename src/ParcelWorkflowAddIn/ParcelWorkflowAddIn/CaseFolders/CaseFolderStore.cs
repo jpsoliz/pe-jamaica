@@ -331,6 +331,11 @@ public sealed partial class CaseFolderStore
             return WorkflowState.ReviewPending;
         }
 
+        if (string.Equals(workflowState, WorkflowState.ReviewManualPending.ToContractValue(), StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowState.ReviewManualPending;
+        }
+
         if (string.Equals(workflowState, WorkflowState.ReviewApproved.ToContractValue(), StringComparison.OrdinalIgnoreCase))
         {
             return WorkflowState.ReviewApproved;
@@ -388,7 +393,7 @@ public sealed partial class CaseFolderStore
             issues.Add(new RecoverabilityIssue(
                 "interrupted_preflight",
                 "warning",
-                "Case was reopened from interrupted Processing Checks. Run Processing Checks again.",
+                "Case was reopened from interrupted Data Extraction. Run Data Extraction again.",
                 null,
                 false));
             return WorkflowState.Intake;

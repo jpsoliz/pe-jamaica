@@ -219,6 +219,20 @@ internal static class CaseFolderStoreTests
         TestAssert.Equal(WorkflowState.ReviewApproved, result.ResolvedState, "Review approved state should resume correctly.");
     }
 
+    public static void ReopenCaseFolderSupportsManualReviewPendingState()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000206", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = "review_manual_pending" } });
+
+        var result = store.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        TestAssert.True(result.Success, "Readable manual-review manifest should reopen successfully.");
+        TestAssert.Equal(WorkflowState.ReviewManualPending, result.ResolvedState, "Manual review pending state should resume correctly.");
+    }
+
     public static void ReopenCaseFolderSupportsValidationStates()
     {
         using var tempRoot = new TempDirectory();

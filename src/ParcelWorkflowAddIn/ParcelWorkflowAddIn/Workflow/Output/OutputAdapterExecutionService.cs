@@ -9,6 +9,7 @@ namespace ParcelWorkflowAddIn.Workflow.Output;
 
 public sealed class OutputAdapterExecutionService : IOutputExecutionService
 {
+    private const string ReviewSourceRouteArgument = "--review-source-route";
     private readonly IProcessRunner processRunner;
     private readonly Func<WorkflowExecutionSettings> getExecutionSettings;
     private readonly OutputSummaryPersistenceService persistenceService;
@@ -34,6 +35,35 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
         string? operatorId,
         CancellationToken cancellationToken = default)
     {
+        return await RunCoreAsync(
+            layout,
+            manifest,
+            operatorId,
+            ReviewResultOwnership.ApprovedReview,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OutputExecutionResult> RunManualReviewAsync(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        string? operatorId,
+        CancellationToken cancellationToken = default)
+    {
+        return await RunCoreAsync(
+            layout,
+            manifest,
+            operatorId,
+            ReviewResultOwnership.ManualSpatialReview,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<OutputExecutionResult> RunCoreAsync(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        string? operatorId,
+        string reviewResultOwner,
+        CancellationToken cancellationToken)
+    {
         var executionSettings = getExecutionSettings();
         if (string.IsNullOrWhiteSpace(executionSettings.PythonExecutable) || !File.Exists(executionSettings.PythonExecutable))
         {
@@ -55,6 +85,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             "--approved-review", Quote(approvedReviewPath),
             "--review-data", Quote(reviewDataPath),
             "--review-workspace-mode", Quote(executionSettings.ReviewWorkspaceMode),
+            ReviewSourceRouteArgument, Quote(reviewResultOwner),
             "--output-root", Quote(layout.OutputDirectory),
             "--output-summary", Quote(outputSummaryPath),
             "--operator", Quote(operatorId ?? string.Empty),

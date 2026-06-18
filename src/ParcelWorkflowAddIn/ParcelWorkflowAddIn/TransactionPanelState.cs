@@ -772,6 +772,46 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
+    public async Task HandleWorkflowExitAsync(
+        string? transactionNumber,
+        string statusText,
+        bool preserveSavedMarker,
+        bool suppressTransactionFromList,
+        bool refreshTransactions,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsLoggedIn)
+        {
+            return;
+        }
+
+        if (session.IsTransactionLoaded || session.HasActiveTransaction)
+        {
+            session.ClearLoadedTransaction();
+        }
+
+        ErrorText = null;
+        SavedTransactionNumber = preserveSavedMarker ? transactionNumber : null;
+
+        if (suppressTransactionFromList && !string.IsNullOrWhiteSpace(transactionNumber))
+        {
+            locallyCompletedTransactionNumbers.Add(transactionNumber);
+            SelectedRow = null;
+        }
+        else
+        {
+            RestoreSelectedRow(transactionNumber);
+        }
+
+        StatusText = statusText;
+        NotifyListState();
+
+        if (refreshTransactions)
+        {
+            await RefreshAsync(cancellationToken);
+        }
+    }
+
     private void ViewLoadedDocuments()
     {
         var folder = session.LoadedCaseFolderPath;
