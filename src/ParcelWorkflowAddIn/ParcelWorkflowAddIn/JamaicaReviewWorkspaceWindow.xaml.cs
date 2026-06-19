@@ -139,34 +139,6 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
             return;
         }
 
-        var continueResult = MessageBox.Show(
-            "Validated points were saved. Continue into Create Spatial Units now?",
-            "Validated points saved",
-            closeAfterSave ? MessageBoxButton.YesNoCancel : MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        if (continueResult == MessageBoxResult.Yes)
-        {
-            if (!viewModel.ContinueToCreateSpatialUnits())
-            {
-                return;
-            }
-
-            closeDisposition = WorkspaceCloseDisposition.SavedAndContinued;
-            if (triggerClose)
-            {
-                allowClose = true;
-                Close();
-            }
-
-            return;
-        }
-
-        if (continueResult == MessageBoxResult.Cancel)
-        {
-            return;
-        }
-
         if (closeAfterSave)
         {
             closeDisposition = WorkspaceCloseDisposition.SavedOnly;

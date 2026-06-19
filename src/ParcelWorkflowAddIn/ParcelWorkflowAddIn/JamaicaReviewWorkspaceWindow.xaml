@@ -403,6 +403,18 @@
                        FontSize="11"
                        Foreground="#52616B"
                        TextWrapping="Wrap" />
+            <Border Margin="0,6,0,0"
+                    Background="#FFF1F1"
+                    BorderBrush="#E7B5B5"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    Padding="6,4"
+                    Visibility="{Binding ReviewHasBlockers, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <TextBlock Text="{Binding SelectedReviewRowValidationIssueText}"
+                         FontSize="11"
+                         Foreground="#B42318"
+                         TextWrapping="Wrap" />
+            </Border>
           </StackPanel>
 
           <DataGrid Grid.Row="2"
@@ -419,15 +431,21 @@
             <DataGrid.RowStyle>
               <Style TargetType="DataGridRow">
                 <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="ToolTip" Value="{Binding ValidationIssueSummary}" />
                 <Style.Triggers>
-                  <DataTrigger Binding="{Binding Unresolved}" Value="True">
-                    <Setter Property="Background" Value="#FFF1F1" />
-                  </DataTrigger>
                   <DataTrigger Binding="{Binding IsManual}" Value="True">
                     <Setter Property="Background" Value="#F2F7FF" />
                   </DataTrigger>
                   <DataTrigger Binding="{Binding IsEdited}" Value="True">
                     <Setter Property="Background" Value="#EDF7F1" />
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Unresolved}" Value="True">
+                    <Setter Property="Background" Value="#FFF1F1" />
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding HasValidationBlocker}" Value="True">
+                    <Setter Property="Background" Value="#FDEBEB" />
+                    <Setter Property="Foreground" Value="#7A271A" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
                   </DataTrigger>
                 </Style.Triggers>
               </Style>

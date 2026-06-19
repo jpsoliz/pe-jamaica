@@ -19,6 +19,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ArcGIS.Desktop.Framework.Controls;
 using System.Threading;
+using System.Globalization;
 
 namespace ParcelWorkflowAddIn;
 
@@ -504,7 +505,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ExtractionReviewActionLabel =>
         HasLoadedReviewData
-            ? "Reload"
+            ? "Continue in Points Validation Tool"
             : workflowSession.ExtractionResultRequiresDecision
                 ? "Re-process extraction"
                 : workflowSession.HasUsableExtractionReview
@@ -556,6 +557,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 SetProperty(ref selectedReviewRow, value, () => SelectedReviewRow);
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsTitle));
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsText));
+                NotifyPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
                 removeManualPointCommand.RaiseCanExecuteChanged();
             }
         }
@@ -729,6 +731,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 + $"Row source: {SelectedReviewRow.RowProvenance}";
         }
     }
+
+    public string SelectedReviewRowValidationIssueText => SelectedReviewRow is null
+        ? "Select a row to review blocker details."
+        : string.IsNullOrWhiteSpace(SelectedReviewRow.ValidationIssueSummary)
+            ? "Selected row has no active validation blocker."
+            : SelectedReviewRow.ValidationIssueSummary;
 
     public bool ReviewHasBlockers => HasLoadedReviewData && ReviewValidationResult.HasBlockers;
 
@@ -996,6 +1004,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private async Task RunOrOpenExtractionReviewAsync()
     {
+        if (HasLoadedReviewData)
+        {
+            await OpenExperimentalReviewWorkspaceAsync().ConfigureAwait(true);
+            RefreshWorkflowProperties();
+            return;
+        }
+
         if (workflowSession.HasUsableExtractionReview && !workflowSession.ExtractionResultRequiresDecision && !HasLoadedReviewData)
         {
             var loadedForTool = await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
@@ -1179,12 +1194,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var rowToRemove = SelectedReviewRow;
-        var removedIndex = ReviewRows.IndexOf(rowToRemove);
+        var currentParcelGroupId = NormalizeReviewParcelGroupId(rowToRemove.ParcelGroupId);
         loadedReviewDocument.Rows.Remove(rowToRemove.Model);
         ReviewRows.Remove(rowToRemove);
-        SelectedReviewRow = removedIndex >= 0 && removedIndex < ReviewRows.Count
-            ? ReviewRows[removedIndex]
-            : ReviewRows.LastOrDefault();
+        var nextRow = ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), currentParcelGroupId, StringComparison.OrdinalIgnoreCase))
+            ?? ReviewRows.LastOrDefault();
+        SetReviewWorkspaceParcelContext(currentParcelGroupId, rowToRemove.Model.ParcelName, rowToRemove.TraverseId, refreshProperties: false);
+        SelectedReviewRow = nextRow;
         reviewDirty = true;
         reviewContentVersion++;
         workflowSession.SetValidationFailure(rowToRemove.IsManual
@@ -1217,11 +1233,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         loadedReviewDocument.Rows.Remove(rowToDiscard.Model);
-        var removedIndex = ReviewRows.IndexOf(rowToDiscard);
+        var currentParcelGroupId = NormalizeReviewParcelGroupId(rowToDiscard.ParcelGroupId);
         ReviewRows.Remove(rowToDiscard);
-        SelectedReviewRow = removedIndex >= 0 && removedIndex < ReviewRows.Count
-            ? ReviewRows[removedIndex]
-            : ReviewRows.LastOrDefault();
+        var nextRow = ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), currentParcelGroupId, StringComparison.OrdinalIgnoreCase))
+            ?? ReviewRows.LastOrDefault();
+        SetReviewWorkspaceParcelContext(currentParcelGroupId, rowToDiscard.Model.ParcelName, rowToDiscard.TraverseId, refreshProperties: false);
+        SelectedReviewRow = nextRow;
         pendingManualRowId = null;
         reviewDirty = true;
         reviewContentVersion++;
@@ -2242,6 +2259,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void RefreshWorkflowProperties()
     {
         sourceFileItems = workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
+        UpdateReviewRowValidationFlags();
         RefreshReviewViewerState();
         NotifyPropertyChanged(nameof(TransactionId));
         NotifyPropertyChanged(nameof(OutputLocation));
@@ -2355,6 +2373,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewContentVersion));
         NotifyPropertyChanged(nameof(SelectedReviewRowDetailsTitle));
         NotifyPropertyChanged(nameof(SelectedReviewRowDetailsText));
+        NotifyPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
         NotifyPropertyChanged(nameof(ReviewWorkspaceTitle));
         NotifyPropertyChanged(nameof(ShowExperimentalReviewWorkspaceAction));
         NotifyPropertyChanged(nameof(IsManualCogoFallbackSelected));
@@ -2413,6 +2432,90 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         suspendTransactionCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
         completeTransactionCommand.RaiseCanExecuteChanged();
+    }
+
+    private void UpdateReviewRowValidationFlags()
+    {
+        if (ReviewRows.Count == 0)
+        {
+            return;
+        }
+
+        var duplicatePointKeys = ReviewRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
+            .GroupBy(
+                row => $"{NormalizeReviewParcelGroupId(row.ParcelGroupId)}|{row.PointIdentifier.Trim()}",
+                StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var duplicateSequenceKeys = ReviewRows
+            .Where(row => row.SequenceInGroup.HasValue && row.SequenceInGroup.Value > 0)
+            .GroupBy(
+                row => $"{NormalizeReviewParcelGroupId(row.ParcelGroupId)}|{row.SequenceInGroup!.Value.ToString(CultureInfo.InvariantCulture)}",
+                StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in ReviewRows)
+        {
+            var issues = new List<string>();
+            var parcelGroupId = NormalizeReviewParcelGroupId(row.ParcelGroupId);
+
+            if (row.Unresolved)
+            {
+                issues.Add("Row is unresolved.");
+            }
+
+            if (row.HasMissingRequiredValues)
+            {
+                issues.Add("Point id or coordinates are missing.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.Easting) && !TryParseReviewCoordinate(row.Easting))
+            {
+                issues.Add("Easting is not a valid number.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.Northing) && !TryParseReviewCoordinate(row.Northing))
+            {
+                issues.Add("Northing is not a valid number.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.PointIdentifier))
+            {
+                var duplicatePointKey = $"{parcelGroupId}|{row.PointIdentifier.Trim()}";
+                if (duplicatePointKeys.Contains(duplicatePointKey))
+                {
+                    issues.Add("Duplicate point id exists in this parcel.");
+                }
+            }
+
+            if (row.SequenceInGroup.HasValue && row.SequenceInGroup.Value > 0)
+            {
+                var duplicateSequenceKey = $"{parcelGroupId}|{row.SequenceInGroup.Value.ToString(CultureInfo.InvariantCulture)}";
+                if (duplicateSequenceKeys.Contains(duplicateSequenceKey))
+                {
+                    issues.Add("Duplicate sequence exists in this parcel.");
+                }
+            }
+
+            row.HasValidationBlocker = issues.Count > 0;
+            row.ValidationIssueSummary = string.Join(" ", issues);
+        }
+    }
+
+    private static bool TryParseReviewCoordinate(string value)
+    {
+        var text = value.Trim();
+        if (double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out _))
+        {
+            return true;
+        }
+
+        return double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out _);
     }
 
     private void SyncLoadedCaseFolder()

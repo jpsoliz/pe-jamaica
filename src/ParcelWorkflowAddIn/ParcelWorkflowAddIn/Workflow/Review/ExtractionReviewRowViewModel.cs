@@ -15,6 +15,8 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
     private bool unresolved;
     private string unresolvedReason;
     private string reviewNotes;
+    private bool hasValidationBlocker;
+    private string validationIssueSummary = string.Empty;
 
     public ExtractionReviewRowViewModel(ExtractionReviewRow model, Action onRowChanged)
     {
@@ -121,6 +123,36 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
         string.IsNullOrWhiteSpace(PointIdentifier)
         || string.IsNullOrWhiteSpace(Easting)
         || string.IsNullOrWhiteSpace(Northing);
+
+    public bool HasValidationBlocker
+    {
+        get => hasValidationBlocker;
+        set
+        {
+            if (hasValidationBlocker == value)
+            {
+                return;
+            }
+
+            hasValidationBlocker = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string ValidationIssueSummary
+    {
+        get => validationIssueSummary;
+        set
+        {
+            if (string.Equals(validationIssueSummary, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            validationIssueSummary = value;
+            OnPropertyChanged();
+        }
+    }
 
     public void SyncBackToModel()
     {
