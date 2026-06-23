@@ -87,6 +87,22 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual(2, summary["payload"]["line_count"])
             self.assertEqual(1, summary["payload"]["polygon_count"])
             self.assertTrue(summary["payload"]["result_gdb_path"].endswith(".gdb"))
+            self.assertTrue(summary["payload"]["polygon_feature_class_path"].endswith("parcel_polygons"))
+
+            point_rows = json.loads(Path(summary["payload"]["point_feature_class_path"]).read_text(encoding="utf-8"))
+            line_rows = json.loads(Path(summary["payload"]["line_feature_class_path"]).read_text(encoding="utf-8"))
+            polygon_rows = json.loads(Path(summary["payload"]["polygon_feature_class_path"]).read_text(encoding="utf-8"))
+
+            self.assertEqual("parcel-001", point_rows[0]["parcel_id"])
+            self.assertEqual(1, point_rows[0]["point_order"])
+            self.assertIn("doc_type_id", point_rows[0])
+            self.assertIn("source_doc", point_rows[0])
+            self.assertEqual("parcel-001", line_rows[0]["parcel_id"])
+            self.assertEqual(1, line_rows[0]["segment_order"])
+            self.assertIn("distance_m", line_rows[0])
+            self.assertIn("bearing", line_rows[0])
+            self.assertEqual("parcel-001", polygon_rows[0]["parcel_id"])
+            self.assertEqual("parcel-001", polygon_rows[0]["parcel_name"])
 
     def test_output_adapter_rejects_stale_approval_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:

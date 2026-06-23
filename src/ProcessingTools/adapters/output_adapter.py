@@ -95,6 +95,7 @@ def _normalize_review_result_owner(value: Any) -> str:
 
 def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
+    root_doc_type_id = _normalize_text(review_data.get("doc_type_id") or "", 64)
     for index, row in enumerate(_review_rows(review_data), start=1):
         if bool(row.get("review_unresolved")):
             continue
@@ -132,6 +133,19 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "point_identifier": _normalize_text(point_id, 64),
                 "easting": easting,
                 "northing": northing,
+                "parcel_name": _normalize_text(row.get("review_parcel_name") or row.get("parcel_name") or "", 128),
+                "bearing": _normalize_text(row.get("review_bearing") or row.get("bearing") or row.get("course") or "", 64),
+                "distance_m": _parse_coordinate(row.get("distance_m") or row.get("distance")),
+                "radius_m": _parse_coordinate(row.get("radius_m") or row.get("radius")),
+                "arc_length_m": _parse_coordinate(row.get("arc_length_m") or row.get("arc_length")),
+                "doc_type_id": _normalize_text(row.get("doc_type_id") or root_doc_type_id, 64),
+                "source_doc": _normalize_text(
+                    row.get("source_document_name")
+                    or row.get("source_document")
+                    or row.get("source_file")
+                    or "",
+                    256,
+                ),
                 "length": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 128),
                 "status": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
                 "source_evidence": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
@@ -199,24 +213,86 @@ def _grouped_point_sequences(points: list[dict[str, Any]]) -> list[dict[str, Any
     return groups
 
 
+def _parcel_id_for_group(group_id: str, group_index: int) -> str:
+    text = str(group_id or "").strip()
+    lowered = text.lower()
+    if lowered.startswith("parcel-"):
+        suffix = text[7:]
+        if suffix.isdigit():
+            return f"parcel-{int(suffix):03d}"
+    if text and not text.lower().startswith("traverse:"):
+        return text
+    return f"parcel-{group_index:03d}"
+
+
+def _apply_group_parcel_metadata(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched_groups: list[dict[str, Any]] = []
+    for group_index, group in enumerate(point_groups, start=1):
+        group_id = str(group.get("group_id") or f"parcel-{group_index}").strip()
+        parcel_id = _parcel_id_for_group(group_id, group_index)
+        points = group.get("points") or []
+        parcel_name = ""
+        enriched_points: list[dict[str, Any]] = []
+
+        for point_index, point in enumerate(points, start=1):
+            updated = dict(point)
+            updated["parcel_id"] = parcel_id
+            updated["point_order"] = point_index
+            if updated.get("parcel_name"):
+                parcel_name = str(updated["parcel_name"])
+            enriched_points.append(updated)
+
+        if not parcel_name:
+            parcel_name = parcel_id
+
+        for updated in enriched_points:
+            if not updated.get("parcel_name"):
+                updated["parcel_name"] = parcel_name
+
+        enriched_groups.append(
+            {
+                "group_id": group_id,
+                "parcel_id": parcel_id,
+                "parcel_name": parcel_name,
+                "points": enriched_points,
+            }
+        )
+
+    return enriched_groups
+
+
 def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     segment_index = 1
     for group in point_groups:
         group_id = group.get("group_id") or ""
+        parcel_id = group.get("parcel_id") or group_id
         points = group.get("points") or []
         for index in range(len(points) - 1):
             start = points[index]
             end = points[index + 1]
             segments.append(
                 {
+                    "line_id": f"{parcel_id}_L{index + 1}",
                     "segment_index": segment_index,
+                    "segment_order": index + 1,
+                    "parcel_id": parcel_id,
                     "parcel_group_id": group_id,
                     "start_point": start["point_identifier"],
                     "end_point": end["point_identifier"],
                     "start": (start["easting"], start["northing"]),
                     "end": (end["easting"], end["northing"]),
+                    "bearing": end.get("bearing") or "",
                     "length": end.get("length") or "",
+                    "distance_m": end.get("distance_m"),
+                    "radius_m": end.get("radius_m"),
+                    "arc_length_m": end.get("arc_length_m"),
+                    "doc_type_id": end.get("doc_type_id") or "",
+                    "source_doc": end.get("source_doc") or "",
+                    "row_id": end.get("row_id") or "",
+                    "status": end.get("status") or "",
+                    "source_evidence": end.get("source_evidence") or "",
+                    "is_boundary_break": bool(end.get("is_boundary_break")),
                 }
             )
             segment_index += 1
@@ -252,11 +328,19 @@ def _polygon_rings(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         coords = _polygon_points(group_points)
         if not coords:
             continue
+        first_point = group_points[0] if group_points else {}
         polygons.append(
             {
                 "polygon_index": index,
+                "parcel_id": group.get("parcel_id") or f"parcel-{index:03d}",
+                "parcel_name": group.get("parcel_name") or group.get("parcel_id") or f"parcel-{index:03d}",
                 "parcel_group_id": group.get("group_id") or f"parcel-{index}",
                 "coordinates": coords,
+                "point_count": len(group_points),
+                "doc_type_id": first_point.get("doc_type_id") or "",
+                "source_doc": first_point.get("source_doc") or "",
+                "status": first_point.get("status") or "",
+                "source_evidence": first_point.get("source_evidence") or "",
             }
         )
     return polygons
@@ -292,12 +376,17 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                 "geometry": {"type": "Point", "coordinates": [point["easting"], point["northing"]]},
                 "properties": {
                     "row_id": point["row_id"],
+                    "parcel_id": point.get("parcel_id") or "",
                     "parcel_group_id": point.get("parcel_group_id") or "",
+                    "parcel_name": point.get("parcel_name") or "",
                     "traverse_id": point.get("traverse_id") or "",
+                    "point_order": point.get("point_order"),
                     "sequence_in_group": point.get("sequence_in_group"),
                     "is_boundary_break": point.get("is_boundary_break") or False,
                     "group_confidence": point.get("group_confidence") or "",
                     "point_identifier": point["point_identifier"],
+                    "doc_type_id": point.get("doc_type_id") or "",
+                    "source_doc": point.get("source_doc") or "",
                     "status": point["status"],
                     "length": point["length"],
                     "source_evidence": point["source_evidence"],
@@ -311,11 +400,20 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                 "type": "Feature",
                 "geometry": {"type": "LineString", "coordinates": [list(segment["start"]), list(segment["end"])]},
                 "properties": {
+                    "line_id": segment.get("line_id") or "",
                     "segment_index": segment["segment_index"],
+                    "segment_order": segment.get("segment_order"),
+                    "parcel_id": segment.get("parcel_id") or "",
                     "parcel_group_id": segment.get("parcel_group_id") or "",
                     "start_point": segment["start_point"],
                     "end_point": segment["end_point"],
+                    "bearing": segment.get("bearing") or "",
                     "length": segment["length"],
+                    "distance_m": segment.get("distance_m"),
+                    "radius_m": segment.get("radius_m"),
+                    "arc_length_m": segment.get("arc_length_m"),
+                    "doc_type_id": segment.get("doc_type_id") or "",
+                    "source_doc": segment.get("source_doc") or "",
                 },
             }
         )
@@ -326,8 +424,13 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [[list(coord) for coord in polygon["coordinates"]]]},
                 "properties": {
-                    "name": f"parcel_polygon_{polygon['polygon_index']}",
+                    "parcel_id": polygon.get("parcel_id") or f"parcel-{polygon['polygon_index']:03d}",
+                    "parcel_name": polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}",
+                    "name": polygon.get("parcel_name") or f"parcel_polygon_{polygon['polygon_index']}",
                     "parcel_group_id": polygon.get("parcel_group_id") or "",
+                    "point_count": polygon.get("point_count"),
+                    "doc_type_id": polygon.get("doc_type_id") or "",
+                    "source_doc": polygon.get("source_doc") or "",
                 },
             }
         )
@@ -559,7 +662,7 @@ def _create_outputs_with_arcpy(
     spatial_reference = arcpy.SpatialReference(3448)
     point_fc = target_gdb / "parcel_points"
     line_fc = target_gdb / "parcel_lines"
-    polygon_fc = target_gdb / "parcel_polygon"
+    polygon_fc = target_gdb / "parcel_polygons"
 
     for dataset_path in (point_fc, line_fc, polygon_fc):
         if arcpy.Exists(str(dataset_path)):
@@ -567,21 +670,37 @@ def _create_outputs_with_arcpy(
 
     arcpy.management.CreateFeatureclass(str(target_gdb), point_fc.name, "POINT", spatial_reference=spatial_reference)
     arcpy.management.AddField(str(point_fc), "point_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "parcel_id", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "parcel_grp", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "point_ord", "LONG")
+    arcpy.management.AddField(str(point_fc), "easting", "DOUBLE")
+    arcpy.management.AddField(str(point_fc), "northing", "DOUBLE")
     arcpy.management.AddField(str(point_fc), "status_txt", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "length_txt", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "doc_type_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "source_doc", "TEXT", field_length=256)
+    arcpy.management.AddField(str(point_fc), "is_manual", "SHORT")
+    arcpy.management.AddField(str(point_fc), "is_edited", "SHORT")
     arcpy.management.AddField(str(point_fc), "source_txt", "TEXT", field_length=1024)
     arcpy.management.AddField(str(point_fc), "row_id", "TEXT", field_length=64)
 
-    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "parcel_grp", "status_txt", "length_txt", "source_txt", "row_id"]) as cursor:
+    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "parcel_id", "parcel_grp", "point_ord", "easting", "northing", "status_txt", "length_txt", "doc_type_id", "source_doc", "is_manual", "is_edited", "source_txt", "row_id"]) as cursor:
         for point in points:
             cursor.insertRow(
                 [
                     (point["easting"], point["northing"]),
                     _normalize_text(point["point_identifier"], 64),
+                    _normalize_text(point.get("parcel_id") or "", 64),
                     _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
+                    point.get("point_order"),
+                    point["easting"],
+                    point["northing"],
                     _normalize_text(point["status"], 64),
                     _normalize_text(point["length"], 128),
+                    _normalize_text(point.get("doc_type_id") or "", 64),
+                    _normalize_text(point.get("source_doc") or "", 256),
+                    1 if str(point.get("row_id") or "").startswith("manual-") else 0,
+                    0,
                     _normalize_text(point["source_evidence"], 1024),
                     _normalize_text(point["row_id"], 64),
                 ]
@@ -592,23 +711,49 @@ def _create_outputs_with_arcpy(
 
     if segments:
         arcpy.management.CreateFeatureclass(str(target_gdb), line_fc.name, "POLYLINE", spatial_reference=spatial_reference)
+        arcpy.management.AddField(str(line_fc), "line_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "parcel_id", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "start_pt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "end_pt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "parcel_grp", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "bearing_txt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "distance_m", "DOUBLE")
         arcpy.management.AddField(str(line_fc), "length_txt", "TEXT", field_length=128)
+        arcpy.management.AddField(str(line_fc), "radius_m", "DOUBLE")
+        arcpy.management.AddField(str(line_fc), "arc_length_m", "DOUBLE")
         arcpy.management.AddField(str(line_fc), "seg_index", "LONG")
+        arcpy.management.AddField(str(line_fc), "seg_order", "LONG")
+        arcpy.management.AddField(str(line_fc), "doc_type_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "source_doc", "TEXT", field_length=256)
+        arcpy.management.AddField(str(line_fc), "is_boundary", "SHORT")
+        arcpy.management.AddField(str(line_fc), "status_txt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "source_txt", "TEXT", field_length=1024)
+        arcpy.management.AddField(str(line_fc), "row_id", "TEXT", field_length=64)
 
-        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "start_pt", "end_pt", "parcel_grp", "length_txt", "seg_index"]) as cursor:
+        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "line_id", "parcel_id", "start_pt", "end_pt", "parcel_grp", "bearing_txt", "distance_m", "length_txt", "radius_m", "arc_length_m", "seg_index", "seg_order", "doc_type_id", "source_doc", "is_boundary", "status_txt", "source_txt", "row_id"]) as cursor:
             for segment in segments:
                 array = arcpy.Array([arcpy.Point(*segment["start"]), arcpy.Point(*segment["end"])])
                 cursor.insertRow(
                     [
                         arcpy.Polyline(array, spatial_reference),
+                        _normalize_text(segment.get("line_id") or "", 64),
+                        _normalize_text(segment.get("parcel_id") or "", 64),
                         _normalize_text(segment["start_point"], 64),
                         _normalize_text(segment["end_point"], 64),
                         _normalize_text(segment.get("parcel_group_id") or "", 64),
+                        _normalize_text(segment.get("bearing") or "", 64),
+                        segment.get("distance_m"),
                         _normalize_text(segment["length"], 128),
+                        segment.get("radius_m"),
+                        segment.get("arc_length_m"),
                         segment["segment_index"],
+                        segment.get("segment_order"),
+                        _normalize_text(segment.get("doc_type_id") or "", 64),
+                        _normalize_text(segment.get("source_doc") or "", 256),
+                        1 if segment.get("is_boundary_break") else 0,
+                        _normalize_text(segment.get("status") or "", 64),
+                        _normalize_text(segment.get("source_evidence") or "", 1024),
+                        _normalize_text(segment.get("row_id") or "", 64),
                     ]
                 )
         created_line_fc = str(line_fc)
@@ -616,10 +761,16 @@ def _create_outputs_with_arcpy(
     if polygons:
         try:
             arcpy.management.CreateFeatureclass(str(target_gdb), polygon_fc.name, "POLYGON", spatial_reference=spatial_reference)
-            arcpy.management.AddField(str(polygon_fc), "name", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "parcel_id", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "parcel_name", "TEXT", field_length=128)
             arcpy.management.AddField(str(polygon_fc), "parcel_grp", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "point_cnt", "LONG")
+            arcpy.management.AddField(str(polygon_fc), "doc_type_id", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "source_doc", "TEXT", field_length=256)
+            arcpy.management.AddField(str(polygon_fc), "status_txt", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "source_txt", "TEXT", field_length=1024)
 
-            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "name", "parcel_grp"]) as cursor:
+            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "parcel_id", "parcel_name", "parcel_grp", "point_cnt", "doc_type_id", "source_doc", "status_txt", "source_txt"]) as cursor:
                 for polygon in polygons:
                     array = arcpy.Array([arcpy.Point(*coord) for coord in polygon["coordinates"]])
                     polygon_geometry = arcpy.Polygon(array, spatial_reference)
@@ -628,8 +779,14 @@ def _create_outputs_with_arcpy(
                     cursor.insertRow(
                         [
                             polygon_geometry,
-                            _normalize_text(f"parcel_polygon_{polygon['polygon_index']}", 64),
+                            _normalize_text(polygon.get("parcel_id") or f"parcel-{polygon['polygon_index']:03d}", 64),
+                            _normalize_text(polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}", 128),
                             _normalize_text(polygon.get("parcel_group_id") or "", 64),
+                            polygon.get("point_count"),
+                            _normalize_text(polygon.get("doc_type_id") or "", 64),
+                            _normalize_text(polygon.get("source_doc") or "", 256),
+                            _normalize_text(polygon.get("status") or "", 64),
+                            _normalize_text(polygon.get("source_evidence") or "", 1024),
                         ]
                     )
 
@@ -689,7 +846,7 @@ def _create_outputs_filesystem_fallback(
 
     point_fc = target_gdb / "parcel_points"
     line_fc = target_gdb / "parcel_lines"
-    polygon_fc = target_gdb / "parcel_polygon"
+    polygon_fc = target_gdb / "parcel_polygons"
 
     point_fc.write_text(json.dumps(points, indent=2), encoding="utf-8")
     if segments:
@@ -901,7 +1058,8 @@ def main(argv: list[str] | None = None) -> int:
     if not points and review_result_owner != REVIEW_RESULT_OWNER_MANUAL:
         raise RuntimeError("Approved review data does not contain any usable point rows for output generation.")
 
-    point_groups = _grouped_point_sequences(points)
+    point_groups = _apply_group_parcel_metadata(_grouped_point_sequences(points))
+    points = [point for group in point_groups for point in (group.get("points") or [])]
     segments = _polyline_segments(point_groups)
     polygons = _polygon_rings(point_groups)
     transaction_number = review_data.get("transaction_number") or approved_review.get("transaction_number") or manifest.get("transaction_id") or "transaction"

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Innola;
 
 namespace ParcelWorkflowAddIn.Workflow.Output;
 
@@ -71,8 +72,23 @@ public sealed class OutputSummaryPersistenceService
             return Array.Empty<string>();
         }
 
-        return summary.Payload.MapLayerPaths
+        IEnumerable<string?> paths = summary.Payload.MapLayerPaths;
+
+        if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            paths = new string?[]
+            {
+                summary.Payload.ReviewLayerPath,
+                summary.Payload.PolygonFeatureClassPath,
+                summary.Payload.LineFeatureClassPath,
+                summary.Payload.PointFeatureClassPath
+            };
+        }
+
+        return paths
             .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }

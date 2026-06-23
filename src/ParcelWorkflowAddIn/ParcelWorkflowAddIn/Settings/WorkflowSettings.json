@@ -51,7 +51,7 @@
   "innola_client_certificate_store_location": "CurrentUser",
   "innola_client_certificate_store_name": "My",
   "innola_client_certificate_subject": "Jamaica eTitles Project Team",
-  "innola_client_certificate_thumbprint": "3DE26896DFC62316931632C95D60C364E76C6B01",
+  "innola_client_certificate_thumbprint": "DEA7F06F3917AA2E6AF817FF5B20587C28EB6215",
   "innola_allow_invalid_server_certificate": true,
   "innola_check_certificate_revocation_list": false,
   "ocr_engine": "openai",

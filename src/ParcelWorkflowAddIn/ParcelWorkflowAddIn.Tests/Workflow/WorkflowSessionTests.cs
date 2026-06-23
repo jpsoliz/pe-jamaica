@@ -1389,7 +1389,7 @@ internal static class WorkflowSessionTests
                     new[] { Path.Combine(gdbPath, "parcel_points") },
                     Path.Combine(gdbPath, "parcel_points"),
                     Path.Combine(gdbPath, "parcel_lines"),
-                    Path.Combine(gdbPath, "parcel_polygon"),
+                    Path.Combine(gdbPath, "parcel_polygons"),
                     null,
                     null,
                     null,
