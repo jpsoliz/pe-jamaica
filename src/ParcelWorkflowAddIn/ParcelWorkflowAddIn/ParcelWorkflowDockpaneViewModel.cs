@@ -846,6 +846,25 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             _ => "Run Create Spatial Units first. When geometry is available, this stage will guide the in-map review handoff."
         };
 
+    public bool HasSpatialReviewDiagnostics =>
+        workflowSession.CurrentOutputSummary is not null
+        && workflowSession.CurrentState is WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved;
+
+    public string SpatialReviewDiagnosticsText
+    {
+        get
+        {
+            var payload = workflowSession.CurrentOutputSummary?.Payload;
+            if (payload is null || !HasSpatialReviewDiagnostics)
+            {
+                return string.Empty;
+            }
+
+            var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
+            return $"COGO diagnostics: map load {mapMode}; bearing text {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+        }
+    }
+
     public string OutputPreviewSummaryText =>
         OutputArtifacts.Count == 0
             ? "No generated output package yet."
@@ -1584,7 +1603,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var builtSummary = string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
             ? $" Built fabric content: {summary.Payload.BuiltPointCount} point(s), {summary.Payload.BuiltLineCount} line(s), and {summary.Payload.BuiltParcelCount} parcel polygon(s)."
             : string.Empty;
-        return $"{summary.Payload.PointCount} point(s), {summary.Payload.LineCount} line(s), and {summary.Payload.PolygonCount} polygon feature(s) were generated in the {workspaceMode}.{builtSummary}";
+        return $"{summary.Payload.PointCount} point(s), {summary.Payload.LineCount} line(s), and {summary.Payload.PolygonCount} polygon feature(s) were generated in the {workspaceMode}.{builtSummary} {BuildOutputDiagnosticsSummary(summary.Payload)}";
+    }
+
+    private static string BuildOutputDiagnosticsSummary(OutputSummaryPayload payload)
+    {
+        var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
+        return $"Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
     }
 
     private void ToggleReviewDetails()
@@ -2393,6 +2418,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(SpatialReviewBadge));
         NotifyPropertyChanged(nameof(SpatialReviewSummaryText));
         NotifyPropertyChanged(nameof(SpatialReviewHelpText));
+        NotifyPropertyChanged(nameof(HasSpatialReviewDiagnostics));
+        NotifyPropertyChanged(nameof(SpatialReviewDiagnosticsText));
         NotifyPropertyChanged(nameof(ReadyToCompleteBadge));
         NotifyPropertyChanged(nameof(ReadyToCompleteSummaryText));
         NotifyPropertyChanged(nameof(ReadyToCompleteHelpText));

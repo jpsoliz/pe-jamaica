@@ -80,6 +80,7 @@ internal static class OutputMapReviewStylingTests
         var message = OutputMapReviewStyling.BuildSuccessMessage(summary);
 
         TestAssert.True(message.Contains("COGO-ready non-fabric review layers", StringComparison.OrdinalIgnoreCase), "Normal mode message should describe the non-fabric review workspace.");
+        TestAssert.True(message.Contains("Diagnostics: map load", StringComparison.OrdinalIgnoreCase), "Success message should include the output diagnostics summary.");
     }
 
     public static void ParcelFabricModeReturnsFabricLayerPlusReviewOverlays()
@@ -259,5 +260,6 @@ internal static class OutputMapReviewStylingTests
         var message = OutputMapReviewStyling.BuildSuccessMessage(summary);
 
         TestAssert.True(message.Contains("Working Parcel Fabric review layers", StringComparison.OrdinalIgnoreCase), "Enterprise Parcel Fabric mode should describe the working Parcel Fabric review surface.");
+        TestAssert.True(message.Contains("Diagnostics: map load", StringComparison.OrdinalIgnoreCase), "Fabric success message should include the output diagnostics summary.");
     }
 }

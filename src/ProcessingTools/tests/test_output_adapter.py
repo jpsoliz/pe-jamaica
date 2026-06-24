@@ -95,6 +95,12 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertTrue(summary["payload"]["add_cogo_attributes"])
             self.assertTrue(summary["payload"]["add_cogo_labels"])
             self.assertEqual("source_then_computed", summary["payload"]["cogo_source_mode"])
+            self.assertEqual("non_fabric", summary["payload"]["map_load_mode"])
+            self.assertTrue(summary["payload"]["bearing_txt_populated"])
+            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
+            self.assertTrue(summary["payload"]["distance_txt_populated"])
+            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(2, summary["payload"]["computed_cogo_fallback_line_count"])
             self.assertTrue(summary["payload"]["result_gdb_path"].endswith(".gdb"))
             self.assertTrue(summary["payload"]["polygon_feature_class_path"].endswith("parcel_polygons"))
 
@@ -191,6 +197,12 @@ class OutputAdapterTests(unittest.TestCase):
             summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
             self.assertFalse(summary["payload"]["add_cogo_attributes"])
             self.assertFalse(summary["payload"]["add_cogo_labels"])
+            self.assertEqual("non_fabric", summary["payload"]["map_load_mode"])
+            self.assertFalse(summary["payload"]["bearing_txt_populated"])
+            self.assertEqual(0, summary["payload"]["bearing_txt_populated_count"])
+            self.assertFalse(summary["payload"]["distance_txt_populated"])
+            self.assertEqual(0, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(0, summary["payload"]["computed_cogo_fallback_line_count"])
 
             line_rows = json.loads(Path(summary["payload"]["line_feature_class_path"]).read_text(encoding="utf-8"))
             self.assertNotIn("bearing_txt", line_rows[0])
@@ -260,6 +272,11 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual("N90°00'00\"E", line_rows[0]["bearing_txt"])
             self.assertAlmostEqual(90.0, line_rows[0]["azimuth_deg"], places=6)
             self.assertTrue(line_rows[0]["is_computed_cogo"])
+            self.assertTrue(summary["payload"]["bearing_txt_populated"])
+            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
+            self.assertTrue(summary["payload"]["distance_txt_populated"])
+            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(2, summary["payload"]["computed_cogo_fallback_line_count"])
 
     def test_output_adapter_rejects_stale_approval_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -440,6 +457,7 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
             self.assertEqual("parcel_fabric", summary["payload"]["review_workspace_mode"])
+            self.assertEqual("fabric", summary["payload"]["map_load_mode"])
             self.assertEqual("true", summary["payload"]["parcel_fabric_mode"])
             self.assertTrue(summary["payload"]["review_dataset_path"].endswith("parcel_fabric_dataset"))
             self.assertTrue(summary["payload"]["review_layer_path"].endswith("parcel_fabric_dataset/local_parcel_fabric") or summary["payload"]["review_layer_path"].endswith("parcel_fabric_dataset\\local_parcel_fabric"))

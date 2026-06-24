@@ -1138,6 +1138,17 @@
                            FontSize="11"
                            Foreground="#52616B"
                            TextWrapping="Wrap" />
+                <Border Margin="0,8,0,0"
+                        Padding="8,6"
+                        Background="#F5F7FA"
+                        BorderBrush="#D9E2EC"
+                        BorderThickness="1"
+                        Visibility="{Binding HasSpatialReviewDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <TextBlock Text="{Binding SpatialReviewDiagnosticsText}"
+                             FontSize="11"
+                             Foreground="#334E68"
+                             TextWrapping="Wrap" />
+                </Border>
               </StackPanel>
             </Border>
           </StackPanel>

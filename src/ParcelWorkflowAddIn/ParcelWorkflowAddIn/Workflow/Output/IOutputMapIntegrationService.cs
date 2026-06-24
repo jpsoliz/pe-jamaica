@@ -196,21 +196,29 @@ internal static class OutputMapReviewStyling
 
     public static string BuildSuccessMessage(OutputSummaryDocument summary)
     {
+        var diagnosticSuffix = BuildCogoDiagnosticSuffix(summary.Payload);
+
         if (string.Equals(summary.Payload.ReviewResultOwner, ReviewResultOwnership.ManualSpatialReview, StringComparison.OrdinalIgnoreCase))
         {
-            return "Manual review workspace layers were added to the active map and zoomed for editing. This standard review surface supports COGO-style labels, snapping, and map-based parcel correction without requiring Parcel Fabric.";
+            return $"Manual review workspace layers were added to the active map and zoomed for editing. This standard review surface supports COGO-style labels, snapping, and map-based parcel correction without requiring Parcel Fabric.{diagnosticSuffix}";
         }
 
         if (string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))
         {
-            return "Working Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, COGO, snapping, and editing tools to inspect and refine the transaction geometry.";
+            return $"Working Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, COGO, snapping, and editing tools to inspect and refine the transaction geometry.{diagnosticSuffix}";
         }
 
         return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
-                ? "Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry."
-                : "Parcel Fabric pilot review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools for examination."
-            : "COGO-ready non-fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro snapping, selection, and standard editing tools to inspect points, lines, and parcel boundaries.";
+                ? $"Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry.{diagnosticSuffix}"
+                : $"Parcel Fabric pilot review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools for examination.{diagnosticSuffix}"
+            : $"COGO-ready non-fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro snapping, selection, and standard editing tools to inspect points, lines, and parcel boundaries.{diagnosticSuffix}";
+    }
+
+    private static string BuildCogoDiagnosticSuffix(OutputSummaryPayload payload)
+    {
+        var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
+        return $" Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
     }
 
     public static HashSet<string> TryReadFieldNames(FeatureLayer featureLayer)

@@ -45,7 +45,13 @@ public sealed record OutputSummaryPayload(
     [property: JsonPropertyName("enterprise_working_publish")] EnterpriseWorkingPublishSummary? EnterpriseWorkingPublish = null,
     [property: JsonPropertyName("add_cogo_attributes")] bool AddCogoAttributes = false,
     [property: JsonPropertyName("add_cogo_labels")] bool AddCogoLabels = false,
-    [property: JsonPropertyName("cogo_source_mode")] string? CogoSourceMode = null);
+    [property: JsonPropertyName("cogo_source_mode")] string? CogoSourceMode = null,
+    [property: JsonPropertyName("map_load_mode")] string? MapLoadMode = null,
+    [property: JsonPropertyName("bearing_txt_populated")] bool BearingTxtPopulated = false,
+    [property: JsonPropertyName("bearing_txt_populated_count")] int BearingTxtPopulatedCount = 0,
+    [property: JsonPropertyName("distance_txt_populated")] bool DistanceTxtPopulated = false,
+    [property: JsonPropertyName("distance_txt_populated_count")] int DistanceTxtPopulatedCount = 0,
+    [property: JsonPropertyName("computed_cogo_fallback_line_count")] int ComputedCogoFallbackLineCount = 0);
 
 public sealed record EnterpriseWorkingPublishSummary(
     [property: JsonPropertyName("status")] string Status,

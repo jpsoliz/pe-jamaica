@@ -1397,9 +1397,15 @@ def _build_summary(
         ]
     )
 
+    bearing_txt_populated_count = sum(1 for segment in segments if str(segment.get("bearing_txt") or "").strip())
+    distance_txt_populated_count = sum(1 for segment in segments if str(segment.get("distance_txt") or "").strip())
+    computed_cogo_fallback_line_count = sum(1 for segment in segments if bool(segment.get("is_computed_cogo")))
+    map_load_mode = "fabric" if review_workspace_mode == REVIEW_WORKSPACE_MODE_PARCEL_FABRIC else "non_fabric"
+
     payload = {
         "status": "created",
         "review_workspace_mode": review_workspace_mode,
+        "map_load_mode": map_load_mode,
         "result_gdb_path": str(result_gdb_path),
         "artifact_paths": artifact_paths,
         "map_layer_paths": [path for path in active_layer_paths if path],
@@ -1429,6 +1435,11 @@ def _build_summary(
         "add_cogo_attributes": add_cogo_attributes,
         "add_cogo_labels": add_cogo_labels,
         "cogo_source_mode": cogo_source_mode,
+        "bearing_txt_populated": bearing_txt_populated_count > 0,
+        "bearing_txt_populated_count": bearing_txt_populated_count,
+        "distance_txt_populated": distance_txt_populated_count > 0,
+        "distance_txt_populated_count": distance_txt_populated_count,
+        "computed_cogo_fallback_line_count": computed_cogo_fallback_line_count,
     }
 
     return {
