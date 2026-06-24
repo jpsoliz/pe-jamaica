@@ -61,14 +61,14 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
                 if (existing is not null)
                 {
                     loadedLayers.Add(existing);
-                    TryConfigureReviewLayer(existing, stylingWarnings, styledLayerKeys);
+                    TryConfigureReviewLayer(existing, summary.Payload, stylingWarnings, styledLayerKeys);
                     continue;
                 }
 
                 var created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), mapView.Map);
                 if (created is not null)
                 {
-                    TryConfigureReviewLayer(created, stylingWarnings, styledLayerKeys);
+                    TryConfigureReviewLayer(created, summary.Payload, stylingWarnings, styledLayerKeys);
                     loadedLayers.Add(created);
                 }
             }
@@ -110,13 +110,13 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         return $"{baseMessage} {warningSummary}";
     }
 
-    private static void TryConfigureReviewLayer(Layer layer, ICollection<string> warnings, ISet<string> styledLayerKeys)
+    private static void TryConfigureReviewLayer(Layer layer, OutputSummaryPayload payload, ICollection<string> warnings, ISet<string> styledLayerKeys)
     {
         if (layer is CompositeLayer compositeLayer)
         {
             foreach (var childLayer in compositeLayer.Layers)
             {
-                TryConfigureReviewLayer(childLayer, warnings, styledLayerKeys);
+                TryConfigureReviewLayer(childLayer, payload, warnings, styledLayerKeys);
             }
         }
 
@@ -134,7 +134,7 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         try
         {
             var fieldNames = OutputMapReviewStyling.TryReadFieldNames(featureLayer);
-            OutputMapReviewStyling.ApplyReviewStyling(featureLayer, fieldNames, warnings);
+            OutputMapReviewStyling.ApplyReviewStyling(featureLayer, fieldNames, warnings, payload);
         }
         catch (Exception ex)
         {
@@ -165,7 +165,14 @@ internal static class OutputMapPathResolver
         }
 
         var gdbPath = path[..(index + 4)];
-        return Directory.Exists(gdbPath);
+        if (Directory.Exists(gdbPath))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(path, UriKind.Absolute, out var uri)
+            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
     }
 }
 
@@ -194,6 +201,11 @@ internal static class OutputMapReviewStyling
             return "Manual review workspace layers were added to the active map and zoomed for editing. This standard review surface supports COGO-style labels, snapping, and map-based parcel correction without requiring Parcel Fabric.";
         }
 
+        if (string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))
+        {
+            return "Working Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, COGO, snapping, and editing tools to inspect and refine the transaction geometry.";
+        }
+
         return string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             ? string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase)
                 ? "Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry."
@@ -219,7 +231,7 @@ internal static class OutputMapReviewStyling
         return fieldNames;
     }
 
-    public static void ApplyReviewStyling(FeatureLayer featureLayer, IReadOnlySet<string> fieldNames, ICollection<string> warnings)
+    public static void ApplyReviewStyling(FeatureLayer featureLayer, IReadOnlySet<string> fieldNames, ICollection<string> warnings, OutputSummaryPayload payload)
     {
         var definition = featureLayer.GetDefinition() as CIMFeatureLayer;
         if (definition is null)
@@ -232,22 +244,52 @@ internal static class OutputMapReviewStyling
         if (role == ReviewLayerRole.Points)
         {
             ApplyPointRenderer(featureLayer, warnings);
-            ApplyPointLabels(featureLayer, definition, fieldNames, warnings);
+            if (ShouldApplyLabels(payload, role))
+            {
+                ApplyPointLabels(featureLayer, definition, fieldNames, warnings);
+            }
             return;
         }
 
         if (role == ReviewLayerRole.Lines)
         {
             ApplyLineRenderer(featureLayer, warnings);
-            ApplyLineLabels(featureLayer, definition, fieldNames, warnings);
+            if (ShouldApplyLabels(payload, role))
+            {
+                ApplyLineLabels(featureLayer, definition, fieldNames, warnings);
+            }
             return;
         }
 
         if (role == ReviewLayerRole.Polygons)
         {
             ApplyPolygonRenderer(featureLayer, warnings);
-            ApplyPolygonLabels(featureLayer, definition, fieldNames, warnings);
+            if (ShouldApplyLabels(payload, role))
+            {
+                ApplyPolygonLabels(featureLayer, definition, fieldNames, warnings);
+            }
         }
+    }
+
+    private static bool ShouldApplyLabels(OutputSummaryPayload payload, ReviewLayerRole role)
+    {
+        if (!string.Equals(payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeNormal, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!payload.AddCogoLabels)
+        {
+            return false;
+        }
+
+        return role switch
+        {
+            ReviewLayerRole.Points => true,
+            ReviewLayerRole.Lines => payload.AddCogoAttributes,
+            ReviewLayerRole.Polygons => true,
+            _ => false
+        };
     }
 
     private static void ApplyPointLabels(FeatureLayer featureLayer, CIMFeatureLayer definition, IReadOnlySet<string> fieldNames, ICollection<string> warnings)

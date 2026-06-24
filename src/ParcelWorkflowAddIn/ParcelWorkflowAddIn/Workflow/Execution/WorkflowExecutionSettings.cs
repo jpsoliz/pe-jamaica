@@ -11,6 +11,9 @@ public sealed record WorkflowExecutionSettings(
     string OutputAdapterScriptPath,
     string ReviewWorkspaceMode,
     int OutputAdapterTimeoutSeconds,
+    bool SpatialOutputAddCogoAttributes,
+    bool SpatialOutputAddCogoLabels,
+    string SpatialOutputCogoSourceMode,
     string? OutputTemplateProjectPath,
     string? OutputTemplateGdbPath,
     string ValidationAdapterScriptPath,
@@ -29,6 +32,9 @@ public sealed record WorkflowExecutionSettings(
         DefaultOutputAdapterPath ?? @"src\ProcessingTools\adapters\output_adapter.py",
         InnolaTransactionSettings.ReviewWorkspaceModeNormal,
         DefaultOutputAdapterTimeoutSecondsNormal,
+        false,
+        false,
+        "source_then_computed",
         null,
         null,
         DefaultValidationAdapterPath ?? @"src\ProcessingTools\adapters\validation_adapter.py",
@@ -57,6 +63,12 @@ public sealed record WorkflowExecutionSettings(
             var reviewWorkspaceMode = NormalizeReviewWorkspaceMode(ReadString(root, "review_workspace_mode"));
             var outputAdapterTimeoutSeconds = ReadPositiveInt(root, "output_adapter_timeout_seconds")
                 ?? GetDefaultOutputAdapterTimeoutSeconds(reviewWorkspaceMode);
+            var spatialOutputAddCogoAttributes = ReadBool(root, "spatial_output_add_cogo_attributes")
+                ?? Default.SpatialOutputAddCogoAttributes;
+            var spatialOutputAddCogoLabels = ReadBool(root, "spatial_output_add_cogo_labels")
+                ?? Default.SpatialOutputAddCogoLabels;
+            var spatialOutputCogoSourceMode = NormalizeCogoSourceMode(ReadString(root, "spatial_output_cogo_source_mode"))
+                ?? Default.SpatialOutputCogoSourceMode;
             var outputTemplateProjectPath = ExpandPath(ReadString(root, "output_template_project_path"));
             var outputTemplateGdbPath = ExpandPath(ReadString(root, "output_template_gdb_path"));
             var validationAdapterPath = ExpandPath(ReadString(root, "validation_adapter_script_path")
@@ -70,6 +82,9 @@ public sealed record WorkflowExecutionSettings(
                 outputAdapterPath,
                 reviewWorkspaceMode,
                 outputAdapterTimeoutSeconds,
+                spatialOutputAddCogoAttributes,
+                spatialOutputAddCogoLabels,
+                spatialOutputCogoSourceMode,
                 outputTemplateProjectPath,
                 outputTemplateGdbPath,
                 validationAdapterPath,
@@ -105,6 +120,49 @@ public sealed record WorkflowExecutionSettings(
             && parsedValue > 0)
         {
             return parsedValue;
+        }
+
+        return null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.True)
+        {
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.False)
+        {
+            return false;
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            var text = value.GetString();
+            if (bool.TryParse(text, out var parsed))
+            {
+                return parsed;
+            }
+
+            if (string.Equals(text, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "y", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(text, "0", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "no", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "n", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
         }
 
         return null;
@@ -156,6 +214,7 @@ public sealed record WorkflowExecutionSettings(
         return normalized switch
         {
             InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers => InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers,
+            InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric => InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric,
             InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
             InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
             "parcel-fabric" => InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy,
@@ -167,7 +226,25 @@ public sealed record WorkflowExecutionSettings(
     private static int GetDefaultOutputAdapterTimeoutSeconds(string reviewWorkspaceMode)
     {
         return string.Equals(reviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase)
             ? DefaultOutputAdapterTimeoutSecondsParcelFabric
             : DefaultOutputAdapterTimeoutSecondsNormal;
+    }
+
+    private static string? NormalizeCogoSourceMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            "prefer_source" => "prefer_source",
+            "prefer_computed" => "prefer_computed",
+            "source_then_computed" => "source_then_computed",
+            _ => null
+        };
     }
 }

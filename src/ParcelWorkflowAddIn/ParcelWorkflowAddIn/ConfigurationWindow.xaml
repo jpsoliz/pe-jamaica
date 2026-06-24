@@ -496,6 +496,7 @@
                 <ComboBoxItem Tag="normal" Content="Normal" />
                 <ComboBoxItem Tag="parcel_fabric_local" Content="Local Parcel Fabric" />
                 <ComboBoxItem Tag="enterprise_working_layers" Content="Enterprise Working Layers" />
+                <ComboBoxItem Tag="enterprise_parcel_fabric" Content="Enterprise Parcel Fabric" />
               </ComboBox>
             </Grid>
 
@@ -539,6 +540,40 @@
                        x:Name="OutputTemplateGdbPathTextBox"
                        Margin="0,0,0,6" />
             </Grid>
+
+            <Expander Header="Non-fabric COGO enrichment"
+                      Margin="0,4,0,8"
+                      IsExpanded="False">
+              <StackPanel Margin="0,8,0,0">
+                <CheckBox x:Name="SpatialOutputAddCogoAttributesCheckBox"
+                          Content="Add optional COGO attributes to non-fabric spatial outputs"
+                          Margin="0,0,0,8" />
+
+                <CheckBox x:Name="SpatialOutputAddCogoLabelsCheckBox"
+                          Content="Add optional COGO labels to non-fabric map review"
+                          Margin="0,0,0,8" />
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="COGO source mode" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="SpatialOutputCogoSourceModeComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="source_then_computed" Content="Source first, then computed fallback" />
+                    <ComboBoxItem Tag="prefer_source" Content="Prefer source values" />
+                    <ComboBoxItem Tag="prefer_computed" Content="Prefer computed values" />
+                  </ComboBox>
+                </Grid>
+
+                <TextBlock Foreground="#53636A"
+                           Text="These options apply only to the standard non-fabric output path. Parcel Fabric review modes keep their own field and label behavior."
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0" />
+              </StackPanel>
+            </Expander>
 
             <Expander Header="Enterprise Working Review"
                       x:Name="EnterpriseWorkingExpander"
@@ -682,6 +717,169 @@
                            x:Name="EnterpriseWorkingCaseIndexLayerTextBox"
                            Margin="0,0,0,6" />
                 </Grid>
+              </StackPanel>
+            </Expander>
+
+            <Expander Header="Enterprise Parcel Fabric"
+                      x:Name="EnterpriseParcelFabricExpander"
+                      Margin="0,4,0,8">
+              <StackPanel Margin="0,8,0,0">
+                <CheckBox x:Name="EnterpriseParcelFabricEnabledCheckBox"
+                          Content="Enable Enterprise Parcel Fabric review"
+                          Margin="0,0,0,8" />
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Service root" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricServiceRootTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Fabric layer URL" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricFabricLayerUrlTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Parcel layer URL" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricParcelLayerUrlTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Records layer URL" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricRecordsLayerUrlTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Parcel type name" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricParcelTypeNameTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Record name pattern" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricRecordNamePatternTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Transaction scope field" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricTransactionScopeFieldTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Transaction ID field" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricTransactionIdFieldTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Review state field" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="EnterpriseParcelFabricReviewStateFieldTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Publish timing" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="EnterpriseParcelFabricPublishTimingComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="on_outputs" Content="On Create Spatial Units" />
+                    <ComboBoxItem Tag="on_final_review" Content="On Final Review" />
+                  </ComboBox>
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Build behavior" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="EnterpriseParcelFabricBuildBehaviorComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="build_after_copy" Content="Build after copy" />
+                    <ComboBoxItem Tag="copy_only" Content="Copy only" />
+                  </ComboBox>
+                </Grid>
+
+                <CheckBox x:Name="EnterpriseParcelFabricLoadOverlaysCheckBox"
+                          Content="Load local review overlays with working fabric"
+                          Margin="0,0,0,8" />
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Overlay source" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="EnterpriseParcelFabricOverlaySourceComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="local_case_outputs" Content="Local case outputs" />
+                    <ComboBoxItem Tag="none" Content="None" />
+                  </ComboBox>
+                </Grid>
+
+                <CheckBox x:Name="EnterpriseParcelFabricAllowReplaceTransactionScopeCheckBox"
+                          Content="Allow replace by transaction scope"
+                          Margin="0,0,0,8" />
+
+                <CheckBox x:Name="EnterpriseParcelFabricRequireActiveMapCheckBox"
+                          Content="Require active map for load and review"
+                          Margin="0,0,0,8" />
               </StackPanel>
             </Expander>
 

@@ -1055,8 +1055,9 @@ internal static class WorkflowSessionTests
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
         var layout = CreateApprovedReviewCase(store, tempRoot.Path);
-        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => CreateEnterpriseWorkingSettings(tempRoot.Path));
-        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunValidationAsync("tester").GetAwaiter().GetResult();
         var firstResult = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
@@ -1084,7 +1085,12 @@ internal static class WorkflowSessionTests
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
         var layout = CreateApprovedReviewCase(store, tempRoot.Path);
-        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), new FakeEnterpriseWorkingLayerPublishService(success: false));
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var session = CreateOutputSession(
+            store,
+            new FakeOutputExecutionService(shouldFail: false),
+            new FakeEnterpriseWorkingLayerPublishService(success: false),
+            settingsLoader: () => settings);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunValidationAsync("tester").GetAwaiter().GetResult();
 
@@ -1097,6 +1103,26 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.SpatialReviewApproved, session.CurrentState, "Enterprise publish failure should not revoke the approved spatial review state.");
         TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Local output summary should remain intact.");
         TestAssert.True(session.StatusText.Contains("enterprise working-layer publish failed", StringComparison.OrdinalIgnoreCase), "Status should explain the enterprise publish failure.");
+    }
+
+    public static void WorkflowSessionEnterpriseParcelFabricPublishesDuringOutputsWhenConfigured()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseParcelFabricSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseReviewPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Outputs should succeed in enterprise parcel fabric mode.");
+        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Enterprise Parcel Fabric publish should still move to spatial review pending.");
+        TestAssert.True(session.CurrentOutputSummary?.Payload.EnterpriseWorkingPublish is not null, "Enterprise Parcel Fabric publish summary should attach during outputs.");
+        TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "enterprise_parcel_fabric_publish.json")), "Enterprise Parcel Fabric publish summary should be written.");
+        TestAssert.True(session.StatusText.Contains("Enterprise Parcel Fabric publish completed", StringComparison.OrdinalIgnoreCase), "Status should confirm Enterprise Parcel Fabric publish success.");
     }
 
     public static void WorkflowSessionOutputGenerationRequiresValidationPass()
@@ -1157,13 +1183,13 @@ internal static class WorkflowSessionTests
         var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
         var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
         var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
-        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunValidationAsync("tester").GetAwaiter().GetResult();
         session.RunOutputsAsync("tester").GetAwaiter().GetResult();
         session.ApproveSpatialReview("tester");
         session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
-        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
 
         var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
 
@@ -1181,14 +1207,14 @@ internal static class WorkflowSessionTests
         var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
         var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
         var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
-        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunValidationAsync("tester").GetAwaiter().GetResult();
         session.RunOutputsAsync("tester").GetAwaiter().GetResult();
         session.ApproveSpatialReview("tester");
         session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
         File.Delete(Path.Combine(layout.OutputDirectory, "output_summary.json"));
-        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
 
         var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
 
@@ -1208,14 +1234,14 @@ internal static class WorkflowSessionTests
         var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
         var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
         var restoreService = new JsonEnterpriseWorkingStateRestoreService(() => settings);
-        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunValidationAsync("tester").GetAwaiter().GetResult();
         session.RunOutputsAsync("tester").GetAwaiter().GetResult();
         session.ApproveSpatialReview("tester");
         session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
         File.Delete(Path.Combine(tempRoot.Path, "enterprise-lines.json"));
-        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService);
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, restoreService, () => settings);
 
         var reopenResult = reopenSession.ReopenCaseFolder(layout.RootDirectory);
 
@@ -1496,7 +1522,8 @@ internal static class WorkflowSessionTests
         CaseFolderStore store,
         IOutputExecutionService outputExecutionService,
         IEnterpriseWorkingLayerPublishService? enterpriseWorkingLayerPublishService = null,
-        IEnterpriseWorkingStateRestoreService? enterpriseWorkingStateRestoreService = null)
+        IEnterpriseWorkingStateRestoreService? enterpriseWorkingStateRestoreService = null,
+        Func<InnolaTransactionSettings>? settingsLoader = null)
     {
         return new WorkflowSession(
             store,
@@ -1515,7 +1542,10 @@ internal static class WorkflowSessionTests
             new OutputSummaryPersistenceService(),
             enterpriseWorkingLayerPublishService ?? new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
             enterpriseWorkingStateRestoreService ?? new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
-            new SpatialReviewApprovalPersistenceService());
+            new SpatialReviewApprovalPersistenceService(),
+            new ExtractionDecisionGateService(),
+            new WorkflowLifecycleAuditService(),
+            settingsLoader ?? InnolaTransactionSettings.Load);
     }
 
     private static InnolaTransactionSettings CreateEnterpriseWorkingSettings(string rootPath)
@@ -1538,6 +1568,32 @@ internal static class WorkflowSessionTests
                     Path.Combine(rootPath, "enterprise-polygons.json"),
                     null,
                     null),
+                null)
+        };
+    }
+
+    private static InnolaTransactionSettings CreateEnterpriseParcelFabricSettings(string rootPath)
+    {
+        return InnolaTransactionSettings.Default with
+        {
+            ReviewWorkspaceMode = InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric,
+            EnterpriseParcelFabricReview = new EnterpriseParcelFabricReviewSettings(
+                true,
+                null,
+                Path.Combine(rootPath, "enterprise-fabric.json"),
+                Path.Combine(rootPath, "enterprise-parcels.json"),
+                Path.Combine(rootPath, "enterprise-records.json"),
+                "compute_review",
+                "sidwell-record-{transaction_number}",
+                "transaction_number",
+                "transaction_id",
+                "review_state",
+                EnterpriseParcelFabricReviewSettings.PublishTimingOnOutputs,
+                EnterpriseParcelFabricReviewSettings.BuildBehaviorBuildAfterCopy,
+                true,
+                EnterpriseParcelFabricReviewSettings.OverlaySourceLocalCaseOutputs,
+                true,
+                true,
                 null)
         };
     }

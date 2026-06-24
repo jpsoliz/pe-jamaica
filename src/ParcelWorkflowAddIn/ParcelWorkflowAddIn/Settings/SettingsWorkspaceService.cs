@@ -13,6 +13,9 @@ public sealed class SettingsWorkspaceService
     public const string OpenAiExtractionProfileCustom = "custom";
     public const string OpenAiExtractionProfileBalanced = "balanced";
     public const string OpenAiExtractionProfileHighAccuracy = "high_accuracy";
+    public const string SpatialOutputCogoSourceModeSourceThenComputed = "source_then_computed";
+    public const string SpatialOutputCogoSourceModePreferSource = "prefer_source";
+    public const string SpatialOutputCogoSourceModePreferComputed = "prefer_computed";
 
     private readonly PreflightRuleCatalogLoader ruleCatalogLoader;
 
@@ -78,6 +81,9 @@ public sealed class SettingsWorkspaceService
             InnolaCheckCertificateRevocationList = transactionSettings.ClientCertificate.CheckCertificateRevocationList,
             ReviewWorkspaceMode = transactionSettings.ReviewWorkspaceMode,
             PdfViewerMode = transactionSettings.PdfViewerMode,
+            SpatialOutputAddCogoAttributes = executionSettings.SpatialOutputAddCogoAttributes,
+            SpatialOutputAddCogoLabels = executionSettings.SpatialOutputAddCogoLabels,
+            SpatialOutputCogoSourceMode = NormalizeSpatialOutputCogoSourceMode(ReadString(settingsRoot, "spatial_output_cogo_source_mode") ?? executionSettings.SpatialOutputCogoSourceMode),
             EnterpriseWorkingEnabled = transactionSettings.EnterpriseWorkingReview.Enabled,
             EnterpriseWorkingServiceRoot = transactionSettings.EnterpriseWorkingReview.ServiceRoot ?? string.Empty,
             EnterpriseWorkingWorkspaceName = transactionSettings.EnterpriseWorkingReview.WorkspaceName,
@@ -91,6 +97,22 @@ public sealed class SettingsWorkspaceService
             EnterpriseWorkingPolygonsLayer = transactionSettings.EnterpriseWorkingReview.Layers.Polygons ?? string.Empty,
             EnterpriseWorkingIssuesLayer = transactionSettings.EnterpriseWorkingReview.Layers.Issues ?? string.Empty,
             EnterpriseWorkingCaseIndexLayer = transactionSettings.EnterpriseWorkingReview.Layers.CaseIndex ?? string.Empty,
+            EnterpriseParcelFabricEnabled = transactionSettings.EnterpriseParcelFabricReview.Enabled,
+            EnterpriseParcelFabricServiceRoot = transactionSettings.EnterpriseParcelFabricReview.ServiceRoot ?? string.Empty,
+            EnterpriseParcelFabricFabricLayerUrl = transactionSettings.EnterpriseParcelFabricReview.FabricLayerUrl ?? string.Empty,
+            EnterpriseParcelFabricParcelLayerUrl = transactionSettings.EnterpriseParcelFabricReview.ParcelLayerUrl ?? string.Empty,
+            EnterpriseParcelFabricRecordsLayerUrl = transactionSettings.EnterpriseParcelFabricReview.RecordsLayerUrl ?? string.Empty,
+            EnterpriseParcelFabricParcelTypeName = transactionSettings.EnterpriseParcelFabricReview.ParcelTypeName,
+            EnterpriseParcelFabricRecordNamePattern = transactionSettings.EnterpriseParcelFabricReview.RecordNamePattern,
+            EnterpriseParcelFabricTransactionScopeField = transactionSettings.EnterpriseParcelFabricReview.TransactionScopeField,
+            EnterpriseParcelFabricTransactionIdField = transactionSettings.EnterpriseParcelFabricReview.TransactionIdField,
+            EnterpriseParcelFabricReviewStateField = transactionSettings.EnterpriseParcelFabricReview.ReviewStateField,
+            EnterpriseParcelFabricPublishTiming = transactionSettings.EnterpriseParcelFabricReview.PublishTiming,
+            EnterpriseParcelFabricBuildBehavior = transactionSettings.EnterpriseParcelFabricReview.BuildBehavior,
+            EnterpriseParcelFabricLoadOverlays = transactionSettings.EnterpriseParcelFabricReview.LoadOverlays,
+            EnterpriseParcelFabricOverlaySource = transactionSettings.EnterpriseParcelFabricReview.OverlaySource,
+            EnterpriseParcelFabricAllowReplaceTransactionScope = transactionSettings.EnterpriseParcelFabricReview.AllowReplaceTransactionScope,
+            EnterpriseParcelFabricRequireActiveMap = transactionSettings.EnterpriseParcelFabricReview.RequireActiveMap,
             GsiServerUrl = ReadString(settingsRoot, "gsi_server_url") ?? string.Empty,
             GsiUsername = ReadString(settingsRoot, "gsi_username") ?? string.Empty,
             GsiPasswordMode = NormalizeGsiPasswordMode(ReadString(settingsRoot, "gsi_password_mode")),
@@ -144,6 +166,11 @@ public sealed class SettingsWorkspaceService
             messages.Add(new("AI Toolset", "Extraction Profile", $"OpenAI extraction profile '{document.OpenAiExtractionProfile}' is not supported."));
         }
 
+        if (!IsSupportedSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode))
+        {
+            messages.Add(new("Spatial Workspace", "COGO Source Mode", $"COGO source mode '{document.SpatialOutputCogoSourceMode}' is not supported."));
+        }
+
         if (string.Equals(document.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
         {
             if (!document.EnterpriseWorkingEnabled)
@@ -157,6 +184,23 @@ public sealed class SettingsWorkspaceService
                 || string.IsNullOrWhiteSpace(document.EnterpriseWorkingTransactionScopeField))
             {
                 messages.Add(new("Spatial Workspace", "Enterprise Targets", "Enterprise working layers mode requires points, lines, polygons, and transaction scope field values."));
+            }
+        }
+
+        if (string.Equals(document.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!document.EnterpriseParcelFabricEnabled)
+            {
+                messages.Add(new("Spatial Workspace", "Enterprise Parcel Fabric", "Enterprise Parcel Fabric mode requires Enterprise Parcel Fabric review to be enabled."));
+            }
+
+            if (string.IsNullOrWhiteSpace(document.EnterpriseParcelFabricFabricLayerUrl)
+                || string.IsNullOrWhiteSpace(document.EnterpriseParcelFabricRecordsLayerUrl)
+                || string.IsNullOrWhiteSpace(document.EnterpriseParcelFabricParcelTypeName)
+                || string.IsNullOrWhiteSpace(document.EnterpriseParcelFabricRecordNamePattern)
+                || string.IsNullOrWhiteSpace(document.EnterpriseParcelFabricTransactionScopeField))
+            {
+                messages.Add(new("Spatial Workspace", "Enterprise Parcel Fabric Targets", "Enterprise Parcel Fabric mode requires fabric layer URL, records layer URL, parcel type name, record name pattern, and transaction scope field values."));
             }
         }
 
@@ -234,7 +278,11 @@ public sealed class SettingsWorkspaceService
         root["innola_check_certificate_revocation_list"] = document.InnolaCheckCertificateRevocationList;
         SetString(root, "review_workspace_mode", document.ReviewWorkspaceMode);
         SetString(root, "pdf_viewer_mode", NormalizePdfViewerMode(document.PdfViewerMode));
+        root["spatial_output_add_cogo_attributes"] = document.SpatialOutputAddCogoAttributes;
+        root["spatial_output_add_cogo_labels"] = document.SpatialOutputAddCogoLabels;
+        SetString(root, "spatial_output_cogo_source_mode", NormalizeSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
+        root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
         SetString(root, "gsi_username", document.GsiUsername);
         SetString(root, "gsi_password_mode", NormalizeGsiPasswordMode(document.GsiPasswordMode));
@@ -393,6 +441,29 @@ public sealed class SettingsWorkspaceService
         };
     }
 
+    private static JsonObject CreateEnterpriseParcelFabricReviewNode(SettingsWorkspaceDocument document)
+    {
+        return new JsonObject
+        {
+            ["enabled"] = document.EnterpriseParcelFabricEnabled,
+            ["service_root"] = document.EnterpriseParcelFabricServiceRoot,
+            ["fabric_layer_url"] = document.EnterpriseParcelFabricFabricLayerUrl,
+            ["parcel_layer_url"] = document.EnterpriseParcelFabricParcelLayerUrl,
+            ["records_layer_url"] = document.EnterpriseParcelFabricRecordsLayerUrl,
+            ["parcel_type_name"] = document.EnterpriseParcelFabricParcelTypeName,
+            ["record_name_pattern"] = document.EnterpriseParcelFabricRecordNamePattern,
+            ["transaction_scope_field"] = document.EnterpriseParcelFabricTransactionScopeField,
+            ["transaction_id_field"] = document.EnterpriseParcelFabricTransactionIdField,
+            ["review_state_field"] = document.EnterpriseParcelFabricReviewStateField,
+            ["publish_timing"] = document.EnterpriseParcelFabricPublishTiming,
+            ["build_behavior"] = document.EnterpriseParcelFabricBuildBehavior,
+            ["load_overlays"] = document.EnterpriseParcelFabricLoadOverlays,
+            ["overlay_source"] = document.EnterpriseParcelFabricOverlaySource,
+            ["allow_replace_transaction_scope"] = document.EnterpriseParcelFabricAllowReplaceTransactionScope,
+            ["require_active_map"] = document.EnterpriseParcelFabricRequireActiveMap
+        };
+    }
+
     private static string? BuildSettingsWarning(InnolaTransactionSettings transactionSettings, ProcessingEnvironmentSettings environmentSettings)
     {
         var warnings = new List<string>();
@@ -409,6 +480,16 @@ public sealed class SettingsWorkspaceService
         if (!string.IsNullOrWhiteSpace(transactionSettings.ComputeWorkflowStagesWarning))
         {
             warnings.Add(transactionSettings.ComputeWorkflowStagesWarning);
+        }
+
+        if (!string.IsNullOrWhiteSpace(transactionSettings.EnterpriseWorkingReview.Warning))
+        {
+            warnings.Add(transactionSettings.EnterpriseWorkingReview.Warning);
+        }
+
+        if (!string.IsNullOrWhiteSpace(transactionSettings.EnterpriseParcelFabricReview.Warning))
+        {
+            warnings.Add(transactionSettings.EnterpriseParcelFabricReview.Warning);
         }
 
         if (string.IsNullOrWhiteSpace(environmentSettings.PythonExecutable))
@@ -443,6 +524,23 @@ public sealed class SettingsWorkspaceService
         return string.Equals(value, OpenAiExtractionProfileCustom, StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, OpenAiExtractionProfileBalanced, StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, OpenAiExtractionProfileHighAccuracy, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeSpatialOutputCogoSourceMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            SpatialOutputCogoSourceModePreferSource => SpatialOutputCogoSourceModePreferSource,
+            SpatialOutputCogoSourceModePreferComputed => SpatialOutputCogoSourceModePreferComputed,
+            _ => SpatialOutputCogoSourceModeSourceThenComputed
+        };
+    }
+
+    private static bool IsSupportedSpatialOutputCogoSourceMode(string? value)
+    {
+        return string.Equals(value, SpatialOutputCogoSourceModeSourceThenComputed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, SpatialOutputCogoSourceModePreferSource, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, SpatialOutputCogoSourceModePreferComputed, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePdfViewerMode(string? value)

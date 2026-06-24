@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-06-17
+last_updated: 2026-06-23
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -105,6 +105,9 @@ development_status:
   5-16b-implement-points-validation-tool-save-return-flow-and-downstream-stage-handoff: review
   5-13-build-dev-spike-for-jamaica-cogo-style-review-workspace-shell: review
   5-18-route-manual-review-branch-into-configured-gdb-map-editing-path: review
+  5-19-define-cogo-ready-non-fabric-output-layer-schema: review
+  5-20-configure-cogo-style-map-symbology-labeling-and-editing-experience-for-non-fabric-spatial-outputs: review
+  5-21-add-optional-cogo-attributes-and-labels-to-non-fabric-spatial-output-layers: review
   epic-5-retrospective: optional
 
   epic-6: backlog

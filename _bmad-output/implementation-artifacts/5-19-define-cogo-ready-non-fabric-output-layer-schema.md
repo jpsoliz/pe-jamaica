@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-06-22
 
 # Story 5.19: Define COGO-Ready Non-Fabric Output Layer Schema
 
-Status: drafted
+Status: review
 
 ## Story
 
@@ -25,32 +25,32 @@ so that I can review, label, edit, and hand off parcel geometry in ArcGIS Pro ev
 
 ## Tasks / Subtasks
 
-- [ ] Define the authoritative non-fabric layer set. (AC: 1, 6-8)
-  - [ ] Standardize the layer names for points, lines, polygons, and any optional issue/annotation support layers.
-  - [ ] Decide which existing output names remain for backward compatibility and which need normalization.
-  - [ ] Document how this non-fabric contract differs from Parcel Fabric mode.
+- [x] Define the authoritative non-fabric layer set. (AC: 1, 6-8)
+  - [x] Standardize the layer names for points, lines, polygons, and any optional issue/annotation support layers.
+  - [x] Decide which existing output names remain for backward compatibility and which need normalization.
+  - [x] Document how this non-fabric contract differs from Parcel Fabric mode.
 
-- [ ] Define the shared case/workflow metadata fields. (AC: 2, 7-8)
-  - [ ] Identify the base fields that should appear on all output layers.
-  - [ ] Include transaction identity, workflow branch/stage, review state, and provenance/source fields.
-  - [ ] Keep field names and text lengths practical for file geodatabase use.
+- [x] Define the shared case/workflow metadata fields. (AC: 2, 7-8)
+  - [x] Identify the base fields that should appear on all output layers.
+  - [x] Include transaction identity, workflow branch/stage, review state, and provenance/source fields.
+  - [x] Keep field names and text lengths practical for file geodatabase use.
 
-- [ ] Define the point schema. (AC: 2, 4, 6)
-  - [ ] Specify identifier, order, parcel-group, coordinate, status, and edit/provenance fields.
-  - [ ] Define which fields drive labels and which fields are only operational metadata.
+- [x] Define the point schema. (AC: 2, 4, 6)
+  - [x] Specify identifier, order, parcel-group, coordinate, status, and edit/provenance fields.
+  - [x] Define which fields drive labels and which fields are only operational metadata.
 
-- [ ] Define the line schema. (AC: 2-3, 6)
-  - [ ] Specify from/to point ids, segment order, parcel/traverse grouping, bearing, distance, radius, arc length, and line-type fields.
-  - [ ] Identify which line fields should support COGO-style labeling and review.
+- [x] Define the line schema. (AC: 2-3, 6)
+  - [x] Specify from/to point ids, segment order, parcel/traverse grouping, bearing, distance, radius, arc length, and line-type fields.
+  - [x] Identify which line fields should support COGO-style labeling and review.
 
-- [ ] Define the polygon schema. (AC: 2, 5-6)
-  - [ ] Specify parcel identity, grouping, area/perimeter support fields, review status, and provenance fields.
-  - [ ] Clarify how multi-parcel source documents map into polygon records.
+- [x] Define the polygon schema. (AC: 2, 5-6)
+  - [x] Specify parcel identity, grouping, area/perimeter support fields, review status, and provenance fields.
+  - [x] Clarify how multi-parcel source documents map into polygon records.
 
-- [ ] Define labeling, editability, and compatibility rules. (AC: 6-8)
-  - [ ] Document recommended point and line label expressions for ArcGIS Pro.
-  - [ ] Document how standard snapping/editing should work in non-fabric mode.
-  - [ ] Note the current output adapter gaps versus the target contract.
+- [x] Define labeling, editability, and compatibility rules. (AC: 6-8)
+  - [x] Document recommended point and line label expressions for ArcGIS Pro.
+  - [x] Document how standard snapping/editing should work in non-fabric mode.
+  - [x] Note the current output adapter gaps versus the target contract.
 
 ## Dev Notes
 
@@ -303,3 +303,33 @@ Main gaps to close in future implementation:
 | Date | Version | Description | Author |
 |---|---:|---|---|
 | 2026-06-22 | 0.1 | Drafted the authoritative COGO-ready non-fabric output schema contract for future implementation. | Codex |
+| 2026-06-23 | 1.0 | Implemented the canonical non-fabric output schema in the output adapter with backward-compatible legacy fields and automated coverage. | Codex |
+
+## Dev Agent Record
+
+### Agent Model Used
+
+Codex GPT-5
+
+### Debug Log References
+
+- `git rev-parse HEAD`
+- `python -m unittest tests.test_output_adapter`
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`
+
+### Completion Notes List
+
+- Implemented the canonical COGO-ready non-fabric schema in `output_adapter.py` for points, lines, and polygons while preserving legacy field names such as `parcel_grp`, `start_pt`, `end_pt`, `seg_index`, `point_ord`, and `point_cnt`.
+- Added shared workflow metadata fields across non-fabric outputs, including transaction identity, workflow name/stage, review state, and source mode.
+- Extended point outputs with stable point identifiers, parcel grouping, parcel naming, traversal metadata, point order, coordinate fields, and review/edit flags.
+- Extended line outputs with canonical from/to point ids, segment order/index, line type, distance text, numeric distance, and curve-support fields while preserving legacy aliases for compatibility.
+- Extended polygon outputs with canonical parcel grouping, polygon order, point count, perimeter, area, and closure status support fields.
+- Updated the filesystem fallback path so JSON-based non-fabric outputs expose the same canonical schema contract as the ArcPy path.
+- Added Python tests covering canonical schema population and computed non-fabric values; verified the add-in regression suite still passes.
+
+### File List
+
+- `_bmad-output/implementation-artifacts/5-19-define-cogo-ready-non-fabric-output-layer-schema.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `src/ProcessingTools/adapters/output_adapter.py`
+- `src/ProcessingTools/tests/test_output_adapter.py`

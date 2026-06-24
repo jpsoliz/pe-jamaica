@@ -34,6 +34,7 @@ public sealed class WorkflowSession
     private readonly SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService;
     private readonly ExtractionDecisionGateService extractionDecisionGateService;
     private readonly WorkflowLifecycleAuditService workflowLifecycleAuditService;
+    private readonly Func<Innola.InnolaTransactionSettings> getTransactionSettings;
     private readonly List<SourceFileCopyResult> sourceFiles = [];
     private readonly List<string> intakeIssues = [];
     private readonly List<AvailableArtifact> availableArtifacts = [];
@@ -96,11 +97,12 @@ public sealed class WorkflowSession
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
-            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
-            new WorkflowLifecycleAuditService())
+            new WorkflowLifecycleAuditService(),
+            Innola.InnolaTransactionSettings.Load)
     {
     }
 
@@ -129,11 +131,12 @@ public sealed class WorkflowSession
             new ValidationSummaryPersistenceService(),
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
-            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
-            new WorkflowLifecycleAuditService())
+            new WorkflowLifecycleAuditService(),
+            Innola.InnolaTransactionSettings.Load)
     {
     }
 
@@ -165,9 +168,12 @@ public sealed class WorkflowSession
             validationSummaryPersistenceService,
             new OutputAdapterExecutionService(),
             new OutputSummaryPersistenceService(),
-            new JsonEnterpriseWorkingLayerPublishService(),
+            new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
-            new SpatialReviewApprovalPersistenceService())
+            new SpatialReviewApprovalPersistenceService(),
+            new ExtractionDecisionGateService(),
+            new WorkflowLifecycleAuditService(),
+            Innola.InnolaTransactionSettings.Load)
     {
     }
 
@@ -231,7 +237,8 @@ public sealed class WorkflowSession
         IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService,
         SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService,
         ExtractionDecisionGateService extractionDecisionGateService,
-        WorkflowLifecycleAuditService workflowLifecycleAuditService)
+        WorkflowLifecycleAuditService workflowLifecycleAuditService,
+        Func<Innola.InnolaTransactionSettings>? getTransactionSettings = null)
     {
         this.caseFolderStore = caseFolderStore;
         this.sourceFileCopyService = sourceFileCopyService;
@@ -252,6 +259,7 @@ public sealed class WorkflowSession
         this.spatialReviewApprovalPersistenceService = spatialReviewApprovalPersistenceService;
         this.extractionDecisionGateService = extractionDecisionGateService;
         this.workflowLifecycleAuditService = workflowLifecycleAuditService;
+        this.getTransactionSettings = getTransactionSettings ?? Innola.InnolaTransactionSettings.Load;
     }
 
     public WorkflowState CurrentState { get; private set; } = WorkflowState.NoCase;
@@ -1010,7 +1018,7 @@ public sealed class WorkflowSession
             }
 
             currentOutputSummary = result.Summary;
-            var publishResult = EnterpriseWorkingLayerPublishResult.Skipped("Enterprise working-layer publish will occur at final completion.");
+            var publishResult = EnterpriseWorkingLayerPublishResult.Skipped("Enterprise review publish will occur at the configured downstream stage.");
             if (ShouldPublishEnterpriseAtOutputStage())
             {
                 publishResult = await enterpriseWorkingLayerPublishService.PublishAsync(layout, manifest, currentOutputSummary, operatorId, cancellationToken).ConfigureAwait(false);
@@ -1032,10 +1040,15 @@ public sealed class WorkflowSession
 
             RemoveSpatialReviewArtifacts(layout);
             SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
+            var enterprisePublishMode = GetEnterprisePublishMode();
             StatusText = publishResult.Attempted && !publishResult.Success
-                ? "Outputs created locally, but enterprise working-layer publish failed. Local geometry is still ready for spatial review in the map."
+                ? enterprisePublishMode == Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
+                    ? "Outputs created locally, but Enterprise Parcel Fabric publish failed. Local geometry is still ready for spatial review in the map."
+                    : "Outputs created locally, but enterprise working-layer publish failed. Local geometry is still ready for spatial review in the map."
                 : publishResult.Attempted
-                    ? "Outputs created and enterprise working-layer publish completed. Geometry is ready for spatial review in the map."
+                    ? enterprisePublishMode == Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
+                        ? "Outputs created and Enterprise Parcel Fabric publish completed. Geometry is ready for final review in the map."
+                        : "Outputs created and enterprise working-layer publish completed. Geometry is ready for spatial review in the map."
                     : "Outputs created: local geometry is ready for spatial review in the map.";
             return result;
         }
@@ -1066,7 +1079,7 @@ public sealed class WorkflowSession
     {
         if (CurrentState != WorkflowState.SpatialReviewApproved || string.IsNullOrWhiteSpace(CaseFolderPath))
         {
-            StatusText = "Complete spatial review before publishing enterprise working-layer geometry.";
+            StatusText = "Complete spatial review before publishing enterprise review geometry.";
             return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
         }
 
@@ -1083,14 +1096,14 @@ public sealed class WorkflowSession
             or NotSupportedException
             or ArgumentException)
         {
-            StatusText = "Enterprise publish could not start because the manifest could not be read.";
+            StatusText = "Enterprise review publish could not start because the manifest could not be read.";
             return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
         }
 
         currentOutputSummary ??= outputSummaryPersistenceService.Load(layout);
         if (currentOutputSummary is null)
         {
-            StatusText = "Enterprise publish could not start because no output summary is available.";
+            StatusText = "Enterprise review publish could not start because no output summary is available.";
             return EnterpriseWorkingLayerPublishResult.Failed(StatusText, null, null);
         }
 
@@ -1100,10 +1113,9 @@ public sealed class WorkflowSession
             return EnterpriseWorkingLayerPublishResult.Skipped(StatusText);
         }
 
-        var settings = Innola.InnolaTransactionSettings.Load();
-        if (!string.Equals(settings.EnterpriseWorkingReview.PublishTiming, Innola.EnterpriseWorkingReviewSettings.PublishTimingOnComplete, StringComparison.OrdinalIgnoreCase))
+        if (!ShouldPublishEnterpriseAtFinalStage())
         {
-            StatusText = "Enterprise publish is not configured for final completion timing.";
+            StatusText = "Enterprise publish is not configured for final-review timing.";
             return EnterpriseWorkingLayerPublishResult.Skipped(StatusText);
         }
 
@@ -1116,8 +1128,12 @@ public sealed class WorkflowSession
         }
 
         StatusText = publishResult.Success
-            ? "Enterprise working-layer publish completed. The completed review is now ready for shared visibility."
-            : $"Enterprise working-layer publish failed. Local outputs remain available. {publishResult.Message}";
+            ? GetEnterprisePublishMode() == Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
+                ? "Enterprise Parcel Fabric publish completed. The validated review is now ready for shared final review."
+                : "Enterprise working-layer publish completed. The completed review is now ready for shared visibility."
+            : GetEnterprisePublishMode() == Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
+                ? $"Enterprise Parcel Fabric publish failed. Local outputs remain available. {publishResult.Message}"
+                : $"Enterprise working-layer publish failed. Local outputs remain available. {publishResult.Message}";
         return publishResult;
     }
 
@@ -1141,13 +1157,43 @@ public sealed class WorkflowSession
         outputSummaryPersistenceService.Save(layout, currentOutputSummary);
     }
 
-    private static bool ShouldPublishEnterpriseAtOutputStage()
+    private bool ShouldPublishEnterpriseAtOutputStage()
     {
-        var settings = Innola.InnolaTransactionSettings.Load();
-        return string.Equals(
-            settings.EnterpriseWorkingReview.PublishTiming,
-            Innola.EnterpriseWorkingReviewSettings.PublishTimingOnOutputs,
-            StringComparison.OrdinalIgnoreCase);
+        var settings = getTransactionSettings();
+        return settings.ReviewWorkspaceMode switch
+        {
+            Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers => string.Equals(
+                settings.EnterpriseWorkingReview.PublishTiming,
+                Innola.EnterpriseWorkingReviewSettings.PublishTimingOnOutputs,
+                StringComparison.OrdinalIgnoreCase),
+            Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric => string.Equals(
+                settings.EnterpriseParcelFabricReview.PublishTiming,
+                Innola.EnterpriseParcelFabricReviewSettings.PublishTimingOnOutputs,
+                StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+
+    private bool ShouldPublishEnterpriseAtFinalStage()
+    {
+        var settings = getTransactionSettings();
+        return settings.ReviewWorkspaceMode switch
+        {
+            Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers => string.Equals(
+                settings.EnterpriseWorkingReview.PublishTiming,
+                Innola.EnterpriseWorkingReviewSettings.PublishTimingOnComplete,
+                StringComparison.OrdinalIgnoreCase),
+            Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric => string.Equals(
+                settings.EnterpriseParcelFabricReview.PublishTiming,
+                Innola.EnterpriseParcelFabricReviewSettings.PublishTimingOnFinalReview,
+                StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+
+    private string GetEnterprisePublishMode()
+    {
+        return getTransactionSettings().ReviewWorkspaceMode;
     }
 
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)

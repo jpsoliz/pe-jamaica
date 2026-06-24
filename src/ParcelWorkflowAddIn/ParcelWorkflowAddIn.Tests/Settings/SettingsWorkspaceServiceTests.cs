@@ -26,6 +26,28 @@ internal static class SettingsWorkspaceServiceTests
               "openai_model": "gpt-4.1-mini",
               "openai_api_key_environment_variable": "OPENAI_API_KEY",
               "pdf_viewer_mode": "external_only",
+              "review_workspace_mode": "enterprise_parcel_fabric",
+              "spatial_output_add_cogo_attributes": true,
+              "spatial_output_add_cogo_labels": true,
+              "spatial_output_cogo_source_mode": "prefer_source",
+              "enterprise_parcel_fabric_review": {
+                "enabled": true,
+                "service_root": "https://fabric.local/server/rest/services",
+                "fabric_layer_url": "https://fabric.local/server/rest/services/Fabric/FeatureServer/0",
+                "parcel_layer_url": "https://fabric.local/server/rest/services/Fabric/FeatureServer/3",
+                "records_layer_url": "https://fabric.local/server/rest/services/Fabric/FeatureServer/5",
+                "parcel_type_name": "compute_review",
+                "record_name_pattern": "sidwell-record-{transaction_number}",
+                "transaction_scope_field": "transaction_number",
+                "transaction_id_field": "transaction_id",
+                "review_state_field": "review_state",
+                "publish_timing": "on_outputs",
+                "build_behavior": "build_after_copy",
+                "load_overlays": true,
+                "overlay_source": "local_case_outputs",
+                "allow_replace_transaction_scope": true,
+                "require_active_map": true
+              },
               "gsi_server_url": "https://gsi.local/",
               "gsi_username": "gsi-user",
               "gsi_password_mode": "environment_variable",
@@ -160,6 +182,13 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.True(document.OpenAiEnabled, "OpenAI enabled mismatch.");
         TestAssert.Equal("balanced", document.OpenAiExtractionProfile, "OpenAI extraction profile mismatch.");
         TestAssert.Equal(InnolaTransactionSettings.PdfViewerModeExternalOnly, document.PdfViewerMode, "PDF viewer mode mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, document.ReviewWorkspaceMode, "Review workspace mode mismatch.");
+        TestAssert.True(document.SpatialOutputAddCogoAttributes, "COGO attributes toggle mismatch.");
+        TestAssert.True(document.SpatialOutputAddCogoLabels, "COGO labels toggle mismatch.");
+        TestAssert.Equal(SettingsWorkspaceService.SpatialOutputCogoSourceModePreferSource, document.SpatialOutputCogoSourceMode, "COGO source mode mismatch.");
+        TestAssert.True(document.EnterpriseParcelFabricEnabled, "Enterprise Parcel Fabric enabled mismatch.");
+        TestAssert.Equal("compute_review", document.EnterpriseParcelFabricParcelTypeName, "Enterprise Parcel Fabric parcel type mismatch.");
+        TestAssert.Equal("https://fabric.local/server/rest/services/Fabric/FeatureServer/0", document.EnterpriseParcelFabricFabricLayerUrl, "Enterprise Parcel Fabric fabric layer mismatch.");
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
@@ -311,6 +340,26 @@ internal static class SettingsWorkspaceServiceTests
         document.OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy;
         document.OpenAiModel = "gpt-4.1";
         document.PdfViewerMode = InnolaTransactionSettings.PdfViewerModeExternalOnly;
+        document.ReviewWorkspaceMode = InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric;
+        document.SpatialOutputAddCogoAttributes = true;
+        document.SpatialOutputAddCogoLabels = true;
+        document.SpatialOutputCogoSourceMode = SettingsWorkspaceService.SpatialOutputCogoSourceModePreferComputed;
+        document.EnterpriseParcelFabricEnabled = true;
+        document.EnterpriseParcelFabricServiceRoot = "https://fabric.local/server/rest/services";
+        document.EnterpriseParcelFabricFabricLayerUrl = "https://fabric.local/server/rest/services/Fabric/FeatureServer/0";
+        document.EnterpriseParcelFabricParcelLayerUrl = "https://fabric.local/server/rest/services/Fabric/FeatureServer/3";
+        document.EnterpriseParcelFabricRecordsLayerUrl = "https://fabric.local/server/rest/services/Fabric/FeatureServer/5";
+        document.EnterpriseParcelFabricParcelTypeName = "compute_review";
+        document.EnterpriseParcelFabricRecordNamePattern = "sidwell-record-{transaction_number}";
+        document.EnterpriseParcelFabricTransactionScopeField = "transaction_number";
+        document.EnterpriseParcelFabricTransactionIdField = "transaction_id";
+        document.EnterpriseParcelFabricReviewStateField = "review_state";
+        document.EnterpriseParcelFabricPublishTiming = EnterpriseParcelFabricReviewSettings.PublishTimingOnFinalReview;
+        document.EnterpriseParcelFabricBuildBehavior = EnterpriseParcelFabricReviewSettings.BuildBehaviorCopyOnly;
+        document.EnterpriseParcelFabricLoadOverlays = false;
+        document.EnterpriseParcelFabricOverlaySource = EnterpriseParcelFabricReviewSettings.OverlaySourceNone;
+        document.EnterpriseParcelFabricAllowReplaceTransactionScope = false;
+        document.EnterpriseParcelFabricRequireActiveMap = true;
         document.GsiServerUrl = "https://gsi.local/";
         document.GsiUsername = "gsi-user";
         document.GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect;
@@ -329,6 +378,15 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal(SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy, reloaded.OpenAiExtractionProfile, "OpenAI extraction profile save mismatch.");
         TestAssert.Equal("gpt-4.1", reloaded.OpenAiModel, "OpenAI model save mismatch.");
         TestAssert.Equal(InnolaTransactionSettings.PdfViewerModeExternalOnly, reloaded.PdfViewerMode, "PDF viewer mode save mismatch.");
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, reloaded.ReviewWorkspaceMode, "Review workspace mode save mismatch.");
+        TestAssert.True(reloaded.SpatialOutputAddCogoAttributes, "COGO attributes save mismatch.");
+        TestAssert.True(reloaded.SpatialOutputAddCogoLabels, "COGO labels save mismatch.");
+        TestAssert.Equal(SettingsWorkspaceService.SpatialOutputCogoSourceModePreferComputed, reloaded.SpatialOutputCogoSourceMode, "COGO source mode save mismatch.");
+        TestAssert.True(reloaded.EnterpriseParcelFabricEnabled, "Enterprise Parcel Fabric enabled save mismatch.");
+        TestAssert.Equal("https://fabric.local/server/rest/services/Fabric/FeatureServer/0", reloaded.EnterpriseParcelFabricFabricLayerUrl, "Enterprise Parcel Fabric fabric layer save mismatch.");
+        TestAssert.Equal(EnterpriseParcelFabricReviewSettings.PublishTimingOnFinalReview, reloaded.EnterpriseParcelFabricPublishTiming, "Enterprise Parcel Fabric publish timing save mismatch.");
+        TestAssert.Equal(EnterpriseParcelFabricReviewSettings.BuildBehaviorCopyOnly, reloaded.EnterpriseParcelFabricBuildBehavior, "Enterprise Parcel Fabric build behavior save mismatch.");
+        TestAssert.True(!reloaded.EnterpriseParcelFabricLoadOverlays, "Enterprise Parcel Fabric overlay load save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeDirect, reloaded.GsiPasswordMode, "GSI password mode save mismatch.");
         TestAssert.Equal("masked-secret", reloaded.GsiPassword, "GSI password save mismatch.");
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
@@ -351,6 +409,7 @@ internal static class SettingsWorkspaceServiceTests
             ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
             OutputAdapterTimeoutSeconds = 120,
             OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
+            SpatialOutputCogoSourceMode = "not_supported",
             GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect,
             GsiPassword = ""
         };
@@ -359,6 +418,57 @@ internal static class SettingsWorkspaceServiceTests
 
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Working Review"), "Expected enterprise enablement validation message.");
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Targets"), "Expected enterprise targets validation message.");
+        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "COGO Source Mode"), "Expected COGO source mode validation message.");
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "ArcGIS Enterprise Password"), "Expected direct GSI password validation message.");
+    }
+
+    public static void SettingsWorkspaceValidationRejectsInvalidEnterpriseParcelFabricConfiguration()
+    {
+        var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(Path.Combine(Path.GetTempPath(), "missing-rules.json")));
+        var document = new SettingsWorkspaceDocument
+        {
+            ReviewWorkspaceMode = InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric,
+            EnterpriseParcelFabricEnabled = false,
+            EnterpriseParcelFabricFabricLayerUrl = "",
+            EnterpriseParcelFabricRecordsLayerUrl = "",
+            EnterpriseParcelFabricParcelTypeName = "",
+            EnterpriseParcelFabricRecordNamePattern = "",
+            EnterpriseParcelFabricTransactionScopeField = "",
+            SupportedTransactionTypes = new List<string> { "Plan Examination" },
+            ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
+            OutputAdapterTimeoutSeconds = 120,
+            OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
+            GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable,
+            GsiPasswordEnvironmentVariable = "GSI_PASSWORD"
+        };
+
+        var messages = service.Validate(document);
+
+        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Parcel Fabric"), "Expected Enterprise Parcel Fabric enablement validation message.");
+        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Parcel Fabric Targets"), "Expected Enterprise Parcel Fabric target validation message.");
+    }
+
+    public static void SettingsWorkspaceLoadSurfacesEnterpriseParcelFabricWarningsInSummary()
+    {
+        using var tempDirectory = new TempDirectory();
+        var settingsPath = Path.Combine(tempDirectory.Path, "WorkflowSettings.json");
+        File.WriteAllText(settingsPath,
+            """
+            {
+              "review_workspace_mode": "enterprise_parcel_fabric",
+              "enterprise_parcel_fabric_review": {
+                "enabled": true,
+                "fabric_layer_url": "https://fabric.local/server/rest/services/Fabric/FeatureServer/0",
+                "parcel_type_name": "compute_review",
+                "record_name_pattern": "sidwell-record-{transaction_number}",
+                "transaction_scope_field": "transaction_number"
+              }
+            }
+            """);
+
+        var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(Path.Combine(tempDirectory.Path, "missing-rules.json")));
+        var document = service.Load(settingsPath);
+
+        TestAssert.True(document.SettingsWarning?.Contains("records_layer_url", StringComparison.OrdinalIgnoreCase) == true, "Enterprise Parcel Fabric warning should surface in settings summary.");
     }
 }

@@ -191,6 +191,44 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal(EnterpriseWorkingReviewSettings.PublishTimingOnComplete, settings.EnterpriseWorkingReview.PublishTiming, "Enterprise publish timing should default to on_complete.");
     }
 
+    public static void EnterpriseParcelFabricModeLoadsEnterpriseParcelFabricConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "enterprise_parcel_fabric",
+              "enterprise_parcel_fabric_review": {
+                "enabled": true,
+                "service_root": "https://example.local/server/rest/services",
+                "fabric_layer_url": "https://example.local/server/rest/services/Parcels/FeatureServer/0",
+                "parcel_layer_url": "https://example.local/server/rest/services/Parcels/FeatureServer/3",
+                "records_layer_url": "https://example.local/server/rest/services/Parcels/FeatureServer/5",
+                "parcel_type_name": "compute_review",
+                "record_name_pattern": "sidwell-record-{transaction_number}",
+                "transaction_scope_field": "transaction_number",
+                "transaction_id_field": "transaction_id",
+                "review_state_field": "review_state",
+                "publish_timing": "on_outputs",
+                "build_behavior": "build_after_copy",
+                "load_overlays": true,
+                "overlay_source": "local_case_outputs",
+                "allow_replace_transaction_scope": true,
+                "require_active_map": true
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, settings.ReviewWorkspaceMode, "Enterprise Parcel Fabric review workspace mode mismatch.");
+        TestAssert.True(settings.EnterpriseParcelFabricReview.Enabled, "Enterprise Parcel Fabric review should be enabled.");
+        TestAssert.Equal("https://example.local/server/rest/services/Parcels/FeatureServer/0", settings.EnterpriseParcelFabricReview.FabricLayerUrl, "Fabric layer URL mismatch.");
+        TestAssert.Equal("compute_review", settings.EnterpriseParcelFabricReview.ParcelTypeName, "Parcel type name mismatch.");
+        TestAssert.Equal(EnterpriseParcelFabricReviewSettings.PublishTimingOnOutputs, settings.EnterpriseParcelFabricReview.PublishTiming, "Publish timing mismatch.");
+        TestAssert.Equal(EnterpriseParcelFabricReviewSettings.BuildBehaviorBuildAfterCopy, settings.EnterpriseParcelFabricReview.BuildBehavior, "Build behavior mismatch.");
+        TestAssert.Equal(null, settings.EnterpriseParcelFabricReview.Warning, "Valid Enterprise Parcel Fabric configuration should not warn.");
+    }
+
     public static void NormalModeDoesNotWarnAboutMissingEnterpriseTargets()
     {
         using var settingsFile = WriteSettingsFile(
@@ -236,6 +274,28 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.EnterpriseWorkingReview.Warning?.Contains("geometry layer targets", StringComparison.OrdinalIgnoreCase) == true, "Enterprise mode should warn when required targets are missing.");
     }
 
+    public static void EnterpriseParcelFabricModeWarnsWhenRequiredTargetsAreMissing()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "review_workspace_mode": "enterprise_parcel_fabric",
+              "enterprise_parcel_fabric_review": {
+                "enabled": true,
+                "parcel_type_name": "",
+                "record_name_pattern": "sidwell-record-{transaction_number}",
+                "transaction_scope_field": ""
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, settings.ReviewWorkspaceMode, "Enterprise Parcel Fabric mode mismatch.");
+        TestAssert.True(settings.EnterpriseParcelFabricReview.Warning?.Contains("fabric_layer_url", StringComparison.OrdinalIgnoreCase) == true, "Enterprise Parcel Fabric mode should warn when required targets are missing.");
+        TestAssert.True(settings.EnterpriseParcelFabricReview.Warning?.Contains("records_layer_url", StringComparison.OrdinalIgnoreCase) == true, "Enterprise Parcel Fabric mode should warn when records layer target is missing.");
+    }
+
     public static void ConfigurationSummaryFormatsSupportedTransactionTypes()
     {
         var summary = InnolaTransactionSettings.FormatSupportedTransactionTypesDisplay(new[]
@@ -254,6 +314,7 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal("Normal", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeNormal), "Normal review workspace display mismatch.");
         TestAssert.Equal("Local Parcel Fabric", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLocal), "Local Parcel Fabric review workspace display mismatch.");
         TestAssert.Equal("Enterprise Working Layers", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers), "Enterprise working layers display mismatch.");
+        TestAssert.Equal("Enterprise Parcel Fabric", InnolaTransactionSettings.FormatReviewWorkspaceMode(InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric), "Enterprise Parcel Fabric display mismatch.");
     }
 
     private static TempFile WriteSettingsFile(string json)

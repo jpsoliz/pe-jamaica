@@ -218,6 +218,7 @@ Codex GPT-5
 - Refactored the read-only Configuration dialog into an editable tabbed `Settings` workspace with `General`, `AI Toolset`, `Innola Integration`, `Preflight Rules`, and `Spatial Workspace` tabs.
 - Added a dedicated `SettingsWorkspaceService` and `SettingsWorkspaceDocument` seam so the UI can safely load, validate, and persist `WorkflowSettings.json` plus the authoritative external `PreflightRules.json` catalog.
 - Added editable GSI sync target controls with masked direct-password entry and environment-variable password mode handling.
+- The `Spatial Workspace` tab now also exposes optional non-fabric COGO enrichment settings for attribute creation, label enablement, and source-mode selection so later spatial-output stories do not require direct JSON edits.
 - Preserved unrelated JSON settings during save by rewriting only known keys in the existing document tree; preflight rules remain a separate deterministic rewrite of the external rule catalog.
 - Added focused tests for settings tab population, save round-trip, rule editing, loader compatibility, and invalid save validation.
 - Focused settings tests pass; one unrelated existing integration test currently still fails in resume-package restore (`InnolaTransactionLoadServiceTests.ResumePackageRestoresSavedWorkflowState`) and should be handled separately from this settings refactor.

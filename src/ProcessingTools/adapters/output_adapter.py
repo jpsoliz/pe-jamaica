@@ -11,8 +11,12 @@ from typing import Any
 REVIEW_WORKSPACE_MODE_NORMAL = "normal"
 REVIEW_WORKSPACE_MODE_PARCEL_FABRIC = "parcel_fabric"
 REVIEW_WORKSPACE_MODE_ENTERPRISE = "enterprise_working_layers"
+REVIEW_WORKSPACE_MODE_ENTERPRISE_PARCEL_FABRIC = "enterprise_parcel_fabric"
 REVIEW_RESULT_OWNER_APPROVED = "approved_review"
 REVIEW_RESULT_OWNER_MANUAL = "manual_spatial_review"
+COGO_SOURCE_MODE_PREFER_SOURCE = "prefer_source"
+COGO_SOURCE_MODE_PREFER_COMPUTED = "prefer_computed"
+COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED = "source_then_computed"
 PARCEL_FABRIC_MODE_PILOT = "pilot"
 PARCEL_FABRIC_MODE_TRUE = "true"
 PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
@@ -84,6 +88,8 @@ def _normalize_review_workspace_mode(value: Any) -> str:
         return REVIEW_WORKSPACE_MODE_PARCEL_FABRIC
     if text in {REVIEW_WORKSPACE_MODE_ENTERPRISE, "enterprise-working-layers"}:
         return REVIEW_WORKSPACE_MODE_ENTERPRISE
+    if text in {REVIEW_WORKSPACE_MODE_ENTERPRISE_PARCEL_FABRIC, "enterprise-parcel-fabric"}:
+        return REVIEW_WORKSPACE_MODE_ENTERPRISE_PARCEL_FABRIC
 
     return REVIEW_WORKSPACE_MODE_NORMAL
 
@@ -91,6 +97,23 @@ def _normalize_review_workspace_mode(value: Any) -> str:
 def _normalize_review_result_owner(value: Any) -> str:
     text = "" if value is None else str(value).strip().lower()
     return REVIEW_RESULT_OWNER_MANUAL if text == REVIEW_RESULT_OWNER_MANUAL else REVIEW_RESULT_OWNER_APPROVED
+
+
+def _normalize_bool_flag(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _normalize_cogo_source_mode(value: Any) -> str:
+    text = "" if value is None else str(value).strip().replace("-", "_").replace(" ", "_").lower()
+    if text == COGO_SOURCE_MODE_PREFER_SOURCE:
+        return COGO_SOURCE_MODE_PREFER_SOURCE
+    if text == COGO_SOURCE_MODE_PREFER_COMPUTED:
+        return COGO_SOURCE_MODE_PREFER_COMPUTED
+    return COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED
 
 
 def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -131,6 +154,7 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                     32,
                 ),
                 "point_identifier": _normalize_text(point_id, 64),
+                "point_id": _normalize_text(point_id, 64),
                 "easting": easting,
                 "northing": northing,
                 "parcel_name": _normalize_text(row.get("review_parcel_name") or row.get("parcel_name") or "", 128),
@@ -139,6 +163,9 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "radius_m": _parse_coordinate(row.get("radius_m") or row.get("radius")),
                 "arc_length_m": _parse_coordinate(row.get("arc_length_m") or row.get("arc_length")),
                 "doc_type_id": _normalize_text(row.get("doc_type_id") or root_doc_type_id, 64),
+                "traverse_id": _normalize_text(row.get("review_traverse_id") or row.get("traverse_id") or "", 64),
+                "point_role": _normalize_text(row.get("review_point_role") or row.get("point_role") or "", 32),
+                "from_segment": _parse_int(row.get("review_from_segment") or row.get("from_segment") or row.get("segment_no")),
                 "source_doc": _normalize_text(
                     row.get("source_document_name")
                     or row.get("source_document")
@@ -147,8 +174,14 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                     256,
                 ),
                 "length": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 128),
+                "distance_txt": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 64),
                 "status": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
+                "status_txt": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
+                "is_manual": _parse_bool(row.get("is_manual")) or str(row.get("row_id") or "").startswith("manual-"),
+                "is_edited": _parse_bool(row.get("review_is_edited") if row.get("review_is_edited") is not None else row.get("is_edited")),
+                "length_txt": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 64),
                 "source_evidence": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
+                "source_txt": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
             }
         )
 
@@ -238,6 +271,7 @@ def _apply_group_parcel_metadata(point_groups: list[dict[str, Any]]) -> list[dic
             updated = dict(point)
             updated["parcel_id"] = parcel_id
             updated["point_order"] = point_index
+            updated["point_id"] = updated.get("point_identifier") or updated.get("point_id") or f"{parcel_id}_P{point_index}"
             if updated.get("parcel_name"):
                 parcel_name = str(updated["parcel_name"])
             enriched_points.append(updated)
@@ -271,6 +305,16 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
         for index in range(len(points) - 1):
             start = points[index]
             end = points[index + 1]
+            computed_distance_m = _distance_between(
+                float(start["easting"]),
+                float(start["northing"]),
+                float(end["easting"]),
+                float(end["northing"]),
+            )
+            distance_m = end.get("distance_m")
+            distance_txt = _normalize_text(end.get("distance_txt") or end.get("length") or "", 64)
+            is_manual = bool(start.get("is_manual")) or bool(end.get("is_manual"))
+            is_edited = bool(start.get("is_edited")) or bool(end.get("is_edited"))
             segments.append(
                 {
                     "line_id": f"{parcel_id}_L{index + 1}",
@@ -278,21 +322,35 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
                     "segment_order": index + 1,
                     "parcel_id": parcel_id,
                     "parcel_group_id": group_id,
+                    "traverse_id": start.get("traverse_id") or end.get("traverse_id") or "",
+                    "line_type": "curve" if end.get("radius_m") or end.get("arc_length_m") else "line",
                     "start_point": start["point_identifier"],
                     "end_point": end["point_identifier"],
+                    "from_point_id": start["point_identifier"],
+                    "to_point_id": end["point_identifier"],
                     "start": (start["easting"], start["northing"]),
                     "end": (end["easting"], end["northing"]),
                     "bearing": end.get("bearing") or "",
+                    "bearing_txt": end.get("bearing") or "",
                     "length": end.get("length") or "",
-                    "distance_m": end.get("distance_m"),
+                    "length_txt": end.get("length") or "",
+                    "distance_txt": distance_txt,
+                    "distance_m": distance_m if distance_m is not None else computed_distance_m,
                     "radius_m": end.get("radius_m"),
                     "arc_length_m": end.get("arc_length_m"),
+                    "delta_angle_txt": _normalize_text(end.get("delta_angle_txt") or "", 64),
+                    "chord_bearing_txt": _normalize_text(end.get("chord_bearing_txt") or "", 64),
+                    "chord_distance_m": _parse_coordinate(end.get("chord_distance_m")),
                     "doc_type_id": end.get("doc_type_id") or "",
                     "source_doc": end.get("source_doc") or "",
                     "row_id": end.get("row_id") or "",
                     "status": end.get("status") or "",
+                    "status_txt": end.get("status") or "",
                     "source_evidence": end.get("source_evidence") or "",
+                    "source_txt": end.get("source_evidence") or "",
                     "is_boundary_break": bool(end.get("is_boundary_break")),
+                    "is_manual": is_manual,
+                    "is_edited": is_edited,
                 }
             )
             segment_index += 1
@@ -332,15 +390,24 @@ def _polygon_rings(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         polygons.append(
             {
                 "polygon_index": index,
+                "polygon_order": index,
                 "parcel_id": group.get("parcel_id") or f"parcel-{index:03d}",
                 "parcel_name": group.get("parcel_name") or group.get("parcel_id") or f"parcel-{index:03d}",
+                "name": group.get("parcel_name") or group.get("parcel_id") or f"parcel-{index:03d}",
                 "parcel_group_id": group.get("group_id") or f"parcel-{index}",
                 "coordinates": coords,
                 "point_count": len(group_points),
+                "perimeter_m": _ring_perimeter(coords),
+                "area_sq_m": abs(_ring_area(coords)),
+                "closure_status": "closed",
                 "doc_type_id": first_point.get("doc_type_id") or "",
                 "source_doc": first_point.get("source_doc") or "",
                 "status": first_point.get("status") or "",
+                "status_txt": first_point.get("status") or "",
                 "source_evidence": first_point.get("source_evidence") or "",
+                "source_txt": first_point.get("source_evidence") or "",
+                "is_manual": any(bool(point.get("is_manual")) for point in group_points),
+                "is_edited": any(bool(point.get("is_edited")) for point in group_points),
             }
         )
     return polygons
@@ -366,6 +433,210 @@ def _ring_area(coords: list[tuple[float, float]]) -> float:
     return area / 2.0
 
 
+def _ring_perimeter(coords: list[tuple[float, float]]) -> float:
+    if len(coords) < 2:
+        return 0.0
+
+    perimeter = 0.0
+    for index in range(len(coords) - 1):
+        x1, y1 = coords[index]
+        x2, y2 = coords[index + 1]
+        perimeter += _distance_between(x1, y1, x2, y2)
+    return perimeter
+
+
+def _distance_between(x1: float, y1: float, x2: float, y2: float) -> float:
+    return math.hypot(x2 - x1, y2 - y1)
+
+
+def _compute_azimuth_deg(x1: float, y1: float, x2: float, y2: float) -> float | None:
+    dx = x2 - x1
+    dy = y2 - y1
+    if math.isclose(dx, 0.0, abs_tol=1e-12) and math.isclose(dy, 0.0, abs_tol=1e-12):
+        return None
+
+    azimuth = math.degrees(math.atan2(dx, dy))
+    return (azimuth + 360.0) % 360.0
+
+
+def _degrees_to_dms(value: float) -> tuple[int, int, int]:
+    total_seconds = int(round(abs(value) * 3600.0))
+    degrees = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+
+    if seconds == 60:
+        seconds = 0
+        minutes += 1
+    if minutes == 60:
+        minutes = 0
+        degrees += 1
+
+    return degrees, minutes, seconds
+
+
+def _azimuth_to_bearing_text(azimuth_deg: float | None) -> str:
+    if azimuth_deg is None:
+        return ""
+
+    azimuth = azimuth_deg % 360.0
+    if azimuth <= 90.0:
+        prefix, suffix, angle = "N", "E", azimuth
+    elif azimuth <= 180.0:
+        prefix, suffix, angle = "S", "E", 180.0 - azimuth
+    elif azimuth <= 270.0:
+        prefix, suffix, angle = "S", "W", azimuth - 180.0
+    else:
+        prefix, suffix, angle = "N", "W", 360.0 - azimuth
+
+    degrees, minutes, seconds = _degrees_to_dms(angle)
+    return f"{prefix}{degrees}\u00b0{minutes:02d}'{seconds:02d}\"{suffix}"
+
+
+def _format_distance_text(distance_m: float | None) -> str:
+    if distance_m is None:
+        return ""
+
+    formatted = f"{distance_m:.3f}".rstrip("0").rstrip(".")
+    return formatted
+
+
+def _pick_cogo_value(source_value: Any, computed_value: Any, mode: str) -> Any:
+    source_present = source_value is not None and str(source_value).strip() != ""
+    computed_present = computed_value is not None and str(computed_value).strip() != ""
+
+    if mode == COGO_SOURCE_MODE_PREFER_COMPUTED:
+        if computed_present:
+            return computed_value
+        return source_value
+
+    if source_present:
+        return source_value
+    if computed_present:
+        return computed_value
+    return source_value
+
+
+def _copy_without_keys(row: dict[str, Any], keys: set[str]) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key not in keys}
+
+
+def _prepare_optional_non_fabric_cogo(
+    points: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    polygons: list[dict[str, Any]],
+    review_workspace_mode: str,
+    add_cogo_attributes: bool,
+    cogo_source_mode: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    if review_workspace_mode != REVIEW_WORKSPACE_MODE_NORMAL:
+        return points, segments, polygons
+
+    if not add_cogo_attributes:
+        point_keys = {"length_txt", "distance_txt"}
+        line_keys = {
+            "bearing_txt",
+            "distance_m",
+            "distance_txt",
+            "length_txt",
+            "radius_m",
+            "arc_length_m",
+            "delta_angle_txt",
+            "chord_bearing_txt",
+            "chord_distance_m",
+            "azimuth_deg",
+            "is_computed_cogo",
+        }
+        return (
+            [_copy_without_keys(point, point_keys) for point in points],
+            [_copy_without_keys(segment, line_keys) for segment in segments],
+            polygons,
+        )
+
+    enriched_points = [dict(point) for point in points]
+    enriched_segments: list[dict[str, Any]] = []
+    for segment in segments:
+        updated = dict(segment)
+        source_distance_m = _parse_coordinate(segment.get("distance_m"))
+        computed_distance_m = _distance_between(
+            float(segment["start"][0]),
+            float(segment["start"][1]),
+            float(segment["end"][0]),
+            float(segment["end"][1]),
+        )
+        distance_m = _pick_cogo_value(source_distance_m, computed_distance_m, cogo_source_mode)
+        source_distance_txt = _normalize_text(segment.get("distance_txt") or segment.get("length_txt") or segment.get("length") or "", 64)
+        computed_distance_txt = _format_distance_text(_parse_coordinate(distance_m))
+        source_bearing_txt = _normalize_text(segment.get("bearing_txt") or segment.get("bearing") or "", 64)
+        azimuth_deg = None
+        computed_bearing_txt = ""
+        if str(segment.get("line_type") or "").strip().lower() != "curve":
+            azimuth_deg = _compute_azimuth_deg(
+                float(segment["start"][0]),
+                float(segment["start"][1]),
+                float(segment["end"][0]),
+                float(segment["end"][1]),
+            )
+            computed_bearing_txt = _azimuth_to_bearing_text(azimuth_deg)
+
+        bearing_txt = _pick_cogo_value(source_bearing_txt, computed_bearing_txt, cogo_source_mode)
+        distance_txt = _pick_cogo_value(source_distance_txt, computed_distance_txt, cogo_source_mode)
+        used_computed = (
+            (not source_distance_m and distance_m is not None)
+            or (not source_distance_txt and str(distance_txt or "").strip() != "")
+            or (not source_bearing_txt and str(bearing_txt or "").strip() != "")
+        )
+
+        updated["distance_m"] = _parse_coordinate(distance_m)
+        updated["distance_txt"] = _normalize_text(distance_txt or "", 64)
+        updated["length_txt"] = _normalize_text(updated.get("length_txt") or updated.get("length") or updated.get("distance_txt") or "", 128)
+        updated["bearing_txt"] = _normalize_text(bearing_txt or "", 64)
+        updated["azimuth_deg"] = azimuth_deg
+        updated["is_computed_cogo"] = bool(used_computed)
+        enriched_segments.append(updated)
+
+    return enriched_points, enriched_segments, polygons
+
+
+def _derive_output_metadata(
+    manifest: dict[str, Any],
+    approved_review: dict[str, Any],
+    review_data: dict[str, Any],
+    review_result_owner: str,
+    transaction_number: str,
+) -> dict[str, str]:
+    transaction_id = _normalize_text(
+        manifest.get("transaction_id")
+        or approved_review.get("transaction_id")
+        or review_data.get("transaction_id")
+        or transaction_number,
+        64,
+    )
+    transaction_type = _normalize_text(
+        approved_review.get("transaction_type")
+        or review_data.get("transaction_type")
+        or manifest.get("transaction_type")
+        or "",
+        128,
+    )
+    source_mode = _normalize_text(
+        review_data.get("source_mode")
+        or review_data.get("extraction_mode")
+        or review_data.get("doc_type_family")
+        or ("manual_review" if review_result_owner == REVIEW_RESULT_OWNER_MANUAL else "validated_review"),
+        64,
+    )
+    return {
+        "transaction_number": _normalize_text(transaction_number, 64),
+        "transaction_id": transaction_id,
+        "workflow_name": "parcel_workflow_compute",
+        "workflow_stage": "spatial_units_created",
+        "transaction_type": transaction_type,
+        "review_state": "manual_edit" if review_result_owner == REVIEW_RESULT_OWNER_MANUAL else "approved",
+        "source_mode": source_mode,
+    }
+
+
 def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]], polygons: list[dict[str, Any]]) -> dict[str, Any]:
     features: list[dict[str, Any]] = []
 
@@ -384,11 +655,15 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                     "sequence_in_group": point.get("sequence_in_group"),
                     "is_boundary_break": point.get("is_boundary_break") or False,
                     "group_confidence": point.get("group_confidence") or "",
-                    "point_identifier": point["point_identifier"],
+                "point_identifier": point["point_identifier"],
+                    "point_id": point.get("point_id") or point["point_identifier"],
+                    "point_role": point.get("point_role") or "",
+                    "from_segment": point.get("from_segment"),
                     "doc_type_id": point.get("doc_type_id") or "",
                     "source_doc": point.get("source_doc") or "",
                     "status": point["status"],
                     "length": point["length"],
+                    "distance_txt": point.get("distance_txt") or "",
                     "source_evidence": point["source_evidence"],
                 },
             }
@@ -405,13 +680,21 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                     "segment_order": segment.get("segment_order"),
                     "parcel_id": segment.get("parcel_id") or "",
                     "parcel_group_id": segment.get("parcel_group_id") or "",
+                    "traverse_id": segment.get("traverse_id") or "",
                     "start_point": segment["start_point"],
                     "end_point": segment["end_point"],
+                    "from_point_id": segment.get("from_point_id") or segment["start_point"],
+                    "to_point_id": segment.get("to_point_id") or segment["end_point"],
+                    "line_type": segment.get("line_type") or "",
                     "bearing": segment.get("bearing") or "",
                     "length": segment["length"],
+                    "distance_txt": segment.get("distance_txt") or "",
                     "distance_m": segment.get("distance_m"),
                     "radius_m": segment.get("radius_m"),
                     "arc_length_m": segment.get("arc_length_m"),
+                    "delta_angle_txt": segment.get("delta_angle_txt") or "",
+                    "chord_bearing_txt": segment.get("chord_bearing_txt") or "",
+                    "chord_distance_m": segment.get("chord_distance_m"),
                     "doc_type_id": segment.get("doc_type_id") or "",
                     "source_doc": segment.get("source_doc") or "",
                 },
@@ -428,7 +711,11 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                     "parcel_name": polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}",
                     "name": polygon.get("parcel_name") or f"parcel_polygon_{polygon['polygon_index']}",
                     "parcel_group_id": polygon.get("parcel_group_id") or "",
+                    "polygon_order": polygon.get("polygon_order"),
                     "point_count": polygon.get("point_count"),
+                    "perimeter_m": polygon.get("perimeter_m"),
+                    "area_sq_m": polygon.get("area_sq_m"),
+                    "closure_status": polygon.get("closure_status") or "",
                     "doc_type_id": polygon.get("doc_type_id") or "",
                     "source_doc": polygon.get("source_doc") or "",
                 },
@@ -645,6 +932,8 @@ def _create_outputs_with_arcpy(
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygons: list[dict[str, Any]],
+    output_metadata: dict[str, str],
+    add_optional_cogo_fields: bool,
     review_workspace_mode: str,
     transaction_number: str,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
@@ -668,15 +957,45 @@ def _create_outputs_with_arcpy(
         if arcpy.Exists(str(dataset_path)):
             arcpy.management.Delete(str(dataset_path))
 
+    def add_shared_fields(dataset: Path) -> None:
+        arcpy.management.AddField(str(dataset), "transaction_number", "TEXT", field_length=64)
+        arcpy.management.AddField(str(dataset), "transaction_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(dataset), "workflow_name", "TEXT", field_length=64)
+        arcpy.management.AddField(str(dataset), "workflow_stage", "TEXT", field_length=64)
+        arcpy.management.AddField(str(dataset), "transaction_type", "TEXT", field_length=128)
+        arcpy.management.AddField(str(dataset), "review_state", "TEXT", field_length=64)
+        arcpy.management.AddField(str(dataset), "source_mode", "TEXT", field_length=64)
+
+    shared_values = [
+        output_metadata.get("transaction_number") or "",
+        output_metadata.get("transaction_id") or "",
+        output_metadata.get("workflow_name") or "",
+        output_metadata.get("workflow_stage") or "",
+        output_metadata.get("transaction_type") or "",
+        output_metadata.get("review_state") or "",
+        output_metadata.get("source_mode") or "",
+    ]
+
     arcpy.management.CreateFeatureclass(str(target_gdb), point_fc.name, "POINT", spatial_reference=spatial_reference)
+    add_shared_fields(point_fc)
     arcpy.management.AddField(str(point_fc), "point_id", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "parcel_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "parcel_group_id", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "parcel_grp", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "parcel_name", "TEXT", field_length=128)
+    arcpy.management.AddField(str(point_fc), "traverse_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(point_fc), "sequence_in_group", "LONG")
     arcpy.management.AddField(str(point_fc), "point_ord", "LONG")
+    arcpy.management.AddField(str(point_fc), "point_order", "LONG")
+    arcpy.management.AddField(str(point_fc), "point_role", "TEXT", field_length=32)
+    arcpy.management.AddField(str(point_fc), "from_segment", "LONG")
+    arcpy.management.AddField(str(point_fc), "group_confidence", "TEXT", field_length=32)
     arcpy.management.AddField(str(point_fc), "easting", "DOUBLE")
     arcpy.management.AddField(str(point_fc), "northing", "DOUBLE")
     arcpy.management.AddField(str(point_fc), "status_txt", "TEXT", field_length=64)
-    arcpy.management.AddField(str(point_fc), "length_txt", "TEXT", field_length=64)
+    if add_optional_cogo_fields:
+        arcpy.management.AddField(str(point_fc), "length_txt", "TEXT", field_length=64)
+        arcpy.management.AddField(str(point_fc), "distance_txt", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "doc_type_id", "TEXT", field_length=64)
     arcpy.management.AddField(str(point_fc), "source_doc", "TEXT", field_length=256)
     arcpy.management.AddField(str(point_fc), "is_manual", "SHORT")
@@ -684,93 +1003,179 @@ def _create_outputs_with_arcpy(
     arcpy.management.AddField(str(point_fc), "source_txt", "TEXT", field_length=1024)
     arcpy.management.AddField(str(point_fc), "row_id", "TEXT", field_length=64)
 
-    with arcpy.da.InsertCursor(str(point_fc), ["SHAPE@XY", "point_id", "parcel_id", "parcel_grp", "point_ord", "easting", "northing", "status_txt", "length_txt", "doc_type_id", "source_doc", "is_manual", "is_edited", "source_txt", "row_id"]) as cursor:
+    point_cursor_fields = ["SHAPE@XY", "transaction_number", "transaction_id", "workflow_name", "workflow_stage", "transaction_type", "review_state", "source_mode", "point_id", "parcel_id", "parcel_group_id", "parcel_grp", "parcel_name", "traverse_id", "sequence_in_group", "point_ord", "point_order", "point_role", "from_segment", "group_confidence", "easting", "northing", "status_txt"]
+    if add_optional_cogo_fields:
+        point_cursor_fields.extend(["length_txt", "distance_txt"])
+    point_cursor_fields.extend(["doc_type_id", "source_doc", "is_manual", "is_edited", "source_txt", "row_id"])
+
+    with arcpy.da.InsertCursor(str(point_fc), point_cursor_fields) as cursor:
         for point in points:
-            cursor.insertRow(
+            is_manual = 1 if point.get("is_manual") else 0
+            is_edited = 1 if point.get("is_edited") else 0
+            row = [
+                (point["easting"], point["northing"]),
+                *shared_values,
+                _normalize_text(point.get("point_id") or point["point_identifier"], 64),
+                _normalize_text(point.get("parcel_id") or "", 64),
+                _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
+                _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
+                _normalize_text(point.get("parcel_name") or "", 128),
+                _normalize_text(point.get("traverse_id") or "", 64),
+                point.get("sequence_in_group"),
+                point.get("point_order"),
+                point.get("point_order"),
+                _normalize_text(point.get("point_role") or "", 32),
+                point.get("from_segment"),
+                _normalize_text(point.get("group_confidence") or "", 32),
+                point["easting"],
+                point["northing"],
+                _normalize_text(point["status"], 64),
+            ]
+            if add_optional_cogo_fields:
+                row.extend(
+                    [
+                        _normalize_text(point.get("length_txt") or point.get("length") or "", 64),
+                        _normalize_text(point.get("distance_txt") or point.get("length") or "", 64),
+                    ]
+                )
+            row.extend(
                 [
-                    (point["easting"], point["northing"]),
-                    _normalize_text(point["point_identifier"], 64),
-                    _normalize_text(point.get("parcel_id") or "", 64),
-                    _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
-                    point.get("point_order"),
-                    point["easting"],
-                    point["northing"],
-                    _normalize_text(point["status"], 64),
-                    _normalize_text(point["length"], 128),
                     _normalize_text(point.get("doc_type_id") or "", 64),
                     _normalize_text(point.get("source_doc") or "", 256),
-                    1 if str(point.get("row_id") or "").startswith("manual-") else 0,
-                    0,
+                    is_manual,
+                    is_edited,
                     _normalize_text(point["source_evidence"], 1024),
                     _normalize_text(point["row_id"], 64),
                 ]
             )
+            cursor.insertRow(row)
 
     created_line_fc: str | None = None
     created_polygon_fc: str | None = None
 
     if segments:
         arcpy.management.CreateFeatureclass(str(target_gdb), line_fc.name, "POLYLINE", spatial_reference=spatial_reference)
+        add_shared_fields(line_fc)
         arcpy.management.AddField(str(line_fc), "line_id", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "parcel_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "parcel_group_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "traverse_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "from_point_id", "TEXT", field_length=64)
+        arcpy.management.AddField(str(line_fc), "to_point_id", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "start_pt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "end_pt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "parcel_grp", "TEXT", field_length=64)
-        arcpy.management.AddField(str(line_fc), "bearing_txt", "TEXT", field_length=64)
-        arcpy.management.AddField(str(line_fc), "distance_m", "DOUBLE")
-        arcpy.management.AddField(str(line_fc), "length_txt", "TEXT", field_length=128)
-        arcpy.management.AddField(str(line_fc), "radius_m", "DOUBLE")
-        arcpy.management.AddField(str(line_fc), "arc_length_m", "DOUBLE")
+        arcpy.management.AddField(str(line_fc), "line_type", "TEXT", field_length=32)
+        if add_optional_cogo_fields:
+            arcpy.management.AddField(str(line_fc), "bearing_txt", "TEXT", field_length=64)
+            arcpy.management.AddField(str(line_fc), "distance_m", "DOUBLE")
+            arcpy.management.AddField(str(line_fc), "distance_txt", "TEXT", field_length=64)
+            arcpy.management.AddField(str(line_fc), "length_txt", "TEXT", field_length=128)
+            arcpy.management.AddField(str(line_fc), "radius_m", "DOUBLE")
+            arcpy.management.AddField(str(line_fc), "arc_length_m", "DOUBLE")
+            arcpy.management.AddField(str(line_fc), "delta_angle_txt", "TEXT", field_length=64)
+            arcpy.management.AddField(str(line_fc), "chord_bearing_txt", "TEXT", field_length=64)
+            arcpy.management.AddField(str(line_fc), "chord_distance_m", "DOUBLE")
+            arcpy.management.AddField(str(line_fc), "azimuth_deg", "DOUBLE")
+            arcpy.management.AddField(str(line_fc), "is_computed_cogo", "SHORT")
         arcpy.management.AddField(str(line_fc), "seg_index", "LONG")
         arcpy.management.AddField(str(line_fc), "seg_order", "LONG")
+        arcpy.management.AddField(str(line_fc), "segment_index", "LONG")
+        arcpy.management.AddField(str(line_fc), "segment_order", "LONG")
         arcpy.management.AddField(str(line_fc), "doc_type_id", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "source_doc", "TEXT", field_length=256)
+        arcpy.management.AddField(str(line_fc), "is_boundary_break", "SHORT")
         arcpy.management.AddField(str(line_fc), "is_boundary", "SHORT")
+        arcpy.management.AddField(str(line_fc), "is_manual", "SHORT")
+        arcpy.management.AddField(str(line_fc), "is_edited", "SHORT")
         arcpy.management.AddField(str(line_fc), "status_txt", "TEXT", field_length=64)
         arcpy.management.AddField(str(line_fc), "source_txt", "TEXT", field_length=1024)
         arcpy.management.AddField(str(line_fc), "row_id", "TEXT", field_length=64)
 
-        with arcpy.da.InsertCursor(str(line_fc), ["SHAPE@", "line_id", "parcel_id", "start_pt", "end_pt", "parcel_grp", "bearing_txt", "distance_m", "length_txt", "radius_m", "arc_length_m", "seg_index", "seg_order", "doc_type_id", "source_doc", "is_boundary", "status_txt", "source_txt", "row_id"]) as cursor:
+        line_cursor_fields = ["SHAPE@", "transaction_number", "transaction_id", "workflow_name", "workflow_stage", "transaction_type", "review_state", "source_mode", "line_id", "parcel_id", "parcel_group_id", "traverse_id", "from_point_id", "to_point_id", "start_pt", "end_pt", "parcel_grp", "line_type"]
+        if add_optional_cogo_fields:
+            line_cursor_fields.extend(["bearing_txt", "distance_m", "distance_txt", "length_txt", "radius_m", "arc_length_m", "delta_angle_txt", "chord_bearing_txt", "chord_distance_m", "azimuth_deg", "is_computed_cogo"])
+        line_cursor_fields.extend(["seg_index", "seg_order", "segment_index", "segment_order", "doc_type_id", "source_doc", "is_boundary_break", "is_boundary", "is_manual", "is_edited", "status_txt", "source_txt", "row_id"])
+
+        with arcpy.da.InsertCursor(str(line_fc), line_cursor_fields) as cursor:
             for segment in segments:
                 array = arcpy.Array([arcpy.Point(*segment["start"]), arcpy.Point(*segment["end"])])
-                cursor.insertRow(
+                is_boundary_break = 1 if segment.get("is_boundary_break") else 0
+                is_manual = 1 if segment.get("is_manual") else 0
+                is_edited = 1 if segment.get("is_edited") else 0
+                row = [
+                    arcpy.Polyline(array, spatial_reference),
+                    *shared_values,
+                    _normalize_text(segment.get("line_id") or "", 64),
+                    _normalize_text(segment.get("parcel_id") or "", 64),
+                    _normalize_text(segment.get("parcel_group_id") or "", 64),
+                    _normalize_text(segment.get("traverse_id") or "", 64),
+                    _normalize_text(segment.get("from_point_id") or segment["start_point"], 64),
+                    _normalize_text(segment.get("to_point_id") or segment["end_point"], 64),
+                    _normalize_text(segment["start_point"], 64),
+                    _normalize_text(segment["end_point"], 64),
+                    _normalize_text(segment.get("parcel_group_id") or "", 64),
+                    _normalize_text(segment.get("line_type") or "line", 32),
+                ]
+                if add_optional_cogo_fields:
+                    row.extend(
+                        [
+                            _normalize_text(segment.get("bearing_txt") or segment.get("bearing") or "", 64),
+                            segment.get("distance_m"),
+                            _normalize_text(segment.get("distance_txt") or "", 64),
+                            _normalize_text(segment.get("length_txt") or segment["length"], 128),
+                            segment.get("radius_m"),
+                            segment.get("arc_length_m"),
+                            _normalize_text(segment.get("delta_angle_txt") or "", 64),
+                            _normalize_text(segment.get("chord_bearing_txt") or "", 64),
+                            segment.get("chord_distance_m"),
+                            segment.get("azimuth_deg"),
+                            1 if segment.get("is_computed_cogo") else 0,
+                        ]
+                    )
+                row.extend(
                     [
-                        arcpy.Polyline(array, spatial_reference),
-                        _normalize_text(segment.get("line_id") or "", 64),
-                        _normalize_text(segment.get("parcel_id") or "", 64),
-                        _normalize_text(segment["start_point"], 64),
-                        _normalize_text(segment["end_point"], 64),
-                        _normalize_text(segment.get("parcel_group_id") or "", 64),
-                        _normalize_text(segment.get("bearing") or "", 64),
-                        segment.get("distance_m"),
-                        _normalize_text(segment["length"], 128),
-                        segment.get("radius_m"),
-                        segment.get("arc_length_m"),
+                        segment["segment_index"],
+                        segment.get("segment_order"),
                         segment["segment_index"],
                         segment.get("segment_order"),
                         _normalize_text(segment.get("doc_type_id") or "", 64),
                         _normalize_text(segment.get("source_doc") or "", 256),
-                        1 if segment.get("is_boundary_break") else 0,
+                        is_boundary_break,
+                        is_boundary_break,
+                        is_manual,
+                        is_edited,
                         _normalize_text(segment.get("status") or "", 64),
                         _normalize_text(segment.get("source_evidence") or "", 1024),
                         _normalize_text(segment.get("row_id") or "", 64),
                     ]
                 )
+                cursor.insertRow(row)
         created_line_fc = str(line_fc)
 
     if polygons:
         try:
             arcpy.management.CreateFeatureclass(str(target_gdb), polygon_fc.name, "POLYGON", spatial_reference=spatial_reference)
+            add_shared_fields(polygon_fc)
             arcpy.management.AddField(str(polygon_fc), "parcel_id", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "parcel_name", "TEXT", field_length=128)
+            arcpy.management.AddField(str(polygon_fc), "name", "TEXT", field_length=128)
+            arcpy.management.AddField(str(polygon_fc), "parcel_group_id", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "parcel_grp", "TEXT", field_length=64)
+            arcpy.management.AddField(str(polygon_fc), "polygon_order", "LONG")
             arcpy.management.AddField(str(polygon_fc), "point_cnt", "LONG")
+            arcpy.management.AddField(str(polygon_fc), "point_count", "LONG")
+            arcpy.management.AddField(str(polygon_fc), "perimeter_m", "DOUBLE")
+            arcpy.management.AddField(str(polygon_fc), "area_sq_m", "DOUBLE")
+            arcpy.management.AddField(str(polygon_fc), "closure_status", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "doc_type_id", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "source_doc", "TEXT", field_length=256)
+            arcpy.management.AddField(str(polygon_fc), "is_manual", "SHORT")
+            arcpy.management.AddField(str(polygon_fc), "is_edited", "SHORT")
             arcpy.management.AddField(str(polygon_fc), "status_txt", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "source_txt", "TEXT", field_length=1024)
 
-            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "parcel_id", "parcel_name", "parcel_grp", "point_cnt", "doc_type_id", "source_doc", "status_txt", "source_txt"]) as cursor:
+            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "transaction_number", "transaction_id", "workflow_name", "workflow_stage", "transaction_type", "review_state", "source_mode", "parcel_id", "parcel_name", "name", "parcel_group_id", "parcel_grp", "polygon_order", "point_cnt", "point_count", "perimeter_m", "area_sq_m", "closure_status", "doc_type_id", "source_doc", "is_manual", "is_edited", "status_txt", "source_txt"]) as cursor:
                 for polygon in polygons:
                     array = arcpy.Array([arcpy.Point(*coord) for coord in polygon["coordinates"]])
                     polygon_geometry = arcpy.Polygon(array, spatial_reference)
@@ -779,12 +1184,22 @@ def _create_outputs_with_arcpy(
                     cursor.insertRow(
                         [
                             polygon_geometry,
+                            *shared_values,
                             _normalize_text(polygon.get("parcel_id") or f"parcel-{polygon['polygon_index']:03d}", 64),
                             _normalize_text(polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}", 128),
+                            _normalize_text(polygon.get("name") or polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}", 128),
                             _normalize_text(polygon.get("parcel_group_id") or "", 64),
+                            _normalize_text(polygon.get("parcel_group_id") or "", 64),
+                            polygon.get("polygon_order"),
                             polygon.get("point_count"),
+                            polygon.get("point_count"),
+                            polygon.get("perimeter_m"),
+                            polygon.get("area_sq_m"),
+                            _normalize_text(polygon.get("closure_status") or "", 64),
                             _normalize_text(polygon.get("doc_type_id") or "", 64),
                             _normalize_text(polygon.get("source_doc") or "", 256),
+                            1 if polygon.get("is_manual") else 0,
+                            1 if polygon.get("is_edited") else 0,
                             _normalize_text(polygon.get("status") or "", 64),
                             _normalize_text(polygon.get("source_evidence") or "", 1024),
                         ]
@@ -838,6 +1253,7 @@ def _create_outputs_filesystem_fallback(
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygons: list[dict[str, Any]],
+    output_metadata: dict[str, str],
     review_workspace_mode: str,
     transaction_number: str,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
@@ -848,11 +1264,15 @@ def _create_outputs_filesystem_fallback(
     line_fc = target_gdb / "parcel_lines"
     polygon_fc = target_gdb / "parcel_polygons"
 
-    point_fc.write_text(json.dumps(points, indent=2), encoding="utf-8")
+    enriched_points = [{**output_metadata, **point} for point in points]
+    enriched_segments = [{**output_metadata, **segment} for segment in segments]
+    enriched_polygons = [{**output_metadata, **polygon} for polygon in polygons]
+
+    point_fc.write_text(json.dumps(enriched_points, indent=2), encoding="utf-8")
     if segments:
-        line_fc.write_text(json.dumps(segments, indent=2), encoding="utf-8")
+        line_fc.write_text(json.dumps(enriched_segments, indent=2), encoding="utf-8")
     if polygons:
-        polygon_fc.write_text(json.dumps(polygons, indent=2), encoding="utf-8")
+        polygon_fc.write_text(json.dumps(enriched_polygons, indent=2), encoding="utf-8")
 
     root_paths = {
         "point_fc": str(point_fc),
@@ -945,6 +1365,9 @@ def _build_summary(
     warnings: list[str],
     review_workspace_mode: str,
     review_result_owner: str,
+    add_cogo_attributes: bool,
+    add_cogo_labels: bool,
+    cogo_source_mode: str,
     parcel_fabric_mode: str | None,
     parcel_fabric_dataset_path: str | None,
     parcel_fabric_layer_path: str | None,
@@ -1003,6 +1426,9 @@ def _build_summary(
         "template_project_path": template_project_path or None,
         "template_gdb_path": template_gdb_path or None,
         "review_result_owner": review_result_owner,
+        "add_cogo_attributes": add_cogo_attributes,
+        "add_cogo_labels": add_cogo_labels,
+        "cogo_source_mode": cogo_source_mode,
     }
 
     return {
@@ -1024,6 +1450,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--approved-review")
     parser.add_argument("--review-data", required=True)
     parser.add_argument("--review-workspace-mode", default=REVIEW_WORKSPACE_MODE_NORMAL)
+    parser.add_argument("--add-cogo-attributes", default="false")
+    parser.add_argument("--add-cogo-labels", default="false")
+    parser.add_argument("--cogo-source-mode", default=COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED)
     parser.add_argument("--review-source-route", default=REVIEW_RESULT_OWNER_APPROVED)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output-summary", required=True)
@@ -1036,6 +1465,9 @@ def main(argv: list[str] | None = None) -> int:
     approved_review_path = Path(args.approved_review) if args.approved_review else None
     review_data_path = Path(args.review_data)
     review_workspace_mode = _normalize_review_workspace_mode(args.review_workspace_mode)
+    add_cogo_attributes = _normalize_bool_flag(args.add_cogo_attributes, False)
+    add_cogo_labels = _normalize_bool_flag(args.add_cogo_labels, False)
+    cogo_source_mode = _normalize_cogo_source_mode(args.cogo_source_mode)
     review_result_owner = _normalize_review_result_owner(args.review_source_route)
     output_root = Path(args.output_root)
     output_summary_path = Path(args.output_summary)
@@ -1062,7 +1494,22 @@ def main(argv: list[str] | None = None) -> int:
     points = [point for group in point_groups for point in (group.get("points") or [])]
     segments = _polyline_segments(point_groups)
     polygons = _polygon_rings(point_groups)
+    points, segments, polygons = _prepare_optional_non_fabric_cogo(
+        points,
+        segments,
+        polygons,
+        review_workspace_mode,
+        add_cogo_attributes,
+        cogo_source_mode,
+    )
     transaction_number = review_data.get("transaction_number") or approved_review.get("transaction_number") or manifest.get("transaction_id") or "transaction"
+    output_metadata = _derive_output_metadata(
+        manifest,
+        approved_review,
+        review_data,
+        review_result_owner,
+        str(transaction_number),
+    )
     result_gdb_path = output_root / f"{transaction_number}_parcel_output.gdb"
     geojson_path = output_root / "extracted_geometry.geojson"
     output_root.mkdir(parents=True, exist_ok=True)
@@ -1076,6 +1523,8 @@ def main(argv: list[str] | None = None) -> int:
             points,
             segments,
             polygons,
+            output_metadata,
+            review_workspace_mode == REVIEW_WORKSPACE_MODE_NORMAL and add_cogo_attributes,
             review_workspace_mode,
             str(transaction_number),
         )
@@ -1085,6 +1534,7 @@ def main(argv: list[str] | None = None) -> int:
             points,
             segments,
             polygons,
+            output_metadata,
             review_workspace_mode,
             str(transaction_number),
         )
@@ -1110,6 +1560,9 @@ def main(argv: list[str] | None = None) -> int:
         warnings,
         review_workspace_mode,
         review_result_owner,
+        add_cogo_attributes,
+        add_cogo_labels,
+        cogo_source_mode,
         review_paths.get("parcel_fabric_mode"),
         review_paths.get("parcel_fabric_dataset_path"),
         review_paths.get("parcel_fabric_layer_path"),

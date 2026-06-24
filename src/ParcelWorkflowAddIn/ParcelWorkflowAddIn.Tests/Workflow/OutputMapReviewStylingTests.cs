@@ -137,4 +137,127 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[2], "Line overlay should come from the root review outputs.");
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[3], "Point overlay should come from the root review outputs.");
     }
+
+    public static void EnterpriseParcelFabricModeReturnsPublishedFabricTargetsPlusOverlays()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000206",
+            "run-3",
+            "2026-06-23T00:00:00Z",
+            "tester",
+            "hash-3",
+            new OutputSummaryPayload(
+                "created",
+                "enterprise_parcel_fabric",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                3,
+                2,
+                1,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview,
+                new EnterpriseWorkingPublishSummary(
+                    "published",
+                    "Published.",
+                    "2026-06-23T00:00:00Z",
+                    "tester",
+                    "transaction_number",
+                    "100000206",
+                    "parcel_workflow_compute",
+                    "spatial_review_pending",
+                    "txn-1",
+                    "100000206",
+                    "task-1",
+                    "Assign Computation Task",
+                    "tester",
+                    "reviewers",
+                    "2026-06-23T00:00:00Z",
+                    new[]
+                    {
+                        new EnterpriseWorkingPublishedLayer("fabric", @"https://fabric.local/server/rest/services/Fabric/FeatureServer/0", 1, false),
+                        new EnterpriseWorkingPublishedLayer("parcels", @"https://fabric.local/server/rest/services/Fabric/FeatureServer/3", 1, false),
+                        new EnterpriseWorkingPublishedLayer("records", @"https://fabric.local/server/rest/services/Fabric/FeatureServer/5", 1, false)
+                    },
+                    Array.Empty<string>(),
+                    Array.Empty<string>(),
+                    Array.Empty<string>())),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var service = new OutputSummaryPersistenceService();
+        var paths = service.GetMapLayerPaths(summary);
+
+        TestAssert.Equal(5, paths.Count, "Enterprise Parcel Fabric mode should return service targets plus local overlays.");
+        TestAssert.Equal(@"https://fabric.local/server/rest/services/Fabric/FeatureServer/0", paths[0], "Fabric target should load first.");
+        TestAssert.Equal(@"https://fabric.local/server/rest/services/Fabric/FeatureServer/3", paths[1], "Parcel target should load second.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[2], "Polygon overlay should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[3], "Line overlay should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[4], "Point overlay should remain available.");
+    }
+
+    public static void BuildSuccessMessageUsesEnterpriseParcelFabricLanguage()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000206",
+            "run-4",
+            "2026-06-23T00:00:00Z",
+            "tester",
+            "hash-4",
+            new OutputSummaryPayload(
+                "created",
+                "enterprise_parcel_fabric",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                3,
+                2,
+                1,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var message = OutputMapReviewStyling.BuildSuccessMessage(summary);
+
+        TestAssert.True(message.Contains("Working Parcel Fabric review layers", StringComparison.OrdinalIgnoreCase), "Enterprise Parcel Fabric mode should describe the working Parcel Fabric review surface.");
+    }
 }

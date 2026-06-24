@@ -13,6 +13,7 @@ public sealed record InnolaTransactionSettings(
     string? ReviewWorkspaceModeWarning,
     string PdfViewerMode,
     EnterpriseWorkingReviewSettings EnterpriseWorkingReview,
+    EnterpriseParcelFabricReviewSettings EnterpriseParcelFabricReview,
     IReadOnlyList<string> SupportedTransactionTypes,
     string? SupportedTransactionTypesWarning,
     IReadOnlyList<string> ComputeWorkflowStages,
@@ -43,6 +44,7 @@ public sealed record InnolaTransactionSettings(
     public const string ReviewWorkspaceModeNormal = "normal";
     public const string ReviewWorkspaceModeParcelFabricLocal = "parcel_fabric_local";
     public const string ReviewWorkspaceModeEnterpriseWorkingLayers = "enterprise_working_layers";
+    public const string ReviewWorkspaceModeEnterpriseParcelFabric = "enterprise_parcel_fabric";
     public const string ReviewWorkspaceModeParcelFabricLegacy = "parcel_fabric";
     public const string PdfViewerModeEmbeddedBrowser = "embedded_browser";
     public const string PdfViewerModeExternalOnly = "external_only";
@@ -56,6 +58,7 @@ public sealed record InnolaTransactionSettings(
         null,
         PdfViewerModeEmbeddedBrowser,
         EnterpriseWorkingReviewSettings.Default,
+        EnterpriseParcelFabricReviewSettings.Default,
         SafeDefaultSupportedTransactionTypes,
         null,
         SafeDefaultComputeWorkflowStages,
@@ -95,6 +98,7 @@ public sealed record InnolaTransactionSettings(
             var reviewWorkspaceMode = ResolveReviewWorkspaceMode(root);
             var pdfViewerMode = ResolvePdfViewerMode(root);
             var enterpriseWorkingReview = EnterpriseWorkingReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
+            var enterpriseParcelFabricReview = EnterpriseParcelFabricReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
@@ -119,6 +123,7 @@ public sealed record InnolaTransactionSettings(
                 reviewWorkspaceMode.Warning,
                 pdfViewerMode,
                 enterpriseWorkingReview,
+                enterpriseParcelFabricReview,
                 supportedTypes.Values,
                 supportedTypes.Warning,
                 computeWorkflowStages.Values,
@@ -322,6 +327,7 @@ public sealed record InnolaTransactionSettings(
             ReviewWorkspaceModeNormal => new NamedStringResolution(ReviewWorkspaceModeNormal, null),
             ReviewWorkspaceModeParcelFabricLocal => new NamedStringResolution(ReviewWorkspaceModeParcelFabricLocal, null),
             ReviewWorkspaceModeEnterpriseWorkingLayers => new NamedStringResolution(ReviewWorkspaceModeEnterpriseWorkingLayers, null),
+            ReviewWorkspaceModeEnterpriseParcelFabric => new NamedStringResolution(ReviewWorkspaceModeEnterpriseParcelFabric, null),
             ReviewWorkspaceModeParcelFabricLegacy => new NamedStringResolution(ReviewWorkspaceModeParcelFabricLocal, null),
             "parcelfabric" => new NamedStringResolution(ReviewWorkspaceModeParcelFabricLocal, null),
             "parcel-fabric" => new NamedStringResolution(ReviewWorkspaceModeParcelFabricLocal, null),
@@ -380,6 +386,7 @@ public sealed record InnolaTransactionSettings(
         {
             ReviewWorkspaceModeParcelFabricLocal => "Local Parcel Fabric",
             ReviewWorkspaceModeEnterpriseWorkingLayers => "Enterprise Working Layers",
+            ReviewWorkspaceModeEnterpriseParcelFabric => "Enterprise Parcel Fabric",
             ReviewWorkspaceModeNormal => "Normal",
             _ => "Normal"
         };
@@ -391,6 +398,7 @@ public sealed record InnolaTransactionSettings(
         {
             ReviewWorkspaceModeParcelFabricLocal => "Local transaction geodatabase using Parcel Fabric for richer parcel editing tools.",
             ReviewWorkspaceModeEnterpriseWorkingLayers => "Shared ArcGIS Enterprise working layers for distributed review and cross-session collaboration.",
+            ReviewWorkspaceModeEnterpriseParcelFabric => "Shared ArcGIS Enterprise Parcel Fabric for collaborative parcel-aware review after validated points are ready.",
             ReviewWorkspaceModeNormal => "Local transaction geodatabase using standard point, line, and polygon feature classes.",
             _ => "Local transaction geodatabase using standard point, line, and polygon feature classes."
         };
@@ -432,6 +440,169 @@ public sealed record InnolaTransactionSettings(
     private sealed record NamedStringResolution(
         string Value,
         string? Warning);
+}
+
+public sealed record EnterpriseParcelFabricReviewSettings(
+    bool Enabled,
+    string? ServiceRoot,
+    string? FabricLayerUrl,
+    string? ParcelLayerUrl,
+    string? RecordsLayerUrl,
+    string ParcelTypeName,
+    string RecordNamePattern,
+    string TransactionScopeField,
+    string TransactionIdField,
+    string ReviewStateField,
+    string PublishTiming,
+    string BuildBehavior,
+    bool LoadOverlays,
+    string OverlaySource,
+    bool AllowReplaceTransactionScope,
+    bool RequireActiveMap,
+    string? Warning)
+{
+    public const string PublishTimingOnOutputs = "on_outputs";
+    public const string PublishTimingOnFinalReview = "on_final_review";
+    public const string BuildBehaviorBuildAfterCopy = "build_after_copy";
+    public const string BuildBehaviorCopyOnly = "copy_only";
+    public const string OverlaySourceLocalCaseOutputs = "local_case_outputs";
+    public const string OverlaySourceNone = "none";
+
+    public static EnterpriseParcelFabricReviewSettings Default { get; } = new(
+        false,
+        null,
+        null,
+        null,
+        null,
+        "compute_review",
+        "sidwell-record-{transaction_number}",
+        "transaction_number",
+        "transaction_id",
+        "review_state",
+        PublishTimingOnOutputs,
+        BuildBehaviorBuildAfterCopy,
+        true,
+        OverlaySourceLocalCaseOutputs,
+        true,
+        true,
+        null);
+
+    public static EnterpriseParcelFabricReviewSettings FromJson(JsonElement root, string reviewWorkspaceMode)
+    {
+        if (!root.TryGetProperty("enterprise_parcel_fabric_review", out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return reviewWorkspaceMode == InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
+                ? Default with
+                {
+                    Warning = "Enterprise Parcel Fabric mode is selected, but enterprise_parcel_fabric_review configuration is missing. Local modes remain available."
+                }
+                : Default;
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? Default.Enabled;
+        var fabricLayerUrl = ReadString(value, "fabric_layer_url");
+        var parcelTypeName = ReadString(value, "parcel_type_name") ?? Default.ParcelTypeName;
+        var recordNamePattern = ReadString(value, "record_name_pattern") ?? Default.RecordNamePattern;
+        var transactionScopeField = ReadString(value, "transaction_scope_field") ?? Default.TransactionScopeField;
+
+        var warnings = new List<string>();
+        var relevant = reviewWorkspaceMode == InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric || enabled;
+        if (relevant)
+        {
+            if (!enabled)
+            {
+                warnings.Add("Enterprise Parcel Fabric mode is selected, but enterprise parcel fabric review is disabled.");
+            }
+
+            if (string.IsNullOrWhiteSpace(fabricLayerUrl))
+            {
+                warnings.Add("fabric_layer_url is missing for Enterprise Parcel Fabric review.");
+            }
+
+            if (string.IsNullOrWhiteSpace(parcelTypeName))
+            {
+                warnings.Add("parcel_type_name is missing for Enterprise Parcel Fabric review.");
+            }
+
+            if (string.IsNullOrWhiteSpace(recordNamePattern))
+            {
+                warnings.Add("record_name_pattern is missing for Enterprise Parcel Fabric review.");
+            }
+
+            if (string.IsNullOrWhiteSpace(ReadString(value, "records_layer_url")))
+            {
+                warnings.Add("records_layer_url is missing for Enterprise Parcel Fabric review.");
+            }
+
+            if (string.IsNullOrWhiteSpace(transactionScopeField))
+            {
+                warnings.Add("transaction_scope_field is missing for Enterprise Parcel Fabric review.");
+            }
+        }
+
+        return new EnterpriseParcelFabricReviewSettings(
+            enabled,
+            ReadString(value, "service_root"),
+            fabricLayerUrl,
+            ReadString(value, "parcel_layer_url"),
+            ReadString(value, "records_layer_url"),
+            parcelTypeName,
+            recordNamePattern,
+            transactionScopeField,
+            ReadString(value, "transaction_id_field") ?? Default.TransactionIdField,
+            ReadString(value, "review_state_field") ?? Default.ReviewStateField,
+            NormalizePublishTiming(ReadString(value, "publish_timing")),
+            NormalizeBuildBehavior(ReadString(value, "build_behavior")),
+            ReadBool(value, "load_overlays") ?? Default.LoadOverlays,
+            NormalizeOverlaySource(ReadString(value, "overlay_source")),
+            ReadBool(value, "allow_replace_transaction_scope") ?? Default.AllowReplaceTransactionScope,
+            ReadBool(value, "require_active_map") ?? Default.RequireActiveMap,
+            warnings.Count == 0 ? null : string.Join(" ", warnings));
+    }
+
+    private static string NormalizePublishTiming(string? value)
+    {
+        var normalized = value?.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            PublishTimingOnFinalReview => PublishTimingOnFinalReview,
+            _ => PublishTimingOnOutputs
+        };
+    }
+
+    private static string NormalizeBuildBehavior(string? value)
+    {
+        var normalized = value?.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            BuildBehaviorCopyOnly => BuildBehaviorCopyOnly,
+            _ => BuildBehaviorBuildAfterCopy
+        };
+    }
+
+    private static string NormalizeOverlaySource(string? value)
+    {
+        var normalized = value?.Trim().Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            OverlaySourceNone => OverlaySourceNone,
+            _ => OverlaySourceLocalCaseOutputs
+        };
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
 }
 
 public sealed record EnterpriseWorkingReviewSettings(

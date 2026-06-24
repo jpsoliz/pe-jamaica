@@ -58,6 +58,9 @@ public sealed class SettingsWorkspaceDocument
 
     public string ReviewWorkspaceMode { get; set; } = string.Empty;
     public string PdfViewerMode { get; set; } = string.Empty;
+    public bool SpatialOutputAddCogoAttributes { get; set; }
+    public bool SpatialOutputAddCogoLabels { get; set; }
+    public string SpatialOutputCogoSourceMode { get; set; } = string.Empty;
     public bool EnterpriseWorkingEnabled { get; set; }
     public string EnterpriseWorkingServiceRoot { get; set; } = string.Empty;
     public string EnterpriseWorkingWorkspaceName { get; set; } = string.Empty;
@@ -71,6 +74,23 @@ public sealed class SettingsWorkspaceDocument
     public string EnterpriseWorkingPolygonsLayer { get; set; } = string.Empty;
     public string EnterpriseWorkingIssuesLayer { get; set; } = string.Empty;
     public string EnterpriseWorkingCaseIndexLayer { get; set; } = string.Empty;
+
+    public bool EnterpriseParcelFabricEnabled { get; set; }
+    public string EnterpriseParcelFabricServiceRoot { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricFabricLayerUrl { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricParcelLayerUrl { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricRecordsLayerUrl { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricParcelTypeName { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricRecordNamePattern { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricTransactionScopeField { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricTransactionIdField { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricReviewStateField { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricPublishTiming { get; set; } = string.Empty;
+    public string EnterpriseParcelFabricBuildBehavior { get; set; } = string.Empty;
+    public bool EnterpriseParcelFabricLoadOverlays { get; set; }
+    public string EnterpriseParcelFabricOverlaySource { get; set; } = string.Empty;
+    public bool EnterpriseParcelFabricAllowReplaceTransactionScope { get; set; }
+    public bool EnterpriseParcelFabricRequireActiveMap { get; set; }
 
     public string GsiServerUrl { get; set; } = string.Empty;
     public string GsiUsername { get; set; } = string.Empty;

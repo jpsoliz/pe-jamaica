@@ -1338,6 +1338,62 @@ so that deployment, AI, Innola, preflight, and spatial workspace settings can be
 **Then** the workspace shows non-destructive validation warnings tied to the affected tab/field
 **And** it does not corrupt the previously valid settings file or rule catalog.
 
+### Story 7.6: Define Enterprise Working Parcel Fabric Contract and Configuration
+
+As a solution architect and deployment administrator,  
+I want the add-in to define an explicit Enterprise Parcel Fabric working-workspace contract,  
+so that validated compute cases can move from local review artifacts into a shared parcel-editing surface without mixing authoritative promotion concerns into the current local workflow.
+
+**Acceptance Criteria:**
+
+**Given** the workflow already supports local `normal`, local Parcel Fabric, and Enterprise working-layer review modes  
+**When** the Enterprise Parcel Fabric path is defined  
+**Then** the contract clearly distinguishes a shared working Parcel Fabric from both local transaction `.gdb` review and final authoritative promotion.
+
+**Given** Enterprise Parcel Fabric requires more than simple point/line/polygon feature writes  
+**When** the story documents the target contract  
+**Then** it defines the required service references, fabric dataset/layer target, parcel type target, record strategy, scoping fields, and build/load expectations needed for the compute workflow.
+
+**Given** local artifacts remain the v1 system of record for recoverability and audit  
+**When** the Enterprise Parcel Fabric mode is configured  
+**Then** the contract preserves transaction-local artifacts as the processing source of truth and uses the working Parcel Fabric only as a collaborative spatial review surface.
+
+**Given** the team needs a safe deployment model  
+**When** the configuration is defined  
+**Then** it exposes an explicit Enterprise Parcel Fabric workspace mode, required settings, validation rules, and operator-facing readiness messages without breaking the existing local-only modes.
+
+**Given** final promotion remains a later controlled step  
+**When** this story is complete  
+**Then** it clearly states what belongs to working-fabric publication versus what still belongs to final authoritative sync/promotion stories.
+
+### Story 7.7: Publish Validated Spatial Units into Enterprise Working Parcel Fabric and Load Review Context
+
+As a cadastral examiner working in a distributed environment,  
+I want validated parcel geometry published into a shared working Parcel Fabric and opened in ArcGIS Pro for map-based review,  
+so that I can use parcel-aware editing, COGO, snapping, and review tools on the transaction after point validation is complete.
+
+**Acceptance Criteria:**
+
+**Given** a transaction has completed `Validate Points` and the configured workspace mode is Enterprise Parcel Fabric  
+**When** `Create Spatial Units` runs  
+**Then** the add-in publishes the validated points, lines, and parcel grouping into the configured working Parcel Fabric using the standardized contract and transaction scoping rules.
+
+**Given** Parcel Fabric publication requires record and parcel-type context  
+**When** the working fabric branch runs  
+**Then** it creates or resolves the working record, targets the configured parcel type, copies/imports the validated geometry into the required structures, and triggers the required build or equivalent parcel-generation step.
+
+**Given** the working fabric path is meant for review, not final promotion  
+**When** publication succeeds  
+**Then** the add-in loads the working Parcel Fabric map context, zooms to the transaction extent, and keeps the local transaction artifacts available for audit, resume, and fallback.
+
+**Given** publication or build can fail for service, schema, edit-session, or Parcel Fabric reasons  
+**When** failure occurs  
+**Then** the workflow preserves local artifacts, records a clear diagnostic message, and does not falsely mark the transaction as ready for final promotion.
+
+**Given** the working fabric review is later approved  
+**When** downstream promotion stories run  
+**Then** they can treat the working Parcel Fabric as the collaborative review surface while still applying separate final authoritative completion rules.
+
 ## Appendix: Implementation & Testability Contract
 
 This appendix is binding for all implementation stories. It preserves the approved user-value backlog while defining the shared contracts needed to make the ArcGIS Pro add-in, Python/ArcPy processing wrappers, Case Folder artifacts, and QA fixtures consistent.

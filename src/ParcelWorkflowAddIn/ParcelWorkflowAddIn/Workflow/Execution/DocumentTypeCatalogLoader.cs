@@ -22,7 +22,7 @@ public sealed class DocumentTypeCatalogLoader
             new DocumentTypeGeometryDefinition("manual_constructed", "manual", "manual", "manual", false, false, false, "manual_only"),
             new DocumentTypeValidationDefinition("generic_minimum", Array.Empty<string>(), Array.Empty<string>(), 0, 0, Array.Empty<string>(), new[] { "low_match_confidence" }),
             new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
-            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers" }, "normal_fgdb")),
+            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb")),
         new DocumentTypeDefinition(
             "GEOLAND_COMPUTATION_TABLE_V2",
             "GeoLand Computation Table",
@@ -44,7 +44,7 @@ public sealed class DocumentTypeCatalogLoader
             new DocumentTypeGeometryDefinition("parcel_rows_with_group_breaks", "row_vertices", "from_to_pairs", "group_closed_ring", true, true, true, "do_not_chain_across_groups"),
             new DocumentTypeValidationDefinition("geoland_computation_v1", new[] { "property_name", "parish" }, new[] { "parcel_group_id", "from_point", "northing", "easting" }, 20, 1, new[] { "missing_required_fields", "invalid_coordinates", "ungrouped_rows" }, new[] { "null_distance", "null_bearing", "low_match_confidence" }),
             new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
-            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers" }, "normal_fgdb")),
+            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb")),
         new DocumentTypeDefinition(
             "GENERIC_COMPUTATION_TABLE_V2",
             "Generic Computation Table",
@@ -66,7 +66,7 @@ public sealed class DocumentTypeCatalogLoader
             new DocumentTypeGeometryDefinition("parcel_rows_with_group_breaks", "row_vertices", "from_to_pairs", "group_closed_ring", true, true, true, "do_not_chain_across_groups"),
             new DocumentTypeValidationDefinition("generic_computation_v1", new[] { "parish" }, new[] { "parcel_group_id", "north", "east" }, 1, 1, new[] { "missing_required_fields", "invalid_coordinates" }, new[] { "low_match_confidence" }),
             new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
-            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers" }, "normal_fgdb")),
+            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb")),
         new DocumentTypeDefinition(
             "STRUCTURED_POINTS_TEXT_V1",
             "Structured Points Import",
@@ -85,7 +85,7 @@ public sealed class DocumentTypeCatalogLoader
             new DocumentTypeGeometryDefinition("point_list_only", "row_vertices", "from_to_pairs", "group_closed_ring", true, true, true, "do_not_chain_across_groups"),
             new DocumentTypeValidationDefinition("structured_points_v1", Array.Empty<string>(), new[] { "point_id", "northing", "easting" }, 1, 1, new[] { "missing_required_fields", "invalid_coordinates" }, Array.Empty<string>()),
             new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
-            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers" }, "normal_fgdb"))
+            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb"))
     };
 
     public DocumentTypeCatalogLoader(string catalogPath)
@@ -265,7 +265,7 @@ public sealed class DocumentTypeCatalogLoader
                     new[] { "missing_required_fields", "invalid_coordinates" },
                     new[] { "low_match_confidence" }),
                 new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
-                new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers" }, "normal_fgdb")));
+                new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb")));
         }
 
         return results.Count == 0 ? DefaultDocumentTypes : results;

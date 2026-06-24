@@ -123,6 +123,9 @@ public partial class ConfigurationWindow : ProWindow
 
         SetSelectedTag(ReviewWorkspaceModeComboBox, document.ReviewWorkspaceMode);
         SetSelectedTag(PdfViewerModeComboBox, document.PdfViewerMode);
+        SpatialOutputAddCogoAttributesCheckBox.IsChecked = document.SpatialOutputAddCogoAttributes;
+        SpatialOutputAddCogoLabelsCheckBox.IsChecked = document.SpatialOutputAddCogoLabels;
+        SetSelectedTag(SpatialOutputCogoSourceModeComboBox, document.SpatialOutputCogoSourceMode);
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
         EnterpriseWorkingWorkspaceNameTextBox.Text = document.EnterpriseWorkingWorkspaceName;
@@ -136,6 +139,22 @@ public partial class ConfigurationWindow : ProWindow
         EnterpriseWorkingPolygonsLayerTextBox.Text = document.EnterpriseWorkingPolygonsLayer;
         EnterpriseWorkingIssuesLayerTextBox.Text = document.EnterpriseWorkingIssuesLayer;
         EnterpriseWorkingCaseIndexLayerTextBox.Text = document.EnterpriseWorkingCaseIndexLayer;
+        EnterpriseParcelFabricEnabledCheckBox.IsChecked = document.EnterpriseParcelFabricEnabled;
+        EnterpriseParcelFabricServiceRootTextBox.Text = document.EnterpriseParcelFabricServiceRoot;
+        EnterpriseParcelFabricFabricLayerUrlTextBox.Text = document.EnterpriseParcelFabricFabricLayerUrl;
+        EnterpriseParcelFabricParcelLayerUrlTextBox.Text = document.EnterpriseParcelFabricParcelLayerUrl;
+        EnterpriseParcelFabricRecordsLayerUrlTextBox.Text = document.EnterpriseParcelFabricRecordsLayerUrl;
+        EnterpriseParcelFabricParcelTypeNameTextBox.Text = document.EnterpriseParcelFabricParcelTypeName;
+        EnterpriseParcelFabricRecordNamePatternTextBox.Text = document.EnterpriseParcelFabricRecordNamePattern;
+        EnterpriseParcelFabricTransactionScopeFieldTextBox.Text = document.EnterpriseParcelFabricTransactionScopeField;
+        EnterpriseParcelFabricTransactionIdFieldTextBox.Text = document.EnterpriseParcelFabricTransactionIdField;
+        EnterpriseParcelFabricReviewStateFieldTextBox.Text = document.EnterpriseParcelFabricReviewStateField;
+        SetSelectedTag(EnterpriseParcelFabricPublishTimingComboBox, document.EnterpriseParcelFabricPublishTiming);
+        SetSelectedTag(EnterpriseParcelFabricBuildBehaviorComboBox, document.EnterpriseParcelFabricBuildBehavior);
+        EnterpriseParcelFabricLoadOverlaysCheckBox.IsChecked = document.EnterpriseParcelFabricLoadOverlays;
+        SetSelectedTag(EnterpriseParcelFabricOverlaySourceComboBox, document.EnterpriseParcelFabricOverlaySource);
+        EnterpriseParcelFabricAllowReplaceTransactionScopeCheckBox.IsChecked = document.EnterpriseParcelFabricAllowReplaceTransactionScope;
+        EnterpriseParcelFabricRequireActiveMapCheckBox.IsChecked = document.EnterpriseParcelFabricRequireActiveMap;
 
         GsiServerUrlTextBox.Text = document.GsiServerUrl;
         GsiUsernameTextBox.Text = document.GsiUsername;
@@ -190,6 +209,9 @@ public partial class ConfigurationWindow : ProWindow
 
         document.ReviewWorkspaceMode = GetSelectedTag(ReviewWorkspaceModeComboBox, InnolaTransactionSettings.ReviewWorkspaceModeNormal);
         document.PdfViewerMode = GetSelectedTag(PdfViewerModeComboBox, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+        document.SpatialOutputAddCogoAttributes = SpatialOutputAddCogoAttributesCheckBox.IsChecked == true;
+        document.SpatialOutputAddCogoLabels = SpatialOutputAddCogoLabelsCheckBox.IsChecked == true;
+        document.SpatialOutputCogoSourceMode = GetSelectedTag(SpatialOutputCogoSourceModeComboBox, SettingsWorkspaceService.SpatialOutputCogoSourceModeSourceThenComputed);
         document.EnterpriseWorkingEnabled = EnterpriseWorkingEnabledCheckBox.IsChecked == true;
         document.EnterpriseWorkingServiceRoot = EnterpriseWorkingServiceRootTextBox.Text.Trim();
         document.EnterpriseWorkingWorkspaceName = EnterpriseWorkingWorkspaceNameTextBox.Text.Trim();
@@ -203,6 +225,22 @@ public partial class ConfigurationWindow : ProWindow
         document.EnterpriseWorkingPolygonsLayer = EnterpriseWorkingPolygonsLayerTextBox.Text.Trim();
         document.EnterpriseWorkingIssuesLayer = EnterpriseWorkingIssuesLayerTextBox.Text.Trim();
         document.EnterpriseWorkingCaseIndexLayer = EnterpriseWorkingCaseIndexLayerTextBox.Text.Trim();
+        document.EnterpriseParcelFabricEnabled = EnterpriseParcelFabricEnabledCheckBox.IsChecked == true;
+        document.EnterpriseParcelFabricServiceRoot = EnterpriseParcelFabricServiceRootTextBox.Text.Trim();
+        document.EnterpriseParcelFabricFabricLayerUrl = EnterpriseParcelFabricFabricLayerUrlTextBox.Text.Trim();
+        document.EnterpriseParcelFabricParcelLayerUrl = EnterpriseParcelFabricParcelLayerUrlTextBox.Text.Trim();
+        document.EnterpriseParcelFabricRecordsLayerUrl = EnterpriseParcelFabricRecordsLayerUrlTextBox.Text.Trim();
+        document.EnterpriseParcelFabricParcelTypeName = EnterpriseParcelFabricParcelTypeNameTextBox.Text.Trim();
+        document.EnterpriseParcelFabricRecordNamePattern = EnterpriseParcelFabricRecordNamePatternTextBox.Text.Trim();
+        document.EnterpriseParcelFabricTransactionScopeField = EnterpriseParcelFabricTransactionScopeFieldTextBox.Text.Trim();
+        document.EnterpriseParcelFabricTransactionIdField = EnterpriseParcelFabricTransactionIdFieldTextBox.Text.Trim();
+        document.EnterpriseParcelFabricReviewStateField = EnterpriseParcelFabricReviewStateFieldTextBox.Text.Trim();
+        document.EnterpriseParcelFabricPublishTiming = GetSelectedTag(EnterpriseParcelFabricPublishTimingComboBox, EnterpriseParcelFabricReviewSettings.PublishTimingOnOutputs);
+        document.EnterpriseParcelFabricBuildBehavior = GetSelectedTag(EnterpriseParcelFabricBuildBehaviorComboBox, EnterpriseParcelFabricReviewSettings.BuildBehaviorBuildAfterCopy);
+        document.EnterpriseParcelFabricLoadOverlays = EnterpriseParcelFabricLoadOverlaysCheckBox.IsChecked == true;
+        document.EnterpriseParcelFabricOverlaySource = GetSelectedTag(EnterpriseParcelFabricOverlaySourceComboBox, EnterpriseParcelFabricReviewSettings.OverlaySourceLocalCaseOutputs);
+        document.EnterpriseParcelFabricAllowReplaceTransactionScope = EnterpriseParcelFabricAllowReplaceTransactionScopeCheckBox.IsChecked == true;
+        document.EnterpriseParcelFabricRequireActiveMap = EnterpriseParcelFabricRequireActiveMapCheckBox.IsChecked == true;
 
         document.GsiServerUrl = GsiServerUrlTextBox.Text.Trim();
         document.GsiUsername = GsiUsernameTextBox.Text.Trim();
@@ -321,9 +359,15 @@ public partial class ConfigurationWindow : ProWindow
             mode,
             InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers,
             StringComparison.OrdinalIgnoreCase);
+        var enterpriseParcelFabricSelected = string.Equals(
+            mode,
+            InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric,
+            StringComparison.OrdinalIgnoreCase);
 
         EnterpriseWorkingExpander.Opacity = enterpriseModeSelected ? 1.0 : 0.58;
         EnterpriseWorkingExpander.IsExpanded = enterpriseModeSelected;
+        EnterpriseParcelFabricExpander.Opacity = enterpriseParcelFabricSelected ? 1.0 : 0.58;
+        EnterpriseParcelFabricExpander.IsExpanded = enterpriseParcelFabricSelected;
     }
 
     private void ApplyOpenAiExtractionProfilePresentation()

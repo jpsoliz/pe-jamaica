@@ -42,7 +42,10 @@ public sealed record OutputSummaryPayload(
     [property: JsonPropertyName("template_project_path")] string? TemplateProjectPath,
     [property: JsonPropertyName("template_gdb_path")] string? TemplateGdbPath,
     [property: JsonPropertyName("review_result_owner")] string? ReviewResultOwner,
-    [property: JsonPropertyName("enterprise_working_publish")] EnterpriseWorkingPublishSummary? EnterpriseWorkingPublish = null);
+    [property: JsonPropertyName("enterprise_working_publish")] EnterpriseWorkingPublishSummary? EnterpriseWorkingPublish = null,
+    [property: JsonPropertyName("add_cogo_attributes")] bool AddCogoAttributes = false,
+    [property: JsonPropertyName("add_cogo_labels")] bool AddCogoLabels = false,
+    [property: JsonPropertyName("cogo_source_mode")] string? CogoSourceMode = null);
 
 public sealed record EnterpriseWorkingPublishSummary(
     [property: JsonPropertyName("status")] string Status,
