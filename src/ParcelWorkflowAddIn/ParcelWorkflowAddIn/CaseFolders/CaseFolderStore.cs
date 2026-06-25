@@ -256,7 +256,8 @@ public sealed partial class CaseFolderStore
                 source.SourceRole,
                 copiedPathExists ? "copied" : "missing",
                 copiedPathExists ? "Copied source file loaded from Case Folder." : "Copied source file is missing from the Case Folder.",
-                copiedPathExists));
+                copiedPathExists,
+                source.SourceType));
         }
 
         return rows;

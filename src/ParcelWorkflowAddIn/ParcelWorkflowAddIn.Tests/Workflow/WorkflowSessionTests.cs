@@ -1343,6 +1343,8 @@ internal static class WorkflowSessionTests
                     "sidwell_validation_v1",
                     "1.0.0",
                     new ValidationFindingCounts(0, blocked ? 1 : 0, 0, 0, blocked ? 0 : 1),
+                    null,
+                    Array.Empty<ValidationClosureResult>(),
                     new[]
                     {
                         new ValidationFinding(

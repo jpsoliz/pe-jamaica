@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.WorkflowRules;
 
@@ -163,6 +164,8 @@ public sealed class ManifestPreflightService
                 null,
                 "Resolve missing supporting document roles and refresh intake."));
         }
+
+        EvaluateSupportingDocumentInventory(manifest, blockers, warnings, passed);
 
         foreach (var role in GetRequiredRoles(manifest, profile.ProfileCode))
         {
@@ -343,7 +346,7 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> passed,
         CancellationToken cancellationToken)
     {
-        var source = sources.FirstOrDefault(item => string.Equals(item.SourceRole, role, StringComparison.OrdinalIgnoreCase));
+        var source = sources.FirstOrDefault(item => SourceRole.Matches(item.SourceRole, role));
         if (source is null)
         {
             blockers.Add(PreflightCheck.Blocker(
@@ -357,7 +360,7 @@ public sealed class ManifestPreflightService
 
         passed.Add(PreflightCheck.Passed(
             $"required_role_{role}",
-            $"Passed: required {RoleDisplayName(role)} source role is present.",
+            $"Passed: {RoleDisplayName(role)} found - {Path.GetFileName(source.CopiedPath)} ({source.FileType}).",
             source.CopiedPath,
             role));
 
@@ -473,7 +476,7 @@ public sealed class ManifestPreflightService
             copiedPath,
             role));
 
-        if (string.Equals(role, SourceRole.DwgReference, StringComparison.OrdinalIgnoreCase))
+        if (SourceRole.Matches(role, SourceRole.DwgSource))
         {
             await ValidateDwgReadiness(source, copiedPath, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
@@ -612,8 +615,8 @@ public sealed class ManifestPreflightService
     {
         return profileCode switch
         {
-            SourceInputProfile.ScenarioA => new[] { "computation_source", "plan_map_reference" },
-            SourceInputProfile.ScenarioB => new[] { "points_computation", "dwg_reference", "plan_map_reference" },
+            SourceInputProfile.ScenarioA => ComputeAttachmentSourceTypeCatalog.RequiredWorkflowRoles,
+            SourceInputProfile.ScenarioB => ComputeAttachmentSourceTypeCatalog.RequiredWorkflowRoles,
             _ => Array.Empty<string>()
         };
     }
@@ -635,26 +638,85 @@ public sealed class ManifestPreflightService
 
     private static string MissingRoleMessage(string role)
     {
-        return role switch
+        return SourceRole.Normalize(role) switch
         {
-            "plan_map_reference" => "Missing plan/map reference supporting document.",
-            "computation_source" => "Missing computation sheet supporting document.",
-            "points_computation" => "Missing tabular points supporting document.",
-            "dwg_reference" => "Missing DWG supporting document.",
+            SourceRole.PlanMapReference => "Survey plan / map reference: missing.",
+            SourceRole.ComputationSheet => "Survey / computation sheet: missing.",
+            SourceRole.CoordinateTextSource => "Structured survey points: missing.",
+            SourceRole.DwgSource => "AutoCAD survey source: missing.",
             _ => $"Missing required source role: {role}."
         };
     }
 
     private static string RoleDisplayName(string role)
     {
-        return role switch
+        return SourceRole.DisplayName(role);
+    }
+
+    private static void EvaluateSupportingDocumentInventory(
+        ManifestDocument manifest,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        List<PreflightCheck> passed)
+    {
+        foreach (var definition in ComputeAttachmentSourceTypeCatalog.SafeDefaults.Where(item => !item.InternalOnly && !item.Required))
         {
-            "plan_map_reference" => "plan/map reference",
-            "computation_source" => "computation source",
-            "points_computation" => "points/computation source",
-            "dwg_reference" => "DWG reference",
-            _ => role
-        };
+            var source = ResolveSourceForDefinition(manifest, definition);
+            var checkId = $"supporting_document_{definition.SourceType}";
+            if (source is not null)
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    "supporting_document",
+                    checkId,
+                    $"{definition.DisplayName}: found - {Path.GetFileName(source.CopiedPath)} ({source.FileType}).",
+                    source.CopiedPath,
+                    definition.WorkflowRole));
+                continue;
+            }
+
+            passed.Add(PreflightCheck.PassedForCategory(
+                "supporting_document",
+                checkId,
+                $"{definition.DisplayName}: not provided (optional).",
+                null,
+                definition.WorkflowRole));
+        }
+    }
+
+    private static ManifestSourceFile? ResolveSourceForDefinition(ManifestDocument manifest, ComputeAttachmentSourceTypeDefinition definition)
+    {
+        var directMatch = manifest.Payload.SourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, definition.WorkflowRole)
+            || string.Equals(source.SourceType, definition.SourceType, StringComparison.OrdinalIgnoreCase));
+        if (directMatch is not null)
+        {
+            return directMatch;
+        }
+
+        if (manifest.Payload.AttachmentProvenance is null)
+        {
+            return null;
+        }
+
+        var matchedProvenance = manifest.Payload.AttachmentProvenance.FirstOrDefault(attachment =>
+            SourceRole.Matches(attachment.SourceRole, definition.WorkflowRole)
+            || string.Equals(attachment.SourceType, definition.SourceType, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(attachment.Category, definition.SourceType, StringComparison.OrdinalIgnoreCase));
+
+        if (matchedProvenance is null)
+        {
+            return null;
+        }
+
+        return manifest.Payload.SourceFiles.FirstOrDefault(source =>
+            string.Equals(source.CopiedPath, matchedProvenance.CopiedPath, StringComparison.OrdinalIgnoreCase))
+            ?? new ManifestSourceFile(
+                matchedProvenance.ServiceReference,
+                matchedProvenance.CopiedPath,
+                matchedProvenance.Extension,
+                matchedProvenance.FileSize ?? 0,
+                matchedProvenance.CopiedAt,
+                matchedProvenance.SourceRole,
+                matchedProvenance.SourceType ?? matchedProvenance.Category);
     }
 
     private static bool RuleAppliesToSource(PreflightRuleDefinition rule, ManifestSourceFile source)

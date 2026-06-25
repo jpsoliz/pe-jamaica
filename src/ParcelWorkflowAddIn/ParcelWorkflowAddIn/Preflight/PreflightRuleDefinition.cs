@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Preflight;
 
@@ -60,7 +61,7 @@ public sealed record PreflightRuleDefinition(
 
     public bool AppliesToSource(string? sourceRole, string? fileType)
     {
-        return MatchesAny(SourceRoles, sourceRole)
+        return MatchesAnySourceRole(SourceRoles, sourceRole)
             && MatchesAny(FileTypes, fileType);
     }
 
@@ -111,6 +112,21 @@ public sealed record PreflightRuleDefinition(
         }
 
         return candidates.Any(candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesAnySourceRole(IReadOnlyList<string>? candidates, string? value)
+    {
+        if (candidates is null || candidates.Count == 0)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return candidates.Any(candidate => SourceRole.Matches(value, candidate));
     }
 
     private static string InferGroupFromCategory(string? category)

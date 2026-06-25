@@ -9,4 +9,5 @@ public sealed record SourceFileCopyResult(
     string? SourceRole,
     string Status,
     string Message,
-    bool Copied);
+    bool Copied,
+    string? SourceType = null);

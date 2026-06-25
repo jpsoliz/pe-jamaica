@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.IO;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.WorkflowRules;
 
@@ -57,7 +58,8 @@ public sealed class WorkflowRuleResolver
                 copied_path = RelativeOrFileName(source.CopiedPath),
                 file_type = source.FileType,
                 file_size = source.FileSize,
-                source_role = source.SourceRole
+                source_role = SourceRole.Normalize(source.SourceRole),
+                source_type = source.SourceType
             })
             .OrderBy(source => source.source_role, StringComparer.OrdinalIgnoreCase)
             .ThenBy(source => source.copied_path, StringComparer.OrdinalIgnoreCase)
@@ -130,7 +132,7 @@ public sealed class WorkflowRuleResolver
         {
             var extensions = new HashSet<string>(required.Extensions.Select(NormalizeExtension), StringComparer.OrdinalIgnoreCase);
             var matched = sources.Any(source =>
-                string.Equals(source.SourceRole, required.Role, StringComparison.OrdinalIgnoreCase)
+                SourceRole.Matches(source.SourceRole, required.Role)
                 && extensions.Contains(NormalizeExtension(source.FileType)));
             if (!matched)
             {

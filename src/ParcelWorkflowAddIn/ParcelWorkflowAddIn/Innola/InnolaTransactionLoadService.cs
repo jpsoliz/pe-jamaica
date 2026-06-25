@@ -184,7 +184,7 @@ public sealed class InnolaTransactionLoadService
             }
 
             var serviceReference = $"innola-attachment:{attachment.AttachmentId}";
-            var written = attachmentWriter.Write(layout, serviceReference, attachment.FileName, content.Content, attachment.SourceRole);
+            var written = attachmentWriter.Write(layout, serviceReference, attachment.FileName, content.Content, attachment.SourceRole, attachment.SourceType);
             if (!written.Success || written.ManifestSourceFile is null)
             {
                 CleanupNewlyWrittenFiles(newlyWrittenFiles);
@@ -205,7 +205,8 @@ public sealed class InnolaTransactionLoadService
                 attachment.Checksum,
                 serviceReference,
                 written.ManifestSourceFile.CopiedPath,
-                written.CopiedAt ?? loadedAt));
+                written.CopiedAt ?? loadedAt,
+                attachment.SourceType));
         }
 
         var detectedProfile = profileDetector.Detect(sourceFiles);

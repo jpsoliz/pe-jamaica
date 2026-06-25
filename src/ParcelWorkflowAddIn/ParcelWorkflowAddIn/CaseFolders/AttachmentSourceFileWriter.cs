@@ -35,7 +35,8 @@ public sealed class AttachmentSourceFileWriter
         string originalReference,
         string fileName,
         byte[] content,
-        string? sourceRole)
+        string? sourceRole,
+        string? sourceType)
     {
         try
         {
@@ -81,7 +82,8 @@ public sealed class AttachmentSourceFileWriter
                     extension,
                     fileInfo.Length,
                     copiedAt,
-                    sourceRole),
+                    sourceRole,
+                    sourceType),
                 copiedAt);
         }
         catch (Exception exception) when (exception is ArgumentException

@@ -18,6 +18,8 @@ public sealed record InnolaTransactionSettings(
     string? SupportedTransactionTypesWarning,
     IReadOnlyList<string> ComputeWorkflowStages,
     string? ComputeWorkflowStagesWarning,
+    IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
+    string? ComputeAttachmentSourceTypesWarning,
     string AttachmentUploadRoute,
     string AttachmentUploadBindingMode,
     string AttachmentUploadMode,
@@ -63,6 +65,8 @@ public sealed record InnolaTransactionSettings(
         null,
         SafeDefaultComputeWorkflowStages,
         null,
+        ComputeAttachmentSourceTypeCatalog.SafeDefaults,
+        null,
         "source/sources/attach",
         "query_only",
         "attach_then_register_source",
@@ -87,7 +91,8 @@ public sealed record InnolaTransactionSettings(
             {
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json was not found.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json was not found.",
-                ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json was not found."
+                ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json was not found.",
+                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json was not found."
             };
         }
 
@@ -101,6 +106,7 @@ public sealed record InnolaTransactionSettings(
             var enterpriseParcelFabricReview = EnterpriseParcelFabricReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
+            var computeAttachmentSourceTypes = ResolveComputeAttachmentSourceTypes(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
             var mode = ReadString(root, "innola_transaction_mode") ?? Default.Mode;
             var processStep = ReadString(root, "innola_process_step") ?? Default.ProcessStep;
@@ -128,6 +134,8 @@ public sealed record InnolaTransactionSettings(
                 supportedTypes.Warning,
                 computeWorkflowStages.Values,
                 computeWorkflowStages.Warning,
+                computeAttachmentSourceTypes.Values,
+                computeAttachmentSourceTypes.Warning,
                 string.IsNullOrWhiteSpace(attachmentUploadRoute) ? Default.AttachmentUploadRoute : attachmentUploadRoute,
                 string.IsNullOrWhiteSpace(attachmentUploadBindingMode) ? Default.AttachmentUploadBindingMode : attachmentUploadBindingMode,
                 string.IsNullOrWhiteSpace(attachmentUploadMode) ? Default.AttachmentUploadMode : attachmentUploadMode,
@@ -144,7 +152,8 @@ public sealed record InnolaTransactionSettings(
             {
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json could not be parsed.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json could not be parsed.",
-                ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json could not be parsed."
+                ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json could not be parsed.",
+                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json could not be parsed."
             };
         }
     }
@@ -252,6 +261,75 @@ public sealed record InnolaTransactionSettings(
             "compute_workflow_stages",
             SafeDefaultComputeWorkflowStages,
             "Compute workflow stages");
+    }
+
+    private static ComputeAttachmentSourceTypeResolution ResolveComputeAttachmentSourceTypes(JsonElement root)
+    {
+        if (!root.TryGetProperty("compute_attachment_source_types", out var value))
+        {
+            return new ComputeAttachmentSourceTypeResolution(
+                ComputeAttachmentSourceTypeCatalog.SafeDefaults,
+                "Compute attachment source types are using safe defaults because compute_attachment_source_types is missing.");
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return new ComputeAttachmentSourceTypeResolution(
+                ComputeAttachmentSourceTypeCatalog.SafeDefaults,
+                "Compute attachment source types are using safe defaults because compute_attachment_source_types is not a valid list.");
+        }
+
+        var definitions = new List<ComputeAttachmentSourceTypeDefinition>();
+        var ignoredEntries = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            var sourceType = ReadString(item, "source_type")?.Trim();
+            var workflowRole = Intake.SourceRole.Normalize(ReadString(item, "workflow_role"));
+            var displayName = ReadString(item, "display_name")?.Trim();
+            var required = item.TryGetProperty("required", out var requiredValue) && requiredValue.ValueKind == JsonValueKind.True;
+            var internalOnly = item.TryGetProperty("internal_only", out var internalOnlyValue) && internalOnlyValue.ValueKind == JsonValueKind.True;
+            var extensions = ReadStringArray(item, "extensions");
+
+            if (string.IsNullOrWhiteSpace(sourceType)
+                || string.IsNullOrWhiteSpace(workflowRole)
+                || string.IsNullOrWhiteSpace(displayName)
+                || extensions.Count == 0)
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            if (definitions.Any(existing => existing.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase)))
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            definitions.Add(new ComputeAttachmentSourceTypeDefinition(
+                sourceType,
+                workflowRole,
+                displayName,
+                required,
+                internalOnly,
+                extensions));
+        }
+
+        if (definitions.Count == 0)
+        {
+            return new ComputeAttachmentSourceTypeResolution(
+                ComputeAttachmentSourceTypeCatalog.SafeDefaults,
+                "Compute attachment source types are using safe defaults because compute_attachment_source_types is empty or invalid.");
+        }
+
+        return ignoredEntries > 0
+            ? new ComputeAttachmentSourceTypeResolution(definitions, "Some compute attachment source type entries were invalid and were ignored.")
+            : new ComputeAttachmentSourceTypeResolution(definitions, null);
     }
 
     private static NamedStringListResolution ResolveNamedStringList(
@@ -366,6 +444,39 @@ public sealed record InnolaTransactionSettings(
         return Environment.ExpandEnvironmentVariables(path);
     }
 
+    private static IReadOnlyList<string> ReadStringArray(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        var values = new List<string>();
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var resolved = item.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(resolved))
+            {
+                continue;
+            }
+
+            var normalized = resolved.StartsWith(".", StringComparison.Ordinal)
+                ? resolved.ToLowerInvariant()
+                : $".{resolved.ToLowerInvariant()}";
+            if (!values.Any(existing => existing.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
+            {
+                values.Add(normalized);
+            }
+        }
+
+        return values;
+    }
+
     internal static string FormatSupportedTransactionTypesDisplay(IReadOnlyList<string> supportedTransactionTypes)
     {
         return supportedTransactionTypes.Count == 0
@@ -439,6 +550,10 @@ public sealed record InnolaTransactionSettings(
 
     private sealed record NamedStringResolution(
         string Value,
+        string? Warning);
+
+    private sealed record ComputeAttachmentSourceTypeResolution(
+        IReadOnlyList<ComputeAttachmentSourceTypeDefinition> Values,
         string? Warning);
 }
 

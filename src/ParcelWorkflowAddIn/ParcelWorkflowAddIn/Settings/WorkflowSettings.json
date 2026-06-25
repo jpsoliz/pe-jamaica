@@ -57,6 +57,48 @@
     "Assign Computation Task",
     "Computation Check"
   ],
+  "compute_attachment_source_types": [
+    {
+      "source_type": "st_surveyplan",
+      "workflow_role": "plan_map_reference",
+      "display_name": "Survey plan / map reference",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_surveysheet",
+      "workflow_role": "computation_sheet",
+      "display_name": "Survey / computation sheet",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_survey_points",
+      "workflow_role": "coordinate_text_source",
+      "display_name": "Structured survey points",
+      "required": false,
+      "internal_only": false,
+      "extensions": [".txt", ".csv"]
+    },
+    {
+      "source_type": "st_autocad_file",
+      "workflow_role": "dwg_source",
+      "display_name": "AutoCAD survey source",
+      "required": false,
+      "internal_only": false,
+      "extensions": [".dwg"]
+    },
+    {
+      "source_type": "st_survey_zip",
+      "workflow_role": "workflow_resume_package",
+      "display_name": "Internal workflow package",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".zip"]
+    }
+  ],
   "innola_attachment_upload_route": "source/sources/attach",
   "innola_attachment_upload_binding_mode": "query_only",
   "innola_attachment_upload_mode": "attach_then_register_source",

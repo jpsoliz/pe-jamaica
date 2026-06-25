@@ -67,6 +67,7 @@ public sealed class SettingsWorkspaceService
             InnolaProcessStep = transactionSettings.ProcessStep,
             SupportedTransactionTypes = transactionSettings.SupportedTransactionTypes.ToList(),
             ComputeWorkflowStages = transactionSettings.ComputeWorkflowStages.ToList(),
+            ComputeAttachmentSourceTypesJson = ResolveComputeAttachmentSourceTypesJson(settingsRoot, transactionSettings),
             InnolaAttachmentUploadRoute = transactionSettings.AttachmentUploadRoute,
             InnolaAttachmentUploadBindingMode = transactionSettings.AttachmentUploadBindingMode,
             InnolaAttachmentUploadMode = transactionSettings.AttachmentUploadMode,
@@ -157,6 +158,22 @@ public sealed class SettingsWorkspaceService
         if (!document.ComputeWorkflowStages.Any())
         {
             messages.Add(new("Innola Integration", "Compute Workflow Stages", "At least one compute workflow stage is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(document.ComputeAttachmentSourceTypesJson))
+        {
+            messages.Add(new("Innola Integration", "Compute Attachment Source Types", "Compute attachment source types JSON is required."));
+        }
+        else
+        {
+            try
+            {
+                JsonNode.Parse(document.ComputeAttachmentSourceTypesJson);
+            }
+            catch (JsonException exception)
+            {
+                messages.Add(new("Innola Integration", "Compute Attachment Source Types", $"Compute attachment source types must be valid JSON. {exception.Message}"));
+            }
         }
 
         if (document.OpenAiEnabled && string.IsNullOrWhiteSpace(document.OpenAiModel))
@@ -315,6 +332,7 @@ public sealed class SettingsWorkspaceService
         SetString(root, "innola_process_step", document.InnolaProcessStep);
         root["supported_transaction_types"] = CreateStringArray(document.SupportedTransactionTypes);
         root["compute_workflow_stages"] = CreateStringArray(document.ComputeWorkflowStages);
+        SetJson(root, "compute_attachment_source_types", document.ComputeAttachmentSourceTypesJson);
         SetString(root, "innola_attachment_upload_route", document.InnolaAttachmentUploadRoute);
         SetString(root, "innola_attachment_upload_binding_mode", document.InnolaAttachmentUploadBindingMode);
         SetString(root, "innola_attachment_upload_mode", document.InnolaAttachmentUploadMode);
@@ -757,5 +775,28 @@ public sealed class SettingsWorkspaceService
         }
 
         root[name] = JsonNode.Parse(value);
+    }
+
+    private static string ResolveComputeAttachmentSourceTypesJson(JsonObject? root, InnolaTransactionSettings transactionSettings)
+    {
+        var configured = ReadJson(root, "compute_attachment_source_types");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var nodes = transactionSettings.ComputeAttachmentSourceTypes
+            .Select(item => new JsonObject
+            {
+                ["source_type"] = item.SourceType,
+                ["workflow_role"] = item.WorkflowRole,
+                ["display_name"] = item.DisplayName,
+                ["required"] = item.Required,
+                ["internal_only"] = item.InternalOnly,
+                ["extensions"] = new JsonArray(item.Extensions.Select(extension => (JsonNode?)JsonValue.Create(extension)).ToArray())
+            })
+            .ToArray();
+
+        return new JsonArray(nodes).ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 }

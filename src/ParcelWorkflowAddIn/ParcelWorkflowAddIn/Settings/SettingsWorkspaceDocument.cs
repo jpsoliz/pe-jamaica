@@ -40,6 +40,7 @@ public sealed class SettingsWorkspaceDocument
     public string InnolaProcessStep { get; set; } = string.Empty;
     public List<string> SupportedTransactionTypes { get; set; } = new();
     public List<string> ComputeWorkflowStages { get; set; } = new();
+    public string ComputeAttachmentSourceTypesJson { get; set; } = string.Empty;
     public string InnolaAttachmentUploadRoute { get; set; } = string.Empty;
     public string InnolaAttachmentUploadBindingMode { get; set; } = string.Empty;
     public string InnolaAttachmentUploadMode { get; set; } = string.Empty;

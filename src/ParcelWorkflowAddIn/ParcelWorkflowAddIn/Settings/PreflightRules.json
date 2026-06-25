@@ -31,7 +31,7 @@
       "severity": "blocker",
       "locked": true,
       "source_roles": [
-        "computation_source",
+        "computation_sheet",
         "plan_map_reference"
       ]
     },
@@ -115,7 +115,7 @@
       "severity": "blocker",
       "locked": true,
       "source_roles": [
-        "dwg_reference"
+        "dwg_source"
       ],
       "file_types": [
         ".dwg"
@@ -132,7 +132,7 @@
       "severity": "blocker",
       "locked": false,
       "source_roles": [
-        "dwg_reference"
+        "dwg_source"
       ],
       "file_types": [
         ".dwg"
@@ -149,8 +149,8 @@
       "severity": "blocker",
       "locked": true,
       "source_roles": [
-        "computation_source",
-        "points_computation",
+        "computation_sheet",
+        "coordinate_text_source",
         "plan_map_reference"
       ],
       "allow_tabular_georeference": true
@@ -165,7 +165,7 @@
       "severity": "warning",
       "locked": false,
       "source_roles": [
-        "points_computation"
+        "coordinate_text_source"
       ],
       "file_types": [
         ".txt",
@@ -183,7 +183,7 @@
       "severity": "warning",
       "locked": false,
       "source_roles": [
-        "points_computation"
+        "coordinate_text_source"
       ],
       "file_types": [
         ".txt",

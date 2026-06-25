@@ -30,14 +30,14 @@ public sealed class SourceFileCopyService
         this.getUtcNow = getUtcNow;
     }
 
-    public SourceFileCopyBatchResult CopySourceFiles(CaseFolderLayout layout, IReadOnlyList<string> sourcePaths, string? sourceRole = null)
+    public SourceFileCopyBatchResult CopySourceFiles(CaseFolderLayout layout, IReadOnlyList<string> sourcePaths, string? sourceRole = null, string? sourceType = null)
     {
         var results = new List<SourceFileCopyResult>();
         var copiedManifestEntries = new List<ManifestSourceFile>();
 
         foreach (var sourcePath in sourcePaths)
         {
-            var result = CopySourceFile(layout, sourcePath, sourceRole);
+            var result = CopySourceFile(layout, sourcePath, sourceRole, sourceType);
             results.Add(result.Result);
 
             if (result.ManifestEntry is not null)
@@ -61,7 +61,7 @@ public sealed class SourceFileCopyService
         return new SourceFileCopyBatchResult(results);
     }
 
-    private SourceFileCopyOperationResult CopySourceFile(CaseFolderLayout layout, string sourcePath, string? sourceRole)
+    private SourceFileCopyOperationResult CopySourceFile(CaseFolderLayout layout, string sourcePath, string? sourceRole, string? sourceType)
     {
         try
         {
@@ -98,7 +98,8 @@ public sealed class SourceFileCopyService
                 sourceRole,
                 "copied",
                 "Copied to Case Folder source area.",
-                Copied: true);
+                Copied: true,
+                SourceType: sourceType);
 
             var manifestEntry = new ManifestSourceFile(
                 fullSourcePath,
@@ -106,7 +107,8 @@ public sealed class SourceFileCopyService
                 extension,
                 fileInfo.Length,
                 getUtcNow().UtcDateTime.ToString("O"),
-                sourceRole);
+                sourceRole,
+                sourceType);
 
             return new SourceFileCopyOperationResult(result, manifestEntry);
         }

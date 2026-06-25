@@ -52,7 +52,8 @@ public sealed record ManifestSourceFile(
     [property: JsonPropertyName("file_type")] string FileType,
     [property: JsonPropertyName("file_size")] long FileSize,
     [property: JsonPropertyName("copied_at")] string CopiedAt,
-    [property: JsonPropertyName("source_role")] string? SourceRole);
+    [property: JsonPropertyName("source_role")] string? SourceRole,
+    [property: JsonPropertyName("source_type")] string? SourceType = null);
 
 public sealed record ManifestInnolaTransaction(
     [property: JsonPropertyName("transaction_id")] string TransactionId,
@@ -80,7 +81,8 @@ public sealed record ManifestAttachmentProvenance(
     [property: JsonPropertyName("checksum")] string? Checksum,
     [property: JsonPropertyName("service_reference")] string ServiceReference,
     [property: JsonPropertyName("copied_path")] string CopiedPath,
-    [property: JsonPropertyName("copied_at")] string CopiedAt);
+    [property: JsonPropertyName("copied_at")] string CopiedAt,
+    [property: JsonPropertyName("source_type")] string? SourceType = null);
 
 public sealed record ManifestInnolaLifecycle(
     [property: JsonPropertyName("transaction_id")] string TransactionId,

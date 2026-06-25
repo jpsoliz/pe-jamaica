@@ -10,4 +10,5 @@ public sealed record InnolaAttachmentMetadata(
     long? Size,
     string? Checksum,
     string ServiceReference,
-    bool IsRequired);
+    bool IsRequired,
+    string? SourceType = null);

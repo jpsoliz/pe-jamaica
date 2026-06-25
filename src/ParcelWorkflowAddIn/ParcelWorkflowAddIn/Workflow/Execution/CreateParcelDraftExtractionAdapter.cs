@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.WorkflowRules;
 
@@ -329,7 +330,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
     private static WorkflowScriptStepExecutionResult CreateDwgContextArtifact(WorkflowScriptExecutionContext context)
     {
-        var dwgSource = ResolveFirstSource(context.Manifest.Payload.SourceFiles, "dwg_reference");
+        var dwgSource = ResolveFirstSource(context.Manifest.Payload.SourceFiles, SourceRole.DwgSource);
         if (dwgSource is null)
         {
             return WorkflowScriptStepExecutionResult.Failed("DWG context could not be generated because no DWG reference was copied to the case folder.");
@@ -478,7 +479,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         var catalog = new DocumentTypeCatalogLoader(documentTypeCatalogPath).Load();
         var sourceFiles = context.Manifest.Payload.SourceFiles;
         var candidates = sourceFiles
-            .Where(source => !string.Equals(source.SourceRole, "dwg_reference", StringComparison.OrdinalIgnoreCase))
+            .Where(source => !SourceRole.Matches(source.SourceRole, SourceRole.DwgSource))
             .Select(source => new SourceRouteCandidate(
                 source,
                 catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(
@@ -510,8 +511,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 primarySource is null ? string.Empty : Path.GetFileName(primarySource.CopiedPath),
                 primarySource?.FileType ?? string.Empty));
 
-        var planSource = ResolveFirstSource(sourceFiles, "plan_map_reference");
-        var dwgSource = ResolveFirstSource(sourceFiles, "dwg_reference");
+        var planSource = ResolveFirstSource(sourceFiles, SourceRole.PlanMapReference);
+        var dwgSource = ResolveFirstSource(sourceFiles, SourceRole.DwgSource);
         var secondarySources = sourceFiles
             .Where(source => primarySource is null || !string.Equals(source.CopiedPath, primarySource.CopiedPath, StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -671,14 +672,14 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             }
         }
 
-        return ResolveFirstSource(sourceFiles, "computation_source")
-            ?? ResolveFirstSource(sourceFiles, "points_computation");
+        return ResolveFirstSource(sourceFiles, SourceRole.ComputationSheet)
+            ?? ResolveFirstSource(sourceFiles, SourceRole.CoordinateTextSource);
     }
 
     private static ManifestSourceFile? ResolveFirstSource(IReadOnlyList<ManifestSourceFile> sourceFiles, string sourceRole)
     {
         return sourceFiles.FirstOrDefault(sourceFile =>
-            string.Equals(sourceFile.SourceRole, sourceRole, StringComparison.OrdinalIgnoreCase));
+            SourceRole.Matches(sourceFile.SourceRole, sourceRole));
     }
 
     private static string ResolveArtifactPath(WorkflowScriptExecutionContext context, string outputArtifact)
@@ -1086,17 +1087,17 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private static int GetSourcePriority(ManifestSourceFile source, IReadOnlyList<string> preferredRoles)
     {
         if (!string.IsNullOrWhiteSpace(source.SourceRole)
-            && preferredRoles.Any(role => string.Equals(role, source.SourceRole, StringComparison.OrdinalIgnoreCase)))
+            && preferredRoles.Any(role => SourceRole.Matches(source.SourceRole, role)))
         {
             return 0;
         }
 
-        return source.SourceRole?.ToLowerInvariant() switch
+        return SourceRole.Normalize(source.SourceRole) switch
         {
-            "points_computation" => 0,
-            "computation_source" => 0,
-            "plan_map_reference" => 1,
-            "dwg_reference" => 2,
+            SourceRole.CoordinateTextSource => 0,
+            SourceRole.ComputationSheet => 0,
+            SourceRole.PlanMapReference => 1,
+            SourceRole.DwgSource => 2,
             _ => 3
         };
     }

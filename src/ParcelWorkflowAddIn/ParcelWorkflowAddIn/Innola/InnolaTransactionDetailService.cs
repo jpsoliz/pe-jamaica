@@ -10,6 +10,7 @@ namespace ParcelWorkflowAddIn.Innola;
 
 public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailService
 {
+    private static readonly IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ConfiguredSourceTypes = InnolaTransactionSettings.Load().ComputeAttachmentSourceTypes;
     private readonly HttpClient httpClient;
 
     public InnolaTransactionDetailService()
@@ -793,17 +794,19 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             ?? ReadNested(body, "type", "mimeType", "contentType");
         var size = ReadLong(element, "size", "fileSize", "length")
             ?? ReadNestedLong(body, "size", "fileSize", "length");
+        var classification = ResolveAttachmentClassification(fileName, category);
         return new InnolaAttachmentMetadata(
             serviceReference,
             fileName,
             Path.GetExtension(fileName).ToLowerInvariant(),
             mimeType,
-            InferSourceRole(fileName, category),
+            classification.SourceRole,
             category,
             size,
             InnolaHttp.ReadString(element, "checksum", "hash"),
             serviceReference,
-            true);
+            true,
+            classification.SourceType);
     }
 
     private static string? BuildFallbackSourceFileName(JsonElement element, JsonElement? body, string? sourceId, string? sourceUid)
@@ -847,41 +850,82 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         return !string.IsNullOrWhiteSpace(queryName);
     }
 
-    private static string? InferSourceRole(string fileName, string? category)
+    private static AttachmentClassification ResolveAttachmentClassification(string fileName, string? category)
     {
         var text = $"{fileName} {category}".ToLowerInvariant();
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        if (extension == ".dwg" || text.Contains("dwg", StringComparison.Ordinal))
+
+        if (TryResolveConfiguredSourceType(text, extension, out var definition))
         {
-            return SourceRole.DwgReference;
+            return new AttachmentClassification(definition.SourceType, definition.WorkflowRole);
         }
 
-        if (extension is ".csv" or ".txt" || text.Contains("point", StringComparison.Ordinal))
+        return extension is ".pdf" or ".tif" or ".tiff" or ".png" or ".jpg" or ".jpeg"
+            ? new AttachmentClassification(null, SourceRole.AmbiguousDocument)
+            : new AttachmentClassification(null, null);
+    }
+
+    private static bool TryResolveConfiguredSourceType(string text, string extension, out ComputeAttachmentSourceTypeDefinition definition)
+    {
+        definition = null!;
+
+        var exactConfigured = ConfiguredSourceTypes.FirstOrDefault(item =>
+            text.Contains(item.SourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension));
+        if (exactConfigured is not null)
         {
-            return SourceRole.PointsComputation;
+            definition = exactConfigured;
+            return true;
         }
 
-        if (text.Contains("comput", StringComparison.Ordinal)
+        string? sourceType = null;
+        if (extension == ".zip" || text.Contains("sidwell-case-state", StringComparison.Ordinal) || text.Contains("resume", StringComparison.Ordinal))
+        {
+            sourceType = "st_survey_zip";
+        }
+        else if (extension == ".dwg" || text.Contains("autocad", StringComparison.Ordinal) || text.Contains("dwg", StringComparison.Ordinal) || text.Contains("cad", StringComparison.Ordinal))
+        {
+            sourceType = "st_autocad_file";
+        }
+        else if (extension is ".csv" or ".txt" || text.Contains("survey_points", StringComparison.Ordinal))
+        {
+            sourceType = "st_survey_points";
+        }
+        else if (text.Contains("surveysheet", StringComparison.Ordinal)
+            || text.Contains("survey sheet", StringComparison.Ordinal)
+            || text.Contains("source_computation", StringComparison.Ordinal)
+            || text.Contains("computation", StringComparison.Ordinal)
+            || text.Contains("comput", StringComparison.Ordinal)
             || text.Contains("comsheet", StringComparison.Ordinal)
             || text.Contains("comp sheet", StringComparison.Ordinal)
             || text.Contains("calculation", StringComparison.Ordinal)
             || text.Contains("coordinate", StringComparison.Ordinal))
         {
-            return SourceRole.ComputationSource;
+            sourceType = "st_surveysheet";
         }
-
-        if (text.Contains("plan", StringComparison.Ordinal)
+        else if (text.Contains("surveyplan", StringComparison.Ordinal)
+            || text.Contains("survey plan", StringComparison.Ordinal)
             || text.Contains("map", StringComparison.Ordinal)
             || text.Contains("geolan", StringComparison.Ordinal)
             || text.Contains("geo lan", StringComparison.Ordinal)
-            || text.Contains("survey plan", StringComparison.Ordinal))
+            || text.Contains("plan", StringComparison.Ordinal))
         {
-            return SourceRole.PlanMapReference;
+            sourceType = "st_surveyplan";
         }
 
-        return extension is ".pdf" or ".tif" or ".tiff" or ".png" or ".jpg" or ".jpeg"
-            ? SourceRole.AmbiguousDocument
-            : null;
+        if (string.IsNullOrWhiteSpace(sourceType))
+        {
+            return false;
+        }
+
+        var configured = ConfiguredSourceTypes.FirstOrDefault(item =>
+            item.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension));
+        if (configured is null)
+        {
+            return false;
+        }
+
+        definition = configured;
+        return true;
     }
 
     private static JsonElement? TryObject(JsonElement element, string name)
@@ -906,4 +950,6 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         return element.HasValue ? ReadLong(element.Value, names) : null;
     }
+
+    private sealed record AttachmentClassification(string? SourceType, string? SourceRole);
 }

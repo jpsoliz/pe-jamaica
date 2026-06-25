@@ -1,5 +1,6 @@
 using System.IO;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Workflow.Review;
 
@@ -135,14 +136,15 @@ internal static class ReviewSourceViewerStateProjector
 
     private static string HumanizeRole(string? role)
     {
-        return role switch
+        return SourceRole.Normalize(role) switch
         {
-            "computation_source" => "Computation",
-            "points_computation" => "Points",
-            "plan_map_reference" => "Plan",
-            "dwg_reference" => "DWG",
+            SourceRole.ComputationSheet => "Survey sheet",
+            SourceRole.CoordinateTextSource => "Structured points",
+            SourceRole.PlanMapReference => "Survey plan",
+            SourceRole.DwgSource => "AutoCAD",
+            SourceRole.WorkflowResumePackage => "Workflow package",
             null or "" => "Source",
-            _ => role.Replace("_", " ")
+            _ => SourceRole.DisplayName(role)
         };
     }
 }

@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
 using System.IO;
 
 namespace ParcelWorkflowAddIn.Intake;
@@ -37,12 +38,12 @@ public sealed class SourceInputProfileDetector
     public DetectedSourceInputProfile Detect(IReadOnlyList<ManifestSourceFile> sourceFiles)
     {
         var classified = sourceFiles.Select(Classify).ToArray();
-        var hasComputation = HasRoleWithExtension(classified, SourceRole.ComputationSource, ImageDocumentExtensions);
-        var hasPoints = HasRoleWithExtension(classified, SourceRole.PointsComputation, PointsComputationExtensions);
-        var hasDwg = HasRoleWithExtension(classified, SourceRole.DwgReference, new[] { ".dwg" });
+        var hasComputation = HasRoleWithExtension(classified, SourceRole.ComputationSheet, ImageDocumentExtensions);
+        var hasPoints = HasRoleWithExtension(classified, SourceRole.CoordinateTextSource, PointsComputationExtensions);
+        var hasDwg = HasRoleWithExtension(classified, SourceRole.DwgSource, new[] { ".dwg" });
         var hasPlan = HasRoleWithExtension(classified, SourceRole.PlanMapReference, ImageDocumentExtensions);
 
-        if (hasPoints && hasDwg && hasPlan)
+        if (hasComputation && hasPlan && hasPoints)
         {
             return Profile(SourceInputProfile.ScenarioB, SourceInputProfile.ScenarioBLabel, "matched", Array.Empty<string>(), Array.Empty<string>());
         }
@@ -58,12 +59,12 @@ public sealed class SourceInputProfileDetector
                 SourceInputProfile.IncompleteIntake,
                 SourceInputProfile.IncompleteIntakeLabel,
                 "incomplete",
-                new[] { SourceRole.ComputationSource, SourceRole.PlanMapReference },
+                ComputeAttachmentSourceTypeCatalog.RequiredWorkflowRoles,
                 new[] { "Missing: source files." });
         }
 
         if (!hasComputation && !hasPoints && !hasDwg && !hasPlan
-            && classified.All(source => source.Role == SourceRole.UnsupportedSource))
+            && classified.All(source => SourceRole.Matches(source.Role, SourceRole.UnsupportedSource)))
         {
             return Profile(
                 SourceInputProfile.UnsupportedIntake,
@@ -73,9 +74,9 @@ public sealed class SourceInputProfileDetector
                 new[] { "Unsupported intake: no recognized source combination." });
         }
 
-        var missingRoles = DetermineMissingRoles(hasComputation, hasPoints, hasDwg, hasPlan);
+        var missingRoles = DetermineMissingRoles(hasComputation, hasPoints, hasPlan);
         var issues = missingRoles.Select(role => $"Missing: {ToDisplayRole(role)}.").ToArray();
-        if (classified.Any(source => source.Role == SourceRole.AmbiguousDocument))
+        if (classified.Any(source => SourceRole.Matches(source.Role, SourceRole.AmbiguousDocument)))
         {
             issues = issues.Concat(new[] { "Ambiguous source role: review document filenames or roles." }).ToArray();
         }
@@ -99,24 +100,24 @@ public sealed class SourceInputProfileDetector
         var explicitRole = sourceFile.SourceRole;
         if (!string.IsNullOrWhiteSpace(explicitRole))
         {
-            return new ClassifiedSourceFile(sourceFile, explicitRole);
+            return new ClassifiedSourceFile(sourceFile, SourceRole.Normalize(explicitRole) ?? explicitRole);
         }
 
         var extension = sourceFile.FileType;
         var fileName = Path.GetFileNameWithoutExtension(sourceFile.CopiedPath);
         if (extension.Equals(".dwg", StringComparison.OrdinalIgnoreCase))
         {
-            return new ClassifiedSourceFile(sourceFile, SourceRole.DwgReference);
+            return new ClassifiedSourceFile(sourceFile, SourceRole.DwgSource);
         }
 
         if (extension.Equals(".txt", StringComparison.OrdinalIgnoreCase) || extension.Equals(".csv", StringComparison.OrdinalIgnoreCase))
         {
-            return new ClassifiedSourceFile(sourceFile, SourceRole.PointsComputation);
+            return new ClassifiedSourceFile(sourceFile, SourceRole.CoordinateTextSource);
         }
 
         if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "computation", "comput", "comsheet", "comp sheet", "calculation", "coord", "coordinate", "point"))
         {
-            return new ClassifiedSourceFile(sourceFile, SourceRole.ComputationSource);
+            return new ClassifiedSourceFile(sourceFile, SourceRole.ComputationSheet);
         }
 
         if (ImageDocumentExtensions.Contains(extension) && ContainsAny(fileName, "plan", "map", "geolan", "geo lan", "survey plan"))
@@ -140,23 +141,18 @@ public sealed class SourceInputProfileDetector
     private static bool HasRoleWithExtension(IEnumerable<ClassifiedSourceFile> sources, string role, IEnumerable<string> extensions)
     {
         var allowed = new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);
-        return sources.Any(source => source.Role.Equals(role, StringComparison.OrdinalIgnoreCase)
+        return sources.Any(source => SourceRole.Matches(source.Role, role)
             && allowed.Contains(source.SourceFile.FileType));
     }
 
-    private static IReadOnlyList<string> DetermineMissingRoles(bool hasComputation, bool hasPoints, bool hasDwg, bool hasPlan)
+    private static IReadOnlyList<string> DetermineMissingRoles(bool hasComputation, bool hasPoints, bool hasPlan)
     {
-        if (hasPoints || hasDwg)
+        if (hasPoints)
         {
             var missing = new List<string>();
-            if (!hasPoints)
+            if (!hasComputation)
             {
-                missing.Add(SourceRole.PointsComputation);
-            }
-
-            if (!hasDwg)
-            {
-                missing.Add(SourceRole.DwgReference);
+                missing.Add(SourceRole.ComputationSheet);
             }
 
             if (!hasPlan)
@@ -170,7 +166,7 @@ public sealed class SourceInputProfileDetector
         var scenarioAMissing = new List<string>();
         if (!hasComputation)
         {
-            scenarioAMissing.Add(SourceRole.ComputationSource);
+            scenarioAMissing.Add(SourceRole.ComputationSheet);
         }
 
         if (!hasPlan)
@@ -185,9 +181,9 @@ public sealed class SourceInputProfileDetector
     {
         return role switch
         {
-            SourceRole.ComputationSource => "computation source",
-            SourceRole.PointsComputation => "points/computation source",
-            SourceRole.DwgReference => "DWG reference",
+            SourceRole.ComputationSheet => "survey sheet",
+            SourceRole.CoordinateTextSource => "structured points source",
+            SourceRole.DwgSource => "AutoCAD source",
             SourceRole.PlanMapReference => "plan/map reference",
             _ => role
         };

@@ -2,6 +2,7 @@ using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Contracts;
 using Microsoft.Win32;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
@@ -2964,15 +2965,7 @@ internal sealed record SourceFileListItem(SourceFileCopyResult SourceFile)
 
     public string SourceRelativePath => $"source/{SourceFile.FileName}";
 
-    public string RoleLabel => SourceFile.SourceRole switch
-    {
-        "computation_source" => "Computation",
-        "points_computation" => "Points",
-        "plan_map_reference" => "Plan",
-        "dwg_reference" => "DWG",
-        null or "" => "Source",
-        _ => SourceFile.SourceRole.Replace("_", " ")
-    };
+    public string RoleLabel => SourceRole.DisplayName(SourceFile.SourceRole);
 
     public string RowStatus => SourceFile.Copied ? "Copied" : SourceFile.Status;
 }

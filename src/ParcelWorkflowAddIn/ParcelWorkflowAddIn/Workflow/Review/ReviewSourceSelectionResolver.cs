@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Workflow.Review;
 
@@ -22,9 +23,9 @@ internal static class ReviewSourceSelectionResolver
             }
         }
 
-        return sourceFiles.FirstOrDefault(item => string.Equals(item.SourceRole, "computation_source", StringComparison.OrdinalIgnoreCase))
-            ?? sourceFiles.FirstOrDefault(item => string.Equals(item.SourceRole, "points_computation", StringComparison.OrdinalIgnoreCase))
-            ?? sourceFiles.FirstOrDefault(item => string.Equals(item.SourceRole, "plan_map_reference", StringComparison.OrdinalIgnoreCase))
+        return sourceFiles.FirstOrDefault(item => SourceRole.Matches(item.SourceRole, SourceRole.ComputationSheet))
+            ?? sourceFiles.FirstOrDefault(item => SourceRole.Matches(item.SourceRole, SourceRole.CoordinateTextSource))
+            ?? sourceFiles.FirstOrDefault(item => SourceRole.Matches(item.SourceRole, SourceRole.PlanMapReference))
             ?? sourceFiles.FirstOrDefault();
     }
 }
