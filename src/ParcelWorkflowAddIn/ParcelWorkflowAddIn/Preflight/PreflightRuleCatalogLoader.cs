@@ -12,18 +12,21 @@ public sealed class PreflightRuleCatalogLoader
 
     private static readonly IReadOnlyList<PreflightRuleDefinition> DefaultRules = new[]
     {
-        new PreflightRuleDefinition("detected_profile_presence", "manifest", "Detected profile present", "Detected intake profile must be present before Data Extraction can continue.", true, "blocker", true),
-        new PreflightRuleDefinition("detected_profile_complete", "manifest", "Detected profile complete", "Incomplete intake remains blocked until required source roles are resolved.", true, "blocker", true),
-        new PreflightRuleDefinition("required_source_roles", "manifest", "Required source roles", "Each workflow profile must provide the required copied source roles.", true, "blocker", true),
-        new PreflightRuleDefinition("source_file_integrity", "manifest", "Copied source integrity", "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.", true, "blocker", true),
-        new PreflightRuleDefinition("workflow_rule_resolution", "workflow_rule", "Workflow rule resolution", "Transactions must resolve to a current workflow rule and script plan.", true, "blocker", true),
-        new PreflightRuleDefinition("arcgis_sdk_lane", "arcgis_pro", "ArcGIS Pro SDK lane", "SDK lane and target framework must match the supported ArcGIS Pro 3.6 add-in lane.", true, "blocker", true),
-        new PreflightRuleDefinition("workspace_access", "write_access", "Workspace access", "Case folder working, output, and summary locations must remain writable.", true, "blocker", true),
-        new PreflightRuleDefinition("python_executable_health", "python", "Python executable health", "Configured Python executable must be set, exist, and be invokable.", true, "blocker", true),
-        new PreflightRuleDefinition("arcgis_unknown_version_behavior", "arcgis_pro", "Unknown ArcGIS Pro version handling", "Controls whether unknown ArcGIS Pro version detection is treated as a warning or blocker.", true, "warning", false),
-        new PreflightRuleDefinition("python_package_probe", "python", "Python package probe", "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.", true, "configured", false),
-        new PreflightRuleDefinition("dwg_signature_check", "dwg", "DWG file signature", "DWG reference files must be non-empty and contain a recognizable DWG signature.", true, "blocker", true),
-        new PreflightRuleDefinition("dwg_readiness_probe", "dwg", "DWG readiness probe", "Optional CAD sub-layer readiness probe for copied DWG references.", true, "blocker", false)
+        new PreflightRuleDefinition("detected_profile_presence", "supporting_document", "manifest", "Detected profile present", "Detected intake profile must be present before Structure Check can continue.", true, "blocker", true),
+        new PreflightRuleDefinition("detected_profile_complete", "supporting_document", "manifest", "Detected profile complete", "Incomplete supporting documents remain blocked until required source roles are resolved.", true, "blocker", true),
+        new PreflightRuleDefinition("required_source_roles", "supporting_document", "manifest", "Required source roles", "Each compute transaction must provide the required copied source roles before structure and georeference work can begin.", true, "blocker", true, SourceRoles: new[] { "computation_source", "plan_map_reference" }),
+        new PreflightRuleDefinition("source_file_integrity", "structure", "manifest", "Copied source integrity", "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.", true, "blocker", true),
+        new PreflightRuleDefinition("workflow_rule_resolution", "structure", "workflow_rule", "Workflow rule resolution", "Transactions must resolve to a current workflow rule and script plan.", true, "blocker", true),
+        new PreflightRuleDefinition("arcgis_sdk_lane", "system", "arcgis_pro", "ArcGIS Pro SDK lane", "SDK lane and target framework must match the supported ArcGIS Pro 3.6 add-in lane.", true, "blocker", true),
+        new PreflightRuleDefinition("workspace_access", "system", "write_access", "Workspace access", "Case folder working, output, and summary locations must remain writable.", true, "blocker", true),
+        new PreflightRuleDefinition("python_executable_health", "system", "python", "Python executable health", "Configured Python executable must be set, exist, and be invokable.", true, "blocker", true),
+        new PreflightRuleDefinition("arcgis_unknown_version_behavior", "system", "arcgis_pro", "Unknown ArcGIS Pro version handling", "Controls whether unknown ArcGIS Pro version detection is treated as a warning or blocker.", true, "warning", false),
+        new PreflightRuleDefinition("python_package_probe", "system", "python", "Python package probe", "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.", true, "configured", false),
+        new PreflightRuleDefinition("dwg_signature_check", "structure", "dwg", "DWG file signature", "DWG reference files must be non-empty and contain a recognizable DWG signature.", true, "blocker", true, SourceRoles: new[] { "dwg_reference" }, FileTypes: new[] { ".dwg" }, DwgReadinessRequired: true),
+        new PreflightRuleDefinition("dwg_readiness_probe", "structure", "dwg", "DWG readiness probe", "Optional CAD sub-layer readiness probe for copied DWG references.", true, "blocker", false, SourceRoles: new[] { "dwg_reference" }, FileTypes: new[] { ".dwg" }, DwgReadinessRequired: true),
+        new PreflightRuleDefinition("georeference_source_presence", "georeference", "georeference", "Georeference source presence", "At least one source with usable coordinate context must be present before Validate Points can begin.", true, "blocker", true, SourceRoles: new[] { "computation_source", "points_computation", "plan_map_reference" }, AllowTabularGeoreference: true),
+        new PreflightRuleDefinition("tabular_coordinate_columns", "georeference", "georeference", "Tabular coordinate columns", "TXT/CSV coordinate sources should expose Easting/Northing-style columns when they are used for georeference support.", true, "warning", false, SourceRoles: new[] { "points_computation" }, FileTypes: new[] { ".txt", ".csv" }, TabularCoordinatesRequired: true),
+        new PreflightRuleDefinition("jamaica_coordinate_bounds", "georeference", "georeference", "Jamaica coordinate bounds", "When tabular coordinates are available, the sample coordinate pairs should fall within Jamaica working bounds.", true, "warning", false, SourceRoles: new[] { "points_computation" }, FileTypes: new[] { ".txt", ".csv" }, MinimumCoordinatePairs: 1, RequireJamaicaBounds: true, AllowTabularGeoreference: true)
     };
 
     public PreflightRuleCatalogLoader()
@@ -125,6 +128,11 @@ public sealed class PreflightRuleCatalogLoader
                 continue;
             }
 
+            if (!string.Equals(configuredRule.Group, defaultRule.Group, StringComparison.OrdinalIgnoreCase))
+            {
+                validationIssues.Add($"Rule '{defaultRule.RuleId}' must keep group '{defaultRule.Group}'.");
+            }
+
             if (defaultRule.Locked)
             {
                 if (!configuredRule.Locked)
@@ -168,6 +176,7 @@ public sealed class PreflightRuleCatalogLoader
 
             var ruleId = RequiredString(item, "rule_id", validationIssues, index);
             var category = RequiredString(item, "category", validationIssues, index);
+            var group = RequiredGroup(item, validationIssues, index);
             var displayName = RequiredString(item, "display_name", validationIssues, index);
             var description = RequiredString(item, "description", validationIssues, index);
             var severity = RequiredSeverity(item, validationIssues, index);
@@ -176,6 +185,7 @@ public sealed class PreflightRuleCatalogLoader
 
             if (ruleId is null
                 || category is null
+                || group is null
                 || displayName is null
                 || description is null
                 || severity is null
@@ -187,12 +197,24 @@ public sealed class PreflightRuleCatalogLoader
 
             parsed.Add(new PreflightRuleDefinition(
                 ruleId,
+                group,
                 category,
                 displayName,
                 description,
                 enabled.Value,
                 severity,
-                locked.Value));
+                locked.Value,
+                ReadStringArray(item, "transaction_types"),
+                ReadStringArray(item, "workflow_stages"),
+                ReadStringArray(item, "source_roles"),
+                ReadStringArray(item, "file_types"),
+                ReadOptionalBool(item, "embedded_text_preferred"),
+                ReadOptionalBool(item, "ocr_fallback_allowed"),
+                ReadOptionalBool(item, "dwg_readiness_required"),
+                ReadOptionalBool(item, "tabular_coordinates_required"),
+                ReadOptionalInt(item, "minimum_coordinate_pairs"),
+                ReadOptionalBool(item, "require_jamaica_bounds"),
+                ReadOptionalBool(item, "allow_tabular_georeference")));
         }
 
         return parsed;
@@ -235,6 +257,34 @@ public sealed class PreflightRuleCatalogLoader
             : null;
     }
 
+    private static bool? ReadOptionalBool(JsonElement element, string name)
+    {
+        return ReadBool(element, name);
+    }
+
+    private static int? ReadOptionalInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static IReadOnlyList<string>? ReadStringArray(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private static string? RequiredString(JsonElement element, string name, List<string> validationIssues, int index)
     {
         var value = ReadString(element, name);
@@ -245,6 +295,25 @@ public sealed class PreflightRuleCatalogLoader
 
         validationIssues.Add($"Rule entry {index} is missing required '{name}'.");
         return null;
+    }
+
+    private static string? RequiredGroup(JsonElement element, List<string> validationIssues, int index)
+    {
+        var group = ReadString(element, "group");
+        if (string.IsNullOrWhiteSpace(group))
+        {
+            validationIssues.Add($"Rule entry {index} is missing required 'group'.");
+            return null;
+        }
+
+        var normalized = PreflightRuleDefinition.NormalizeGroup(group, string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            validationIssues.Add($"Rule entry {index} has unsupported group '{group}'.");
+            return null;
+        }
+
+        return normalized;
     }
 
     private static bool? RequiredBool(JsonElement element, string name, List<string> validationIssues, int index)

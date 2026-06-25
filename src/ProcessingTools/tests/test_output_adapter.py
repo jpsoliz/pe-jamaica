@@ -101,6 +101,12 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertTrue(summary["payload"]["distance_txt_populated"])
             self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
             self.assertEqual(2, summary["payload"]["computed_cogo_fallback_line_count"])
+            self.assertIn("root_line_feature_class_diagnostic", summary["payload"])
+            self.assertTrue(summary["payload"]["root_line_bearing_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_distance_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_length_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_distance_m_exists"])
+            self.assertEqual(2, summary["payload"]["root_line_feature_class_diagnostic"]["row_count"])
             self.assertTrue(summary["payload"]["result_gdb_path"].endswith(".gdb"))
             self.assertTrue(summary["payload"]["polygon_feature_class_path"].endswith("parcel_polygons"))
 
@@ -203,6 +209,10 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertFalse(summary["payload"]["distance_txt_populated"])
             self.assertEqual(0, summary["payload"]["distance_txt_populated_count"])
             self.assertEqual(0, summary["payload"]["computed_cogo_fallback_line_count"])
+            self.assertFalse(summary["payload"]["root_line_bearing_txt_exists"])
+            self.assertFalse(summary["payload"]["root_line_distance_txt_exists"])
+            self.assertFalse(summary["payload"]["root_line_length_txt_exists"])
+            self.assertFalse(summary["payload"]["root_line_distance_m_exists"])
 
             line_rows = json.loads(Path(summary["payload"]["line_feature_class_path"]).read_text(encoding="utf-8"))
             self.assertNotIn("bearing_txt", line_rows[0])

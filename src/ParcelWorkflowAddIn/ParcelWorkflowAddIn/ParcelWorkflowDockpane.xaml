@@ -127,8 +127,8 @@
       <ItemsControl.ItemTemplate>
         <DataTemplate>
           <Border Margin="0,0,4,4"
-                  Padding="7,5"
-                  MinHeight="30"
+                  Padding="7,6"
+                  MinHeight="44"
                   CornerRadius="4"
                   BorderThickness="1,1,1,1">
             <Border.Style>
@@ -154,12 +154,46 @@
                 </Style.Triggers>
               </Style>
             </Border.Style>
-            <StackPanel Orientation="Horizontal"
-                        VerticalAlignment="Center">
+            <Grid VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+
               <TextBlock Text="{Binding Icon}"
                          FontSize="11"
                          FontFamily="Segoe UI Symbol"
                          Margin="0,0,5,0"
+                         VerticalAlignment="Top"
+                         Grid.RowSpan="2">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="#52616B" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding State}" Value="pending">
+                        <Setter Property="Foreground" Value="#8A96A2" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="done">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="active">
+                        <Setter Property="Foreground" Value="#1F2933" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding State}" Value="blocked">
+                        <Setter Property="Foreground" Value="#B42318" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <TextBlock Grid.Column="1"
+                         Text="{Binding Name}"
+                         FontSize="11"
+                         TextWrapping="Wrap"
                          VerticalAlignment="Center">
                 <TextBlock.Style>
                   <Style TargetType="TextBlock">
@@ -181,30 +215,31 @@
                   </Style>
                 </TextBlock.Style>
               </TextBlock>
-              <TextBlock Text="{Binding Name}"
-                         FontSize="11"
-                         TextWrapping="Wrap">
-                <TextBlock.Style>
-                  <Style TargetType="TextBlock">
-                    <Setter Property="Foreground" Value="#52616B" />
+
+              <Border Grid.Row="1"
+                      Grid.Column="1"
+                      Margin="0,4,0,0"
+                      Padding="4,1"
+                      HorizontalAlignment="Left"
+                      CornerRadius="2"
+                      Background="#D9F2E3"
+                      BorderBrush="#2F7D4F"
+                      BorderThickness="1">
+                <Border.Style>
+                  <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
-                      <DataTrigger Binding="{Binding State}" Value="pending">
-                        <Setter Property="Foreground" Value="#8A96A2" />
-                      </DataTrigger>
                       <DataTrigger Binding="{Binding State}" Value="done">
-                        <Setter Property="Foreground" Value="#1F2933" />
-                      </DataTrigger>
-                      <DataTrigger Binding="{Binding State}" Value="active">
-                        <Setter Property="Foreground" Value="#1F2933" />
-                      </DataTrigger>
-                      <DataTrigger Binding="{Binding State}" Value="blocked">
-                        <Setter Property="Foreground" Value="#B42318" />
+                        <Setter Property="Visibility" Value="Visible" />
                       </DataTrigger>
                     </Style.Triggers>
                   </Style>
-                </TextBlock.Style>
-              </TextBlock>
-            </StackPanel>
+                </Border.Style>
+                <TextBlock Text="Completed"
+                           FontSize="10"
+                           Foreground="#1F2933" />
+              </Border>
+            </Grid>
           </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
@@ -272,18 +307,17 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Attachments"
+                <TextBlock Text="Supporting Document Check"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
-                        Background="#2F7D4F"
-                        BorderBrush="#2F7D4F"
+                        Background="#EEF4FF"
+                        BorderBrush="#9DB7E8"
                         Margin="0,8,10,8">
-                  <TextBlock Text="{Binding SourceIntakeBadge}"
+                  <TextBlock Text="{Binding SupportingDocumentBadge}"
                              FontSize="11"
-                             Foreground="#FFFFFF"
-                             FontWeight="SemiBold" />
+                             Foreground="#1F2933" />
                 </Border>
               </DockPanel>
             </Border>
@@ -350,7 +384,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Data Extraction"
+                <TextBlock Text="Structure Check"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -359,7 +393,7 @@
                   <Border Style="{StaticResource SmallPillBorderStyle}"
                           Background="#F6E6BF"
                           BorderBrush="#B7791F">
-                    <TextBlock Text="{Binding PreflightBadge}"
+                    <TextBlock Text="{Binding StructureCheckBadge}"
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
@@ -400,7 +434,7 @@
                         CornerRadius="4"
                         Padding="8"
                         Visibility="{Binding PreflightDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <ItemsControl ItemsSource="{Binding PreflightResults}">
+                  <ItemsControl ItemsSource="{Binding StructureCheckResults}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate>
                         <Border BorderBrush="#EEF2F4"
@@ -452,6 +486,102 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
+                </Border>
+
+                <Border Margin="0,10,0,0"
+                        Background="#F7F8FA"
+                        BorderBrush="#E1E8ED"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10">
+                  <StackPanel>
+                    <DockPanel LastChildFill="False">
+                      <TextBlock Text="Georeference Check"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#1F2933"
+                                 VerticalAlignment="Center" />
+                      <Border DockPanel.Dock="Right"
+                              Style="{StaticResource SmallPillBorderStyle}"
+                              Background="#F6E6BF"
+                              BorderBrush="#B7791F">
+                        <TextBlock Text="{Binding GeoreferenceBadge}"
+                                   FontSize="11"
+                                   Foreground="#1F2933" />
+                      </Border>
+                    </DockPanel>
+                    <TextBlock Margin="0,6,0,0"
+                               Text="{Binding GeoreferenceSummaryText}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933"
+                               TextWrapping="Wrap" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="{Binding GeoreferenceCollapsedHint}"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                    <Border Margin="0,10,0,0"
+                            Background="#FFFFFF"
+                            BorderBrush="#E1E8ED"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Visibility="{Binding PreflightDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      <ItemsControl ItemsSource="{Binding GeoreferenceResults}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border BorderBrush="#EEF2F4"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="0,6">
+                              <Grid>
+                                <Grid.ColumnDefinitions>
+                                  <ColumnDefinition Width="74" />
+                                  <ColumnDefinition Width="150" />
+                                  <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                  <Border Width="12"
+                                          Height="12"
+                                          CornerRadius="2"
+                                          Margin="0,0,6,0">
+                                    <Border.Style>
+                                      <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#2F7D4F" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding State}" Value="warn">
+                                            <Setter Property="Background" Value="#B7791F" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding State}" Value="block">
+                                            <Setter Property="Background" Value="#B42318" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </Border.Style>
+                                  </Border>
+                                  <TextBlock Text="{Binding Result}"
+                                             FontSize="12"
+                                             VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding CheckName}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="6,0,6,0" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding Details}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Foreground="#1F2933"
+                                           Margin="6,0,0,0" />
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Border>
+                  </StackPanel>
                 </Border>
               </StackPanel>
             </Border>
@@ -1200,7 +1330,7 @@
           <Expander IsExpanded="{Binding IntakeSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Attachments"
+                <TextBlock Text="Supporting Document Check"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1232,13 +1362,13 @@
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Data Extraction"
+                <TextBlock Text="Structure Check"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
                         Background="#F6E6BF"
                         BorderBrush="#B7791F">
-                  <TextBlock Text="{Binding PreflightBadge}"
+                  <TextBlock Text="{Binding StructureCheckBadge}"
                              FontSize="11"
                              Foreground="#1F2933" />
                 </Border>
@@ -1251,6 +1381,37 @@
                          TextWrapping="Wrap" />
               <TextBlock Margin="0,6,0,0"
                          Text="{Binding PreflightCollapsedHint}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Georeference Check"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#F6E6BF"
+                        BorderBrush="#B7791F">
+                  <TextBlock Text="{Binding GeoreferenceBadge}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding GeoreferenceSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding GeoreferenceCollapsedHint}"
                          FontSize="11"
                          Foreground="#52616B"
                          TextWrapping="Wrap" />

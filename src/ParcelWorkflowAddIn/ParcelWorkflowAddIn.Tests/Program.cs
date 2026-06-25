@@ -156,6 +156,8 @@ var tests = new (string Name, Action Run)[]
     ("output map review styling places parcel fabric below review overlays", OutputMapReviewStylingTests.OrderLayerPathsPlacesParcelFabricBelowReviewOverlays),
     ("output map review styling orders polygons lines and points", OutputMapReviewStylingTests.OrderLayerPathsPlacesPolygonsBelowLinesBelowPoints),
     ("output map review styling uses non-fabric review messaging", OutputMapReviewStylingTests.BuildSuccessMessageUsesNonFabricReviewLanguage),
+    ("output map review styling builds transaction review group layer name", OutputMapReviewStylingTests.BuildTransactionGroupLayerNameUsesTransactionNumber),
+    ("output map review styling prefers root feature class diagnostics", OutputMapReviewStylingTests.BuildSuccessMessagePrefersRootFeatureClassDiagnosticsWhenAvailable),
     ("output summary persistence returns parcel fabric layer plus review overlays", OutputMapReviewStylingTests.ParcelFabricModeReturnsFabricLayerPlusReviewOverlays),
     ("output summary persistence returns enterprise parcel fabric targets plus overlays", OutputMapReviewStylingTests.EnterpriseParcelFabricModeReturnsPublishedFabricTargetsPlusOverlays),
     ("output map review styling uses enterprise parcel fabric review messaging", OutputMapReviewStylingTests.BuildSuccessMessageUsesEnterpriseParcelFabricLanguage),

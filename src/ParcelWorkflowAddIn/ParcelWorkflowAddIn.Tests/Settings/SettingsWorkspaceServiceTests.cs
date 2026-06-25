@@ -192,7 +192,7 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
-        TestAssert.Equal(12, document.PreflightRules.Count, "Preflight rules count mismatch.");
+        TestAssert.Equal(15, document.PreflightRules.Count, "Preflight rules count mismatch.");
     }
 
     public static void SettingsWorkspaceSaveRoundTripPersistsWorkflowAndRuleEdits()

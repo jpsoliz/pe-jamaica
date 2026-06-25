@@ -28,6 +28,7 @@ internal static class PreflightRuleCatalogLoaderTests
               "rules": [
                 {
                   "rule_id": "detected_profile_presence",
+                  "group": "supporting_document",
                   "category": "manifest",
                   "display_name": "Profile Present",
                   "description": "Custom profile presence text.",
@@ -37,6 +38,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "detected_profile_complete",
+                  "group": "supporting_document",
                   "category": "manifest",
                   "display_name": "Profile Complete",
                   "description": "Custom profile complete text.",
@@ -46,6 +48,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "required_source_roles",
+                  "group": "supporting_document",
                   "category": "manifest",
                   "display_name": "Required Roles",
                   "description": "Custom role text.",
@@ -55,6 +58,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "source_file_integrity",
+                  "group": "structure",
                   "category": "manifest",
                   "display_name": "Source Integrity",
                   "description": "Custom source integrity text.",
@@ -64,6 +68,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "workflow_rule_resolution",
+                  "group": "structure",
                   "category": "workflow_rule",
                   "display_name": "Workflow Rule",
                   "description": "Custom workflow text.",
@@ -73,6 +78,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "arcgis_sdk_lane",
+                  "group": "system",
                   "category": "arcgis_pro",
                   "display_name": "SDK Lane",
                   "description": "Custom sdk text.",
@@ -82,6 +88,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "workspace_access",
+                  "group": "system",
                   "category": "write_access",
                   "display_name": "Workspace Access",
                   "description": "Custom workspace text.",
@@ -91,6 +98,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "python_executable_health",
+                  "group": "system",
                   "category": "python",
                   "display_name": "Python Health",
                   "description": "Custom python executable text.",
@@ -100,6 +108,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "arcgis_unknown_version_behavior",
+                  "group": "system",
                   "category": "arcgis_pro",
                   "display_name": "Unknown Version",
                   "description": "Custom unknown version text.",
@@ -109,6 +118,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "python_package_probe",
+                  "group": "system",
                   "category": "python",
                   "display_name": "Package Probe",
                   "description": "Custom package probe text.",
@@ -118,6 +128,7 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "dwg_signature_check",
+                  "group": "structure",
                   "category": "dwg",
                   "display_name": "DWG Signature",
                   "description": "Custom dwg signature text.",
@@ -127,9 +138,40 @@ internal static class PreflightRuleCatalogLoaderTests
                 },
                 {
                   "rule_id": "dwg_readiness_probe",
+                  "group": "structure",
                   "category": "dwg",
                   "display_name": "DWG Readiness",
                   "description": "Custom dwg readiness text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false
+                },
+                {
+                  "rule_id": "georeference_source_presence",
+                  "group": "georeference",
+                  "category": "georeference",
+                  "display_name": "Georeference Source",
+                  "description": "Custom georeference source text.",
+                  "enabled": true,
+                  "severity": "blocker",
+                  "locked": false
+                },
+                {
+                  "rule_id": "tabular_coordinate_columns",
+                  "group": "georeference",
+                  "category": "georeference",
+                  "display_name": "Coordinate Columns",
+                  "description": "Custom tabular coordinate text.",
+                  "enabled": true,
+                  "severity": "blocker",
+                  "locked": false
+                },
+                {
+                  "rule_id": "jamaica_coordinate_bounds",
+                  "group": "georeference",
+                  "category": "georeference",
+                  "display_name": "Jamaica Coordinate Bounds",
+                  "description": "Custom Jamaica bounds text.",
                   "enabled": true,
                   "severity": "warning",
                   "locked": false

@@ -35,6 +35,10 @@ public sealed class ManifestPreflightService
     private readonly IDwgReferenceReadinessInspector dwgReadinessInspector;
     private readonly PreflightRuleCatalog ruleCatalog;
     private const int MinimumDwgFileSizeBytes = 1;
+    private const double JamaicaMinimumEasting = 550000d;
+    private const double JamaicaMaximumEasting = 900000d;
+    private const double JamaicaMinimumNorthing = 550000d;
+    private const double JamaicaMaximumNorthing = 800000d;
 
     public ManifestPreflightService()
         : this(() => DateTimeOffset.UtcNow, () => $"preflight-{Guid.NewGuid():N}", new NoOpProcessingEnvironmentPreflightService(), new NoOpDwgReferenceReadinessInspector(), new PreflightRuleCatalogLoader().Load())
@@ -95,7 +99,7 @@ public sealed class ManifestPreflightService
         {
             blockers.Add(PreflightCheck.Blocker(
                 "detected_profile_present",
-                "Detected profile is not refreshed.",
+                "Detected profile is not refreshed for Supporting Document Check.",
                 layout.ManifestPath,
                 null,
                 "Refresh intake before running preflight."));
@@ -104,6 +108,8 @@ public sealed class ManifestPreflightService
         {
             await EvaluateProfile(manifest, layout, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
+
+        EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed);
 
         EvaluateScriptPlan(manifest, layout, blockers, passed);
 
@@ -141,10 +147,10 @@ public sealed class ManifestPreflightService
         {
             blockers.Add(PreflightCheck.Blocker(
                 "detected_profile_supported",
-                "Unsupported intake cannot pass Data Extraction.",
+                "Unsupported supporting documents cannot pass Structure Check.",
                 layout.ManifestPath,
                 null,
-                "Add supported source files and refresh intake."));
+                "Add supported source files and refresh Supporting Document Check."));
             return;
         }
 
@@ -152,13 +158,13 @@ public sealed class ManifestPreflightService
         {
             blockers.Add(PreflightCheck.Blocker(
                 "detected_profile_complete",
-                "Incomplete intake cannot pass Data Extraction.",
+                "Supporting Document Check is incomplete.",
                 layout.ManifestPath,
                 null,
-                "Resolve missing intake roles and refresh intake."));
+                "Resolve missing supporting document roles and refresh intake."));
         }
 
-        foreach (var role in RequiredRoles(profile.ProfileCode))
+        foreach (var role in GetRequiredRoles(manifest, profile.ProfileCode))
         {
             await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
@@ -182,7 +188,7 @@ public sealed class ManifestPreflightService
             blockers.Add(PreflightCheck.BlockerForCategory(
                 "workflow_rule",
                 "workflow_rule_resolved",
-                "No workflow rule matches the transaction type and copied source files.",
+                "No workflow rule matches the transaction type and copied supporting documents.",
                 layout.ManifestPath,
                 null,
                 "Review transaction type and attached source file roles, then reload the transaction."));
@@ -208,6 +214,124 @@ public sealed class ManifestPreflightService
             $"Passed: workflow rule {manifest.Payload.WorkflowRuleId} resolved.",
             layout.ManifestPath,
             null));
+    }
+
+    private void EvaluateGeoreferenceReadiness(
+        ManifestDocument manifest,
+        CaseFolderLayout layout,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        List<PreflightCheck> passed)
+    {
+        var sources = manifest.Payload.SourceFiles;
+        var georeferenceSourceRule = ruleCatalog.TryGetRule("georeference_source_presence");
+        if (georeferenceSourceRule is { Enabled: true })
+        {
+            var georeferenceSource = sources.FirstOrDefault(source => RuleAppliesToSource(georeferenceSourceRule, source));
+            if (georeferenceSource is null)
+            {
+                AddRuleIssue(
+                    georeferenceSourceRule,
+                    blockers,
+                    warnings,
+                    "No source with usable coordinate context is present for Georeference Check.",
+                    layout.ManifestPath,
+                    null,
+                    "Add a computation sheet, tabular coordinate source, or map reference with usable coordinate context.");
+            }
+            else
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    georeferenceSourceRule.Category,
+                    georeferenceSourceRule.RuleId,
+                    $"Passed: {RoleDisplayName(georeferenceSource.SourceRole ?? string.Empty)} is available for Georeference Check.",
+                    georeferenceSource.CopiedPath,
+                    georeferenceSource.SourceRole));
+            }
+        }
+
+        var tabularRule = ruleCatalog.TryGetRule("tabular_coordinate_columns");
+        if (tabularRule is { Enabled: true })
+        {
+            foreach (var source in sources.Where(source => RuleAppliesToSource(tabularRule, source)))
+            {
+                if (!TryReadTabularCoordinates(source.CopiedPath, out var result))
+                {
+                    AddRuleIssue(
+                        tabularRule,
+                        blockers,
+                        warnings,
+                        $"Tabular georeference columns could not be verified for {Path.GetFileName(source.CopiedPath)}.",
+                        source.CopiedPath,
+                        source.SourceRole,
+                        "Verify the TXT/CSV source exposes Easting and Northing columns.");
+                    continue;
+                }
+
+                if (!result.HasCoordinateColumns)
+                {
+                    AddRuleIssue(
+                        tabularRule,
+                        blockers,
+                        warnings,
+                        $"TXT/CSV source {Path.GetFileName(source.CopiedPath)} is missing Easting/Northing-style columns.",
+                        source.CopiedPath,
+                        source.SourceRole,
+                        "Rename or add Easting/Northing columns before rerunning Structure Check.");
+                    continue;
+                }
+
+                passed.Add(PreflightCheck.PassedForCategory(
+                    tabularRule.Category,
+                    tabularRule.RuleId,
+                    $"Passed: {Path.GetFileName(source.CopiedPath)} exposes tabular coordinate columns for Georeference Check.",
+                    source.CopiedPath,
+                    source.SourceRole));
+
+                var boundsRule = ruleCatalog.TryGetRule("jamaica_coordinate_bounds");
+                if (boundsRule is not { Enabled: true } || !RuleAppliesToSource(boundsRule, source))
+                {
+                    continue;
+                }
+
+                if (result.SampleCoordinate is null)
+                {
+                    AddRuleIssue(
+                        boundsRule,
+                        blockers,
+                        warnings,
+                        $"Jamaica coordinate bounds could not be sampled from {Path.GetFileName(source.CopiedPath)}.",
+                        source.CopiedPath,
+                        source.SourceRole,
+                        "Add at least one numeric Easting/Northing row before rerunning Georeference Check.");
+                    continue;
+                }
+
+                var sample = result.SampleCoordinate.Value;
+                if (sample.Easting < JamaicaMinimumEasting
+                    || sample.Easting > JamaicaMaximumEasting
+                    || sample.Northing < JamaicaMinimumNorthing
+                    || sample.Northing > JamaicaMaximumNorthing)
+                {
+                    AddRuleIssue(
+                        boundsRule,
+                        blockers,
+                        warnings,
+                        $"Sample coordinates from {Path.GetFileName(source.CopiedPath)} fall outside the configured Jamaica working bounds.",
+                        source.CopiedPath,
+                        source.SourceRole,
+                        "Check the coordinate system, units, and source file values before rerunning Georeference Check.");
+                    continue;
+                }
+
+                passed.Add(PreflightCheck.PassedForCategory(
+                    boundsRule.Category,
+                    boundsRule.RuleId,
+                    $"Passed: sample coordinates from {Path.GetFileName(source.CopiedPath)} fall within Jamaica working bounds.",
+                    source.CopiedPath,
+                    source.SourceRole));
+            }
+        }
     }
 
     private async Task EvaluateRequiredRole(
@@ -494,14 +618,29 @@ public sealed class ManifestPreflightService
         };
     }
 
+    private IReadOnlyList<string> GetRequiredRoles(ManifestDocument manifest, string profileCode)
+    {
+        var rule = ruleCatalog.TryGetRule("required_source_roles");
+        var transactionType = manifest.Payload.InnolaTransaction?.CaseType;
+        var workflowStage = manifest.Payload.InnolaTransaction?.TaskName;
+        if (rule is { Enabled: true }
+            && rule.AppliesToTransaction(transactionType, workflowStage)
+            && rule.SourceRoles is { Count: > 0 })
+        {
+            return rule.SourceRoles;
+        }
+
+        return RequiredRoles(profileCode);
+    }
+
     private static string MissingRoleMessage(string role)
     {
         return role switch
         {
-            "plan_map_reference" => "Missing plan/map reference.",
-            "computation_source" => "Missing computation source.",
-            "points_computation" => "Missing points/computation source.",
-            "dwg_reference" => "Missing DWG reference.",
+            "plan_map_reference" => "Missing plan/map reference supporting document.",
+            "computation_source" => "Missing computation sheet supporting document.",
+            "points_computation" => "Missing tabular points supporting document.",
+            "dwg_reference" => "Missing DWG supporting document.",
             _ => $"Missing required source role: {role}."
         };
     }
@@ -516,6 +655,88 @@ public sealed class ManifestPreflightService
             "dwg_reference" => "DWG reference",
             _ => role
         };
+    }
+
+    private static bool RuleAppliesToSource(PreflightRuleDefinition rule, ManifestSourceFile source)
+    {
+        return rule.AppliesToSource(source.SourceRole, source.FileType);
+    }
+
+    private static void AddRuleIssue(
+        PreflightRuleDefinition rule,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        string message,
+        string? affectedPath,
+        string? sourceRole,
+        string? correction)
+    {
+        var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "warning");
+        if (severity == "blocker")
+        {
+            blockers.Add(PreflightCheck.BlockerForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction));
+            return;
+        }
+
+        warnings.Add(PreflightCheck.WarningForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction));
+    }
+
+    private static bool TryReadTabularCoordinates(string path, out TabularCoordinateParseResult result)
+    {
+        result = new TabularCoordinateParseResult(false, null);
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var reader = new StreamReader(path);
+            var header = reader.ReadLine();
+            if (string.IsNullOrWhiteSpace(header))
+            {
+                return true;
+            }
+
+            var separator = header.Contains('\t') ? '\t' : ',';
+            var headers = header.Split(separator).Select(item => item.Trim()).ToArray();
+            var eastingIndex = Array.FindIndex(headers, headerValue => headerValue.Contains("east", StringComparison.OrdinalIgnoreCase));
+            var northingIndex = Array.FindIndex(headers, headerValue => headerValue.Contains("north", StringComparison.OrdinalIgnoreCase));
+            var hasColumns = eastingIndex >= 0 && northingIndex >= 0;
+
+            (double Easting, double Northing)? sample = null;
+            if (hasColumns)
+            {
+                while (!reader.EndOfStream)
+                {
+                    var line = reader.ReadLine();
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    var cells = line.Split(separator);
+                    if (cells.Length <= Math.Max(eastingIndex, northingIndex))
+                    {
+                        continue;
+                    }
+
+                    if (double.TryParse(cells[eastingIndex], out var easting)
+                        && double.TryParse(cells[northingIndex], out var northing))
+                    {
+                        sample = (easting, northing);
+                        break;
+                    }
+                }
+            }
+
+            result = new TabularCoordinateParseResult(hasColumns, sample);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static bool IsPathInside(string parentPath, string childPath)
@@ -535,4 +756,8 @@ public sealed class ManifestPreflightService
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(serialized));
         return $"sha256:{Convert.ToHexString(hash).ToLowerInvariant()}";
     }
+
+    private sealed record TabularCoordinateParseResult(
+        bool HasCoordinateColumns,
+        (double Easting, double Northing)? SampleCoordinate);
 }

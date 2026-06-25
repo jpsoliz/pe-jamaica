@@ -14,11 +14,12 @@ public interface IOutputMapIntegrationService
 public sealed record OutputMapIntegrationResult(
     bool Success,
     string Message,
-    IReadOnlyList<string> LoadedLayerPaths)
+    IReadOnlyList<string> LoadedLayerPaths,
+    string? GroupLayerName = null)
 {
     public static OutputMapIntegrationResult Skipped(string message)
     {
-        return new OutputMapIntegrationResult(false, message, Array.Empty<string>());
+        return new OutputMapIntegrationResult(false, message, Array.Empty<string>(), null);
     }
 }
 
@@ -50,22 +51,15 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
         var loadedLayers = new List<Layer>();
         var stylingWarnings = new List<string>();
+        var groupLayerName = OutputMapReviewStyling.BuildTransactionGroupLayerName(summary);
         await QueuedTask.Run(() =>
         {
+            var reviewGroup = EnsureTransactionReviewGroup(mapView.Map, groupLayerName);
             var styledLayerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var layerPath in layerPaths)
             {
-                var existing = mapView.Map.Layers.FirstOrDefault(layer =>
-                    string.Equals(layer.URI, new Uri(layerPath).AbsoluteUri, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(layer.Name, Path.GetFileName(layerPath), StringComparison.OrdinalIgnoreCase));
-                if (existing is not null)
-                {
-                    loadedLayers.Add(existing);
-                    TryConfigureReviewLayer(existing, summary.Payload, stylingWarnings, styledLayerKeys);
-                    continue;
-                }
-
-                var created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), mapView.Map);
+                RemoveExistingReviewLayers(mapView.Map, layerPath);
+                var created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), reviewGroup);
                 if (created is not null)
                 {
                     TryConfigureReviewLayer(created, summary.Payload, stylingWarnings, styledLayerKeys);
@@ -88,13 +82,55 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
             return new OutputMapIntegrationResult(
                 true,
                 BuildResultMessage(summary, stylingWarnings, "Output layers were added to the active map, but zoom could not be completed automatically."),
-                layerPaths);
+                layerPaths,
+                groupLayerName);
         }
 
         return new OutputMapIntegrationResult(
             true,
             BuildResultMessage(summary, stylingWarnings, OutputMapReviewStyling.BuildSuccessMessage(summary)),
-            layerPaths);
+            layerPaths,
+            groupLayerName);
+    }
+
+    private static GroupLayer EnsureTransactionReviewGroup(Map map, string groupLayerName)
+    {
+        var existingGroup = map.Layers.OfType<GroupLayer>()
+            .FirstOrDefault(layer => string.Equals(layer.Name, groupLayerName, StringComparison.OrdinalIgnoreCase));
+        if (existingGroup is not null)
+        {
+            return existingGroup;
+        }
+
+        return LayerFactory.Instance.CreateGroupLayer(map, 0, groupLayerName);
+    }
+
+    private static void RemoveExistingReviewLayers(Map map, string layerPath)
+    {
+        var layerUri = new Uri(layerPath).AbsoluteUri;
+        foreach (var layer in FlattenLayers(map.Layers).ToArray())
+        {
+            if (string.Equals(layer.URI, layerUri, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(layer.Name, Path.GetFileName(layerPath), StringComparison.OrdinalIgnoreCase))
+            {
+                map.RemoveLayer(layer);
+            }
+        }
+    }
+
+    private static IEnumerable<Layer> FlattenLayers(IEnumerable<Layer> layers)
+    {
+        foreach (var layer in layers)
+        {
+            yield return layer;
+            if (layer is CompositeLayer compositeLayer)
+            {
+                foreach (var childLayer in FlattenLayers(compositeLayer.Layers))
+                {
+                    yield return childLayer;
+                }
+            }
+        }
     }
 
     private static string BuildResultMessage(OutputSummaryDocument summary, IReadOnlyList<string> stylingWarnings, string baseMessage)
@@ -215,10 +251,27 @@ internal static class OutputMapReviewStyling
             : $"COGO-ready non-fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro snapping, selection, and standard editing tools to inspect points, lines, and parcel boundaries.{diagnosticSuffix}";
     }
 
+    public static string BuildTransactionGroupLayerName(OutputSummaryDocument summary)
+    {
+        var transactionNumber = string.IsNullOrWhiteSpace(summary.TransactionId) ? "Unknown" : summary.TransactionId.Trim();
+        return $"TR {transactionNumber} - Review";
+    }
+
     private static string BuildCogoDiagnosticSuffix(OutputSummaryPayload payload)
     {
         var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
-        return $" Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+        var rootDiagnostic = payload.RootLineFeatureClassDiagnostic;
+        if (rootDiagnostic is null)
+        {
+            return $" Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+        }
+
+        var diagnosticSource = string.Equals(mapMode, "fabric", StringComparison.OrdinalIgnoreCase) ? "root parcel_lines + fabric review" : "root parcel_lines";
+        var mismatchWarning = payload.PayloadBearingTxtPopulatedCount > 0 && !payload.BearingTxtPopulated
+            || payload.PayloadDistanceTxtPopulatedCount > 0 && !payload.DistanceTxtPopulated
+            ? " Payload/feature-class mismatch detected."
+            : string.Empty;
+        return $" Diagnostics: map load {mapMode}; source {diagnosticSource}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.{mismatchWarning}";
     }
 
     public static HashSet<string> TryReadFieldNames(FeatureLayer featureLayer)

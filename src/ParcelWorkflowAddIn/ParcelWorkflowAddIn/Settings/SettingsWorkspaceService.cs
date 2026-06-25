@@ -393,6 +393,7 @@ public sealed class SettingsWorkspaceService
             updatedRules.Add(new JsonObject
             {
                 ["rule_id"] = rule.RuleId,
+                ["group"] = rule.Group,
                 ["category"] = rule.Category,
                 ["display_name"] = rule.DisplayName,
                 ["description"] = rule.Description,

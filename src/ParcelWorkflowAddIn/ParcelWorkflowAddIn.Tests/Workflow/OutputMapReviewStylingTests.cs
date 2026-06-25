@@ -83,6 +83,133 @@ internal static class OutputMapReviewStylingTests
         TestAssert.True(message.Contains("Diagnostics: map load", StringComparison.OrdinalIgnoreCase), "Success message should include the output diagnostics summary.");
     }
 
+    public static void BuildTransactionGroupLayerNameUsesTransactionNumber()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000236",
+            "run-group",
+            "2026-06-24T00:00:00Z",
+            "tester",
+            "hash-group",
+            new OutputSummaryPayload(
+                "created",
+                "normal",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var groupName = OutputMapReviewStyling.BuildTransactionGroupLayerName(summary);
+
+        TestAssert.Equal("TR 100000236 - Review", groupName, "Transaction review layers should be grouped under the transaction number.");
+    }
+
+    public static void BuildSuccessMessagePrefersRootFeatureClassDiagnosticsWhenAvailable()
+    {
+        var rootDiagnostic = new OutputFeatureClassDiagnostic(
+            @"C:\case\output\case.gdb\parcel_lines",
+            true,
+            80,
+            new[]
+            {
+                new OutputFeatureClassFieldDiagnostic("bearing_txt", true, 76),
+                new OutputFeatureClassFieldDiagnostic("distance_txt", true, 76),
+                new OutputFeatureClassFieldDiagnostic("length_txt", true, 76),
+                new OutputFeatureClassFieldDiagnostic("distance_m", true, 80),
+            });
+
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000236",
+            "run-diagnostic",
+            "2026-06-24T00:00:00Z",
+            "tester",
+            "hash-diagnostic",
+            new OutputSummaryPayload(
+                "created",
+                "parcel_fabric",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                87,
+                80,
+                7,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview,
+                null,
+                true,
+                true,
+                "prefer_computed",
+                "fabric",
+                76,
+                76,
+                0,
+                true,
+                76,
+                true,
+                76,
+                0,
+                rootDiagnostic,
+                null,
+                true,
+                true,
+                true,
+                true,
+                76,
+                80),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var message = OutputMapReviewStyling.BuildSuccessMessage(summary);
+
+        TestAssert.True(message.Contains("root bearing_txt present (76)", StringComparison.OrdinalIgnoreCase), "Success message should report root feature class bearing diagnostics.");
+        TestAssert.True(message.Contains("root distance_txt present (76)", StringComparison.OrdinalIgnoreCase), "Success message should report root feature class distance diagnostics.");
+        TestAssert.True(message.Contains("source root parcel_lines + fabric review", StringComparison.OrdinalIgnoreCase), "Success message should distinguish fabric map load from root output diagnostics.");
+    }
+
     public static void ParcelFabricModeReturnsFabricLayerPlusReviewOverlays()
     {
         var summary = new OutputSummaryDocument(

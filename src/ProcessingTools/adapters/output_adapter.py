@@ -136,6 +136,26 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
         if easting is None or northing is None:
             continue
 
+        source_bearing = (
+            row.get("review_bearing")
+            or row.get("bearing")
+            or row.get("course")
+            or row.get("course_from_previous")
+            or ""
+        )
+        source_distance_m = _parse_coordinate(
+            row.get("distance_m")
+            or row.get("distance")
+            or row.get("length_from_previous_m")
+        )
+        source_length_txt = (
+            row.get("review_length")
+            if row.get("review_length") is not None
+            else row.get("length")
+            or row.get("length_from_previous_m")
+            or ""
+        )
+
         normalized.append(
             {
                 "row_id": _normalize_text(row.get("row_id") or f"row-{index:03d}", 64),
@@ -158,8 +178,8 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "easting": easting,
                 "northing": northing,
                 "parcel_name": _normalize_text(row.get("review_parcel_name") or row.get("parcel_name") or "", 128),
-                "bearing": _normalize_text(row.get("review_bearing") or row.get("bearing") or row.get("course") or "", 64),
-                "distance_m": _parse_coordinate(row.get("distance_m") or row.get("distance")),
+                "bearing": _normalize_text(source_bearing, 64),
+                "distance_m": source_distance_m,
                 "radius_m": _parse_coordinate(row.get("radius_m") or row.get("radius")),
                 "arc_length_m": _parse_coordinate(row.get("arc_length_m") or row.get("arc_length")),
                 "doc_type_id": _normalize_text(row.get("doc_type_id") or root_doc_type_id, 64),
@@ -173,13 +193,13 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
                     or "",
                     256,
                 ),
-                "length": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 128),
-                "distance_txt": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 64),
+                "length": _normalize_text(source_length_txt, 128),
+                "distance_txt": _normalize_text(source_length_txt, 64),
                 "status": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
                 "status_txt": _normalize_text(row.get("review_extraction_status") or row.get("status") or "", 64),
                 "is_manual": _parse_bool(row.get("is_manual")) or str(row.get("row_id") or "").startswith("manual-"),
                 "is_edited": _parse_bool(row.get("review_is_edited") if row.get("review_is_edited") is not None else row.get("is_edited")),
-                "length_txt": "" if row.get("review_length") is None else _normalize_text(row.get("review_length") or row.get("length") or "", 64),
+                "length_txt": _normalize_text(source_length_txt, 64),
                 "source_evidence": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
                 "source_txt": _normalize_text(row.get("review_source_evidence") or row.get("source_evidence") or "", 1024),
             }
@@ -723,6 +743,137 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
         )
 
     return {"type": "FeatureCollection", "features": features}
+
+
+def _count_populated_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _build_field_population_record(field_name: str, exists: bool, populated_count: int) -> dict[str, Any]:
+    return {
+        "field_name": field_name,
+        "exists": bool(exists),
+        "populated_count": int(populated_count),
+    }
+
+
+def _inspect_json_feature_rows(feature_class_path: Path, field_names: list[str]) -> dict[str, Any]:
+    if not feature_class_path.exists():
+        return {
+            "feature_class_path": str(feature_class_path),
+            "exists": False,
+            "row_count": 0,
+            "fields": [_build_field_population_record(field_name, False, 0) for field_name in field_names],
+        }
+
+    rows = _read_json(feature_class_path)
+    if not isinstance(rows, list):
+        rows = []
+
+    available_fields: set[str] = set()
+    for row in rows:
+        if isinstance(row, dict):
+            available_fields.update(row.keys())
+
+    field_records = []
+    for field_name in field_names:
+        populated_count = 0
+        if field_name in available_fields:
+            for row in rows:
+                if isinstance(row, dict) and _count_populated_value(row.get(field_name)):
+                    populated_count += 1
+
+        field_records.append(_build_field_population_record(field_name, field_name in available_fields, populated_count))
+
+    return {
+        "feature_class_path": str(feature_class_path),
+        "exists": True,
+        "row_count": len(rows),
+        "fields": field_records,
+    }
+
+
+def _inspect_arcpy_feature_class(arcpy: Any, feature_class_path: str | None, field_names: list[str]) -> dict[str, Any]:
+    if not feature_class_path:
+        return {
+            "feature_class_path": feature_class_path,
+            "exists": False,
+            "row_count": 0,
+            "fields": [_build_field_population_record(field_name, False, 0) for field_name in field_names],
+        }
+
+    if not arcpy.Exists(feature_class_path):
+        return {
+            "feature_class_path": feature_class_path,
+            "exists": False,
+            "row_count": 0,
+            "fields": [_build_field_population_record(field_name, False, 0) for field_name in field_names],
+        }
+
+    available_fields = {field.name for field in arcpy.ListFields(feature_class_path)}
+    row_count = int(arcpy.management.GetCount(feature_class_path)[0])
+
+    present_field_names = [field_name for field_name in field_names if field_name in available_fields]
+    populated_counts = {field_name: 0 for field_name in present_field_names}
+    if present_field_names:
+        with arcpy.da.SearchCursor(feature_class_path, present_field_names) as cursor:
+            for row in cursor:
+                for index, field_name in enumerate(present_field_names):
+                    if _count_populated_value(row[index]):
+                        populated_counts[field_name] += 1
+
+    return {
+        "feature_class_path": feature_class_path,
+        "exists": True,
+        "row_count": row_count,
+        "fields": [
+            _build_field_population_record(field_name, field_name in available_fields, populated_counts.get(field_name, 0))
+            for field_name in field_names
+        ],
+    }
+
+
+def _inspect_feature_class_diagnostics(
+    arcpy: Any,
+    feature_class_path: str | None,
+    field_names: list[str],
+) -> dict[str, Any]:
+    if not feature_class_path:
+        return {
+            "feature_class_path": feature_class_path,
+            "exists": False,
+            "row_count": 0,
+            "fields": [_build_field_population_record(field_name, False, 0) for field_name in field_names],
+        }
+
+    path = Path(feature_class_path)
+    if path.exists() and path.is_file():
+        return _inspect_json_feature_rows(path, field_names)
+
+    if arcpy is not None:
+        return _inspect_arcpy_feature_class(arcpy, feature_class_path, field_names)
+
+    return {
+        "feature_class_path": feature_class_path,
+        "exists": False,
+        "row_count": 0,
+        "fields": [_build_field_population_record(field_name, False, 0) for field_name in field_names],
+    }
+
+
+def _field_record_value(diagnostic: dict[str, Any] | None, field_name: str, property_name: str) -> Any:
+    if not diagnostic:
+        return None
+
+    for field_record in diagnostic.get("fields") or []:
+        if str(field_record.get("field_name") or "").strip().lower() == field_name.strip().lower():
+            return field_record.get(property_name)
+
+    return None
 
 
 def _ensure_empty(path: Path) -> None:
@@ -1368,6 +1519,11 @@ def _build_summary(
     add_cogo_attributes: bool,
     add_cogo_labels: bool,
     cogo_source_mode: str,
+    payload_bearing_txt_populated_count: int,
+    payload_distance_txt_populated_count: int,
+    payload_computed_cogo_fallback_line_count: int,
+    root_line_feature_class_diagnostic: dict[str, Any] | None,
+    review_line_feature_class_diagnostic: dict[str, Any] | None,
     parcel_fabric_mode: str | None,
     parcel_fabric_dataset_path: str | None,
     parcel_fabric_layer_path: str | None,
@@ -1397,10 +1553,20 @@ def _build_summary(
         ]
     )
 
-    bearing_txt_populated_count = sum(1 for segment in segments if str(segment.get("bearing_txt") or "").strip())
-    distance_txt_populated_count = sum(1 for segment in segments if str(segment.get("distance_txt") or "").strip())
-    computed_cogo_fallback_line_count = sum(1 for segment in segments if bool(segment.get("is_computed_cogo")))
+    root_bearing_txt_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "bearing_txt", "exists"))
+    root_distance_txt_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "distance_txt", "exists"))
+    root_length_txt_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "length_txt", "exists"))
+    root_distance_m_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "distance_m", "exists"))
+    bearing_txt_populated_count = int(_field_record_value(root_line_feature_class_diagnostic, "bearing_txt", "populated_count") or 0)
+    distance_txt_populated_count = int(_field_record_value(root_line_feature_class_diagnostic, "distance_txt", "populated_count") or 0)
+    length_txt_populated_count = int(_field_record_value(root_line_feature_class_diagnostic, "length_txt", "populated_count") or 0)
+    distance_m_populated_count = int(_field_record_value(root_line_feature_class_diagnostic, "distance_m", "populated_count") or 0)
     map_load_mode = "fabric" if review_workspace_mode == REVIEW_WORKSPACE_MODE_PARCEL_FABRIC else "non_fabric"
+
+    if payload_bearing_txt_populated_count > 0 and (not root_bearing_txt_exists or bearing_txt_populated_count <= 0):
+        warnings.append("COGO diagnostic mismatch: payload reported populated bearing text, but root parcel_lines does not expose populated bearing_txt values.")
+    if payload_distance_txt_populated_count > 0 and (not root_distance_txt_exists or distance_txt_populated_count <= 0):
+        warnings.append("COGO diagnostic mismatch: payload reported populated distance text, but root parcel_lines does not expose populated distance_txt values.")
 
     payload = {
         "status": "created",
@@ -1435,11 +1601,22 @@ def _build_summary(
         "add_cogo_attributes": add_cogo_attributes,
         "add_cogo_labels": add_cogo_labels,
         "cogo_source_mode": cogo_source_mode,
+        "payload_bearing_txt_populated_count": payload_bearing_txt_populated_count,
+        "payload_distance_txt_populated_count": payload_distance_txt_populated_count,
+        "payload_computed_cogo_fallback_line_count": payload_computed_cogo_fallback_line_count,
         "bearing_txt_populated": bearing_txt_populated_count > 0,
         "bearing_txt_populated_count": bearing_txt_populated_count,
         "distance_txt_populated": distance_txt_populated_count > 0,
         "distance_txt_populated_count": distance_txt_populated_count,
-        "computed_cogo_fallback_line_count": computed_cogo_fallback_line_count,
+        "computed_cogo_fallback_line_count": payload_computed_cogo_fallback_line_count,
+        "root_line_feature_class_diagnostic": root_line_feature_class_diagnostic,
+        "review_line_feature_class_diagnostic": review_line_feature_class_diagnostic,
+        "root_line_bearing_txt_exists": root_bearing_txt_exists,
+        "root_line_distance_txt_exists": root_distance_txt_exists,
+        "root_line_length_txt_exists": root_length_txt_exists,
+        "root_line_distance_m_exists": root_distance_m_exists,
+        "root_line_length_txt_populated_count": length_txt_populated_count,
+        "root_line_distance_m_populated_count": distance_m_populated_count,
     }
 
     return {
@@ -1554,6 +1731,12 @@ def main(argv: list[str] | None = None) -> int:
 
     effective_polygons = polygons if layer_paths.get("polygon_fc") else []
     _write_json(geojson_path, _build_geojson(points, segments, effective_polygons))
+    payload_bearing_txt_populated_count = sum(1 for segment in segments if str(segment.get("bearing_txt") or "").strip())
+    payload_distance_txt_populated_count = sum(1 for segment in segments if str(segment.get("distance_txt") or "").strip())
+    payload_computed_cogo_fallback_line_count = sum(1 for segment in segments if bool(segment.get("is_computed_cogo")))
+    diagnostic_fields = ["bearing_txt", "distance_txt", "length_txt", "distance_m"]
+    root_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, layer_paths.get("line_fc"), diagnostic_fields)
+    review_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, review_paths.get("review_line_fc"), diagnostic_fields)
     summary = _build_summary(
         manifest,
         approved_review,
@@ -1574,6 +1757,11 @@ def main(argv: list[str] | None = None) -> int:
         add_cogo_attributes,
         add_cogo_labels,
         cogo_source_mode,
+        payload_bearing_txt_populated_count,
+        payload_distance_txt_populated_count,
+        payload_computed_cogo_fallback_line_count,
+        root_line_feature_class_diagnostic,
+        review_line_feature_class_diagnostic,
         review_paths.get("parcel_fabric_mode"),
         review_paths.get("parcel_fabric_dataset_path"),
         review_paths.get("parcel_fabric_layer_path"),

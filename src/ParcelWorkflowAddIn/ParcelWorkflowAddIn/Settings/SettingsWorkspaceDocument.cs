@@ -104,6 +104,7 @@ public sealed class SettingsWorkspaceDocument
 public sealed class EditablePreflightRule
 {
     public string RuleId { get; init; } = string.Empty;
+    public string Group { get; init; } = string.Empty;
     public string Category { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
@@ -116,6 +117,7 @@ public sealed class EditablePreflightRule
         return new EditablePreflightRule
         {
             RuleId = definition.RuleId,
+            Group = definition.Group,
             Category = definition.Category,
             DisplayName = definition.DisplayName,
             Description = definition.Description,

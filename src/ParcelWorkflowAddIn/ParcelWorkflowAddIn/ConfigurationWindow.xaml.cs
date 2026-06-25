@@ -271,7 +271,7 @@ public partial class ConfigurationWindow : ProWindow
         PreflightRulesEditorPanel.Children.Clear();
         preflightRuleEditors.Clear();
 
-        foreach (var rule in rules.OrderBy(rule => rule.Locked).ThenBy(rule => rule.Category).ThenBy(rule => rule.DisplayName))
+        foreach (var rule in rules.OrderBy(rule => rule.Locked).ThenBy(rule => rule.Group).ThenBy(rule => rule.Category).ThenBy(rule => rule.DisplayName))
         {
             var border = new Border
             {
@@ -290,7 +290,7 @@ public partial class ConfigurationWindow : ProWindow
 
             var titleBlock = new TextBlock
             {
-                Text = $"{rule.DisplayName}{Environment.NewLine}{rule.Category}",
+                Text = $"{rule.DisplayName}{Environment.NewLine}{rule.Group} / {rule.Category}",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 8, 0)
             };

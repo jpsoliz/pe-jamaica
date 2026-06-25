@@ -47,11 +47,33 @@ public sealed record OutputSummaryPayload(
     [property: JsonPropertyName("add_cogo_labels")] bool AddCogoLabels = false,
     [property: JsonPropertyName("cogo_source_mode")] string? CogoSourceMode = null,
     [property: JsonPropertyName("map_load_mode")] string? MapLoadMode = null,
+    [property: JsonPropertyName("payload_bearing_txt_populated_count")] int PayloadBearingTxtPopulatedCount = 0,
+    [property: JsonPropertyName("payload_distance_txt_populated_count")] int PayloadDistanceTxtPopulatedCount = 0,
+    [property: JsonPropertyName("payload_computed_cogo_fallback_line_count")] int PayloadComputedCogoFallbackLineCount = 0,
     [property: JsonPropertyName("bearing_txt_populated")] bool BearingTxtPopulated = false,
     [property: JsonPropertyName("bearing_txt_populated_count")] int BearingTxtPopulatedCount = 0,
     [property: JsonPropertyName("distance_txt_populated")] bool DistanceTxtPopulated = false,
     [property: JsonPropertyName("distance_txt_populated_count")] int DistanceTxtPopulatedCount = 0,
-    [property: JsonPropertyName("computed_cogo_fallback_line_count")] int ComputedCogoFallbackLineCount = 0);
+    [property: JsonPropertyName("computed_cogo_fallback_line_count")] int ComputedCogoFallbackLineCount = 0,
+    [property: JsonPropertyName("root_line_feature_class_diagnostic")] OutputFeatureClassDiagnostic? RootLineFeatureClassDiagnostic = null,
+    [property: JsonPropertyName("review_line_feature_class_diagnostic")] OutputFeatureClassDiagnostic? ReviewLineFeatureClassDiagnostic = null,
+    [property: JsonPropertyName("root_line_bearing_txt_exists")] bool RootLineBearingTxtExists = false,
+    [property: JsonPropertyName("root_line_distance_txt_exists")] bool RootLineDistanceTxtExists = false,
+    [property: JsonPropertyName("root_line_length_txt_exists")] bool RootLineLengthTxtExists = false,
+    [property: JsonPropertyName("root_line_distance_m_exists")] bool RootLineDistanceMExists = false,
+    [property: JsonPropertyName("root_line_length_txt_populated_count")] int RootLineLengthTxtPopulatedCount = 0,
+    [property: JsonPropertyName("root_line_distance_m_populated_count")] int RootLineDistanceMPopulatedCount = 0);
+
+public sealed record OutputFeatureClassDiagnostic(
+    [property: JsonPropertyName("feature_class_path")] string? FeatureClassPath,
+    [property: JsonPropertyName("exists")] bool Exists,
+    [property: JsonPropertyName("row_count")] int RowCount,
+    [property: JsonPropertyName("fields")] IReadOnlyList<OutputFeatureClassFieldDiagnostic> Fields);
+
+public sealed record OutputFeatureClassFieldDiagnostic(
+    [property: JsonPropertyName("field_name")] string FieldName,
+    [property: JsonPropertyName("exists")] bool Exists,
+    [property: JsonPropertyName("populated_count")] int PopulatedCount);
 
 public sealed record EnterpriseWorkingPublishSummary(
     [property: JsonPropertyName("status")] string Status,

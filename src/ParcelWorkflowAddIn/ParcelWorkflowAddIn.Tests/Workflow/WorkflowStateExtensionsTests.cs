@@ -6,8 +6,8 @@ internal static class WorkflowStateExtensionsTests
 {
     public static void DisplayNamesUseComputeWorkflowVocabulary()
     {
-        TestAssert.Equal("Attachments", WorkflowState.Intake.ToDisplayName(), "Intake display name mismatch.");
-        TestAssert.Equal("Data Extraction Running", WorkflowState.PreflightRunning.ToDisplayName(), "Data extraction running display name mismatch.");
+        TestAssert.Equal("Supporting Document Check", WorkflowState.Intake.ToDisplayName(), "Intake display name mismatch.");
+        TestAssert.Equal("Structure Check Running", WorkflowState.PreflightRunning.ToDisplayName(), "Structure check running display name mismatch.");
         TestAssert.Equal("Validate Points Ready", WorkflowState.ReviewPending.ToDisplayName(), "Validate points ready display name mismatch.");
         TestAssert.Equal("Manual Review Workspace Preparing", WorkflowState.ReviewManualPending.ToDisplayName(), "Manual review workspace display name mismatch.");
         TestAssert.Equal("Create Spatial Units Ready", WorkflowState.ReviewApproved.ToDisplayName(), "Create spatial units ready display name mismatch.");

@@ -32,10 +32,10 @@ public static class WorkflowStateExtensions
         return state switch
         {
             WorkflowState.NoCase => "No Case",
-            WorkflowState.Intake => "Attachments",
-            WorkflowState.PreflightRunning => "Data Extraction Running",
-            WorkflowState.PreflightBlocked => "Data Extraction Blocked",
-            WorkflowState.PreflightPassed => "Data Extraction Ready",
+            WorkflowState.Intake => "Supporting Document Check",
+            WorkflowState.PreflightRunning => "Structure Check Running",
+            WorkflowState.PreflightBlocked => "Structure / Georeference Check Blocked",
+            WorkflowState.PreflightPassed => "Georeference Check Ready",
             WorkflowState.ExtractionRunning => "Validate Points Running",
             WorkflowState.ExtractionFailed => "Validate Points Blocked",
             WorkflowState.ReviewPending => "Validate Points Ready",

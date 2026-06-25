@@ -3,33 +3,41 @@
   "rules": [
     {
       "rule_id": "detected_profile_presence",
+      "group": "supporting_document",
       "category": "manifest",
       "display_name": "Detected profile present",
-      "description": "Detected intake profile must be present before Data Extraction can continue.",
+      "description": "Detected intake profile must be present before Structure Check can continue.",
       "enabled": true,
       "severity": "blocker",
       "locked": true
     },
     {
       "rule_id": "detected_profile_complete",
+      "group": "supporting_document",
       "category": "manifest",
       "display_name": "Detected profile complete",
-      "description": "Incomplete intake remains blocked until required source roles are resolved.",
+      "description": "Incomplete supporting documents remain blocked until required source roles are resolved.",
       "enabled": true,
       "severity": "blocker",
       "locked": true
     },
     {
       "rule_id": "required_source_roles",
+      "group": "supporting_document",
       "category": "manifest",
       "display_name": "Required source roles",
-      "description": "Each workflow profile must provide the required copied source roles.",
+      "description": "Each compute transaction must provide the required copied source roles before structure and georeference work can begin.",
       "enabled": true,
       "severity": "blocker",
-      "locked": true
+      "locked": true,
+      "source_roles": [
+        "computation_source",
+        "plan_map_reference"
+      ]
     },
     {
       "rule_id": "source_file_integrity",
+      "group": "structure",
       "category": "manifest",
       "display_name": "Copied source integrity",
       "description": "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.",
@@ -39,6 +47,7 @@
     },
     {
       "rule_id": "workflow_rule_resolution",
+      "group": "structure",
       "category": "workflow_rule",
       "display_name": "Workflow rule resolution",
       "description": "Transactions must resolve to a current workflow rule and script plan.",
@@ -48,6 +57,7 @@
     },
     {
       "rule_id": "arcgis_sdk_lane",
+      "group": "system",
       "category": "arcgis_pro",
       "display_name": "ArcGIS Pro SDK lane",
       "description": "SDK lane and target framework must match the supported ArcGIS Pro 3.6 add-in lane.",
@@ -57,6 +67,7 @@
     },
     {
       "rule_id": "workspace_access",
+      "group": "system",
       "category": "write_access",
       "display_name": "Workspace access",
       "description": "Case folder working, output, and summary locations must remain writable.",
@@ -66,6 +77,7 @@
     },
     {
       "rule_id": "python_executable_health",
+      "group": "system",
       "category": "python",
       "display_name": "Python executable health",
       "description": "Configured Python executable must be set, exist, and be invokable.",
@@ -75,6 +87,7 @@
     },
     {
       "rule_id": "arcgis_unknown_version_behavior",
+      "group": "system",
       "category": "arcgis_pro",
       "display_name": "Unknown ArcGIS Pro version handling",
       "description": "Controls whether unknown ArcGIS Pro version detection is treated as a warning or blocker.",
@@ -84,6 +97,7 @@
     },
     {
       "rule_id": "python_package_probe",
+      "group": "system",
       "category": "python",
       "display_name": "Python package probe",
       "description": "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.",
@@ -93,21 +107,91 @@
     },
     {
       "rule_id": "dwg_signature_check",
+      "group": "structure",
       "category": "dwg",
       "display_name": "DWG file signature",
       "description": "DWG reference files must be non-empty and contain a recognizable DWG signature.",
       "enabled": true,
       "severity": "blocker",
-      "locked": true
+      "locked": true,
+      "source_roles": [
+        "dwg_reference"
+      ],
+      "file_types": [
+        ".dwg"
+      ],
+      "dwg_readiness_required": true
     },
     {
       "rule_id": "dwg_readiness_probe",
+      "group": "structure",
       "category": "dwg",
       "display_name": "DWG readiness probe",
       "description": "Optional CAD sub-layer readiness probe for copied DWG references.",
       "enabled": true,
       "severity": "blocker",
-      "locked": false
+      "locked": false,
+      "source_roles": [
+        "dwg_reference"
+      ],
+      "file_types": [
+        ".dwg"
+      ],
+      "dwg_readiness_required": true
+    },
+    {
+      "rule_id": "georeference_source_presence",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Georeference source presence",
+      "description": "At least one source with usable coordinate context must be present before Validate Points can begin.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "computation_source",
+        "points_computation",
+        "plan_map_reference"
+      ],
+      "allow_tabular_georeference": true
+    },
+    {
+      "rule_id": "tabular_coordinate_columns",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Tabular coordinate columns",
+      "description": "TXT/CSV coordinate sources should expose Easting/Northing-style columns when they are used for georeference support.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "points_computation"
+      ],
+      "file_types": [
+        ".txt",
+        ".csv"
+      ],
+      "tabular_coordinates_required": true
+    },
+    {
+      "rule_id": "jamaica_coordinate_bounds",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Jamaica coordinate bounds",
+      "description": "When tabular coordinates are available, the sample coordinate pairs should fall within Jamaica working bounds.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "points_computation"
+      ],
+      "file_types": [
+        ".txt",
+        ".csv"
+      ],
+      "minimum_coordinate_pairs": 1,
+      "require_jamaica_bounds": true,
+      "allow_tabular_georeference": true
     }
   ]
 }

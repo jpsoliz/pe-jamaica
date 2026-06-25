@@ -549,7 +549,7 @@ public sealed class WorkflowSession
     {
         if (preflightRunActive)
         {
-            StatusText = "Data Extraction is already running.";
+            StatusText = "Structure Check is already running.";
             return new PreflightSummaryDocument(
                 "1.0.0",
                 TransactionId ?? string.Empty,
@@ -564,7 +564,7 @@ public sealed class WorkflowSession
 
         if (!CanRunPreflightStateInternal() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Create or reopen a Case Folder before running Data Extraction.";
+            StatusText = "Create or reopen a Case Folder before running Structure Check.";
             var failedCheck = PreflightCheck.Blocker(
                 "active_case_required",
                 StatusText,
@@ -587,7 +587,7 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = "Data Extraction running: validating transaction attachments and extraction readiness.";
+        StatusText = "Structure Check and Georeference Check are running: validating transaction attachments and extraction readiness.";
         preflightRunActive = true;
 
         try
@@ -606,8 +606,8 @@ public sealed class WorkflowSession
             UpsertAvailableArtifact(new AvailableArtifact("preflight_summary.json", layout.PreflightSummaryPath));
 
             StatusText = finalState == WorkflowState.PreflightBlocked
-                ? $"Data Extraction blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
-                : "Data Extraction passed: attached files are ready for point extraction.";
+                ? $"Early compute checks blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
+                : "Structure Check and Georeference Check passed: attached files are ready for point extraction.";
 
             return summary;
         }
@@ -1249,7 +1249,7 @@ public sealed class WorkflowSession
 
         if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Run Data Extraction successfully before starting Validate Points.";
+            StatusText = "Run Structure Check and Georeference Check successfully before starting Validate Points.";
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
@@ -1425,7 +1425,7 @@ public sealed class WorkflowSession
         ClearPreflightResults();
         preflightBlockers.Add(blocker);
         CurrentState = WorkflowState.PreflightBlocked;
-        StatusText = $"Data Extraction blocked: {message.ToLowerInvariant()}";
+        StatusText = $"Early compute checks blocked: {message.ToLowerInvariant()}";
 
         var summary = new PreflightSummaryDocument(
             "1.0.0",

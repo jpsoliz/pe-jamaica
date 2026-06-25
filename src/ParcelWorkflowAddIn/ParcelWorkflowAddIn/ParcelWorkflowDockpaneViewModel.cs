@@ -27,6 +27,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 {
     internal const string DockPaneId = "ParcelWorkflow_Dockpane";
     private readonly WorkflowSession workflowSession = new(new CaseFolderStore());
+    private readonly PreflightRuleCatalog preflightRuleCatalog = new PreflightRuleCatalogLoader().Load();
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly ParcelScopedManualPointService manualPointService = new();
     private readonly ParcelScopedReviewValidationService reviewValidationService = new();
@@ -183,7 +184,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public string CurrentStepBadge => GetWorkspaceStageLabel(ActiveWorkspaceStage);
+    public string CurrentStepBadge => GetWorkspaceStageLabel(ActiveWorkspaceStage, CurrentWorkflowState);
 
     public string ScoreBadge
     {
@@ -404,7 +405,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             .Concat(PreflightPassedChecks.Select(check => new PreflightResultListItem("Pass", check)))
             .ToArray();
 
+    public IReadOnlyList<PreflightResultListItem> SupportingDocumentResults => FilterPreflightResults("supporting_document");
+
+    public IReadOnlyList<PreflightResultListItem> StructureCheckResults => FilterPreflightResults("structure", "system");
+
+    public IReadOnlyList<PreflightResultListItem> GeoreferenceResults => FilterPreflightResults("georeference");
+
     public bool HasPreflightResults => PreflightResults.Count > 0;
+
+    public bool HasSupportingDocumentResults => SupportingDocumentResults.Count > 0;
+
+    public bool HasStructureCheckResults => StructureCheckResults.Count > 0;
+
+    public bool HasGeoreferenceResults => GeoreferenceResults.Count > 0;
 
     public bool PreflightDetailsExpanded => preflightDetailsExpanded;
 
@@ -438,18 +451,24 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    public string StructureCheckBadge => BuildGroupedBadge(StructureCheckResults, workflowSession.IsPreflightRunning ? "Processing" : "Not processed");
+
+    public string GeoreferenceBadge => BuildGroupedBadge(GeoreferenceResults, workflowSession.IsPreflightRunning ? "Pending" : "Not processed");
+
     public string SourceIntakeBadge => SourceFiles.Count > 0 && SourceFiles.All(item => item.SourceFile.Copied)
         ? "Copied"
         : "Pending";
 
+    public string SupportingDocumentBadge => BuildGroupedBadge(SupportingDocumentResults, SourceFiles.Count > 0 ? "Loaded" : "Not loaded");
+
     public string IntakeSummaryText =>
         SourceFiles.Count == 0
             ? "No transaction attachments have been loaded into the case folder yet."
-            : $"{SourceFiles.Count} attachment file(s) loaded from the selected transaction. {DetectedProfileLabel}";
+            : $"{SourceFiles.Count} transaction attachment file(s) loaded from the selected transaction. {DetectedProfileLabel}";
 
     public string IntakeDetailText =>
         IntakeIssues.Count == 0
-            ? "Transaction attachments are copied into the case folder and kept as source context for the remaining compute stages."
+            ? "Transaction attachments are copied into the case folder and kept as source context for Structure Check, Georeference Check, and Validate Points."
             : string.Join(Environment.NewLine, IntakeIssues);
 
     public bool IntakeSummaryExpanded
@@ -462,21 +481,37 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         get
         {
-            if (!HasPreflightResults)
+            if (!HasStructureCheckResults)
             {
-                return "No file-check results yet.";
+                return "No structure-check results yet.";
             }
 
-            return $"{PreflightBlockers.Count} blocker(s), {PreflightWarnings.Count} warning(s), {PreflightPassedChecks.Count} passed.";
+            var blockers = StructureCheckResults.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+            var warnings = StructureCheckResults.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+            var passed = StructureCheckResults.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+            return $"{blockers} blocker(s), {warnings} warning(s), {passed} passed.";
         }
     }
 
-    public string PreflightCollapsedHint =>
-        PreflightBlockers.Count > 0
-            ? $"Blocking now: {PreflightBlockers[0].Message}"
-        : PreflightWarnings.Count > 0
-                ? $"Attention: {PreflightWarnings[0].Message}"
-                : "All current file checks passed.";
+    public string PreflightCollapsedHint => BuildGroupedHint(StructureCheckResults, "All current structure checks passed.");
+
+    public string GeoreferenceSummaryText
+    {
+        get
+        {
+            if (!HasGeoreferenceResults)
+            {
+                return "No georeference-check results yet.";
+            }
+
+            var blockers = GeoreferenceResults.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+            var warnings = GeoreferenceResults.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+            var passed = GeoreferenceResults.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+            return $"{blockers} blocker(s), {warnings} warning(s), {passed} passed.";
+        }
+    }
+
+    public string GeoreferenceCollapsedHint => BuildGroupedHint(GeoreferenceResults, "Georeference readiness has not produced findings yet.");
 
     public bool PreflightSummaryExpanded
     {
@@ -528,8 +563,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
             WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point review in Points Validation Tool, then approve the review before Create Spatial Units and Final Review.",
             WorkflowState.PreflightPassed => "Generate the extracted point package from the selected transaction attachments, then continue in Points Validation Tool to inspect and correct the parcel points.",
-            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Data Extraction blockers are resolved.",
-            _ => "Validate Points is enabled after Data Extraction completes."
+            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Supporting Document Check, Structure Check, and Georeference Check blockers are resolved.",
+            _ => "Validate Points is enabled after Structure Check and Georeference Check complete."
         };
 
     public bool ShowExtractionDecisionGate => workflowSession.ExtractionResultRequiresDecision;
@@ -861,7 +896,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             }
 
             var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
-            return $"COGO diagnostics: map load {mapMode}; bearing text {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+            return payload.RootLineFeatureClassDiagnostic is null
+                ? $"COGO diagnostics: map load {mapMode}; bearing text {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
+                : $"COGO diagnostics: map load {mapMode}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
         }
     }
 
@@ -1609,7 +1646,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private static string BuildOutputDiagnosticsSummary(OutputSummaryPayload payload)
     {
         var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
-        return $"Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+        return payload.RootLineFeatureClassDiagnostic is null
+            ? $"Diagnostics: map load {mapMode}; bearing text populated {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text populated {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
+            : $"Diagnostics: map load {mapMode}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
     }
 
     private void ToggleReviewDetails()
@@ -2013,13 +2052,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         return CanUseWorkflowActions && parameter is SourceFileListItem { SourceFile: { Copied: true, CopiedPath: not null } };
     }
 
-    private static string GetStepStateForIntake(WorkflowState state)
+    private static string GetStepStateForSupportingDocuments(WorkflowState state, bool intakeReadyForPreflight, IReadOnlyList<PreflightResultListItem> supportingDocumentResults)
     {
-        return state == WorkflowState.NoCase ? "pending" : "done";
-    }
+        if (HasBlockingGroup(supportingDocumentResults))
+        {
+            return "blocked";
+        }
 
-    private static string GetStepStateForIntake(WorkflowState state, bool intakeReadyForPreflight)
-    {
         return state switch
         {
             WorkflowState.NoCase => "pending",
@@ -2044,15 +2083,138 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
     }
 
-    private static string GetStepStateForPreflight(WorkflowState state, bool intakeReadyForPreflight)
+    private IReadOnlyList<PreflightResultListItem> FilterPreflightResults(params string[] groups)
     {
+        if (groups.Length == 0)
+        {
+            return PreflightResults;
+        }
+
+        var normalized = new HashSet<string>(
+            groups.Where(group => !string.IsNullOrWhiteSpace(group))
+                .Select(group => group.Trim().ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
+        return PreflightResults
+            .Where(result => normalized.Contains(ResolvePreflightRuleGroup(result.Check)))
+            .ToArray();
+    }
+
+    private string ResolvePreflightRuleGroup(PreflightCheck check)
+    {
+        var ruleGroup = preflightRuleCatalog.TryGetRule(check.CheckId)?.Group;
+        if (!string.IsNullOrWhiteSpace(ruleGroup))
+        {
+            return ruleGroup.Trim().ToLowerInvariant();
+        }
+
+        return check.Category.Trim().ToLowerInvariant() switch
+        {
+            "manifest" => "supporting_document",
+            "workflow_rule" => "structure",
+            "dwg" => "structure",
+            "georeference" => "georeference",
+            "arcgis_pro" => "system",
+            "write_access" => "system",
+            "python" => "system",
+            "system" => "system",
+            _ => "structure"
+        };
+    }
+
+    private static string BuildGroupedBadge(IReadOnlyList<PreflightResultListItem> results, string emptyLabel)
+    {
+        if (results.Count == 0)
+        {
+            return emptyLabel;
+        }
+
+        var blockers = results.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+        if (blockers > 0)
+        {
+            return $"{blockers} blocker(s)";
+        }
+
+        var warnings = results.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+        if (warnings > 0)
+        {
+            return $"{warnings} warning(s)";
+        }
+
+        var passed = results.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+        return passed > 0 ? "Passed" : emptyLabel;
+    }
+
+    private static string BuildGroupedHint(IReadOnlyList<PreflightResultListItem> results, string emptyLabel)
+    {
+        if (results.Count == 0)
+        {
+            return emptyLabel;
+        }
+
+        var blocker = results.FirstOrDefault(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+        if (blocker is not null)
+        {
+            return blocker.Details;
+        }
+
+        var warning = results.FirstOrDefault(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+        if (warning is not null)
+        {
+            return warning.Details;
+        }
+
+        return emptyLabel;
+    }
+
+    private static bool HasBlockingGroup(IReadOnlyList<PreflightResultListItem> results)
+    {
+        return results.Any(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetStepStateForStructureCheck(WorkflowState state, bool intakeReadyForPreflight, IReadOnlyList<PreflightResultListItem> structureCheckResults)
+    {
+        if (HasBlockingGroup(structureCheckResults))
+        {
+            return "blocked";
+        }
+
         return state switch
         {
             WorkflowState.NoCase => "pending",
             WorkflowState.Intake when intakeReadyForPreflight => "active",
-            WorkflowState.Intake => "active",
+            WorkflowState.Intake => "pending",
             WorkflowState.PreflightRunning => "active",
-            WorkflowState.PreflightBlocked => "blocked",
+            WorkflowState.PreflightBlocked => structureCheckResults.Count == 0 ? "active" : "done",
+            WorkflowState.PreflightPassed => "done",
+            WorkflowState.ExtractionRunning => "done",
+            WorkflowState.ExtractionFailed => "done",
+            WorkflowState.ReviewPending => "done",
+            WorkflowState.ReviewManualPending => "done",
+            WorkflowState.ReviewApproved => "done",
+            WorkflowState.ValidationRunning => "done",
+            WorkflowState.ValidationBlocked => "done",
+            WorkflowState.ValidationPassed => "done",
+            WorkflowState.OutputRunning => "done",
+            WorkflowState.OutputCreated => "done",
+            WorkflowState.SpatialReviewPending => "done",
+            WorkflowState.SpatialReviewApproved => "done",
+            _ => "pending"
+        };
+    }
+
+    private static string GetStepStateForGeoreferenceCheck(WorkflowState state, IReadOnlyList<PreflightResultListItem> structureCheckResults, IReadOnlyList<PreflightResultListItem> georeferenceResults)
+    {
+        if (HasBlockingGroup(georeferenceResults))
+        {
+            return "blocked";
+        }
+
+        return state switch
+        {
+            WorkflowState.NoCase or WorkflowState.Intake => "pending",
+            WorkflowState.PreflightRunning => structureCheckResults.Count > 0 ? "active" : "pending",
+            WorkflowState.PreflightBlocked => georeferenceResults.Count > 0 ? "done" : "pending",
             WorkflowState.PreflightPassed => "done",
             WorkflowState.ExtractionRunning => "done",
             WorkflowState.ExtractionFailed => "done",
@@ -2170,8 +2332,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private IReadOnlyList<WorkflowLifecycleStep> BuildWorkflowSteps()
     {
         var currentState = workflowSession.CurrentState;
-        var intakeState = GetStepStateForIntake(currentState, IntakeReadyForPreflight);
-        var preflightState = GetStepStateForPreflight(currentState, IntakeReadyForPreflight);
+        var supportingDocumentState = GetStepStateForSupportingDocuments(currentState, IntakeReadyForPreflight, SupportingDocumentResults);
+        var structureCheckState = GetStepStateForStructureCheck(currentState, IntakeReadyForPreflight, StructureCheckResults);
+        var georeferenceState = GetStepStateForGeoreferenceCheck(currentState, StructureCheckResults, GeoreferenceResults);
         var extractionState = GetStepStateForExtractionReview(currentState, HasExtractionArtifact);
         var validationState = GetStepStateForValidation(currentState);
         var outputState = GetStepStateForOutputs(currentState);
@@ -2182,8 +2345,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         return new WorkflowLifecycleStep[]
         {
-            new WorkflowLifecycleStep("Attachments", intakeState, GetLifecycleStepIcon(intakeState)),
-            new WorkflowLifecycleStep("Data Extraction", preflightState, GetLifecycleStepIcon(preflightState)),
+            new WorkflowLifecycleStep("Supporting Document Check", supportingDocumentState, GetLifecycleStepIcon(supportingDocumentState)),
+            new WorkflowLifecycleStep("Structure Check", structureCheckState, GetLifecycleStepIcon(structureCheckState)),
+            new WorkflowLifecycleStep("Georeference Check", georeferenceState, GetLifecycleStepIcon(georeferenceState)),
             new WorkflowLifecycleStep("Validate Points", extractionState, GetLifecycleStepIcon(extractionState)),
             new WorkflowLifecycleStep("Create Spatial Units", spatialUnitsState, GetLifecycleStepIcon(spatialUnitsState)),
             new WorkflowLifecycleStep("Final Review", finalReviewState, GetLifecycleStepIcon(finalReviewState)),
@@ -2226,18 +2390,38 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             _ => "—"
         };
 
-    private static string GetWorkspaceStageLabel(WorkflowWorkspaceStage stage) =>
+    private string GetWorkspaceStageLabel(WorkflowWorkspaceStage stage, WorkflowState state) =>
         stage switch
         {
-            WorkflowWorkspaceStage.Intake => "Attachments",
-            WorkflowWorkspaceStage.Preflight => "Data Extraction",
+            WorkflowWorkspaceStage.Intake => "Supporting Document Check",
+            WorkflowWorkspaceStage.Preflight => ResolveEarlyCheckWorkspaceLabel(state),
             WorkflowWorkspaceStage.ExtractionReview => "Validate Points",
             WorkflowWorkspaceStage.Validation => "Create Spatial Units",
             WorkflowWorkspaceStage.Outputs => "Create Spatial Units",
             WorkflowWorkspaceStage.SpatialReview => "Final Review",
             WorkflowWorkspaceStage.ReadyToComplete => "Finalize",
-            _ => "Attachments"
+            _ => "Supporting Document Check"
         };
+
+    private string ResolveEarlyCheckWorkspaceLabel(WorkflowState state)
+    {
+        if (HasBlockingGroup(SupportingDocumentResults))
+        {
+            return "Supporting Document Check";
+        }
+
+        if (HasBlockingGroup(StructureCheckResults) || state == WorkflowState.PreflightRunning || !HasPreflightResults)
+        {
+            return "Structure Check";
+        }
+
+        if (HasBlockingGroup(GeoreferenceResults))
+        {
+            return "Georeference Check";
+        }
+
+        return "Structure Check";
+    }
 
     private string? ResolveSelectedTransactionType()
     {
@@ -2357,12 +2541,23 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(PreflightWarnings));
         NotifyPropertyChanged(nameof(PreflightPassedChecks));
         NotifyPropertyChanged(nameof(PreflightResults));
+        NotifyPropertyChanged(nameof(SupportingDocumentResults));
+        NotifyPropertyChanged(nameof(StructureCheckResults));
+        NotifyPropertyChanged(nameof(GeoreferenceResults));
         NotifyPropertyChanged(nameof(HasPreflightResults));
+        NotifyPropertyChanged(nameof(HasSupportingDocumentResults));
+        NotifyPropertyChanged(nameof(HasStructureCheckResults));
+        NotifyPropertyChanged(nameof(HasGeoreferenceResults));
         NotifyPropertyChanged(nameof(PreflightBadge));
+        NotifyPropertyChanged(nameof(SupportingDocumentBadge));
+        NotifyPropertyChanged(nameof(StructureCheckBadge));
+        NotifyPropertyChanged(nameof(GeoreferenceBadge));
         NotifyPropertyChanged(nameof(PreflightDetailsExpanded));
         NotifyPropertyChanged(nameof(PreflightToggleText));
         NotifyPropertyChanged(nameof(PreflightSummaryText));
         NotifyPropertyChanged(nameof(PreflightCollapsedHint));
+        NotifyPropertyChanged(nameof(GeoreferenceSummaryText));
+        NotifyPropertyChanged(nameof(GeoreferenceCollapsedHint));
         NotifyPropertyChanged(nameof(PreflightSummaryExpanded));
         NotifyPropertyChanged(nameof(SelectedReviewRow));
         NotifyPropertyChanged(nameof(SelectedReviewSource));
