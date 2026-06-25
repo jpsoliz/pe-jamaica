@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using System.IO;
@@ -50,6 +51,7 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
         var dwgContextPath = Path.Combine(layout.WorkingDirectory, "dwg_context.json");
         var outputPath = Path.Combine(layout.WorkingDirectory, persistenceService.ValidationArtifactFileName);
         var rulesPath = executionSettings.ValidationRulesPath;
+        var settingsPath = InnolaTransactionSettings.ResolveActiveSettingsPath();
 
         var arguments = string.Join(" ",
             Quote(executionSettings.ValidationAdapterScriptPath),
@@ -60,7 +62,8 @@ public sealed class ValidationAdapterExecutionService : IValidationExecutionServ
             "--dwg-context", Quote(dwgContextPath),
             "--output", Quote(outputPath),
             "--operator", Quote(operatorId ?? string.Empty),
-            "--rules", Quote(rulesPath ?? string.Empty));
+            "--rules", Quote(rulesPath ?? string.Empty),
+            "--settings", Quote(settingsPath));
 
         var result = await processRunner.RunAsync(
             executionSettings.PythonExecutable,

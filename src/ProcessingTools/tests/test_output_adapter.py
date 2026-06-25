@@ -452,6 +452,8 @@ class OutputAdapterTests(unittest.TestCase):
                         str(review_path),
                         "--review-workspace-mode",
                         "parcel_fabric",
+                        "--add-cogo-attributes",
+                        "true",
                         "--output-root",
                         str(output_root),
                         "--output-summary",
@@ -478,6 +480,12 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual(1, summary["payload"]["built_parcel_count"])
             self.assertEqual(2, summary["payload"]["built_line_count"])
             self.assertEqual(3, summary["payload"]["built_point_count"])
+            self.assertTrue(summary["payload"]["root_line_bearing_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_distance_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_length_txt_exists"])
+            self.assertTrue(summary["payload"]["root_line_distance_m_exists"])
+            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
+            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
             self.assertEqual([], summary["warnings"])
 
     def test_output_adapter_respects_parcel_group_boundaries_for_segments(self):

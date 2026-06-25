@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.Workflow.Review;
 
 namespace ParcelWorkflowAddIn.Settings;
 
@@ -37,6 +39,7 @@ public sealed class SettingsWorkspaceService
         var environmentSettings = LoadProcessingEnvironmentSettings(settingsPath);
         var settingsRoot = LoadSettingsRoot(settingsPath);
         var ruleCatalog = ruleCatalogLoader.Load();
+        var closureCatalog = ClosureToleranceCatalog.Load(settingsPath);
 
         return new SettingsWorkspaceDocument
         {
@@ -84,6 +87,11 @@ public sealed class SettingsWorkspaceService
             SpatialOutputAddCogoAttributes = executionSettings.SpatialOutputAddCogoAttributes,
             SpatialOutputAddCogoLabels = executionSettings.SpatialOutputAddCogoLabels,
             SpatialOutputCogoSourceMode = NormalizeSpatialOutputCogoSourceMode(ReadString(settingsRoot, "spatial_output_cogo_source_mode") ?? executionSettings.SpatialOutputCogoSourceMode),
+            ClosureDefaultMaxClosureDistanceM = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).MaxClosureDistanceM),
+            ClosureDefaultMinMiscloseRatioDenominator = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).MinMiscloseRatioDenominator),
+            ClosureDefaultWarningClosureDistanceM = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).WarningClosureDistanceM),
+            ClosureDefaultWarningMiscloseRatioDenominator = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).WarningMiscloseRatioDenominator),
+            ClosureToleranceProfileOverridesJson = ReadJson(settingsRoot, "closure_tolerance_profile_overrides"),
             EnterpriseWorkingEnabled = transactionSettings.EnterpriseWorkingReview.Enabled,
             EnterpriseWorkingServiceRoot = transactionSettings.EnterpriseWorkingReview.ServiceRoot ?? string.Empty,
             EnterpriseWorkingWorkspaceName = transactionSettings.EnterpriseWorkingReview.WorkspaceName,
@@ -169,6 +177,52 @@ public sealed class SettingsWorkspaceService
         if (!IsSupportedSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode))
         {
             messages.Add(new("Spatial Workspace", "COGO Source Mode", $"COGO source mode '{document.SpatialOutputCogoSourceMode}' is not supported."));
+        }
+
+        var closureMaxDistance = ParsePositiveDouble(document.ClosureDefaultMaxClosureDistanceM);
+        if (closureMaxDistance is null)
+        {
+            messages.Add(new("Spatial Workspace", "Closure max distance", "Closure max distance must be a positive number."));
+        }
+
+        var closureWarningDistance = ParsePositiveDouble(document.ClosureDefaultWarningClosureDistanceM);
+        if (closureWarningDistance is null)
+        {
+            messages.Add(new("Spatial Workspace", "Closure warning distance", "Closure warning distance must be a positive number."));
+        }
+
+        var closureBlockRatio = ParsePositiveDouble(document.ClosureDefaultMinMiscloseRatioDenominator);
+        if (closureBlockRatio is null)
+        {
+            messages.Add(new("Spatial Workspace", "Closure blocker ratio", "Closure blocker ratio must be a positive number."));
+        }
+
+        var closureWarningRatio = ParsePositiveDouble(document.ClosureDefaultWarningMiscloseRatioDenominator);
+        if (closureWarningRatio is null)
+        {
+            messages.Add(new("Spatial Workspace", "Closure warning ratio", "Closure warning ratio must be a positive number."));
+        }
+
+        if (closureMaxDistance is not null && closureWarningDistance is not null && closureWarningDistance > closureMaxDistance)
+        {
+            messages.Add(new("Spatial Workspace", "Closure warning distance", "Closure warning distance should be less than or equal to the blocker distance."));
+        }
+
+        if (closureBlockRatio is not null && closureWarningRatio is not null && closureWarningRatio < closureBlockRatio)
+        {
+            messages.Add(new("Spatial Workspace", "Closure warning ratio", "Closure warning ratio should be greater than or equal to the blocker ratio denominator."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(document.ClosureToleranceProfileOverridesJson))
+        {
+            try
+            {
+                JsonNode.Parse(document.ClosureToleranceProfileOverridesJson);
+            }
+            catch (JsonException exception)
+            {
+                messages.Add(new("Spatial Workspace", "Closure Tolerance Overrides", $"Closure tolerance overrides must be valid JSON. {exception.Message}"));
+            }
         }
 
         if (string.Equals(document.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
@@ -281,6 +335,7 @@ public sealed class SettingsWorkspaceService
         root["spatial_output_add_cogo_attributes"] = document.SpatialOutputAddCogoAttributes;
         root["spatial_output_add_cogo_labels"] = document.SpatialOutputAddCogoLabels;
         SetString(root, "spatial_output_cogo_source_mode", NormalizeSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode));
+        SetJson(root, "closure_tolerance_profile_overrides", BuildClosureToleranceOverridesJson(document));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
         root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
@@ -407,6 +462,57 @@ public sealed class SettingsWorkspaceService
 
         Directory.CreateDirectory(Path.GetDirectoryName(rulesPath) ?? AppContext.BaseDirectory);
         File.WriteAllText(rulesPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string BuildClosureToleranceOverridesJson(SettingsWorkspaceDocument document)
+    {
+        JsonObject root;
+        if (string.IsNullOrWhiteSpace(document.ClosureToleranceProfileOverridesJson))
+        {
+            root = new JsonObject();
+        }
+        else
+        {
+            root = JsonNode.Parse(document.ClosureToleranceProfileOverridesJson) as JsonObject ?? new JsonObject();
+        }
+
+        var profiles = root["profiles"] as JsonObject ?? new JsonObject();
+        root["profiles"] = profiles;
+
+        var standardClosed = profiles["standard_closed"] as JsonObject ?? new JsonObject();
+        profiles["standard_closed"] = standardClosed;
+
+        standardClosed["max_closure_distance_m"] = ParsePositiveDouble(document.ClosureDefaultMaxClosureDistanceM);
+        standardClosed["min_misclose_ratio_denominator"] = ParsePositiveDouble(document.ClosureDefaultMinMiscloseRatioDenominator);
+        standardClosed["warning_closure_distance_m"] = ParsePositiveDouble(document.ClosureDefaultWarningClosureDistanceM);
+        standardClosed["warning_misclose_ratio_denominator"] = ParsePositiveDouble(document.ClosureDefaultWarningMiscloseRatioDenominator);
+
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string FormatNullableDouble(double? value)
+    {
+        return value?.ToString("0.###", CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private static double? ParsePositiveDouble(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        if (double.TryParse(text.Trim(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var value) && value > 0d)
+        {
+            return value;
+        }
+
+        if (double.TryParse(text.Trim(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) && value > 0d)
+        {
+            return value;
+        }
+
+        return null;
     }
 
     private static JsonArray CreateStringArray(IEnumerable<string> values)
@@ -630,5 +736,26 @@ public sealed class SettingsWorkspaceService
     private static void SetString(JsonObject root, string name, string? value)
     {
         root[name] = value ?? string.Empty;
+    }
+
+    private static string ReadJson(JsonObject? root, string name)
+    {
+        if (root?[name] is null)
+        {
+            return string.Empty;
+        }
+
+        return root[name]!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static void SetJson(JsonObject root, string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            root[name] = new JsonObject();
+            return;
+        }
+
+        root[name] = JsonNode.Parse(value);
     }
 }

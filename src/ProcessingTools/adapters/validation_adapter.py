@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import uuid
 from collections import Counter
@@ -43,6 +44,318 @@ def _read_rules_metadata(path: Path | None) -> tuple[str, str]:
             rule_version = value
 
     return (rule_profile, rule_version)
+
+
+def _parse_scalar(raw_value: str) -> Any:
+    value = raw_value.strip().strip("'\"")
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value
+
+
+def _read_closure_profiles(path: Path | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "default": {
+            "rule_id": "closure_default_standard",
+            "title": "Standard parcel closure tolerance",
+            "description": "Default closure tolerance for closed parcel traverses.",
+            "enabled": True,
+            "severity": "blocker",
+            "parcel_type": "standard_closed",
+            "allow_open_boundary": False,
+            "max_closure_distance_m": 0.3,
+            "min_misclose_ratio_denominator": 2500,
+            "warning_closure_distance_m": 0.15,
+            "warning_misclose_ratio_denominator": 4000,
+            "evaluation_basis": "distance_and_ratio",
+            "fallback": True,
+        },
+        "profiles": {},
+    }
+    if path is None or not path.exists():
+        return result
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_default = False
+    in_profiles = False
+    current_profile: dict[str, Any] | None = None
+    skip_nested_indent: int | None = None
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent == 0:
+            in_default = stripped.startswith("closure_tolerance_defaults:")
+            in_profiles = stripped.startswith("closure_tolerance_profiles:")
+            current_profile = None
+            skip_nested_indent = None
+            continue
+
+        if skip_nested_indent is not None and indent > skip_nested_indent:
+            continue
+        if skip_nested_indent is not None and indent <= skip_nested_indent:
+            skip_nested_indent = None
+
+        if in_default:
+            if ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            result["default"][key] = _parse_scalar(raw_value)
+            continue
+
+        if in_profiles:
+            if stripped.startswith("- "):
+                current_profile = {}
+                result["profiles"][f"profile_{len(result['profiles']) + 1}"] = current_profile
+                stripped = stripped[2:].strip()
+                if not stripped:
+                    continue
+            if current_profile is None or ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            current_profile[key] = _parse_scalar(raw_value)
+            parcel_type = str(current_profile.get("parcel_type") or "").strip()
+            if parcel_type:
+                result["profiles"][parcel_type] = current_profile
+
+    unnamed = [key for key in list(result["profiles"].keys()) if key.startswith("profile_")]
+    for key in unnamed:
+        profile = result["profiles"].pop(key)
+        parcel_type = str(profile.get("parcel_type") or key).strip()
+        result["profiles"][parcel_type] = profile
+
+    return result
+
+
+def _load_settings(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        return _read_json(path)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _apply_profile_overrides(rule_config: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    overrides = settings.get("closure_tolerance_profile_overrides")
+    if not isinstance(overrides, dict):
+        return rule_config
+
+    merged = {
+        "default": dict(rule_config.get("default") or {}),
+        "profiles": {key: dict(value) for key, value in (rule_config.get("profiles") or {}).items()},
+    }
+
+    default_parcel_type = overrides.get("default_parcel_type")
+    if isinstance(default_parcel_type, str) and default_parcel_type.strip():
+        merged["default"]["parcel_type"] = default_parcel_type.strip()
+
+    profile_overrides = overrides.get("profiles")
+    if not isinstance(profile_overrides, dict):
+        return merged
+
+    for parcel_type, override_values in profile_overrides.items():
+        if not isinstance(override_values, dict):
+            continue
+        target = merged["profiles"].setdefault(parcel_type, {"parcel_type": parcel_type})
+        for key, value in override_values.items():
+            target[key] = value
+
+    return merged
+
+
+def _normalize_parcel_group(row: dict[str, Any], index: int) -> str:
+    value = (
+        row.get("review_parcel_group_id")
+        or row.get("parcel_group_id")
+        or row.get("review_traverse_id")
+        or row.get("traverse_id")
+        or row.get("review_parcel_name")
+        or row.get("parcel_name")
+        or f"parcel-{index + 1}"
+    )
+    text = str(value).strip()
+    return text or f"parcel-{index + 1}"
+
+
+def _sequence_value(row: dict[str, Any], fallback_index: int) -> int:
+    candidates = (
+        row.get("review_sequence_in_group"),
+        row.get("sequence_in_group"),
+        row.get("seq"),
+        row.get("segment_index"),
+    )
+    for candidate in candidates:
+        try:
+            if candidate is None or str(candidate).strip() == "":
+                continue
+            return int(str(candidate).strip())
+        except ValueError:
+            continue
+    return fallback_index + 1
+
+
+def _infer_parcel_type(rows: list[dict[str, Any]], source_files: list[dict[str, Any]], default_parcel_type: str) -> str:
+    explicit_types = [
+        str(row.get("parcel_type") or row.get("review_parcel_type") or "").strip()
+        for row in rows
+        if str(row.get("parcel_type") or row.get("review_parcel_type") or "").strip()
+    ]
+    if explicit_types:
+        return explicit_types[0]
+
+    if any(bool(row.get("review_is_boundary_break") if "review_is_boundary_break" in row else row.get("is_boundary_break")) for row in rows):
+        return "open_boundary"
+
+    if any(str(file_item.get("file_type", "")).lower() in {".txt", ".csv"} for file_item in source_files):
+        return "imported_coordinates"
+
+    return default_parcel_type or "standard_closed"
+
+
+def _compute_closure_results(
+    review_data: dict[str, Any],
+    source_files: list[dict[str, Any]],
+    rule_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = review_data.get("rows") or []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        grouped.setdefault(_normalize_parcel_group(row, index), []).append(row)
+
+    default_profile = dict(rule_config.get("default") or {})
+    profiles = rule_config.get("profiles") or {}
+    results: list[dict[str, Any]] = []
+
+    for group_id, group_rows in grouped.items():
+        ordered_rows = sorted(group_rows, key=lambda row: _sequence_value(row, group_rows.index(row)))
+        parcel_type = _infer_parcel_type(ordered_rows, source_files, str(default_profile.get("parcel_type") or "standard_closed"))
+        profile = dict(default_profile)
+        profile.update(profiles.get(parcel_type) or {})
+
+        parcel_name = next(
+            (
+                str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+                for row in ordered_rows
+                if str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+            ),
+            group_id,
+        )
+        profile_enabled = bool(profile.get("enabled", True))
+        allow_open_boundary = bool(profile.get("allow_open_boundary", False))
+        severity = str(profile.get("severity") or "blocker")
+
+        coordinates: list[tuple[float, float]] = []
+        coordinate_rows = 0
+        for row in ordered_rows:
+            easting = row.get("easting")
+            northing = row.get("northing")
+            if not _is_number(easting) or not _is_number(northing):
+                continue
+            coordinate_rows += 1
+            coordinates.append((float(str(easting).strip()), float(str(northing).strip())))
+
+        closure_distance = None
+        misclose_ratio_denominator = None
+        status = "pass"
+        message = "Closure validation passed."
+        evaluation_status = "passed"
+
+        if not profile_enabled:
+            status = "pass"
+            message = "Closure validation profile is disabled."
+            evaluation_status = "passed"
+        elif len(coordinates) < 2:
+            status = "warning"
+            message = "Not enough numeric coordinate rows are available to compute parcel closure."
+            evaluation_status = "failed"
+        else:
+            start_x, start_y = coordinates[0]
+            end_x, end_y = coordinates[-1]
+            dx = end_x - start_x
+            dy = end_y - start_y
+            closure_distance = math.hypot(dx, dy)
+
+            total_length = 0.0
+            for previous, current in zip(coordinates, coordinates[1:]):
+                total_length += math.hypot(current[0] - previous[0], current[1] - previous[1])
+
+            if closure_distance and closure_distance > 0 and total_length > 0:
+                misclose_ratio_denominator = total_length / closure_distance
+
+            max_distance = float(profile.get("max_closure_distance_m") or 0.0)
+            warn_distance = float(profile.get("warning_closure_distance_m") or max_distance)
+            min_ratio = float(profile.get("min_misclose_ratio_denominator") or 0.0)
+            warn_ratio = float(profile.get("warning_misclose_ratio_denominator") or min_ratio)
+
+            is_distance_block = closure_distance is not None and max_distance > 0 and closure_distance > max_distance
+            is_distance_warning = closure_distance is not None and warn_distance > 0 and closure_distance > warn_distance
+            is_ratio_block = (
+                misclose_ratio_denominator is not None and min_ratio > 0 and misclose_ratio_denominator < min_ratio
+            )
+            is_ratio_warning = (
+                misclose_ratio_denominator is not None and warn_ratio > 0 and misclose_ratio_denominator < warn_ratio
+            )
+
+            if allow_open_boundary:
+                if is_distance_warning or is_ratio_warning:
+                    status = "warning"
+                    evaluation_status = "failed"
+                    message = "Open-boundary parcel remains outside the configured informational closure tolerance."
+                else:
+                    message = "Open-boundary parcel is within the configured informational closure tolerance."
+            else:
+                if is_distance_block or is_ratio_block:
+                    status = "blocker" if severity in {"critical", "high", "blocker"} else "warning"
+                    evaluation_status = "failed"
+                    message = "Closed parcel closure exceeds the configured blocking tolerance."
+                elif is_distance_warning or is_ratio_warning:
+                    status = "warning"
+                    evaluation_status = "failed"
+                    message = "Closed parcel closure exceeds the configured warning tolerance."
+
+        results.append(
+            {
+                "parcel_group_id": group_id,
+                "parcel_name": parcel_name,
+                "parcel_type": parcel_type,
+                "profile_rule_id": profile.get("rule_id") or default_profile.get("rule_id") or "closure_default_standard",
+                "profile_title": profile.get("title") or "Closure tolerance profile",
+                "severity": severity,
+                "status": status,
+                "evaluation_status": evaluation_status,
+                "message": message,
+                "allow_open_boundary": allow_open_boundary,
+                "coordinate_row_count": coordinate_rows,
+                "closure_distance_m": round(closure_distance, 6) if closure_distance is not None else None,
+                "misclose_ratio_denominator": round(misclose_ratio_denominator, 2) if misclose_ratio_denominator is not None else None,
+                "max_closure_distance_m": profile.get("max_closure_distance_m"),
+                "warning_closure_distance_m": profile.get("warning_closure_distance_m"),
+                "min_misclose_ratio_denominator": profile.get("min_misclose_ratio_denominator"),
+                "warning_misclose_ratio_denominator": profile.get("warning_misclose_ratio_denominator"),
+            }
+        )
+
+    return results
 
 
 def _review_hash(document: dict[str, Any]) -> str | None:
@@ -85,8 +398,11 @@ def build_summary(
     rules_path: Path | None,
     source_root: Path | None,
     dwg_context_path: Path | None,
+    settings_path: Path | None,
 ) -> dict[str, Any]:
     rule_profile, rule_version = _read_rules_metadata(rules_path)
+    settings = _load_settings(settings_path)
+    closure_rule_config = _apply_profile_overrides(_read_closure_profiles(rules_path), settings)
     transaction_id = manifest.get("transaction_id") or review_data.get("transaction_number") or ""
     findings: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -322,6 +638,62 @@ def build_summary(
             )
         )
 
+    closure_results = _compute_closure_results(review_data, source_files, closure_rule_config)
+    closure_blockers = 0
+    closure_warnings = 0
+    closure_passed = 0
+    for closure_result in closure_results:
+        status = closure_result["status"]
+        if status == "blocker":
+            closure_blockers += 1
+            findings.append(
+                _finding(
+                    str(closure_result["profile_rule_id"]),
+                    f"{closure_result['parcel_name']}: closure check",
+                    "high",
+                    "failed",
+                    (
+                        f"parcel_group={closure_result['parcel_group_id']}; "
+                        f"closure_distance_m={closure_result['closure_distance_m']}; "
+                        f"misclose_ratio_denominator={closure_result['misclose_ratio_denominator']}"
+                    ),
+                    "Adjust the parcel point sequence or coordinates until closure falls within the blocking tolerance.",
+                )
+            )
+        elif status == "warning":
+            closure_warnings += 1
+            findings.append(
+                _finding(
+                    str(closure_result["profile_rule_id"]),
+                    f"{closure_result['parcel_name']}: closure check",
+                    "warning",
+                    "failed",
+                    (
+                        f"parcel_group={closure_result['parcel_group_id']}; "
+                        f"closure_distance_m={closure_result['closure_distance_m']}; "
+                        f"misclose_ratio_denominator={closure_result['misclose_ratio_denominator']}"
+                    ),
+                    "Review parcel closure before final approval.",
+                )
+            )
+            warnings.append(f"{closure_result['parcel_name']} remains outside the configured closure warning tolerance.")
+        else:
+            closure_passed += 1
+            findings.append(
+                _finding(
+                    str(closure_result["profile_rule_id"]),
+                    f"{closure_result['parcel_name']}: closure check",
+                    "passed",
+                    "passed",
+                    (
+                        f"parcel_group={closure_result['parcel_group_id']}; "
+                        f"closure_distance_m={closure_result['closure_distance_m']}; "
+                        f"misclose_ratio_denominator={closure_result['misclose_ratio_denominator']}"
+                    ),
+                    None,
+                )
+            )
+
     blocked = any(
         finding["severity"] in {"critical", "high"} and finding["status"] == "failed"
         for finding in findings
@@ -349,6 +721,12 @@ def build_summary(
                 "info": counts.get("info", 0),
                 "passed": counts.get("passed", 0),
             },
+            "closure_summary": {
+                "blocker": closure_blockers,
+                "warning": closure_warnings,
+                "passed": closure_passed,
+            },
+            "closure_results": closure_results,
             "findings": findings,
         },
         "warnings": warnings,
@@ -366,6 +744,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--operator", default="")
     parser.add_argument("--rules", default="")
+    parser.add_argument("--settings", default="")
     args = parser.parse_args(argv)
 
     manifest_path = Path(args.manifest)
@@ -375,6 +754,7 @@ def main(argv: list[str] | None = None) -> int:
     dwg_context_path = Path(args.dwg_context) if args.dwg_context else None
     output_path = Path(args.output)
     rules_path = Path(args.rules) if args.rules else None
+    settings_path = Path(args.settings) if args.settings else None
 
     summary = build_summary(
         _read_json(manifest_path),
@@ -384,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
         rules_path,
         source_root,
         dwg_context_path,
+        settings_path,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

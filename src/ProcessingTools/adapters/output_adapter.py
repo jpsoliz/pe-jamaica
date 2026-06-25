@@ -541,7 +541,7 @@ def _copy_without_keys(row: dict[str, Any], keys: set[str]) -> dict[str, Any]:
     return {key: value for key, value in row.items() if key not in keys}
 
 
-def _prepare_optional_non_fabric_cogo(
+def _prepare_optional_output_cogo(
     points: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     polygons: list[dict[str, Any]],
@@ -549,9 +549,6 @@ def _prepare_optional_non_fabric_cogo(
     add_cogo_attributes: bool,
     cogo_source_mode: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    if review_workspace_mode != REVIEW_WORKSPACE_MODE_NORMAL:
-        return points, segments, polygons
-
     if not add_cogo_attributes:
         point_keys = {"length_txt", "distance_txt"}
         line_keys = {
@@ -1682,7 +1679,7 @@ def main(argv: list[str] | None = None) -> int:
     points = [point for group in point_groups for point in (group.get("points") or [])]
     segments = _polyline_segments(point_groups)
     polygons = _polygon_rings(point_groups)
-    points, segments, polygons = _prepare_optional_non_fabric_cogo(
+    points, segments, polygons = _prepare_optional_output_cogo(
         points,
         segments,
         polygons,
@@ -1712,7 +1709,7 @@ def main(argv: list[str] | None = None) -> int:
             segments,
             polygons,
             output_metadata,
-            review_workspace_mode == REVIEW_WORKSPACE_MODE_NORMAL and add_cogo_attributes,
+            add_cogo_attributes,
             review_workspace_mode,
             str(transaction_number),
         )

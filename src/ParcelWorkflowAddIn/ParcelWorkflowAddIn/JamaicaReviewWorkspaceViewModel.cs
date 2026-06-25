@@ -219,7 +219,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedParcelTitle));
             OnPropertyChanged(nameof(ParcelInterpretationSummary));
             OnPropertyChanged(nameof(ParcelInterpretationIssues));
+            OnPropertyChanged(nameof(ActiveParcelDiagnosticsSummary));
+            OnPropertyChanged(nameof(ActiveParcelDiagnosticsDetail));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
+            OnPropertyChanged(nameof(ParcelContextPreviewPaths));
             OnPropertyChanged(nameof(SelectedPointPreview));
             OnPropertyChanged(nameof(SelectedRowSummary));
             OnPropertyChanged(nameof(CanChangeParcelGroup));
@@ -246,6 +249,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedPointPreview));
             OnPropertyChanged(nameof(SelectedRowSummary));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
+            OnPropertyChanged(nameof(ParcelContextPreviewPaths));
         }
     }
 
@@ -303,11 +307,86 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
     }
 
+    public string ActiveParcelDiagnosticsSummary
+    {
+        get
+        {
+            if (SelectedParcelGroup is null)
+            {
+                return "Select a parcel to inspect closure and review diagnostics.";
+            }
+
+            var closure = parent.ReviewValidationResult.ClosureResults
+                .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
+            if (closure is null)
+            {
+                return $"{SelectedParcelGroup.RowCount} row(s) in this parcel. No closure diagnostic is available yet.";
+            }
+
+            var status = closure.Status switch
+            {
+                ClosureValidationStatus.Passed => "Passed",
+                ClosureValidationStatus.Warning => "Warning",
+                ClosureValidationStatus.Blocker => "Blocked",
+                _ => "Unknown"
+            };
+
+            var distance = closure.ClosureDistanceM.HasValue
+                ? $"{closure.ClosureDistanceM.Value.ToString("0.###", CultureInfo.InvariantCulture)} m"
+                : "--";
+            var ratio = closure.MiscloseRatioDenominator.HasValue
+                ? $"1:{Math.Round(closure.MiscloseRatioDenominator.Value):0}"
+                : "--";
+
+            return $"Closure {status}. Profile {closure.ProfileTitle}. Distance {distance}. Ratio {ratio}.";
+        }
+    }
+
+    public string ActiveParcelDiagnosticsDetail
+    {
+        get
+        {
+            if (SelectedParcelGroup is null)
+            {
+                return "Parcel-specific diagnostics appear here after a parcel is selected.";
+            }
+
+            var details = new List<string>
+            {
+                $"{SelectedParcelGroup.RowCount} row(s)",
+                $"{SelectedParcelGroup.EditedCount} edited",
+                $"{SelectedParcelGroup.UnresolvedCount} unresolved",
+                $"{SelectedParcelGroup.BoundaryBreakCount} boundary break(s)"
+            };
+
+            var closure = parent.ReviewValidationResult.ClosureResults
+                .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
+            if (closure is not null)
+            {
+                details.Add($"Rule {closure.ProfileRuleId}");
+                if (!string.IsNullOrWhiteSpace(closure.Message))
+                {
+                    details.Add(closure.Message);
+                }
+            }
+
+            if (parent.ReviewValidationResult.ParcelIssues.TryGetValue(SelectedParcelGroup.GroupId, out var parcelIssue)
+                && !string.IsNullOrWhiteSpace(parcelIssue))
+            {
+                details.Add(parcelIssue);
+            }
+
+            return string.Join(Environment.NewLine, details.Distinct(StringComparer.Ordinal));
+        }
+    }
+
     public string SelectedRowSummary => SelectedVisibleRow is null
         ? "Select a row to inspect its point, sequence, and preview marker."
         : $"Selected point {BlankIfEmpty(SelectedVisibleRow.PointIdentifier)} - Easting {BlankIfEmpty(SelectedVisibleRow.Easting)}, Northing {BlankIfEmpty(SelectedVisibleRow.Northing)}, Status {BlankIfEmpty(SelectedVisibleRow.ExtractionStatus)}.";
 
     public PointCollection ParcelPreviewPoints => BuildPreviewPoints();
+
+    public IReadOnlyList<PreviewPath> ParcelContextPreviewPaths => BuildPreviewPaths();
 
     public PreviewMarker? SelectedPointPreview => BuildSelectedMarker();
 
@@ -357,6 +436,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SelectedVisibleRow));
                 OnPropertyChanged(nameof(SelectedRowSummary));
                 OnPropertyChanged(nameof(ParcelPreviewPoints));
+                OnPropertyChanged(nameof(ParcelContextPreviewPaths));
                 OnPropertyChanged(nameof(SelectedPointPreview));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.SelectedReviewSource):
@@ -417,7 +497,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewContentVersion):
                 OnPropertyChanged(nameof(ParcelInterpretationSummary));
                 OnPropertyChanged(nameof(ParcelInterpretationIssues));
+                OnPropertyChanged(nameof(ActiveParcelDiagnosticsSummary));
+                OnPropertyChanged(nameof(ActiveParcelDiagnosticsDetail));
                 OnPropertyChanged(nameof(ParcelPreviewPoints));
+                OnPropertyChanged(nameof(ParcelContextPreviewPaths));
                 OnPropertyChanged(nameof(SelectedPointPreview));
                 OnPropertyChanged(nameof(SelectedRowSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
@@ -520,6 +603,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
 
         OnPropertyChanged(nameof(ParcelPreviewPoints));
+        OnPropertyChanged(nameof(ParcelContextPreviewPaths));
         OnPropertyChanged(nameof(SelectedPointPreview));
         OnPropertyChanged(nameof(SelectedRowSummary));
     }
@@ -559,6 +643,69 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
 
         return new PreviewMarker(points[index].X, points[index].Y, BlankIfEmpty(SelectedVisibleRow.PointIdentifier));
+    }
+
+    private IReadOnlyList<PreviewPath> BuildPreviewPaths()
+    {
+        if (ParcelGroups.Count == 0)
+        {
+            return Array.Empty<PreviewPath>();
+        }
+
+        var rawGroups = new List<(JamaicaParcelGroupViewModel Group, Point[] Points)>();
+        foreach (var group in ParcelGroups)
+        {
+            var actualPoints = group.Rows
+                .Select((row, index) => TryBuildActualPoint(row, index))
+                .ToArray();
+            if (actualPoints.All(item => item.HasValue))
+            {
+                rawGroups.Add((group, actualPoints.Select(item => item!.Value).ToArray()));
+            }
+        }
+
+        if (rawGroups.Count == 0)
+        {
+            return Array.Empty<PreviewPath>();
+        }
+
+        var allPoints = rawGroups.SelectMany(item => item.Points).ToArray();
+        var minX = allPoints.Min(point => point.X);
+        var maxX = allPoints.Max(point => point.X);
+        var minY = allPoints.Min(point => point.Y);
+        var maxY = allPoints.Max(point => point.Y);
+
+        var width = Math.Max(maxX - minX, 1d);
+        var height = Math.Max(maxY - minY, 1d);
+        var scaleX = (PreviewWidth - 40d) / width;
+        var scaleY = (PreviewHeight - 40d) / height;
+        var scale = Math.Min(scaleX, scaleY);
+
+        var activeBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1F6B75"));
+        var contextBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B7C3CC"));
+        var results = new List<PreviewPath>();
+
+        foreach (var item in rawGroups)
+        {
+            var scaled = new PointCollection();
+            foreach (var point in item.Points)
+            {
+                var x = 20d + ((point.X - minX) * scale);
+                var y = PreviewHeight - 20d - ((point.Y - minY) * scale);
+                scaled.Add(new Point(x, y));
+            }
+
+            var isActive = SelectedParcelGroup is not null
+                && string.Equals(item.Group.GroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase);
+            results.Add(new PreviewPath(
+                item.Group.GroupId,
+                scaled,
+                isActive ? activeBrush : contextBrush,
+                isActive ? 3d : 1.4d,
+                isActive ? 1d : 0.7d));
+        }
+
+        return results;
     }
 
     private static Point? TryBuildActualPoint(ExtractionReviewRowViewModel row, int index)
@@ -735,3 +882,4 @@ internal sealed class JamaicaParcelGroupViewModel
 }
 
 internal sealed record PreviewMarker(double X, double Y, string Label);
+internal sealed record PreviewPath(string GroupId, PointCollection Points, Brush Stroke, double StrokeThickness, double Opacity);

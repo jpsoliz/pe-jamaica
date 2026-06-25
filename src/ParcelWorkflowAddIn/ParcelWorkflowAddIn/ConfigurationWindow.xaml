@@ -575,6 +575,87 @@
               </StackPanel>
             </Expander>
 
+            <Expander Header="Closure tolerance validation"
+                      Margin="0,4,0,8"
+                      IsExpanded="False">
+              <StackPanel Margin="0,8,0,0">
+                <TextBlock Foreground="#53636A"
+                           Text="These values define the standard closed-parcel closure thresholds used by Validate Points and Final Review. Advanced JSON overrides remain available below for profile-specific cases."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Max closure distance (m)"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="ClosureDefaultMaxClosureDistanceTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Warning closure distance (m)"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="ClosureDefaultWarningClosureDistanceTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Blocker misclose ratio denominator"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="ClosureDefaultMinMiscloseRatioTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Warning misclose ratio denominator"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="ClosureDefaultWarningMiscloseRatioTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <TextBlock Foreground="#53636A"
+                           Text="Current standard review defaults are typically 0.30 m blocker, 0.15 m warning, 1:2500 blocker, and 1:4000 warning."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+
+                <TextBlock Foreground="#53636A"
+                           Text="Advanced JSON overrides"
+                           FontWeight="SemiBold"
+                           Margin="0,2,0,6" />
+                <TextBox x:Name="ClosureToleranceProfileOverridesTextBox"
+                         AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         MinHeight="160" />
+              </StackPanel>
+            </Expander>
+
             <Expander Header="Enterprise Working Review"
                       x:Name="EnterpriseWorkingExpander"
                       Margin="0,4,0,8">

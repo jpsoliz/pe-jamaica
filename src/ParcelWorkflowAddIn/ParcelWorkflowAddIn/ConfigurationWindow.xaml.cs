@@ -126,6 +126,11 @@ public partial class ConfigurationWindow : ProWindow
         SpatialOutputAddCogoAttributesCheckBox.IsChecked = document.SpatialOutputAddCogoAttributes;
         SpatialOutputAddCogoLabelsCheckBox.IsChecked = document.SpatialOutputAddCogoLabels;
         SetSelectedTag(SpatialOutputCogoSourceModeComboBox, document.SpatialOutputCogoSourceMode);
+        ClosureDefaultMaxClosureDistanceTextBox.Text = document.ClosureDefaultMaxClosureDistanceM;
+        ClosureDefaultWarningClosureDistanceTextBox.Text = document.ClosureDefaultWarningClosureDistanceM;
+        ClosureDefaultMinMiscloseRatioTextBox.Text = document.ClosureDefaultMinMiscloseRatioDenominator;
+        ClosureDefaultWarningMiscloseRatioTextBox.Text = document.ClosureDefaultWarningMiscloseRatioDenominator;
+        ClosureToleranceProfileOverridesTextBox.Text = document.ClosureToleranceProfileOverridesJson;
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
         EnterpriseWorkingWorkspaceNameTextBox.Text = document.EnterpriseWorkingWorkspaceName;
@@ -212,6 +217,11 @@ public partial class ConfigurationWindow : ProWindow
         document.SpatialOutputAddCogoAttributes = SpatialOutputAddCogoAttributesCheckBox.IsChecked == true;
         document.SpatialOutputAddCogoLabels = SpatialOutputAddCogoLabelsCheckBox.IsChecked == true;
         document.SpatialOutputCogoSourceMode = GetSelectedTag(SpatialOutputCogoSourceModeComboBox, SettingsWorkspaceService.SpatialOutputCogoSourceModeSourceThenComputed);
+        document.ClosureDefaultMaxClosureDistanceM = ClosureDefaultMaxClosureDistanceTextBox.Text.Trim();
+        document.ClosureDefaultWarningClosureDistanceM = ClosureDefaultWarningClosureDistanceTextBox.Text.Trim();
+        document.ClosureDefaultMinMiscloseRatioDenominator = ClosureDefaultMinMiscloseRatioTextBox.Text.Trim();
+        document.ClosureDefaultWarningMiscloseRatioDenominator = ClosureDefaultWarningMiscloseRatioTextBox.Text.Trim();
+        document.ClosureToleranceProfileOverridesJson = ClosureToleranceProfileOverridesTextBox.Text.Trim();
         document.EnterpriseWorkingEnabled = EnterpriseWorkingEnabledCheckBox.IsChecked == true;
         document.EnterpriseWorkingServiceRoot = EnterpriseWorkingServiceRootTextBox.Text.Trim();
         document.EnterpriseWorkingWorkspaceName = EnterpriseWorkingWorkspaceNameTextBox.Text.Trim();

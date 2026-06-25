@@ -1,5 +1,114 @@
 rule_profile: sidwell_validation_v1
 rule_version: 1.0.0
+
+# Closure tolerance profiles are defined here first so the
+# Validate Points / Final Review implementation can bind to an
+# agreed external contract instead of hardcoded thresholds.
+# These profiles are not yet enforced until Story 5.23 is implemented.
+closure_tolerance_defaults:
+  rule_id: closure_default_standard
+  title: Standard parcel closure tolerance
+  description: Default closure tolerance for closed parcel traverses when no more specific parcel-type rule applies.
+  enabled: true
+  severity: blocker
+  parcel_type: standard_closed
+  applies_to:
+    workflow_names:
+      - parcel_workflow
+    workflow_stages:
+      - Assign Computation Task
+      - Compute Survey Plan
+  allow_open_boundary: false
+  max_closure_distance_m: 0.3
+  min_misclose_ratio_denominator: 2500
+  warning_closure_distance_m: 0.15
+  warning_misclose_ratio_denominator: 4000
+  evaluation_basis: distance_and_ratio
+  fallback: true
+
+closure_tolerance_profiles:
+  - rule_id: closure_standard_plan_exam
+    title: Standard closed parcel tolerance for compute review
+    description: Use for ordinary closed parcels extracted from computation sheets in compute workflow transactions.
+    enabled: true
+    severity: blocker
+    parcel_type: standard_closed
+    applies_to:
+      transaction_types:
+        - Plan Examination
+        - Cadastral Plan Examination
+      transaction_stage_names:
+        - Assign Computation Task
+        - Compute Survey Plan
+      source_roles:
+        - computation_source
+        - points_computation
+    allow_open_boundary: false
+    max_closure_distance_m: 0.3
+    min_misclose_ratio_denominator: 2500
+    warning_closure_distance_m: 0.15
+    warning_misclose_ratio_denominator: 4000
+    evaluation_basis: distance_and_ratio
+
+  - rule_id: closure_small_parcel_precision
+    title: Higher precision tolerance for small closed parcels
+    description: Optional tighter closure profile for small or high-confidence closed parcels when parcel type is explicitly classified as precision-sensitive.
+    enabled: true
+    severity: blocker
+    parcel_type: precision_closed
+    applies_to:
+      transaction_types:
+        - Plan Examination
+        - Cadastral Plan Examination
+      source_roles:
+        - computation_source
+        - points_computation
+    allow_open_boundary: false
+    max_closure_distance_m: 0.15
+    min_misclose_ratio_denominator: 5000
+    warning_closure_distance_m: 0.08
+    warning_misclose_ratio_denominator: 8000
+    evaluation_basis: distance_and_ratio
+
+  - rule_id: closure_open_boundary_review
+    title: Open boundary parcel review profile
+    description: Use for parcel types that are expected to remain open or partially defined during review and should not hard-block on closure alone.
+    enabled: true
+    severity: warning
+    parcel_type: open_boundary
+    applies_to:
+      transaction_types:
+        - Plan Examination
+        - Cadastral Plan Examination
+      source_roles:
+        - computation_source
+        - plan_map_reference
+    allow_open_boundary: true
+    max_closure_distance_m: 2.0
+    min_misclose_ratio_denominator: 250
+    warning_closure_distance_m: 0.5
+    warning_misclose_ratio_denominator: 1000
+    evaluation_basis: informational
+
+  - rule_id: closure_tabular_coordinate_import
+    title: Imported coordinate parcel tolerance
+    description: Use for parcels built from TXT/CSV coordinate imports where closure should still be checked but source confidence may differ from direct computation extraction.
+    enabled: true
+    severity: blocker
+    parcel_type: imported_coordinates
+    applies_to:
+      source_roles:
+        - points_computation
+      file_types:
+        - .txt
+        - .csv
+    allow_open_boundary: false
+    max_closure_distance_m: 0.3
+    min_misclose_ratio_denominator: 2500
+    warning_closure_distance_m: 0.15
+    warning_misclose_ratio_denominator: 4000
+    evaluation_basis: distance_and_ratio
+
 rules:
   - id: approved_review_snapshot_current
     severity: critical

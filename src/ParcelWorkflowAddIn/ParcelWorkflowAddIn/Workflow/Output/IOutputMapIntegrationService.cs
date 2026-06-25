@@ -374,7 +374,12 @@ internal static class OutputMapReviewStyling
         string? expression = null;
         if (bearingField is not null && lengthTextField is not null)
         {
-            expression = $"Trim(When(IsEmpty($feature.{bearingField}), '', $feature.{bearingField}) + ' ' + When(IsEmpty($feature.{lengthTextField}), '', $feature.{lengthTextField}))";
+            expression =
+                $"When(" +
+                $"IsEmpty($feature.{bearingField}) && IsEmpty($feature.{lengthTextField}), '', " +
+                $"IsEmpty($feature.{bearingField}), $feature.{lengthTextField}, " +
+                $"IsEmpty($feature.{lengthTextField}), $feature.{bearingField}, " +
+                $"$feature.{bearingField} + TextFormatting.NewLine + $feature.{lengthTextField})";
         }
         else if (bearingField is not null)
         {
@@ -395,7 +400,7 @@ internal static class OutputMapReviewStyling
             return;
         }
 
-        ApplySingleLabelClass(featureLayer, definition, "COGO Segment", expression);
+        ApplySingleLabelClass(featureLayer, definition, "COGO Segment", expression, BuildPoiStyleLineLabelSymbol());
     }
 
     private static void ApplyPolygonLabels(FeatureLayer featureLayer, CIMFeatureLayer definition, IReadOnlySet<string> fieldNames, ICollection<string> warnings)
@@ -410,16 +415,34 @@ internal static class OutputMapReviewStyling
         ApplySingleLabelClass(featureLayer, definition, "Parcel", $"$feature.{polygonField}");
     }
 
-    private static void ApplySingleLabelClass(FeatureLayer featureLayer, CIMFeatureLayer definition, string className, string expression)
+    private static void ApplySingleLabelClass(FeatureLayer featureLayer, CIMFeatureLayer definition, string className, string expression, CIMSymbolReference? textSymbol = null)
     {
         var labelClass = definition.LabelClasses?.FirstOrDefault() ?? new CIMLabelClass();
         labelClass.Name = className;
         labelClass.ExpressionEngine = LabelExpressionEngine.Arcade;
         labelClass.Expression = expression;
         labelClass.Visibility = true;
+        if (textSymbol is not null)
+        {
+            labelClass.TextSymbol = textSymbol;
+        }
         definition.LabelClasses = new[] { labelClass };
         definition.LabelVisibility = true;
         featureLayer.SetDefinition(definition);
+    }
+
+    private static CIMSymbolReference BuildPoiStyleLineLabelSymbol()
+    {
+        var textSymbol = SymbolFactory.Instance.ConstructTextSymbol(
+            ColorFactory.Instance.CreateRGBColor(255, 255, 255, 75),
+            9.0,
+            "Arial",
+            "Regular");
+
+        textSymbol.HorizontalAlignment = HorizontalAlignment.Center;
+        textSymbol.VerticalAlignment = VerticalAlignment.Center;
+
+        return textSymbol.MakeSymbolReference();
     }
 
     private static void ApplyPointRenderer(FeatureLayer featureLayer, ICollection<string> warnings)

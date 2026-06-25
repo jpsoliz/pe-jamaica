@@ -793,7 +793,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ParcelScopedReviewValidationResult ReviewValidationResult =>
         loadedReviewDocument is null
-            ? new ParcelScopedReviewValidationResult(new[] { "Review data not loaded." })
+            ? new ParcelScopedReviewValidationResult(new[] { "Review data not loaded." }, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), Array.Empty<ParcelClosureReviewResult>())
             : reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId);
 
     public bool IsManualReviewEditMode => !string.IsNullOrWhiteSpace(pendingManualRowId);
@@ -980,7 +980,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             }
 
             var counts = summary.Payload.FindingCounts;
-            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.";
+            var closure = summary.Payload.ClosureSummary;
+            var closureText = closure is null
+                ? string.Empty
+                : $" Closure - blocker {closure.Blocker}, warning {closure.Warning}, passed {closure.Passed}.";
+            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}";
         }
     }
 
@@ -2663,6 +2667,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        var reviewValidationResult = ReviewValidationResult;
+
         var duplicatePointKeys = ReviewRows
             .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
             .GroupBy(
@@ -2724,8 +2730,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 }
             }
 
+            if (reviewValidationResult.ParcelIssues.TryGetValue(parcelGroupId, out var parcelIssue)
+                && !string.IsNullOrWhiteSpace(parcelIssue))
+            {
+                issues.Add(parcelIssue);
+            }
+
             row.HasValidationBlocker = issues.Count > 0;
-            row.ValidationIssueSummary = string.Join(" ", issues);
+            row.ValidationIssueSummary = string.Join(" ", issues.Distinct(StringComparer.Ordinal));
         }
     }
 

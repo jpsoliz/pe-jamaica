@@ -61,6 +61,11 @@ public sealed class SettingsWorkspaceDocument
     public bool SpatialOutputAddCogoAttributes { get; set; }
     public bool SpatialOutputAddCogoLabels { get; set; }
     public string SpatialOutputCogoSourceMode { get; set; } = string.Empty;
+    public string ClosureDefaultMaxClosureDistanceM { get; set; } = string.Empty;
+    public string ClosureDefaultMinMiscloseRatioDenominator { get; set; } = string.Empty;
+    public string ClosureDefaultWarningClosureDistanceM { get; set; } = string.Empty;
+    public string ClosureDefaultWarningMiscloseRatioDenominator { get; set; } = string.Empty;
+    public string ClosureToleranceProfileOverridesJson { get; set; } = string.Empty;
     public bool EnterpriseWorkingEnabled { get; set; }
     public string EnterpriseWorkingServiceRoot { get; set; } = string.Empty;
     public string EnterpriseWorkingWorkspaceName { get; set; } = string.Empty;
