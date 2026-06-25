@@ -28,7 +28,7 @@ public sealed record ManifestDocument(
             createdAt.UtcDateTime.ToString("O"),
             createdBy,
             null,
-            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null, null, null, null, null, null),
+            new ManifestPayload("intake", Array.Empty<ManifestSourceFile>(), null, null, null, null, null, null, null, null, null),
             Array.Empty<string>(),
             Array.Empty<string>());
     }
@@ -44,7 +44,12 @@ public sealed record ManifestPayload(
     [property: JsonPropertyName("workflow_profile")] string? WorkflowProfile = null,
     [property: JsonPropertyName("workflow_rule_id")] string? WorkflowRuleId = null,
     [property: JsonPropertyName("workflow_rule_version")] string? WorkflowRuleVersion = null,
-    [property: JsonPropertyName("script_plan")] WorkflowScriptPlan? ScriptPlan = null);
+    [property: JsonPropertyName("script_plan")] WorkflowScriptPlan? ScriptPlan = null,
+    [property: JsonPropertyName("supporting_document_options")] ManifestSupportingDocumentOptions? SupportingDocumentOptions = null);
+
+public sealed record ManifestSupportingDocumentOptions(
+    [property: JsonPropertyName("import_structured_survey_points")] bool ImportStructuredSurveyPoints = false,
+    [property: JsonPropertyName("import_autocad_survey_source")] bool ImportAutoCadSurveySource = false);
 
 public sealed record ManifestSourceFile(
     [property: JsonPropertyName("original_path")] string OriginalPath,

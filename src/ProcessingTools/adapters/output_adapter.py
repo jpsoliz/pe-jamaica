@@ -1073,6 +1073,100 @@ def _create_true_parcel_fabric_with_arcpy(
     )
 
 
+def _load_structured_supplemental_points(
+    normalized_points_path: Path | None,
+    fallback_points: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if normalized_points_path is not None and normalized_points_path.exists():
+        try:
+            document = _read_json(normalized_points_path)
+            normalized = _normalize_points(document)
+            if normalized:
+                return normalized
+        except Exception:
+            pass
+
+    return [point for point in fallback_points if point.get("easting") is not None and point.get("northing") is not None]
+
+
+def _create_structured_points_layer_with_arcpy(
+    arcpy,
+    target_gdb: Path,
+    feature_class_path: Path,
+    spatial_reference,
+    structured_points: list[dict[str, Any]],
+    output_metadata: dict[str, str],
+) -> str:
+    arcpy.management.CreateFeatureclass(str(target_gdb), feature_class_path.name, "POINT", spatial_reference=spatial_reference)
+    arcpy.management.AddField(str(feature_class_path), "transaction_number", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "transaction_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "point_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "parcel_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "parcel_group_id", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "easting", "DOUBLE")
+    arcpy.management.AddField(str(feature_class_path), "northing", "DOUBLE")
+    arcpy.management.AddField(str(feature_class_path), "status_txt", "TEXT", field_length=64)
+    arcpy.management.AddField(str(feature_class_path), "source_doc", "TEXT", field_length=256)
+
+    with arcpy.da.InsertCursor(
+        str(feature_class_path),
+        ["SHAPE@XY", "transaction_number", "transaction_id", "point_id", "parcel_id", "parcel_group_id", "easting", "northing", "status_txt", "source_doc"],
+    ) as cursor:
+        for index, point in enumerate(structured_points, start=1):
+            easting = point.get("easting")
+            northing = point.get("northing")
+            if easting is None or northing is None:
+                continue
+
+            cursor.insertRow(
+                [
+                    (easting, northing),
+                    _normalize_text(output_metadata.get("transaction_number") or "", 64),
+                    _normalize_text(output_metadata.get("transaction_id") or "", 64),
+                    _normalize_text(point.get("point_id") or point.get("point_identifier") or f"PT-{index:03d}", 64),
+                    _normalize_text(point.get("parcel_id") or "", 64),
+                    _normalize_text(point.get("parcel_group_id") or point.get("traverse_id") or "", 64),
+                    easting,
+                    northing,
+                    _normalize_text(point.get("status") or point.get("status_txt") or "", 64),
+                    _normalize_text(point.get("source_doc") or "", 256),
+                ]
+            )
+
+    return str(feature_class_path)
+
+
+def _import_dwg_reference_with_arcpy(
+    arcpy,
+    target_gdb: Path,
+    dataset_name: str,
+    dwg_source_path: Path | None,
+    spatial_reference,
+    warnings: list[str],
+) -> str | None:
+    if dwg_source_path is None or not dwg_source_path.exists():
+        warnings.append("AutoCAD survey source import was requested, but no DWG source file was available.")
+        return None
+
+    target_dataset = target_gdb / dataset_name
+    try:
+        if arcpy.Exists(str(target_dataset)):
+            arcpy.management.Delete(str(target_dataset))
+
+        arcpy.conversion.CADToGeodatabase(
+            str(dwg_source_path),
+            str(target_gdb),
+            dataset_name,
+            "1000",
+            spatial_reference,
+        )
+
+        return str(target_dataset) if arcpy.Exists(str(target_dataset)) else None
+    except Exception as exc:
+        warnings.append(f"autocad survey source import requested, but DWG import failed: {exc}")
+        return None
+
+
 def _create_outputs_with_arcpy(
     arcpy,
     target_gdb: Path,
@@ -1084,6 +1178,10 @@ def _create_outputs_with_arcpy(
     add_optional_cogo_fields: bool,
     review_workspace_mode: str,
     transaction_number: str,
+    import_structured_points: bool,
+    import_dwg_reference: bool,
+    normalized_points_path: Path | None,
+    dwg_source_path: Path | None,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
     output_dir = target_gdb.parent
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1100,8 +1198,10 @@ def _create_outputs_with_arcpy(
     point_fc = target_gdb / "parcel_points"
     line_fc = target_gdb / "parcel_lines"
     polygon_fc = target_gdb / "parcel_polygons"
+    structured_points_fc = target_gdb / "survey_point_layer"
+    cad_reference_name = "survey_cad_reference"
 
-    for dataset_path in (point_fc, line_fc, polygon_fc):
+    for dataset_path in (point_fc, line_fc, polygon_fc, structured_points_fc):
         if arcpy.Exists(str(dataset_path)):
             arcpy.management.Delete(str(dataset_path))
 
@@ -1365,7 +1465,39 @@ def _create_outputs_with_arcpy(
         "point_fc": str(point_fc),
         "line_fc": created_line_fc,
         "polygon_fc": created_polygon_fc,
+        "structured_points_fc": None,
+        "cad_reference_path": None,
+        "supplemental_layer_paths": [],
     }
+
+    if import_structured_points:
+        structured_points_rows = _load_structured_supplemental_points(normalized_points_path, points)
+        if structured_points_rows:
+            root_paths["structured_points_fc"] = _create_structured_points_layer_with_arcpy(
+                arcpy,
+                target_gdb,
+                structured_points_fc,
+                spatial_reference,
+                structured_points_rows,
+                output_metadata,
+            )
+            root_paths["supplemental_layer_paths"].append(root_paths["structured_points_fc"])
+        else:
+            warnings.append("structured survey points import requested, but no usable structured point rows were available.")
+
+    if import_dwg_reference:
+        cad_reference_path = _import_dwg_reference_with_arcpy(
+            arcpy,
+            target_gdb,
+            cad_reference_name,
+            dwg_source_path,
+            spatial_reference,
+            warnings,
+        )
+        root_paths["cad_reference_path"] = cad_reference_path
+        if cad_reference_path:
+            root_paths["supplemental_layer_paths"].append(cad_reference_path)
+
     review_paths = {
         "review_dataset": None,
         "review_layer": None,
@@ -1404,6 +1536,8 @@ def _create_outputs_filesystem_fallback(
     output_metadata: dict[str, str],
     review_workspace_mode: str,
     transaction_number: str,
+    import_structured_points: bool,
+    import_dwg_reference: bool,
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
     target_gdb.mkdir(parents=True, exist_ok=True)
     (target_gdb / "_sidwell_test_mode.txt").write_text("filesystem fallback", encoding="utf-8")
@@ -1426,7 +1560,20 @@ def _create_outputs_filesystem_fallback(
         "point_fc": str(point_fc),
         "line_fc": str(line_fc) if segments else None,
         "polygon_fc": str(polygon_fc) if polygons else None,
+        "structured_points_fc": None,
+        "cad_reference_path": None,
+        "supplemental_layer_paths": [],
     }
+    if import_structured_points:
+        survey_point_layer = target_gdb / "survey_point_layer.json"
+        survey_point_layer.write_text(json.dumps(points, indent=2), encoding="utf-8")
+        root_paths["structured_points_fc"] = str(survey_point_layer)
+        root_paths["supplemental_layer_paths"].append(str(survey_point_layer))
+    if import_dwg_reference:
+        cad_reference_path = target_gdb / "survey_cad_reference"
+        cad_reference_path.mkdir(parents=True, exist_ok=True)
+        root_paths["cad_reference_path"] = str(cad_reference_path)
+        root_paths["supplemental_layer_paths"].append(str(cad_reference_path))
     warnings: list[str] = []
     review_paths = {
         "review_dataset": None,
@@ -1549,6 +1696,7 @@ def _build_summary(
             layer_paths.get("polygon_fc"),
         ]
     )
+    active_layer_paths.extend(layer_paths.get("supplemental_layer_paths") or [])
 
     root_bearing_txt_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "bearing_txt", "exists"))
     root_distance_txt_exists = bool(_field_record_value(root_line_feature_class_diagnostic, "distance_txt", "exists"))
@@ -1638,6 +1786,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--add-cogo-attributes", default="false")
     parser.add_argument("--add-cogo-labels", default="false")
     parser.add_argument("--cogo-source-mode", default=COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED)
+    parser.add_argument("--import-structured-points", default="false")
+    parser.add_argument("--import-dwg-reference", default="false")
+    parser.add_argument("--normalized-points", default="")
+    parser.add_argument("--dwg-source", default="")
     parser.add_argument("--review-source-route", default=REVIEW_RESULT_OWNER_APPROVED)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output-summary", required=True)
@@ -1653,6 +1805,10 @@ def main(argv: list[str] | None = None) -> int:
     add_cogo_attributes = _normalize_bool_flag(args.add_cogo_attributes, False)
     add_cogo_labels = _normalize_bool_flag(args.add_cogo_labels, False)
     cogo_source_mode = _normalize_cogo_source_mode(args.cogo_source_mode)
+    import_structured_points = _normalize_bool_flag(args.import_structured_points, False)
+    import_dwg_reference = _normalize_bool_flag(args.import_dwg_reference, False)
+    normalized_points_path = Path(args.normalized_points) if args.normalized_points else None
+    dwg_source_path = Path(args.dwg_source) if args.dwg_source else None
     review_result_owner = _normalize_review_result_owner(args.review_source_route)
     output_root = Path(args.output_root)
     output_summary_path = Path(args.output_summary)
@@ -1712,6 +1868,10 @@ def main(argv: list[str] | None = None) -> int:
             add_cogo_attributes,
             review_workspace_mode,
             str(transaction_number),
+            import_structured_points,
+            import_dwg_reference,
+            normalized_points_path,
+            dwg_source_path,
         )
     elif os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", "").strip() == "1":
         layer_paths, review_paths, warnings = _create_outputs_filesystem_fallback(
@@ -1722,6 +1882,8 @@ def main(argv: list[str] | None = None) -> int:
             output_metadata,
             review_workspace_mode,
             str(transaction_number),
+            import_structured_points,
+            import_dwg_reference,
         )
     else:
         raise RuntimeError("ArcPy is not available for output generation.")

@@ -51,7 +51,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         ? "Live extraction review artifact loaded from the current case."
         : "No review artifact loaded yet.";
 
-    public string WorkspaceHostNote => "Use this workspace to verify source documents, organize parcel interpretation, and prepare the case for Create Spatial Units and later Final Review.";
+    public string WorkspaceHostNote => "Verify source documents, organize parcel interpretation, and prepare the case for Create Spatial Units and later Final Review.";
 
     public bool UsesLiveArtifacts => parent.HasLoadedReviewData;
 

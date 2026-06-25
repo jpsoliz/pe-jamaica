@@ -51,8 +51,8 @@
             Padding="12">
       <StackPanel>
         <DockPanel LastChildFill="False">
-          <TextBlock Text="{Binding WindowTitle}"
-                     FontSize="18"
+          <TextBlock Text="{Binding TransactionHeader}"
+                     FontSize="15"
                      FontWeight="SemiBold"
                      Foreground="#1F2933" />
           <Border DockPanel.Dock="Right"
@@ -66,13 +66,8 @@
                        Foreground="#1F2933" />
           </Border>
         </DockPanel>
-        <TextBlock Text="{Binding TransactionHeader}"
-                   Margin="0,8,0,0"
-                   FontSize="15"
-                   FontWeight="SemiBold"
-                   Foreground="#1F2933" />
         <TextBlock Text="{Binding TransactionTypeHeader}"
-                   Margin="0,2,0,0"
+                   Margin="0,6,0,0"
                    FontSize="12"
                    Foreground="#52616B" />
         <WrapPanel Margin="0,10,0,0">

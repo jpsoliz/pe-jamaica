@@ -101,6 +101,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private ReviewSourceViewerState reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
     private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
     private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
+    private bool importStructuredSurveyPoints;
+    private bool importAutoCadSurveySource;
 
     public ParcelWorkflowDockpaneViewModel()
     {
@@ -258,6 +260,62 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public IReadOnlyList<SourceFileListItem> SupportingDocumentDownloads => BuildSupportingDocumentDownloads();
 
     public IReadOnlyList<SupportingDocumentStatusItem> SupportingDocumentInventory => BuildSupportingDocumentInventory();
+
+    public bool HasStructuredSurveyPointsSource => SourceFiles.Any(item =>
+        string.Equals(item.SourceFile.SourceType, "st_survey_points", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(item.SourceFile.SourceRole, SourceRole.CoordinateTextSource, StringComparison.OrdinalIgnoreCase));
+
+    public bool HasAutoCadSurveySource => SourceFiles.Any(item =>
+        string.Equals(item.SourceFile.SourceType, "st_autocad_file", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(item.SourceFile.SourceRole, SourceRole.DwgSource, StringComparison.OrdinalIgnoreCase));
+
+    public bool ImportStructuredSurveyPoints
+    {
+        get => importStructuredSurveyPoints;
+        set
+        {
+            if (importStructuredSurveyPoints == value)
+            {
+                return;
+            }
+
+            var originalStructured = importStructuredSurveyPoints;
+            var originalAutoCad = importAutoCadSurveySource;
+            importStructuredSurveyPoints = value;
+            if (!workflowSession.SaveSupportingDocumentOptions(importStructuredSurveyPoints, importAutoCadSurveySource))
+            {
+                importStructuredSurveyPoints = originalStructured;
+                importAutoCadSurveySource = originalAutoCad;
+            }
+
+            NotifyPropertyChanged(nameof(ImportStructuredSurveyPoints));
+            NotifyPropertyChanged(nameof(StatusText));
+        }
+    }
+
+    public bool ImportAutoCadSurveySource
+    {
+        get => importAutoCadSurveySource;
+        set
+        {
+            if (importAutoCadSurveySource == value)
+            {
+                return;
+            }
+
+            var originalStructured = importStructuredSurveyPoints;
+            var originalAutoCad = importAutoCadSurveySource;
+            importAutoCadSurveySource = value;
+            if (!workflowSession.SaveSupportingDocumentOptions(importStructuredSurveyPoints, importAutoCadSurveySource))
+            {
+                importStructuredSurveyPoints = originalStructured;
+                importAutoCadSurveySource = originalAutoCad;
+            }
+
+            NotifyPropertyChanged(nameof(ImportAutoCadSurveySource));
+            NotifyPropertyChanged(nameof(StatusText));
+        }
+    }
 
     public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
 
@@ -607,7 +665,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public IReadOnlyList<SourceFileListItem> ReviewSourceOptions => SourceFiles;
+    public IReadOnlyList<SourceFileListItem> ReviewSourceOptions => SupportingDocumentDownloads;
 
     public SourceFileListItem? SelectedReviewSource
     {
@@ -1810,13 +1868,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private SourceFileListItem? ResolveReviewSource()
     {
-        if (sourceFileItems.Count == 0)
+        var availableReviewSources = ReviewSourceOptions;
+        if (availableReviewSources.Count == 0)
         {
             return null;
         }
 
         var resolved = ReviewSourceSelectionResolver.Resolve(
-            sourceFileItems.Select(item => item.SourceFile).ToArray(),
+            availableReviewSources.Select(item => item.SourceFile).ToArray(),
             selectedReviewSourceCopiedPath);
 
         if (resolved is null)
@@ -1824,11 +1883,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return null;
         }
 
-        return sourceFileItems.FirstOrDefault(item =>
+        return availableReviewSources.FirstOrDefault(item =>
             string.Equals(item.SourceFile.CopiedPath, resolved.CopiedPath, StringComparison.OrdinalIgnoreCase)
             && string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
-            ?? sourceFileItems.FirstOrDefault(item => string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
-            ?? sourceFileItems.FirstOrDefault();
+            ?? availableReviewSources.FirstOrDefault(item => string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
+            ?? availableReviewSources.FirstOrDefault();
     }
 
     private void RefreshReviewViewerState()
@@ -2481,6 +2540,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void RefreshWorkflowProperties()
     {
         sourceFileItems = workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
+        LoadSupportingDocumentImportOptions();
         UpdateReviewRowValidationFlags();
         RefreshReviewViewerState();
         NotifyPropertyChanged(nameof(TransactionId));
@@ -2512,6 +2572,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(SourceFiles));
         NotifyPropertyChanged(nameof(SupportingDocumentDownloads));
         NotifyPropertyChanged(nameof(SupportingDocumentInventory));
+        NotifyPropertyChanged(nameof(HasStructuredSurveyPointsSource));
+        NotifyPropertyChanged(nameof(HasAutoCadSurveySource));
+        NotifyPropertyChanged(nameof(ImportStructuredSurveyPoints));
+        NotifyPropertyChanged(nameof(ImportAutoCadSurveySource));
         NotifyPropertyChanged(nameof(SourceIntakeBadge));
         NotifyPropertyChanged(nameof(IntakeSummaryText));
         NotifyPropertyChanged(nameof(IntakeDetailText));
@@ -2673,6 +2737,20 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         completeTransactionCommand.RaiseCanExecuteChanged();
     }
 
+    private void LoadSupportingDocumentImportOptions()
+    {
+        if (!HasActiveCase)
+        {
+            importStructuredSurveyPoints = false;
+            importAutoCadSurveySource = false;
+            return;
+        }
+
+        var options = workflowSession.GetSupportingDocumentOptions();
+        importStructuredSurveyPoints = options.ImportStructuredSurveyPoints;
+        importAutoCadSurveySource = options.ImportAutoCadSurveySource;
+    }
+
     private IReadOnlyList<SourceFileListItem> BuildSupportingDocumentDownloads()
     {
         if (sourceFileItems.Count == 0)
@@ -2742,6 +2820,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             && string.Equals(sourceFile.SourceRole, definition.WorkflowRole, StringComparison.OrdinalIgnoreCase))
         {
             return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceFile.SourceType) || !string.IsNullOrWhiteSpace(sourceFile.SourceRole))
+        {
+            return false;
         }
 
         return definition.SupportsExtension(Path.GetExtension(sourceFile.FileName));

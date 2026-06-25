@@ -10,6 +10,10 @@ namespace ParcelWorkflowAddIn.Workflow.Output;
 public sealed class OutputAdapterExecutionService : IOutputExecutionService
 {
     private const string ReviewSourceRouteArgument = "--review-source-route";
+    private const string ImportStructuredPointsArgument = "--import-structured-points";
+    private const string ImportDwgReferenceArgument = "--import-dwg-reference";
+    private const string NormalizedPointsArgument = "--normalized-points";
+    private const string DwgSourceArgument = "--dwg-source";
     private readonly IProcessRunner processRunner;
     private readonly Func<WorkflowExecutionSettings> getExecutionSettings;
     private readonly OutputSummaryPersistenceService persistenceService;
@@ -78,6 +82,9 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
         var approvedReviewPath = Path.Combine(layout.WorkingDirectory, "approved_review.json");
         var reviewDataPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
         var outputSummaryPath = Path.Combine(layout.OutputDirectory, persistenceService.OutputArtifactFileName);
+        var supportingDocumentOptions = manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
+        var normalizedPointsPath = Path.Combine(layout.WorkingDirectory, "normalized_points.json");
+        var dwgSourcePath = ResolveFirstSourcePath(manifest, Intake.SourceRole.DwgSource);
 
         var arguments = string.Join(" ",
             Quote(executionSettings.OutputAdapterScriptPath),
@@ -88,6 +95,10 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             "--add-cogo-attributes", Quote(executionSettings.SpatialOutputAddCogoAttributes ? "true" : "false"),
             "--add-cogo-labels", Quote(executionSettings.SpatialOutputAddCogoLabels ? "true" : "false"),
             "--cogo-source-mode", Quote(executionSettings.SpatialOutputCogoSourceMode),
+            ImportStructuredPointsArgument, Quote(supportingDocumentOptions.ImportStructuredSurveyPoints ? "true" : "false"),
+            ImportDwgReferenceArgument, Quote(supportingDocumentOptions.ImportAutoCadSurveySource ? "true" : "false"),
+            NormalizedPointsArgument, Quote(normalizedPointsPath),
+            DwgSourceArgument, Quote(dwgSourcePath ?? string.Empty),
             ReviewSourceRouteArgument, Quote(reviewResultOwner),
             "--output-root", Quote(layout.OutputDirectory),
             "--output-summary", Quote(outputSummaryPath),
@@ -130,6 +141,15 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
     private static string Quote(string value)
     {
         return $"\"{value}\"";
+    }
+
+    private static string? ResolveFirstSourcePath(ManifestDocument manifest, string sourceRole)
+    {
+        return manifest.Payload.SourceFiles
+            .FirstOrDefault(sourceFile =>
+                !string.IsNullOrWhiteSpace(sourceFile.CopiedPath)
+                && string.Equals(sourceFile.SourceRole, sourceRole, StringComparison.OrdinalIgnoreCase))
+            ?.CopiedPath;
     }
 
     private static string Sanitize(params string?[] values)

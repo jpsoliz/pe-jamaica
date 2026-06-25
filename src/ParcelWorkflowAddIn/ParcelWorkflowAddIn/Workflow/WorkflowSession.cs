@@ -1196,6 +1196,68 @@ public sealed class WorkflowSession
         return getTransactionSettings().ReviewWorkspaceMode;
     }
 
+    public ManifestSupportingDocumentOptions GetSupportingDocumentOptions()
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            return new ManifestSupportingDocumentOptions();
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            return manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            StatusText = $"Supporting document options could not be read: {exception.Message}";
+            return new ManifestSupportingDocumentOptions();
+        }
+    }
+
+    public bool SaveSupportingDocumentOptions(bool importStructuredSurveyPoints, bool importAutoCadSurveySource)
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            StatusText = "Create or reopen a Case Folder before saving supporting document options.";
+            return false;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            ManifestSerializer.Write(
+                layout.ManifestPath,
+                manifest with
+                {
+                    Payload = manifest.Payload with
+                    {
+                        SupportingDocumentOptions = new ManifestSupportingDocumentOptions(
+                            importStructuredSurveyPoints,
+                            importAutoCadSurveySource)
+                    }
+                });
+            return true;
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            StatusText = $"Supporting document options could not be saved: {exception.Message}";
+            return false;
+        }
+    }
+
     private void SetWorkflowState(CaseFolderLayout layout, WorkflowState state)
     {
         CurrentState = state;

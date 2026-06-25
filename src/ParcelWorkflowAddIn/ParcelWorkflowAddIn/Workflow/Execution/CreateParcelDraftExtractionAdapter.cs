@@ -488,6 +488,13 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                     source.FileType))))
             .ToArray();
 
+        var computationCandidate = candidates
+            .Where(candidate => SourceRole.Matches(candidate.Source.SourceRole, SourceRole.ComputationSheet))
+            .OrderBy(candidate => GetSourcePriority(candidate.Source, context.Step.InputRoles))
+            .ThenByDescending(candidate => candidate.Match.MatchScore)
+            .ThenByDescending(candidate => candidate.Match.Definition.Priority)
+            .FirstOrDefault();
+
         var structuredCandidate = candidates
             .Where(candidate => string.Equals(candidate.Match.Definition.Family, "structured_points", StringComparison.OrdinalIgnoreCase)
                                 && !candidate.Match.LowConfidence
@@ -497,7 +504,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             .ThenByDescending(candidate => candidate.Match.Definition.Priority)
             .FirstOrDefault();
 
-        var selected = structuredCandidate
+        var selected = computationCandidate
+            ?? structuredCandidate
             ?? candidates
                 .OrderBy(candidate => GetSourcePriority(candidate.Source, context.Step.InputRoles))
                 .ThenByDescending(candidate => candidate.Match.MatchScore)
