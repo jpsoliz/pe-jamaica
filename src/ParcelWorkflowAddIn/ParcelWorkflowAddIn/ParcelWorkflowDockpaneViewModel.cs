@@ -255,6 +255,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public IReadOnlyList<SourceFileListItem> SourceFiles => sourceFileItems;
 
+    public IReadOnlyList<SourceFileListItem> SupportingDocumentDownloads => BuildSupportingDocumentDownloads();
+
+    public IReadOnlyList<SupportingDocumentStatusItem> SupportingDocumentInventory => BuildSupportingDocumentInventory();
+
     public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
 
     public WorkflowWorkspaceStage ActiveWorkspaceStage => WorkflowWorkspacePlanner.ResolveActiveStage(CurrentWorkflowState, IntakeReadyForPreflight, HasExtractionArtifact);
@@ -416,6 +420,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool HasSupportingDocumentResults => SupportingDocumentResults.Count > 0;
 
+    public bool HasSupportingDocumentInventory => SupportingDocumentInventory.Count > 0;
+
+    public bool HasSupportingDocumentDownloads => SupportingDocumentDownloads.Count > 0;
+
     public bool HasStructureCheckResults => StructureCheckResults.Count > 0;
 
     public bool HasGeoreferenceResults => GeoreferenceResults.Count > 0;
@@ -463,13 +471,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string SupportingDocumentBadge => BuildGroupedBadge(SupportingDocumentResults, SourceFiles.Count > 0 ? "Loaded" : "Not loaded");
 
     public string IntakeSummaryText =>
-        SourceFiles.Count == 0
+        SupportingDocumentDownloads.Count == 0
             ? "No transaction attachments have been loaded into the case folder yet."
-            : $"{SourceFiles.Count} transaction attachment file(s) loaded from the selected transaction. {DetectedProfileLabel}";
+            : $"{SupportingDocumentDownloads.Count} transaction attachment file(s) reviewed and copied from the selected transaction. {DetectedProfileLabel}";
 
     public string IntakeDetailText =>
         IntakeIssues.Count == 0
-            ? "Transaction attachments are copied into the case folder and kept as source context for Structure Check, Georeference Check, and Validate Points."
+            ? "Supporting documents are copied into the case folder, matched to their expected document roles, and kept as source context for Structure Check, Georeference Check, and Validate Points."
             : string.Join(Environment.NewLine, IntakeIssues);
 
     public bool IntakeSummaryExpanded
@@ -2502,6 +2510,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ShowValidationSummaryCard));
         NotifyPropertyChanged(nameof(ShowOutputsSummary));
         NotifyPropertyChanged(nameof(SourceFiles));
+        NotifyPropertyChanged(nameof(SupportingDocumentDownloads));
+        NotifyPropertyChanged(nameof(SupportingDocumentInventory));
         NotifyPropertyChanged(nameof(SourceIntakeBadge));
         NotifyPropertyChanged(nameof(IntakeSummaryText));
         NotifyPropertyChanged(nameof(IntakeDetailText));
@@ -2551,6 +2561,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(GeoreferenceResults));
         NotifyPropertyChanged(nameof(HasPreflightResults));
         NotifyPropertyChanged(nameof(HasSupportingDocumentResults));
+        NotifyPropertyChanged(nameof(HasSupportingDocumentInventory));
+        NotifyPropertyChanged(nameof(HasSupportingDocumentDownloads));
         NotifyPropertyChanged(nameof(HasStructureCheckResults));
         NotifyPropertyChanged(nameof(HasGeoreferenceResults));
         NotifyPropertyChanged(nameof(PreflightBadge));
@@ -2659,6 +2671,95 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         suspendTransactionCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
         completeTransactionCommand.RaiseCanExecuteChanged();
+    }
+
+    private IReadOnlyList<SourceFileListItem> BuildSupportingDocumentDownloads()
+    {
+        if (sourceFileItems.Count == 0)
+        {
+            return Array.Empty<SourceFileListItem>();
+        }
+
+        return sourceFileItems
+            .GroupBy(
+                item => BuildSourceFileIdentity(item.SourceFile),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(item => item.RoleSortKey, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.FileLabel, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private IReadOnlyList<SupportingDocumentStatusItem> BuildSupportingDocumentInventory()
+    {
+        var definitions = InnolaTransactionSettings.Load().ComputeAttachmentSourceTypes
+            .Where(definition => !definition.InternalOnly)
+            .ToArray();
+        if (definitions.Length == 0)
+        {
+            return Array.Empty<SupportingDocumentStatusItem>();
+        }
+
+        var downloadedFiles = SupportingDocumentDownloads;
+        return definitions
+            .Select(definition =>
+            {
+                var matches = downloadedFiles
+                    .Where(item => SourceFileMatchesDefinition(item.SourceFile, definition))
+                    .ToArray();
+                var found = matches.Length > 0;
+                var statusLabel = found
+                    ? "Found"
+                    : definition.Required
+                        ? "Missing"
+                        : "Optional";
+                var fileText = found
+                    ? string.Join(", ", matches.Select(match => match.FileLabel).Distinct(StringComparer.OrdinalIgnoreCase))
+                    : definition.Required
+                        ? "Not provided"
+                        : "Not provided (optional)";
+
+                return new SupportingDocumentStatusItem(
+                    definition.DisplayName,
+                    SourceRole.DisplayName(definition.WorkflowRole),
+                    statusLabel,
+                    fileText,
+                    definition.Required,
+                    found);
+            })
+            .ToArray();
+    }
+
+    private static bool SourceFileMatchesDefinition(SourceFileCopyResult sourceFile, ComputeAttachmentSourceTypeDefinition definition)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceFile.SourceType)
+            && string.Equals(sourceFile.SourceType, definition.SourceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceFile.SourceRole)
+            && string.Equals(sourceFile.SourceRole, definition.WorkflowRole, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return definition.SupportsExtension(Path.GetExtension(sourceFile.FileName));
+    }
+
+    private static string BuildSourceFileIdentity(SourceFileCopyResult sourceFile)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceFile.CopiedPath))
+        {
+            return sourceFile.CopiedPath;
+        }
+
+        return string.Join(
+            "|",
+            sourceFile.FileName,
+            sourceFile.SourceType ?? string.Empty,
+            sourceFile.SourceRole ?? string.Empty,
+            sourceFile.OriginalPath);
     }
 
     private void UpdateReviewRowValidationFlags()
@@ -2968,6 +3069,37 @@ internal sealed record SourceFileListItem(SourceFileCopyResult SourceFile)
     public string RoleLabel => SourceRole.DisplayName(SourceFile.SourceRole);
 
     public string RowStatus => SourceFile.Copied ? "Copied" : SourceFile.Status;
+
+    public string RoleSortKey => $"{SourceFile.SourceRole}|{SourceFile.SourceType}|{FileLabel}";
+}
+
+internal sealed record SupportingDocumentStatusItem(
+    string DisplayName,
+    string RoleLabel,
+    string StatusLabel,
+    string FileText,
+    bool IsRequired,
+    bool IsFound)
+{
+    public string RequirementLabel => IsRequired ? "Required" : "Optional";
+
+    public Brush StatusBackground => IsFound
+        ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E8F7ED"))
+        : IsRequired
+            ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FCE8E6"))
+            : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#EEF4FF"));
+
+    public Brush StatusBorder => IsFound
+        ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2F7D4F"))
+        : IsRequired
+            ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#C53030"))
+            : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9DB7E8"));
+
+    public Brush StatusForeground => IsFound
+        ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E5631"))
+        : IsRequired
+            ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#8A1F17"))
+            : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1F2933"));
 }
 
 internal sealed record WorkflowLifecycleStep(string Name, string State, string Icon);

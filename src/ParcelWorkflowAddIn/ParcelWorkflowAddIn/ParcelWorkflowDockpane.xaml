@@ -335,8 +335,62 @@
                            FontSize="11"
                            Foreground="#52616B"
                            TextWrapping="Wrap" />
-                <ItemsControl Margin="0,10,0,0"
-                              ItemsSource="{Binding SourceFiles}">
+                <StackPanel Margin="0,10,0,0"
+                            Visibility="{Binding HasSupportingDocumentInventory, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <TextBlock Text="Reviewed document types"
+                             Style="{StaticResource CaptionTextStyle}"
+                             FontWeight="SemiBold" />
+                  <ItemsControl Margin="0,4,0,0"
+                                ItemsSource="{Binding SupportingDocumentInventory}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="#EEF2F4"
+                                BorderThickness="0,1,0,0"
+                                Padding="0,6">
+                          <Grid>
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="170" />
+                              <ColumnDefinition Width="Auto" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                              <TextBlock Text="{Binding DisplayName}"
+                                         FontSize="11"
+                                         FontWeight="SemiBold"
+                                         Foreground="#1F2933" />
+                              <TextBlock Text="{Binding RoleLabel}"
+                                         FontSize="10"
+                                         Foreground="#52616B" />
+                            </StackPanel>
+                            <Border Grid.Column="1"
+                                    Style="{StaticResource SmallPillBorderStyle}"
+                                    Background="{Binding StatusBackground}"
+                                    BorderBrush="{Binding StatusBorder}"
+                                    Margin="8,0,8,0">
+                              <TextBlock Text="{Binding StatusLabel}"
+                                         FontSize="10"
+                                         Foreground="{Binding StatusForeground}"
+                                         FontWeight="SemiBold" />
+                            </Border>
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding FileText}"
+                                       FontSize="11"
+                                       Foreground="#52616B"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+                <StackPanel Margin="0,10,0,0"
+                            Visibility="{Binding HasSupportingDocumentDownloads, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <TextBlock Text="Downloaded files"
+                             Style="{StaticResource CaptionTextStyle}"
+                             FontWeight="SemiBold" />
+                  <ItemsControl Margin="0,4,0,0"
+                                ItemsSource="{Binding SupportingDocumentDownloads}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
                       <Border BorderBrush="#EEF2F4"
@@ -372,7 +426,8 @@
                       </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                  </ItemsControl>
+                </StackPanel>
               </StackPanel>
             </Border>
           </StackPanel>
@@ -1353,6 +1408,35 @@
                          FontSize="11"
                          Foreground="#52616B"
                          TextWrapping="Wrap" />
+              <ItemsControl Margin="0,8,0,0"
+                            Visibility="{Binding HasSupportingDocumentInventory, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            ItemsSource="{Binding SupportingDocumentInventory}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="#EEF2F4"
+                            BorderThickness="0,1,0,0"
+                            Padding="0,5">
+                      <DockPanel LastChildFill="True">
+                        <TextBlock DockPanel.Dock="Left"
+                                   Text="{Binding DisplayName}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#1F2933"
+                                   Margin="0,0,8,0" />
+                        <TextBlock DockPanel.Dock="Right"
+                                   Text="{Binding StatusLabel}"
+                                   FontSize="10"
+                                   Foreground="{Binding StatusForeground}"
+                                   Margin="8,0,0,0" />
+                        <TextBlock Text="{Binding FileText}"
+                                   FontSize="10"
+                                   Foreground="#52616B"
+                                   TextWrapping="Wrap" />
+                      </DockPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Expander>
         </Border>

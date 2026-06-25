@@ -107,7 +107,8 @@ public sealed partial class CaseFolderStore
                 true));
         }
 
-        if (!File.Exists(layout.ManifestPath))
+        var manifestPath = ResolveExistingManifestPath(layout);
+        if (manifestPath is null)
         {
             return CaseFolderReopenResult.Failed(new RecoverabilityIssue(
                 "missing_manifest",
@@ -120,7 +121,7 @@ public sealed partial class CaseFolderStore
         ManifestDocument manifest;
         try
         {
-            manifest = ManifestSerializer.Read(layout.ManifestPath);
+            manifest = ManifestSerializer.Read(manifestPath);
             ValidateManifest(manifest);
         }
         catch (Exception exception) when (exception is JsonException
@@ -133,7 +134,7 @@ public sealed partial class CaseFolderStore
                 "corrupt_manifest",
                 "blocked",
                 $"Manifest could not be read: {exception.Message}",
-                layout.ManifestPath,
+                manifestPath,
                 true));
         }
 
@@ -150,7 +151,7 @@ public sealed partial class CaseFolderStore
                 "missing_detected_profile",
                 "warning",
                 "Detected profile is not refreshed. Use Refresh Intake to detect the source profile.",
-                layout.ManifestPath,
+                manifestPath,
                 false));
         }
 
@@ -202,6 +203,21 @@ public sealed partial class CaseFolderStore
         {
             throw new InvalidOperationException("Manifest source file list is missing.");
         }
+    }
+
+    private static string? ResolveExistingManifestPath(CaseFolderLayout layout)
+    {
+        if (File.Exists(layout.ManifestPath))
+        {
+            return layout.ManifestPath;
+        }
+
+        if (File.Exists(layout.LegacyManifestPath))
+        {
+            return layout.LegacyManifestPath;
+        }
+
+        return null;
     }
 
     private static void AddMissingDirectoryIssues(CaseFolderLayout layout, List<RecoverabilityIssue> issues)

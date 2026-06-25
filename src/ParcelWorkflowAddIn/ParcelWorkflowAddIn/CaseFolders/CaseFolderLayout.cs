@@ -8,6 +8,7 @@ public sealed class CaseFolderLayout
     {
         RootDirectory = rootDirectory;
         ManifestPath = Path.Combine(rootDirectory, "manifest.json");
+        LegacyManifestPath = Path.Combine(rootDirectory, "_manifest.json");
         SourceDirectory = Path.Combine(rootDirectory, "source");
         WorkingDirectory = Path.Combine(rootDirectory, "working");
         PreflightSummaryPath = Path.Combine(WorkingDirectory, "preflight_summary.json");
@@ -19,6 +20,8 @@ public sealed class CaseFolderLayout
     public string RootDirectory { get; }
 
     public string ManifestPath { get; }
+
+    public string LegacyManifestPath { get; }
 
     public string SourceDirectory { get; }
 
