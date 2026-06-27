@@ -108,6 +108,8 @@ development_status:
   5-19-define-cogo-ready-non-fabric-output-layer-schema: review
   5-20-configure-cogo-style-map-symbology-labeling-and-editing-experience-for-non-fabric-spatial-outputs: review
   5-21-add-optional-cogo-attributes-and-labels-to-non-fabric-spatial-output-layers: review
+  5-25b-polish-points-validation-tool-visual-hierarchy-and-preview-readability: review
+  5-25c-refine-points-validation-preview-modes-and-rule-status-readability: review
   epic-5-retrospective: optional
 
   epic-6: backlog

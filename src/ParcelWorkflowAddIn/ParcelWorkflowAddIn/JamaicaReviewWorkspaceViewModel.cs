@@ -20,6 +20,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     private bool isApplyingSelectedParcelGroup;
     private bool suppressParentParcelContextSync;
     private bool suppressParentRowSelectionSync;
+    private bool showAllParcelContext;
 
     internal JamaicaReviewWorkspaceViewModel(ParcelWorkflowDockpaneViewModel parent)
     {
@@ -51,7 +52,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         ? "Live extraction review artifact loaded from the current case."
         : "No review artifact loaded yet.";
 
-    public string WorkspaceHostNote => "Verify source documents, organize parcel interpretation, and prepare the case for Create Spatial Units and later Final Review.";
+    public string WorkspaceHostNote => "Verify source documents, confirm parcel interpretation, and prepare the case for Create Spatial Units and Final Review.";
 
     public bool UsesLiveArtifacts => parent.HasLoadedReviewData;
 
@@ -137,7 +138,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool ShowPdfViewerHelp => parent.ReviewViewerUsesBrowser;
 
-    public string PdfViewerHelpText => "Use the built-in PDF toolbar below for page navigation and zoom.";
+    public string PdfViewerHelpText => "Use the PDF toolbar below for page navigation and zoom.";
 
     public bool CanToggleViewerFit => parent.CanToggleReviewViewerFit;
 
@@ -220,7 +221,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ParcelInterpretationSummary));
             OnPropertyChanged(nameof(ParcelInterpretationIssues));
             OnPropertyChanged(nameof(ActiveParcelDiagnosticsSummary));
-            OnPropertyChanged(nameof(ActiveParcelDiagnosticsDetail));
+            OnPropertyChanged(nameof(ActiveParcelDiagnosticsOverview));
+            OnPropertyChanged(nameof(ActiveParcelBlockedDiagnostics));
+            OnPropertyChanged(nameof(ActiveParcelWarningDiagnostics));
+            OnPropertyChanged(nameof(ActiveParcelPassedDiagnostics));
+            OnPropertyChanged(nameof(HasBlockedDiagnostics));
+            OnPropertyChanged(nameof(HasWarningDiagnostics));
+            OnPropertyChanged(nameof(HasPassedDiagnostics));
+            OnPropertyChanged(nameof(ActiveParcelDiagnosticsEmptyState));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
             OnPropertyChanged(nameof(ParcelContextPreviewPaths));
             OnPropertyChanged(nameof(SelectedPointPreview));
@@ -263,6 +271,22 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool IsManualReviewEditMode => parent.IsManualReviewEditMode;
 
+    public bool ShowAllParcelContext
+    {
+        get => showAllParcelContext;
+        set
+        {
+            if (showAllParcelContext == value)
+            {
+                return;
+            }
+
+            showAllParcelContext = value;
+            OnPropertyChanged(nameof(ShowAllParcelContext));
+            OnPropertyChanged(nameof(ParcelContextPreviewPaths));
+        }
+    }
+
     public string ParcelInterpretationSummary
     {
         get
@@ -272,7 +296,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 return "Parcel interpretation becomes available after review data is loaded.";
             }
 
-            return $"{SelectedParcelGroup.RowCount} row(s), {SelectedParcelGroup.UnresolvedCount} unresolved, {SelectedParcelGroup.EditedCount} edited, {SelectedParcelGroup.BoundaryBreakCount} boundary break(s).";
+            return $"{SelectedParcelGroup.RowCount} point row(s), {SelectedParcelGroup.UnresolvedCount} need review, {SelectedParcelGroup.EditedCount} edited, {SelectedParcelGroup.BoundaryBreakCount} boundary break(s).";
         }
     }
 
@@ -288,22 +312,22 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             var issues = new List<string>();
             if (SelectedParcelGroup.BoundaryBreakCount > 0)
             {
-                issues.Add($"{SelectedParcelGroup.BoundaryBreakCount} boundary break marker(s) suggest one source document may contain multiple parcel sequences.");
+                issues.Add($"{SelectedParcelGroup.BoundaryBreakCount} boundary break marker(s) suggest this source may contain multiple parcel sequences.");
             }
 
             if (SelectedParcelGroup.UnresolvedCount > 0)
             {
-                issues.Add($"{SelectedParcelGroup.UnresolvedCount} row(s) still require examiner confirmation before approval.");
+                issues.Add($"{SelectedParcelGroup.UnresolvedCount} row(s) still need examiner confirmation before this parcel can move forward.");
             }
 
             if (SelectedParcelGroup.LowConfidenceCount > 0)
             {
-                issues.Add($"{SelectedParcelGroup.LowConfidenceCount} row(s) use low or unknown group confidence.");
+                issues.Add($"{SelectedParcelGroup.LowConfidenceCount} row(s) were grouped with low or unknown confidence.");
             }
 
             return issues.Count > 0
                 ? string.Join(Environment.NewLine, issues)
-                : "No parcel-group warnings are active for this parcel in the current review.";
+                : "No parcel-group warnings are active for this parcel right now.";
         }
     }
 
@@ -313,7 +337,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         {
             if (SelectedParcelGroup is null)
             {
-                return "Select a parcel to inspect closure and review diagnostics.";
+                return "Select a parcel to review its closure and readiness details.";
             }
 
             var closure = parent.ReviewValidationResult.ClosureResults
@@ -326,17 +350,17 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             if (readinessBlocker is not null)
             {
-                return $"Construction readiness blocked. {readinessBlocker.Title}.";
+                return $"This parcel is not ready for Create Spatial Units. {readinessBlocker.Title}.";
             }
 
             if (readinessWarning is not null)
             {
-                return $"Construction readiness warning. {readinessWarning.Title}.";
+                return $"This parcel can be reviewed further. {readinessWarning.Title}.";
             }
 
             if (closure is null)
             {
-                return $"{SelectedParcelGroup.RowCount} row(s) in this parcel. No closure diagnostic is available yet.";
+                return $"{SelectedParcelGroup.RowCount} point row(s) are in this parcel. No closure diagnostic is available yet.";
             }
 
             var status = closure.Status switch
@@ -354,11 +378,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 ? $"1:{Math.Round(closure.MiscloseRatioDenominator.Value):0}"
                 : "--";
 
-            return $"Closure {status}. Profile {closure.ProfileTitle}. Distance {distance}. Ratio {ratio}.";
+            return $"Closure {status}. Tolerance profile: {closure.ProfileTitle}. Misclose distance: {distance}. Misclose ratio: {ratio}.";
         }
     }
 
-    public string ActiveParcelDiagnosticsDetail
+    public string ActiveParcelDiagnosticsOverview
     {
         get
         {
@@ -367,42 +391,42 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 return "Parcel-specific diagnostics appear here after a parcel is selected.";
             }
 
-            var details = new List<string>
+            var overview = new List<string>
             {
-                $"{SelectedParcelGroup.RowCount} row(s)",
+                $"{SelectedParcelGroup.RowCount} point row(s)",
                 $"{SelectedParcelGroup.EditedCount} edited",
-                $"{SelectedParcelGroup.UnresolvedCount} unresolved",
+                $"{SelectedParcelGroup.UnresolvedCount} still need review",
                 $"{SelectedParcelGroup.BoundaryBreakCount} boundary break(s)"
             };
 
-            var closure = parent.ReviewValidationResult.ClosureResults
-                .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
-            if (closure is not null)
+            return string.Join(Environment.NewLine, overview.Distinct(StringComparer.Ordinal));
+        }
+    }
+
+    public string ActiveParcelBlockedDiagnostics => string.Join(Environment.NewLine, GetDiagnosticsByStatus(DiagnosticBucket.Blocked));
+
+    public string ActiveParcelWarningDiagnostics => string.Join(Environment.NewLine, GetDiagnosticsByStatus(DiagnosticBucket.Warning));
+
+    public string ActiveParcelPassedDiagnostics => string.Join(Environment.NewLine, GetDiagnosticsByStatus(DiagnosticBucket.Passed));
+
+    public bool HasBlockedDiagnostics => !string.IsNullOrWhiteSpace(ActiveParcelBlockedDiagnostics);
+
+    public bool HasWarningDiagnostics => !string.IsNullOrWhiteSpace(ActiveParcelWarningDiagnostics);
+
+    public bool HasPassedDiagnostics => !string.IsNullOrWhiteSpace(ActiveParcelPassedDiagnostics);
+
+    public string ActiveParcelDiagnosticsEmptyState
+    {
+        get
+        {
+            if (SelectedParcelGroup is null)
             {
-                details.Add($"Rule {closure.ProfileRuleId}");
-                if (!string.IsNullOrWhiteSpace(closure.Message))
-                {
-                    details.Add(closure.Message);
-                }
+                return "Parcel-specific diagnostics appear here after you select a parcel.";
             }
 
-            foreach (var readinessResult in parent.ReviewValidationResult.ReadinessResults
-                         .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase)))
-            {
-                details.Add($"Rule {readinessResult.RuleId}");
-                if (!string.IsNullOrWhiteSpace(readinessResult.Message))
-                {
-                    details.Add(readinessResult.Message);
-                }
-            }
-
-            if (parent.ReviewValidationResult.ParcelIssues.TryGetValue(SelectedParcelGroup.GroupId, out var parcelIssue)
-                && !string.IsNullOrWhiteSpace(parcelIssue))
-            {
-                details.Add(parcelIssue);
-            }
-
-            return string.Join(Environment.NewLine, details.Distinct(StringComparer.Ordinal));
+            return !HasBlockedDiagnostics && !HasWarningDiagnostics && !HasPassedDiagnostics
+                ? "No parcel-scoped validation diagnostics were produced for this parcel."
+                : string.Empty;
         }
     }
 
@@ -446,6 +470,66 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public void HandleWindowClosed(bool reviewSaved, bool continuedToCreateSpatialUnits, bool discardedUnsavedChanges)
     {
         parent.HandlePointsValidationWorkspaceClosed(reviewSaved, continuedToCreateSpatialUnits, discardedUnsavedChanges);
+    }
+
+    private IEnumerable<string> GetDiagnosticsByStatus(DiagnosticBucket bucket)
+    {
+        if (SelectedParcelGroup is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var details = new List<string>();
+
+        var closure = parent.ReviewValidationResult.ClosureResults
+            .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
+        if (closure is not null)
+        {
+            var closureBucket = closure.Status switch
+            {
+                ClosureValidationStatus.Blocker => DiagnosticBucket.Blocked,
+                ClosureValidationStatus.Warning => DiagnosticBucket.Warning,
+                ClosureValidationStatus.Passed => DiagnosticBucket.Passed,
+                _ => DiagnosticBucket.None
+            };
+
+            if (closureBucket == bucket && !string.IsNullOrWhiteSpace(closure.Message))
+            {
+                var prefix = string.IsNullOrWhiteSpace(closure.ProfileRuleId)
+                    ? "Closure"
+                    : $"Closure / {FormatRuleLabel(closure.ProfileRuleId, closure.ProfileTitle)}";
+                details.Add($"{prefix}: {closure.Message}");
+            }
+        }
+
+        foreach (var readinessResult in parent.ReviewValidationResult.ReadinessResults
+                     .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase)))
+        {
+            var readinessBucket = readinessResult.Status switch
+            {
+                ReadinessValidationStatus.Blocker => DiagnosticBucket.Blocked,
+                ReadinessValidationStatus.Warning => DiagnosticBucket.Warning,
+                ReadinessValidationStatus.Passed => DiagnosticBucket.Passed,
+                _ => DiagnosticBucket.None
+            };
+
+            if (readinessBucket == bucket && !string.IsNullOrWhiteSpace(readinessResult.Message))
+            {
+                var prefix = string.IsNullOrWhiteSpace(readinessResult.RuleId)
+                    ? BlankIfEmpty(readinessResult.Title)
+                    : FormatRuleLabel(readinessResult.RuleId, readinessResult.Title);
+                details.Add($"{prefix}: {readinessResult.Message}");
+            }
+        }
+
+        if (bucket == DiagnosticBucket.Blocked
+            && parent.ReviewValidationResult.ParcelIssues.TryGetValue(SelectedParcelGroup.GroupId, out var parcelIssue)
+            && !string.IsNullOrWhiteSpace(parcelIssue))
+        {
+            details.Add($"Parcel issue: {parcelIssue}");
+        }
+
+        return details.Distinct(StringComparer.Ordinal);
     }
 
     private void OnReviewRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -524,7 +608,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ParcelInterpretationSummary));
                 OnPropertyChanged(nameof(ParcelInterpretationIssues));
                 OnPropertyChanged(nameof(ActiveParcelDiagnosticsSummary));
-                OnPropertyChanged(nameof(ActiveParcelDiagnosticsDetail));
+                OnPropertyChanged(nameof(ActiveParcelDiagnosticsOverview));
+                OnPropertyChanged(nameof(ActiveParcelBlockedDiagnostics));
+                OnPropertyChanged(nameof(ActiveParcelWarningDiagnostics));
+                OnPropertyChanged(nameof(ActiveParcelPassedDiagnostics));
+                OnPropertyChanged(nameof(HasBlockedDiagnostics));
+                OnPropertyChanged(nameof(HasWarningDiagnostics));
+                OnPropertyChanged(nameof(HasPassedDiagnostics));
+                OnPropertyChanged(nameof(ActiveParcelDiagnosticsEmptyState));
                 OnPropertyChanged(nameof(ParcelPreviewPoints));
                 OnPropertyChanged(nameof(ParcelContextPreviewPaths));
                 OnPropertyChanged(nameof(SelectedPointPreview));
@@ -673,7 +764,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     private IReadOnlyList<PreviewPath> BuildPreviewPaths()
     {
-        if (ParcelGroups.Count == 0)
+        if (!ShowAllParcelContext || ParcelGroups.Count == 0 || SelectedParcelGroup is null)
         {
             return Array.Empty<PreviewPath>();
         }
@@ -707,7 +798,6 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         var scaleY = (PreviewHeight - 40d) / height;
         var scale = Math.Min(scaleX, scaleY);
 
-        var activeBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1F6B75"));
         var contextBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#B7C3CC"));
         var results = new List<PreviewPath>();
 
@@ -721,14 +811,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 scaled.Add(new Point(x, y));
             }
 
-            var isActive = SelectedParcelGroup is not null
-                && string.Equals(item.Group.GroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase);
-            results.Add(new PreviewPath(
-                item.Group.GroupId,
-                scaled,
-                isActive ? activeBrush : contextBrush,
-                isActive ? 3d : 1.4d,
-                isActive ? 1d : 0.7d));
+            var isActive = string.Equals(item.Group.GroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase);
+            if (!isActive)
+            {
+                results.Add(new PreviewPath(
+                    item.Group.GroupId,
+                    scaled,
+                    contextBrush,
+                    1.2d,
+                    0.55d));
+            }
         }
 
         return results;
@@ -810,6 +902,46 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             ".pdf" or ".png" or ".jpg" or ".jpeg" or ".tif" or ".tiff" => true,
             _ => false
         };
+    }
+
+    private static string FormatRuleLabel(string? ruleId, string? title = null)
+    {
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            return title.Trim();
+        }
+
+        var id = (ruleId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return "Rule";
+        }
+
+        return id.ToLowerInvariant() switch
+        {
+            "closure_standard_plan_exam" => "Standard closed parcel tolerance for compute review",
+            "closure_standard_compute_review" => "Standard closed parcel tolerance for compute review",
+            "readiness_boundary_completeness" => "Boundary completeness",
+            "readiness_shared_edge_consistency" => "Shared-edge consistency",
+            "readiness_orphan_line_detection" => "Orphan line detection",
+            "readiness_line_without_point_support" => "Line without point support",
+            "readiness_minimum_segment_count" => "Minimum segment count",
+            _ => HumanizeRuleId(id)
+        };
+    }
+
+    private static string HumanizeRuleId(string value)
+    {
+        var cleaned = value.Replace('_', ' ').Replace('-', ' ').Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "Rule";
+        }
+
+        var words = cleaned
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant());
+        return string.Join(" ", words);
     }
 
     private static string ResolveParcelDisplayName(string groupId, IReadOnlyList<ExtractionReviewRowViewModel> rows)
@@ -909,3 +1041,11 @@ internal sealed class JamaicaParcelGroupViewModel
 
 internal sealed record PreviewMarker(double X, double Y, string Label);
 internal sealed record PreviewPath(string GroupId, PointCollection Points, Brush Stroke, double StrokeThickness, double Opacity);
+
+internal enum DiagnosticBucket
+{
+    None,
+    Blocked,
+    Warning,
+    Passed
+}

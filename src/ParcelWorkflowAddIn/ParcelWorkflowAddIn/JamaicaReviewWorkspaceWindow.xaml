@@ -44,11 +44,11 @@
     </Grid.RowDefinitions>
 
     <Border Grid.Row="0"
-            Background="#FFFFFF"
+            Background="#EEF3F8"
             BorderBrush="#C9D2D8"
             BorderThickness="1"
             CornerRadius="4"
-            Padding="12">
+            Padding="14,12">
       <StackPanel>
         <DockPanel LastChildFill="False">
           <TextBlock Text="{Binding TransactionHeader}"
@@ -127,11 +127,11 @@
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="340" MinWidth="280" />
+        <ColumnDefinition Width="360" MinWidth="300" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="*" MinWidth="360" />
+        <ColumnDefinition Width="*" MinWidth="420" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="300" MinWidth="240" />
+        <ColumnDefinition Width="332" MinWidth="270" />
       </Grid.ColumnDefinitions>
 
       <Border Grid.Column="0"
@@ -181,7 +181,7 @@
                   BorderThickness="1"
                   CornerRadius="4"
                   Padding="8"
-                  MinHeight="460">
+                  MinHeight="480">
             <Grid ClipToBounds="True">
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -190,7 +190,7 @@
               <DockPanel Grid.Row="0"
                          LastChildFill="False"
                          Margin="0,0,0,8">
-                <StackPanel DockPanel.Dock="Right"
+                  <StackPanel DockPanel.Dock="Right"
                             Orientation="Horizontal">
                   <Button Style="{StaticResource IconButtonStyle}"
                           Content="&#xE8A7;"
@@ -321,7 +321,7 @@
                   BorderBrush="#E1E8ED"
                   BorderThickness="1"
                   CornerRadius="4"
-                  Padding="8">
+                  Padding="8,6">
             <TextBlock Text="{Binding ViewerGuidance}"
                        FontSize="11"
                        Foreground="#52616B"
@@ -488,10 +488,9 @@
               BorderBrush="#C9D2D8"
               BorderThickness="1"
               CornerRadius="4"
-              Padding="10">
+              Padding="12">
         <Grid>
           <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -531,19 +530,48 @@
                     ToolTip="Parcel selection is locked while a manual point is in progress."
                     FontSize="11" />
 
-          <StackPanel Grid.Row="3"
-                      Margin="0,10,0,0">
+          <Grid Grid.Row="3"
+                Margin="0,12,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="280" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
             <TextBlock Text="{Binding SelectedParcelTitle}"
                        FontSize="12"
                        FontWeight="SemiBold"
                        Foreground="#1F2933"
                        TextWrapping="Wrap" />
-            <TextBlock Text="{Binding ParcelInterpretationSummary}"
+            <TextBlock Grid.Row="1"
+                       Text="{Binding ParcelInterpretationSummary}"
                        Margin="0,4,0,0"
                        FontSize="11"
                        Foreground="#52616B"
                        TextWrapping="Wrap" />
-            <Border Margin="0,8,0,0"
+            <DockPanel Grid.Row="2"
+                       Margin="0,8,0,0"
+                       LastChildFill="False">
+              <Border Background="#EEF4FF"
+                      BorderBrush="#9DB7E8"
+                      BorderThickness="1"
+                      CornerRadius="2"
+                      Padding="5,1"
+                      DockPanel.Dock="Right">
+                <TextBlock Text="All parcels"
+                           FontSize="11"
+                           Foreground="#1F2933" />
+              </Border>
+              <CheckBox Content="Show surrounding parcels"
+                        IsChecked="{Binding ShowAllParcelContext, Mode=TwoWay}"
+                        VerticalAlignment="Center"
+                        FontSize="11"
+                        Foreground="#52616B" />
+            </DockPanel>
+            <Border Grid.Row="3"
+                    Margin="0,8,0,0"
                     Background="#F3F6F7"
                     BorderBrush="#E1E8ED"
                     BorderThickness="1"
@@ -554,85 +582,164 @@
                          Foreground="#52616B"
                          TextWrapping="Wrap" />
             </Border>
-          </StackPanel>
-
-          <Grid Grid.Row="4"
-                Margin="0,12,0,0">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TextBlock Text="Parcel preview"
-                       FontSize="11"
-                       FontWeight="SemiBold"
-                       Foreground="#52616B" />
-            <Border Grid.Row="1"
-                    Margin="0,8,0,0"
-                    Background="#EEF2F0"
+            <Border Grid.Row="4"
+                    Margin="0,12,0,0"
+                    Background="#EFF4F2"
                     BorderBrush="#D8E1E7"
                     BorderThickness="1"
                     CornerRadius="4"
-                    Padding="8">
-              <Canvas Width="280"
-                      Height="210">
-                <ItemsControl ItemsSource="{Binding ParcelContextPreviewPaths}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <Canvas />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Polyline Points="{Binding Points}"
-                                Stroke="{Binding Stroke}"
-                                StrokeThickness="{Binding StrokeThickness}"
-                                Opacity="{Binding Opacity}" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <Polyline Points="{Binding ParcelPreviewPoints}"
-                          Stroke="#1F6B75"
-                          StrokeThickness="3" />
-                <Ellipse Width="8"
-                         Height="8"
-                         Fill="#B42318"
-                         Canvas.Left="{Binding SelectedPointPreview.X}"
-                         Canvas.Top="{Binding SelectedPointPreview.Y}" />
-                <TextBlock Text="{Binding SelectedPointPreview.Label}"
+                    Padding="12">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Parcel preview"
                            FontSize="11"
-                           Foreground="#1F2933"
-                           Canvas.Left="{Binding SelectedPointPreview.X}"
-                           Canvas.Top="{Binding SelectedPointPreview.Y}" />
-              </Canvas>
+                           FontWeight="SemiBold"
+                           Foreground="#52616B" />
+                <Viewbox Grid.Row="1"
+                         Margin="0,10,0,0"
+                         Stretch="Uniform"
+                         StretchDirection="Both">
+                  <Canvas Width="280"
+                          Height="210">
+                    <ItemsControl ItemsSource="{Binding ParcelContextPreviewPaths}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <Canvas />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Polyline Points="{Binding Points}"
+                                    Stroke="{Binding Stroke}"
+                                    StrokeThickness="{Binding StrokeThickness}"
+                                    Opacity="{Binding Opacity}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Polyline Points="{Binding ParcelPreviewPoints}"
+                              Stroke="#1F6B75"
+                              StrokeThickness="3" />
+                    <Ellipse Width="8"
+                             Height="8"
+                             Fill="#B42318"
+                             Canvas.Left="{Binding SelectedPointPreview.X}"
+                             Canvas.Top="{Binding SelectedPointPreview.Y}" />
+                    <TextBlock Text="{Binding SelectedPointPreview.Label}"
+                               FontSize="11"
+                               Foreground="#1F2933"
+                               Canvas.Left="{Binding SelectedPointPreview.X}"
+                               Canvas.Top="{Binding SelectedPointPreview.Y}" />
+                  </Canvas>
+                </Viewbox>
+              </Grid>
             </Border>
-            <Border Grid.Row="2"
-                    Margin="0,8,0,0"
-                    Background="#F3F6F7"
+            <Border Grid.Row="5"
+                    Margin="0,10,0,0"
+                    Background="#F8FAFB"
                     BorderBrush="#E1E8ED"
                     BorderThickness="1"
                     CornerRadius="4"
                     Padding="8">
-              <StackPanel>
-                <TextBlock Text="{Binding ActiveParcelDiagnosticsSummary}"
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Validation details"
                            FontSize="11"
                            FontWeight="SemiBold"
-                           Foreground="#1F2933"
-                           TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ActiveParcelDiagnosticsDetail}"
-                           Margin="0,6,0,0"
-                           FontSize="11"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap" />
-                <Border Margin="0,8,0,0"
-                        Height="1"
-                        Background="#D8E1E7" />
-                <TextBlock Text="{Binding SelectedRowSummary}"
-                           Margin="0,8,0,0"
-                           FontSize="11"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap" />
-              </StackPanel>
+                           Foreground="#52616B" />
+                <ScrollViewer Grid.Row="1"
+                              Margin="0,8,0,0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                  <StackPanel>
+                    <TextBlock Text="{Binding ActiveParcelDiagnosticsSummary}"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding ActiveParcelDiagnosticsOverview}"
+                               Margin="0,6,0,0"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                    <Border Margin="0,10,0,0"
+                            Background="#FDEBEB"
+                            BorderBrush="#E7B5B5"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Visibility="{Binding HasBlockedDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      <StackPanel>
+                        <TextBlock Text="Needs attention"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#B42318" />
+                        <TextBlock Text="{Binding ActiveParcelBlockedDiagnostics}"
+                                   Margin="0,4,0,0"
+                                   FontSize="11"
+                                   Foreground="#7A271A"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                    <Border Margin="0,8,0,0"
+                            Background="#FFF7E6"
+                            BorderBrush="#F0C36D"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Visibility="{Binding HasWarningDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      <StackPanel>
+                        <TextBlock Text="Review notes"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#8A5A00" />
+                        <TextBlock Text="{Binding ActiveParcelWarningDiagnostics}"
+                                   Margin="0,4,0,0"
+                                   FontSize="11"
+                                   Foreground="#7A5A00"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                    <Border Margin="0,8,0,0"
+                            Background="#F3F6F7"
+                            BorderBrush="#D8E1E7"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Visibility="{Binding HasPassedDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      <StackPanel>
+                        <TextBlock Text="Checks passed"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="#52616B" />
+                        <TextBlock Text="{Binding ActiveParcelPassedDiagnostics}"
+                                   Margin="0,4,0,0"
+                                   FontSize="11"
+                                   Foreground="#52616B"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding ActiveParcelDiagnosticsEmptyState}"
+                               Margin="0,8,0,0"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                    <Border Margin="0,8,0,0"
+                            Height="1"
+                            Background="#D8E1E7" />
+                    <TextBlock Text="{Binding SelectedRowSummary}"
+                               Margin="0,8,0,0"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
             </Border>
           </Grid>
         </Grid>
