@@ -860,7 +860,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ParcelScopedReviewValidationResult ReviewValidationResult =>
         loadedReviewDocument is null
-            ? new ParcelScopedReviewValidationResult(new[] { "Review data not loaded." }, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), Array.Empty<ParcelClosureReviewResult>())
+            ? new ParcelScopedReviewValidationResult(
+                new[] { "Review data not loaded." },
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                Array.Empty<ParcelClosureReviewResult>(),
+                Array.Empty<ParcelReadinessReviewResult>())
             : reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId);
 
     public bool IsManualReviewEditMode => !string.IsNullOrWhiteSpace(pendingManualRowId);
@@ -963,9 +967,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             }
 
             var mapMode = string.IsNullOrWhiteSpace(payload.MapLoadMode) ? "unknown" : payload.MapLoadMode;
+            var readiness = workflowSession.CurrentValidationSummary?.Payload.ReadinessSummary;
+            var readinessText = readiness is null
+                ? string.Empty
+                : $" Construction readiness - blocker {readiness.Blocker}, warning {readiness.Warning}, passed {readiness.Passed}, skipped {readiness.Skipped}.";
             return payload.RootLineFeatureClassDiagnostic is null
                 ? $"COGO diagnostics: map load {mapMode}; bearing text {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
-                : $"COGO diagnostics: map load {mapMode}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}.";
+                + readinessText
+                : $"COGO diagnostics: map load {mapMode}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
+                + readinessText;
         }
     }
 
@@ -1048,10 +1058,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
             var counts = summary.Payload.FindingCounts;
             var closure = summary.Payload.ClosureSummary;
+            var readiness = summary.Payload.ReadinessSummary;
             var closureText = closure is null
                 ? string.Empty
                 : $" Closure - blocker {closure.Blocker}, warning {closure.Warning}, passed {closure.Passed}.";
-            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}";
+            var readinessText = readiness is null
+                ? string.Empty
+                : $" Construction readiness - blocker {readiness.Blocker}, warning {readiness.Warning}, passed {readiness.Passed}, skipped {readiness.Skipped}.";
+            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}{readinessText}";
         }
     }
 

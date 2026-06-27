@@ -1345,6 +1345,8 @@ internal static class WorkflowSessionTests
                     new ValidationFindingCounts(0, blocked ? 1 : 0, 0, 0, blocked ? 0 : 1),
                     null,
                     Array.Empty<ValidationClosureResult>(),
+                    null,
+                    Array.Empty<ValidationReadinessResult>(),
                     new[]
                     {
                         new ValidationFinding(

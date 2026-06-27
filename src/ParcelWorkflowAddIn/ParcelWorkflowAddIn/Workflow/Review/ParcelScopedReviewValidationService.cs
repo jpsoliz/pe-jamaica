@@ -9,15 +9,19 @@ namespace ParcelWorkflowAddIn.Workflow.Review;
 public sealed class ParcelScopedReviewValidationService
 {
     private readonly Func<ClosureToleranceCatalog> getClosureToleranceCatalog;
+    private readonly Func<ParcelReadinessCatalog> getParcelReadinessCatalog;
 
     public ParcelScopedReviewValidationService()
-        : this(() => ClosureToleranceCatalog.Load())
+        : this(() => ClosureToleranceCatalog.Load(), () => ParcelReadinessCatalog.Load())
     {
     }
 
-    internal ParcelScopedReviewValidationService(Func<ClosureToleranceCatalog> getClosureToleranceCatalog)
+    internal ParcelScopedReviewValidationService(
+        Func<ClosureToleranceCatalog> getClosureToleranceCatalog,
+        Func<ParcelReadinessCatalog> getParcelReadinessCatalog)
     {
         this.getClosureToleranceCatalog = getClosureToleranceCatalog;
+        this.getParcelReadinessCatalog = getParcelReadinessCatalog;
     }
 
     public ParcelScopedReviewValidationResult Validate(
@@ -30,7 +34,7 @@ public sealed class ParcelScopedReviewValidationService
         if (rows.Count == 0)
         {
             issues.Add("No review rows are loaded.");
-            return new ParcelScopedReviewValidationResult(issues, parcelIssues, Array.Empty<ParcelClosureReviewResult>());
+            return new ParcelScopedReviewValidationResult(issues, parcelIssues, Array.Empty<ParcelClosureReviewResult>(), Array.Empty<ParcelReadinessReviewResult>());
         }
 
         var unresolvedCount = rows.Count(row => row.Unresolved);
@@ -105,6 +109,7 @@ public sealed class ParcelScopedReviewValidationService
         }
 
         var closureResults = ComputeClosureResults(rows);
+        var readinessResults = ComputeReadinessResults(rows);
         foreach (var closureResult in closureResults)
         {
             if (closureResult.Status == ClosureValidationStatus.Passed)
@@ -120,12 +125,31 @@ public sealed class ParcelScopedReviewValidationService
             }
         }
 
+        foreach (var readinessResult in readinessResults)
+        {
+            var label = readinessResult.ParcelGroupId;
+            if (!string.IsNullOrWhiteSpace(label)
+                && readinessResult.Status is ReadinessValidationStatus.Blocker or ReadinessValidationStatus.Warning)
+            {
+                parcelIssues[label] = AppendIssue(parcelIssues, label, readinessResult.Message);
+            }
+
+            if (readinessResult.Status == ReadinessValidationStatus.Blocker)
+            {
+                issues.Add(readinessResult.Message);
+            }
+        }
+
         if (includePendingManualBarrier && !string.IsNullOrWhiteSpace(pendingManualRowId))
         {
             issues.Add("Save or discard the in-progress manual point before approval or parcel switching.");
         }
 
-        return new ParcelScopedReviewValidationResult(issues.Distinct(StringComparer.Ordinal).ToArray(), parcelIssues, closureResults);
+        return new ParcelScopedReviewValidationResult(
+            issues.Distinct(StringComparer.Ordinal).ToArray(),
+            parcelIssues,
+            closureResults,
+            readinessResults);
     }
 
     private IReadOnlyList<ParcelClosureReviewResult> ComputeClosureResults(IReadOnlyList<ExtractionReviewRow> rows)
@@ -253,6 +277,267 @@ public sealed class ParcelScopedReviewValidationService
         return results;
     }
 
+    private IReadOnlyList<ParcelReadinessReviewResult> ComputeReadinessResults(IReadOnlyList<ExtractionReviewRow> rows)
+    {
+        var catalog = getParcelReadinessCatalog();
+        var sourceMode = InferSourceMode(rows);
+        var groupedRows = rows
+            .GroupBy(row => NormalizeParcelGroup(row.ParcelGroupId), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+                    .ThenBy(row => row.PointIdentifier, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var edgeUsage = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var parcelEdges = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pair in groupedRows)
+        {
+            var edges = new List<string>();
+            string previousPointId = string.Empty;
+            foreach (var row in pair.Value)
+            {
+                var currentPointId = NormalizePointId(row.PointIdentifier);
+                var fromPointId = ExtractRawText(row, "from_point", "from_pt", "start_pt");
+                var toPointId = ExtractRawText(row, "to_point", "to_pt", "end_pt");
+                var edgeStart = !string.IsNullOrWhiteSpace(fromPointId) ? fromPointId : previousPointId;
+                var edgeEnd = !string.IsNullOrWhiteSpace(toPointId) ? toPointId : currentPointId;
+                if (!string.IsNullOrWhiteSpace(edgeStart) && !string.IsNullOrWhiteSpace(edgeEnd))
+                {
+                    var edgeKey = NormalizeEdgeKey(edgeStart, edgeEnd);
+                    edges.Add(edgeKey);
+                    if (!edgeUsage.TryGetValue(edgeKey, out var parcels))
+                    {
+                        parcels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        edgeUsage[edgeKey] = parcels;
+                    }
+
+                    parcels.Add(pair.Key);
+                }
+
+                if (!string.IsNullOrWhiteSpace(currentPointId))
+                {
+                    previousPointId = currentPointId;
+                }
+            }
+
+            parcelEdges[pair.Key] = edges;
+        }
+
+        var results = new List<ParcelReadinessReviewResult>();
+        foreach (var pair in groupedRows)
+        {
+            var parcelGroupId = pair.Key;
+            var orderedRows = pair.Value;
+            var parcelType = InferParcelType(orderedRows, catalog.DefaultParcelType, sourceMode);
+            var parcelName = orderedRows.FirstOrDefault()?.ParcelName ?? parcelGroupId;
+            var pointIds = orderedRows
+                .Select(row => NormalizePointId(row.PointIdentifier))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var validSequences = orderedRows
+                .Where(row => row.SequenceInGroup is > 0)
+                .Select(row => row.SequenceInGroup!.Value)
+                .Distinct()
+                .OrderBy(value => value)
+                .ToArray();
+            var missingSequences = validSequences.Length == 0
+                ? Array.Empty<int>()
+                : Enumerable.Range(1, validSequences[^1]).Except(validSequences).ToArray();
+
+            var referencedPointMisses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var referencedPointSegmentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var orphanSegmentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string previousPointId = string.Empty;
+            foreach (var row in orderedRows)
+            {
+                var currentPointId = NormalizePointId(row.PointIdentifier);
+                var fromPointId = ExtractRawText(row, "from_point", "from_pt", "start_pt");
+                var toPointId = ExtractRawText(row, "to_point", "to_pt", "end_pt");
+                var segmentId = ResolveSegmentIdentifier(row);
+
+                if (!string.IsNullOrWhiteSpace(fromPointId) && !pointIds.Contains(fromPointId))
+                {
+                    referencedPointMisses.Add(fromPointId);
+                    referencedPointSegmentIds.Add(segmentId);
+                }
+
+                if (!string.IsNullOrWhiteSpace(toPointId) && !pointIds.Contains(toPointId))
+                {
+                    referencedPointMisses.Add(toPointId);
+                    referencedPointSegmentIds.Add(segmentId);
+                }
+
+                if (!string.IsNullOrWhiteSpace(previousPointId)
+                    && !string.IsNullOrWhiteSpace(fromPointId)
+                    && !string.Equals(previousPointId, fromPointId, StringComparison.OrdinalIgnoreCase))
+                {
+                    orphanSegmentIds.Add(segmentId);
+                }
+
+                if (!string.IsNullOrWhiteSpace(currentPointId)
+                    && !string.IsNullOrWhiteSpace(toPointId)
+                    && !string.Equals(currentPointId, toPointId, StringComparison.OrdinalIgnoreCase))
+                {
+                    orphanSegmentIds.Add(segmentId);
+                }
+
+                if (!string.IsNullOrWhiteSpace(currentPointId))
+                {
+                    previousPointId = currentPointId;
+                }
+            }
+
+            var edgeCounts = parcelEdges.TryGetValue(parcelGroupId, out var parcelEdgeList)
+                ? parcelEdgeList.GroupBy(edge => edge, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var sharedEdgeConflictCount = edgeCounts.Values.Count(count => count > 1)
+                                          + edgeCounts.Keys.Count(edgeKey => edgeUsage.TryGetValue(edgeKey, out var parcels) && parcels.Count > 2);
+
+            foreach (var profile in catalog.Resolve(parcelType))
+            {
+                var status = ReadinessValidationStatus.Passed;
+                var message = $"Parcel {parcelGroupId} passed {profile.Title.ToLowerInvariant()}.";
+                var affectedPointIds = Array.Empty<string>();
+                var affectedSegmentIds = Array.Empty<string>();
+                var boundaryGapCount = 0;
+                var orphanLineCount = 0;
+                var sharedEdgeCount = 0;
+                var skipReason = default(string);
+
+                if (!profile.Enabled)
+                {
+                    status = ReadinessValidationStatus.Skipped;
+                    message = $"{profile.Title} is disabled for parcel type {parcelType}.";
+                    skipReason = "Rule disabled in readiness profile.";
+                }
+                else if (string.Equals(profile.Category, "minimum_segment_count", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (orderedRows.Length < profile.MinSegmentCount)
+                    {
+                        status = ResolveReadinessStatus(profile.Severity);
+                        message = $"Parcel {parcelGroupId} only has {orderedRows.Length} segment row(s); at least {profile.MinSegmentCount} are required.";
+                    }
+                    else
+                    {
+                        message = $"Parcel {parcelGroupId} meets the minimum segment count.";
+                    }
+                }
+                else if (string.Equals(profile.Category, "boundary_completeness", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!profile.RequireContiguousSequence)
+                    {
+                        status = ReadinessValidationStatus.Skipped;
+                        message = $"{profile.Title} is disabled for parcel type {parcelType}.";
+                        skipReason = "Boundary completeness behavior is disabled in readiness profile.";
+                    }
+                    else
+                    {
+                        boundaryGapCount = missingSequences.Length;
+                        if (boundaryGapCount > 0)
+                        {
+                            status = ResolveReadinessStatus(profile.Severity);
+                            affectedSegmentIds = missingSequences.Select(value => value.ToString(CultureInfo.InvariantCulture)).ToArray();
+                            message = $"Parcel {parcelGroupId} has {boundaryGapCount} missing sequence value(s): {string.Join(", ", affectedSegmentIds)}.";
+                        }
+                        else
+                        {
+                            message = $"Parcel {parcelGroupId} has a contiguous parcel sequence.";
+                        }
+                    }
+                }
+                else if (string.Equals(profile.Category, "line_without_point_support", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!profile.RequireReferencedPoints)
+                    {
+                        status = ReadinessValidationStatus.Skipped;
+                        message = $"{profile.Title} is disabled for parcel type {parcelType}.";
+                        skipReason = "Referenced-point support behavior is disabled in readiness profile.";
+                    }
+                    else if (referencedPointMisses.Count > 0)
+                    {
+                        status = ResolveReadinessStatus(profile.Severity);
+                        affectedPointIds = referencedPointMisses.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+                        affectedSegmentIds = referencedPointSegmentIds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+                        message = $"Parcel {parcelGroupId} references point id(s) that are not present in the parcel set: {string.Join(", ", affectedPointIds)}.";
+                    }
+                    else
+                    {
+                        message = $"Parcel {parcelGroupId} line references are supported by parcel points.";
+                    }
+                }
+                else if (string.Equals(profile.Category, "orphan_line_detection", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!profile.RequireChainConsistency)
+                    {
+                        status = ReadinessValidationStatus.Skipped;
+                        message = $"{profile.Title} is disabled for parcel type {parcelType}.";
+                        skipReason = "Chain-consistency behavior is disabled in readiness profile.";
+                    }
+                    else
+                    {
+                        orphanLineCount = orphanSegmentIds.Count;
+                        if (orphanLineCount > 0)
+                        {
+                            status = ResolveReadinessStatus(profile.Severity);
+                            affectedSegmentIds = orphanSegmentIds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+                            message = $"Parcel {parcelGroupId} has {orphanLineCount} segment(s) that do not follow the parcel chain cleanly.";
+                        }
+                        else
+                        {
+                            message = $"Parcel {parcelGroupId} line chain follows the parcel sequence.";
+                        }
+                    }
+                }
+                else if (string.Equals(profile.Category, "shared_edge_consistency", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!profile.DetectDuplicateEdges)
+                    {
+                        status = ReadinessValidationStatus.Skipped;
+                        message = $"{profile.Title} is disabled for parcel type {parcelType}.";
+                        skipReason = "Shared-edge conflict detection is disabled in readiness profile.";
+                    }
+                    else
+                    {
+                        sharedEdgeCount = sharedEdgeConflictCount;
+                        if (sharedEdgeCount > 0)
+                        {
+                            status = ResolveReadinessStatus(profile.Severity);
+                            message = $"Parcel {parcelGroupId} has {sharedEdgeCount} shared-edge or duplicate-edge conflict(s) to review.";
+                        }
+                        else
+                        {
+                            message = $"Parcel {parcelGroupId} did not produce shared-edge conflicts.";
+                        }
+                    }
+                }
+
+                results.Add(new ParcelReadinessReviewResult(
+                    parcelGroupId,
+                    parcelName,
+                    parcelType,
+                    profile.RuleId,
+                    profile.Title,
+                    profile.Category,
+                    profile.Severity,
+                    status,
+                    message,
+                    affectedPointIds,
+                    affectedSegmentIds,
+                    boundaryGapCount,
+                    sharedEdgeCount,
+                    orphanLineCount,
+                    !profile.Enabled,
+                    skipReason));
+            }
+        }
+
+        return results;
+    }
+
     private static string AppendIssue(IDictionary<string, string> issues, string key, string message)
     {
         if (!issues.TryGetValue(key, out var existing) || string.IsNullOrWhiteSpace(existing))
@@ -319,20 +604,72 @@ public sealed class ParcelScopedReviewValidationService
     {
         return string.IsNullOrWhiteSpace(parcelGroupId) ? "Unassigned" : parcelGroupId.Trim();
     }
+
+    private static string NormalizePointId(string? pointId)
+    {
+        return string.IsNullOrWhiteSpace(pointId) ? string.Empty : pointId.Trim();
+    }
+
+    private static string ExtractRawText(ExtractionReviewRow row, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (row.RawRow.TryGetPropertyValue(key, out var valueNode))
+            {
+                var text = valueNode?.ToString()?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveSegmentIdentifier(ExtractionReviewRow row)
+    {
+        var raw = ExtractRawText(row, "segment_no", "segment_index", "seq");
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            return raw;
+        }
+
+        return row.SequenceInGroup?.ToString(CultureInfo.InvariantCulture) ?? row.RowId;
+    }
+
+    private static string NormalizeEdgeKey(string pointA, string pointB)
+    {
+        return string.Compare(pointA, pointB, StringComparison.OrdinalIgnoreCase) <= 0
+            ? $"{pointA}|{pointB}"
+            : $"{pointB}|{pointA}";
+    }
+
+    private static ReadinessValidationStatus ResolveReadinessStatus(string severity)
+    {
+        return severity.Equals("warning", StringComparison.OrdinalIgnoreCase)
+               || severity.Equals("info", StringComparison.OrdinalIgnoreCase)
+            ? ReadinessValidationStatus.Warning
+            : ReadinessValidationStatus.Blocker;
+    }
 }
 
 public sealed record ParcelScopedReviewValidationResult(
     IReadOnlyList<string> Issues,
     IReadOnlyDictionary<string, string> ParcelIssues,
-    IReadOnlyList<ParcelClosureReviewResult> ClosureResults)
+    IReadOnlyList<ParcelClosureReviewResult> ClosureResults,
+    IReadOnlyList<ParcelReadinessReviewResult> ReadinessResults)
 {
-    public bool HasBlockers => Issues.Count > 0 || ClosureResults.Any(result => result.Status == ClosureValidationStatus.Blocker);
+    public bool HasBlockers => Issues.Count > 0
+                               || ClosureResults.Any(result => result.Status == ClosureValidationStatus.Blocker)
+                               || ReadinessResults.Any(result => result.Status == ReadinessValidationStatus.Blocker);
 
     public string SummaryText => !HasBlockers
         ? "Review is complete for this stage."
         : Issues.Count > 0
             ? Issues[0]
-            : ClosureResults.First(result => result.Status == ClosureValidationStatus.Blocker).Message;
+            : ReadinessResults.FirstOrDefault(result => result.Status == ReadinessValidationStatus.Blocker)?.Message
+              ?? ClosureResults.First(result => result.Status == ClosureValidationStatus.Blocker).Message;
 }
 
 public sealed record ParcelClosureReviewResult(
@@ -355,6 +692,32 @@ public enum ClosureValidationStatus
     Passed,
     Warning,
     Blocker
+}
+
+public sealed record ParcelReadinessReviewResult(
+    string ParcelGroupId,
+    string ParcelName,
+    string ParcelType,
+    string RuleId,
+    string Title,
+    string Category,
+    string Severity,
+    ReadinessValidationStatus Status,
+    string Message,
+    IReadOnlyList<string> AffectedPointIds,
+    IReadOnlyList<string> AffectedSegmentIds,
+    int BoundaryGapCount,
+    int SharedEdgeConflictCount,
+    int OrphanLineCount,
+    bool RuleDisabled,
+    string? RuleSkipReason);
+
+public enum ReadinessValidationStatus
+{
+    Passed,
+    Warning,
+    Blocker,
+    Skipped
 }
 
 internal sealed record ClosureToleranceProfile(
@@ -656,3 +1019,292 @@ internal sealed class ClosureToleranceCatalog
 }
 
 internal readonly record struct CoordinatePoint(double X, double Y);
+
+internal sealed record ParcelReadinessRuleProfile(
+    string RuleId,
+    string Title,
+    string Category,
+    string ParcelType,
+    bool Enabled,
+    string Severity,
+    int MinSegmentCount,
+    bool RequireContiguousSequence,
+    bool RequireReferencedPoints,
+    bool RequireChainConsistency,
+    bool DetectDuplicateEdges);
+
+internal sealed class ParcelReadinessCatalog
+{
+    public string DefaultParcelType { get; set; } = "standard_closed";
+
+    public Dictionary<string, ParcelReadinessRuleProfile> DefaultProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, Dictionary<string, ParcelReadinessRuleProfile>> ProfilesByParcelType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<ParcelReadinessRuleProfile> Resolve(string parcelType)
+    {
+        var results = new Dictionary<string, ParcelReadinessRuleProfile>(DefaultProfiles, StringComparer.OrdinalIgnoreCase);
+        if (ProfilesByParcelType.TryGetValue(parcelType, out var parcelProfiles))
+        {
+            foreach (var pair in parcelProfiles)
+            {
+                results[pair.Key] = pair.Value;
+            }
+        }
+
+        return results.Values.OrderBy(profile => profile.Category, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public static ParcelReadinessCatalog Load(string? settingsPath = null)
+    {
+        settingsPath ??= InnolaTransactionSettings.ResolveActiveSettingsPath();
+        var executionSettings = WorkflowExecutionSettings.Load(settingsPath);
+        var catalog = ParseRuleCatalog(executionSettings.ValidationRulesPath);
+        ApplyOverrides(catalog, settingsPath);
+        return catalog;
+    }
+
+    private static ParcelReadinessCatalog ParseRuleCatalog(string? rulesPath)
+    {
+        var catalog = new ParcelReadinessCatalog();
+        if (string.IsNullOrWhiteSpace(rulesPath) || !File.Exists(rulesPath))
+        {
+            return catalog;
+        }
+
+        var lines = File.ReadAllLines(rulesPath);
+        var section = string.Empty;
+        var current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var skipIndent = -1;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var indent = line.Length - line.TrimStart().Length;
+            if (indent == 0)
+            {
+                if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+                {
+                    CommitReadinessProfile(catalog, current);
+                    current.Clear();
+                }
+
+                section = trimmed.TrimEnd(':');
+                skipIndent = -1;
+                continue;
+            }
+
+            if (skipIndent >= 0 && indent > skipIndent)
+            {
+                continue;
+            }
+
+            if (skipIndent >= 0 && indent <= skipIndent)
+            {
+                skipIndent = -1;
+            }
+
+            var working = trimmed;
+            if (working.StartsWith("- ", StringComparison.Ordinal))
+            {
+                if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+                {
+                    CommitReadinessProfile(catalog, current);
+                    current.Clear();
+                }
+
+                working = working[2..].TrimStart();
+            }
+
+            var splitIndex = working.IndexOf(':');
+            if (splitIndex < 0)
+            {
+                continue;
+            }
+
+            var key = working[..splitIndex].Trim();
+            var value = working[(splitIndex + 1)..].Trim().Trim('"', '\'');
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                skipIndent = indent;
+                continue;
+            }
+
+            current[key] = value;
+
+            if (string.Equals(section, "parcel_construction_readiness_defaults", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(key, "parcel_type", StringComparison.OrdinalIgnoreCase))
+                {
+                    catalog.DefaultParcelType = value;
+                }
+            }
+        }
+
+        if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+        {
+            CommitReadinessProfile(catalog, current);
+        }
+
+        return catalog;
+    }
+
+    private static void CommitReadinessProfile(ParcelReadinessCatalog catalog, Dictionary<string, string> values)
+    {
+        if (values.Count == 0)
+        {
+            return;
+        }
+
+        var category = GetValue(values, "category");
+        if (string.IsNullOrWhiteSpace(category))
+        {
+            return;
+        }
+
+        var parcelType = GetValue(values, "parcel_type") ?? catalog.DefaultParcelType;
+        var profile = new ParcelReadinessRuleProfile(
+            GetValue(values, "rule_id") ?? $"readiness_{category}",
+            GetValue(values, "title") ?? category,
+            category,
+            parcelType,
+            TryParseBool(GetValue(values, "enabled")) ?? true,
+            GetValue(values, "severity") ?? "blocker",
+            (int)Math.Round(TryParseDouble(GetValue(values, "min_segment_count")) ?? 3d),
+            TryParseBool(GetValue(values, "require_contiguous_sequence")) ?? true,
+            TryParseBool(GetValue(values, "require_referenced_points")) ?? true,
+            TryParseBool(GetValue(values, "require_chain_consistency")) ?? true,
+            TryParseBool(GetValue(values, "detect_duplicate_edges")) ?? true);
+
+        if (!catalog.ProfilesByParcelType.TryGetValue(parcelType, out var parcelProfiles))
+        {
+            parcelProfiles = new Dictionary<string, ParcelReadinessRuleProfile>(StringComparer.OrdinalIgnoreCase);
+            catalog.ProfilesByParcelType[parcelType] = parcelProfiles;
+        }
+
+        parcelProfiles[category] = profile;
+        if (!catalog.DefaultProfiles.ContainsKey(category) && string.Equals(parcelType, catalog.DefaultParcelType, StringComparison.OrdinalIgnoreCase))
+        {
+            catalog.DefaultProfiles[category] = profile;
+        }
+    }
+
+    private static string? GetValue(Dictionary<string, string> values, string key)
+    {
+        return values.TryGetValue(key, out var value) ? value : null;
+    }
+
+    private static bool? TryParseBool(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return bool.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static double? TryParseDouble(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static void ApplyOverrides(ParcelReadinessCatalog catalog, string settingsPath)
+    {
+        if (!File.Exists(settingsPath))
+        {
+            return;
+        }
+
+        using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
+        if (!document.RootElement.TryGetProperty("parcel_construction_readiness_profile_overrides", out var overrides)
+            || overrides.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        if (overrides.TryGetProperty("default_parcel_type", out var defaultParcelType)
+            && defaultParcelType.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(defaultParcelType.GetString()))
+        {
+            catalog.DefaultParcelType = defaultParcelType.GetString()!.Trim();
+        }
+
+        if (overrides.TryGetProperty("profiles", out var profiles)
+            && profiles.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in profiles.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var parts = property.Name.Split(new[] { "::" }, StringSplitOptions.None);
+                if (parts.Length != 2)
+                {
+                    continue;
+                }
+
+                var parcelType = parts[0];
+                var category = parts[1];
+                if (!catalog.ProfilesByParcelType.TryGetValue(parcelType, out var parcelProfiles)
+                    || !parcelProfiles.TryGetValue(category, out var existing))
+                {
+                    continue;
+                }
+
+                var updated = existing with
+                {
+                    Enabled = ReadBool(property.Value, "enabled") ?? existing.Enabled,
+                    Severity = ReadString(property.Value, "severity") ?? existing.Severity,
+                    MinSegmentCount = ReadInt(property.Value, "min_segment_count") ?? existing.MinSegmentCount,
+                    RequireContiguousSequence = ReadBool(property.Value, "require_contiguous_sequence") ?? existing.RequireContiguousSequence,
+                    RequireReferencedPoints = ReadBool(property.Value, "require_referenced_points") ?? existing.RequireReferencedPoints,
+                    RequireChainConsistency = ReadBool(property.Value, "require_chain_consistency") ?? existing.RequireChainConsistency,
+                    DetectDuplicateEdges = ReadBool(property.Value, "detect_duplicate_edges") ?? existing.DetectDuplicateEdges
+                };
+
+                parcelProfiles[category] = updated;
+                if (catalog.DefaultProfiles.ContainsKey(category)
+                    && string.Equals(parcelType, catalog.DefaultParcelType, StringComparison.OrdinalIgnoreCase))
+                {
+                    catalog.DefaultProfiles[category] = updated;
+                }
+            }
+        }
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+
+    private static int? ReadInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var parsed)
+            ? parsed
+            : null;
+    }
+}

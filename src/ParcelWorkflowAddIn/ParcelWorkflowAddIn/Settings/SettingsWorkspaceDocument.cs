@@ -67,6 +67,14 @@ public sealed class SettingsWorkspaceDocument
     public string ClosureDefaultWarningClosureDistanceM { get; set; } = string.Empty;
     public string ClosureDefaultWarningMiscloseRatioDenominator { get; set; } = string.Empty;
     public string ClosureToleranceProfileOverridesJson { get; set; } = string.Empty;
+    public string ReadinessDefaultParcelType { get; set; } = string.Empty;
+    public bool ReadinessDefaultEnabled { get; set; }
+    public string ReadinessDefaultSeverity { get; set; } = string.Empty;
+    public int ReadinessDefaultMinSegmentCount { get; set; }
+    public bool ReadinessDefaultRequireContiguousSequence { get; set; }
+    public bool ReadinessDefaultRequireReferencedPoints { get; set; }
+    public bool ReadinessDefaultRequireChainConsistency { get; set; }
+    public bool ReadinessDefaultDetectDuplicateEdges { get; set; }
     public bool EnterpriseWorkingEnabled { get; set; }
     public string EnterpriseWorkingServiceRoot { get; set; } = string.Empty;
     public string EnterpriseWorkingWorkspaceName { get; set; } = string.Empty;
@@ -105,6 +113,7 @@ public sealed class SettingsWorkspaceDocument
     public string GsiPassword { get; set; } = string.Empty;
 
     public List<EditablePreflightRule> PreflightRules { get; set; } = new();
+    public List<EditableReadinessRule> ReadinessRules { get; set; } = new();
 }
 
 public sealed class EditablePreflightRule
@@ -138,3 +147,20 @@ public sealed record SettingsWorkspaceValidationMessage(
     string TabName,
     string FieldName,
     string Message);
+
+public sealed class EditableReadinessRule
+{
+    public string RuleId { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
+    public string ParcelType { get; init; } = string.Empty;
+    public string ScopeSummary { get; init; } = string.Empty;
+    public bool IsDefaultFallback { get; init; }
+    public bool Enabled { get; set; }
+    public string Severity { get; set; } = string.Empty;
+    public int MinSegmentCount { get; set; }
+    public bool RequireContiguousSequence { get; set; }
+    public bool RequireReferencedPoints { get; set; }
+    public bool RequireChainConsistency { get; set; }
+    public bool DetectDuplicateEdges { get; set; }
+}

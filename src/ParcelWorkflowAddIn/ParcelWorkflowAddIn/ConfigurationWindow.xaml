@@ -674,6 +674,104 @@
               </StackPanel>
             </Expander>
 
+            <Expander Header="Parcel construction readiness"
+                      Margin="0,4,0,8"
+                      IsExpanded="False">
+              <StackPanel Margin="0,8,0,0">
+                <TextBlock Foreground="#53636A"
+                           Text="Use these controls to tune parcel-construction readiness checks for gaps, shared edges, orphan lines, and boundary completeness before Create Spatial Units."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+
+                <Border BorderBrush="#D8DFE4"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10"
+                        Margin="0,0,0,10">
+                  <StackPanel>
+                    <TextBlock Text="Default fallback profile"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+
+                    <Grid Margin="0,0,0,8">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="Default parcel type"
+                                 FontWeight="SemiBold"
+                                 Margin="0,6,8,6" />
+                      <TextBox Grid.Column="1"
+                               x:Name="ReadinessDefaultParcelTypeTextBox"
+                               Margin="0,0,0,6" />
+                    </Grid>
+
+                    <CheckBox x:Name="ReadinessDefaultEnabledCheckBox"
+                              Content="Enable default fallback readiness rules"
+                              Margin="0,0,0,8" />
+
+                    <Grid Margin="0,0,0,8">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="Default severity"
+                                 FontWeight="SemiBold"
+                                 Margin="0,6,8,6" />
+                      <ComboBox Grid.Column="1"
+                                x:Name="ReadinessDefaultSeverityComboBox"
+                                Margin="0,0,0,6">
+                        <ComboBoxItem Tag="blocker" Content="Blocker" />
+                        <ComboBoxItem Tag="warning" Content="Warning" />
+                        <ComboBoxItem Tag="info" Content="Info" />
+                      </ComboBox>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,8">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="Minimum segment count"
+                                 FontWeight="SemiBold"
+                                 Margin="0,6,8,6" />
+                      <TextBox Grid.Column="1"
+                               x:Name="ReadinessDefaultMinSegmentCountTextBox"
+                               Margin="0,0,0,6" />
+                    </Grid>
+
+                    <WrapPanel Margin="0,0,0,4">
+                      <CheckBox x:Name="ReadinessDefaultRequireContiguousSequenceCheckBox"
+                                Content="Boundary completeness"
+                                Margin="0,0,18,8" />
+                      <CheckBox x:Name="ReadinessDefaultRequireReferencedPointsCheckBox"
+                                Content="Line / point support"
+                                Margin="0,0,18,8" />
+                      <CheckBox x:Name="ReadinessDefaultRequireChainConsistencyCheckBox"
+                                Content="Orphan line detection"
+                                Margin="0,0,18,8" />
+                      <CheckBox x:Name="ReadinessDefaultDetectDuplicateEdgesCheckBox"
+                                Content="Shared-edge consistency"
+                                Margin="0,0,18,8" />
+                    </WrapPanel>
+
+                    <TextBlock Foreground="#53636A"
+                               Text="These fallback values apply when no more specific readiness rule override exists for the parcel type and category."
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+
+                <TextBlock Text="Scoped readiness rules"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6" />
+                <TextBlock Foreground="#53636A"
+                           Text="Each rule below is an explicit scoped rule from the readiness catalog. Update severity, enablement, and the rule-specific behavior value here."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <StackPanel x:Name="ReadinessRulesEditorPanel" />
+              </StackPanel>
+            </Expander>
+
             <Expander Header="Enterprise Working Review"
                       x:Name="EnterpriseWorkingExpander"
                       Margin="0,4,0,8">

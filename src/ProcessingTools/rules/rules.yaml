@@ -122,3 +122,134 @@ rules:
     severity: high
   - id: unique_point_identifiers
     severity: warning
+
+parcel_construction_readiness_defaults:
+  parcel_type: standard_closed
+  enabled: true
+  severity: blocker
+  min_segment_count: 3
+  require_contiguous_sequence: true
+  require_referenced_points: true
+  require_chain_consistency: true
+  detect_duplicate_edges: true
+
+parcel_construction_readiness_profiles:
+  - rule_id: readiness_boundary_completeness
+    title: Boundary completeness
+    category: boundary_completeness
+    parcel_type: standard_closed
+    enabled: true
+    severity: blocker
+    require_contiguous_sequence: true
+
+  - rule_id: readiness_minimum_segment_count
+    title: Minimum segment count
+    category: minimum_segment_count
+    parcel_type: standard_closed
+    enabled: true
+    severity: blocker
+    min_segment_count: 3
+
+  - rule_id: readiness_line_without_point_support
+    title: Line without point support
+    category: line_without_point_support
+    parcel_type: standard_closed
+    enabled: true
+    severity: blocker
+    require_referenced_points: true
+
+  - rule_id: readiness_orphan_line_detection
+    title: Orphan line detection
+    category: orphan_line_detection
+    parcel_type: standard_closed
+    enabled: true
+    severity: warning
+    require_chain_consistency: true
+
+  - rule_id: readiness_shared_edge_consistency
+    title: Shared-edge consistency
+    category: shared_edge_consistency
+    parcel_type: standard_closed
+    enabled: true
+    severity: warning
+    detect_duplicate_edges: true
+
+  - rule_id: readiness_boundary_completeness_open
+    title: Boundary completeness for open-boundary review
+    category: boundary_completeness
+    parcel_type: open_boundary
+    enabled: true
+    severity: warning
+    require_contiguous_sequence: true
+
+  - rule_id: readiness_minimum_segment_count_open
+    title: Minimum segment count for open-boundary review
+    category: minimum_segment_count
+    parcel_type: open_boundary
+    enabled: true
+    severity: warning
+    min_segment_count: 2
+
+  - rule_id: readiness_line_without_point_support_open
+    title: Line without point support for open-boundary review
+    category: line_without_point_support
+    parcel_type: open_boundary
+    enabled: true
+    severity: warning
+    require_referenced_points: true
+
+  - rule_id: readiness_orphan_line_detection_open
+    title: Orphan line detection for open-boundary review
+    category: orphan_line_detection
+    parcel_type: open_boundary
+    enabled: true
+    severity: warning
+    require_chain_consistency: true
+
+  - rule_id: readiness_shared_edge_consistency_open
+    title: Shared-edge consistency for open-boundary review
+    category: shared_edge_consistency
+    parcel_type: open_boundary
+    enabled: false
+    severity: info
+    detect_duplicate_edges: true
+
+  - rule_id: readiness_boundary_completeness_imported
+    title: Boundary completeness for imported coordinates
+    category: boundary_completeness
+    parcel_type: imported_coordinates
+    enabled: true
+    severity: blocker
+    require_contiguous_sequence: true
+
+  - rule_id: readiness_minimum_segment_count_imported
+    title: Minimum segment count for imported coordinates
+    category: minimum_segment_count
+    parcel_type: imported_coordinates
+    enabled: true
+    severity: blocker
+    min_segment_count: 3
+
+  - rule_id: readiness_line_without_point_support_imported
+    title: Line without point support for imported coordinates
+    category: line_without_point_support
+    parcel_type: imported_coordinates
+    enabled: true
+    severity: warning
+    require_referenced_points: false
+
+  - rule_id: readiness_orphan_line_detection_imported
+    title: Orphan line detection for imported coordinates
+    category: orphan_line_detection
+    parcel_type: imported_coordinates
+    enabled: false
+    severity: info
+    require_chain_consistency: false
+
+  - rule_id: readiness_shared_edge_consistency_imported
+    title: Shared-edge consistency for imported coordinates
+    category: shared_edge_consistency
+    parcel_type: imported_coordinates
+    enabled: false
+    severity: info
+    detect_duplicate_edges: false

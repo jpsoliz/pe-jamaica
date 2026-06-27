@@ -207,6 +207,8 @@ var tests = new (string Name, Action Run)[]
     ("innola configuration summary formats review workspace mode", InnolaTransactionSettingsTests.ConfigurationSummaryFormatsReviewWorkspaceMode),
     ("settings workspace exposes expected tabs and loads current fields", SettingsWorkspaceServiceTests.SettingsWorkspaceExposesExpectedTabsAndLoadsCurrentFields),
     ("settings workspace save round trip persists workflow and rule edits", SettingsWorkspaceServiceTests.SettingsWorkspaceSaveRoundTripPersistsWorkflowAndRuleEdits),
+    ("settings workspace load and save round trip persists readiness rule overrides", SettingsWorkspaceServiceTests.SettingsWorkspaceLoadAndSaveRoundTripPersistsReadinessRuleOverrides),
+    ("settings workspace validation rejects invalid readiness configuration", SettingsWorkspaceServiceTests.SettingsWorkspaceValidationRejectsInvalidReadinessConfiguration),
     ("settings workspace validation rejects invalid enterprise and secret configuration", SettingsWorkspaceServiceTests.SettingsWorkspaceValidationRejectsInvalidEnterpriseAndSecretConfiguration),
     ("settings workspace validation rejects invalid enterprise parcel fabric configuration", SettingsWorkspaceServiceTests.SettingsWorkspaceValidationRejectsInvalidEnterpriseParcelFabricConfiguration),
     ("settings workspace load surfaces enterprise parcel fabric warnings in summary", SettingsWorkspaceServiceTests.SettingsWorkspaceLoadSurfacesEnterpriseParcelFabricWarningsInSummary),

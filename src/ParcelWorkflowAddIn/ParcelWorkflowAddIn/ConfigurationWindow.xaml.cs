@@ -12,6 +12,7 @@ public partial class ConfigurationWindow : ProWindow
 {
     private readonly SettingsWorkspaceService settingsWorkspaceService = new();
     private readonly Dictionary<string, PreflightRuleEditorControls> preflightRuleEditors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ReadinessRuleEditorControls> readinessRuleEditors = new(StringComparer.OrdinalIgnoreCase);
     private SettingsWorkspaceDocument? currentDocument;
 
     public ConfigurationWindow()
@@ -132,6 +133,15 @@ public partial class ConfigurationWindow : ProWindow
         ClosureDefaultMinMiscloseRatioTextBox.Text = document.ClosureDefaultMinMiscloseRatioDenominator;
         ClosureDefaultWarningMiscloseRatioTextBox.Text = document.ClosureDefaultWarningMiscloseRatioDenominator;
         ClosureToleranceProfileOverridesTextBox.Text = document.ClosureToleranceProfileOverridesJson;
+        ReadinessDefaultParcelTypeTextBox.Text = document.ReadinessDefaultParcelType;
+        ReadinessDefaultEnabledCheckBox.IsChecked = document.ReadinessDefaultEnabled;
+        SetSelectedTag(ReadinessDefaultSeverityComboBox, document.ReadinessDefaultSeverity);
+        ReadinessDefaultMinSegmentCountTextBox.Text = document.ReadinessDefaultMinSegmentCount.ToString();
+        ReadinessDefaultRequireContiguousSequenceCheckBox.IsChecked = document.ReadinessDefaultRequireContiguousSequence;
+        ReadinessDefaultRequireReferencedPointsCheckBox.IsChecked = document.ReadinessDefaultRequireReferencedPoints;
+        ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked = document.ReadinessDefaultRequireChainConsistency;
+        ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked = document.ReadinessDefaultDetectDuplicateEdges;
+        RenderReadinessRules(document.ReadinessRules);
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
         EnterpriseWorkingWorkspaceNameTextBox.Text = document.EnterpriseWorkingWorkspaceName;
@@ -224,6 +234,14 @@ public partial class ConfigurationWindow : ProWindow
         document.ClosureDefaultMinMiscloseRatioDenominator = ClosureDefaultMinMiscloseRatioTextBox.Text.Trim();
         document.ClosureDefaultWarningMiscloseRatioDenominator = ClosureDefaultWarningMiscloseRatioTextBox.Text.Trim();
         document.ClosureToleranceProfileOverridesJson = ClosureToleranceProfileOverridesTextBox.Text.Trim();
+        document.ReadinessDefaultParcelType = ReadinessDefaultParcelTypeTextBox.Text.Trim();
+        document.ReadinessDefaultEnabled = ReadinessDefaultEnabledCheckBox.IsChecked == true;
+        document.ReadinessDefaultSeverity = GetSelectedTag(ReadinessDefaultSeverityComboBox, "blocker");
+        document.ReadinessDefaultMinSegmentCount = ParsePositiveInt(ReadinessDefaultMinSegmentCountTextBox.Text, document.ReadinessDefaultMinSegmentCount);
+        document.ReadinessDefaultRequireContiguousSequence = ReadinessDefaultRequireContiguousSequenceCheckBox.IsChecked == true;
+        document.ReadinessDefaultRequireReferencedPoints = ReadinessDefaultRequireReferencedPointsCheckBox.IsChecked == true;
+        document.ReadinessDefaultRequireChainConsistency = ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked == true;
+        document.ReadinessDefaultDetectDuplicateEdges = ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked == true;
         document.EnterpriseWorkingEnabled = EnterpriseWorkingEnabledCheckBox.IsChecked == true;
         document.EnterpriseWorkingServiceRoot = EnterpriseWorkingServiceRootTextBox.Text.Trim();
         document.EnterpriseWorkingWorkspaceName = EnterpriseWorkingWorkspaceNameTextBox.Text.Trim();
@@ -273,6 +291,41 @@ public partial class ConfigurationWindow : ProWindow
             }
 
             rule.Severity = GetSelectedTag(editor.SeverityComboBox, rule.Severity);
+        }
+
+        foreach (var rule in document.ReadinessRules)
+        {
+            if (!readinessRuleEditors.TryGetValue(rule.RuleId, out var editor))
+            {
+                continue;
+            }
+
+            rule.Enabled = editor.EnabledCheckBox.IsChecked == true;
+            rule.Severity = GetSelectedTag(editor.SeverityComboBox, rule.Severity);
+            if (editor.MinSegmentCountTextBox is not null)
+            {
+                rule.MinSegmentCount = ParsePositiveInt(editor.MinSegmentCountTextBox.Text, rule.MinSegmentCount);
+            }
+
+            if (editor.BehaviorCheckBox is not null)
+            {
+                var behaviorValue = editor.BehaviorCheckBox.IsChecked == true;
+                switch (rule.Category)
+                {
+                    case "boundary_completeness":
+                        rule.RequireContiguousSequence = behaviorValue;
+                        break;
+                    case "line_without_point_support":
+                        rule.RequireReferencedPoints = behaviorValue;
+                        break;
+                    case "orphan_line_detection":
+                        rule.RequireChainConsistency = behaviorValue;
+                        break;
+                    case "shared_edge_consistency":
+                        rule.DetectDuplicateEdges = behaviorValue;
+                        break;
+                }
+            }
         }
 
         return document;
@@ -359,6 +412,124 @@ public partial class ConfigurationWindow : ProWindow
             border.Child = grid;
             PreflightRulesEditorPanel.Children.Add(border);
             preflightRuleEditors[rule.RuleId] = new PreflightRuleEditorControls(enabledCheckBox, severityComboBox);
+        }
+    }
+
+    private void RenderReadinessRules(IEnumerable<EditableReadinessRule> rules)
+    {
+        ReadinessRulesEditorPanel.Children.Clear();
+        readinessRuleEditors.Clear();
+
+        foreach (var rule in rules
+                     .OrderBy(rule => rule.IsDefaultFallback ? 0 : 1)
+                     .ThenBy(rule => rule.ParcelType, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(rule => rule.Category, StringComparer.OrdinalIgnoreCase))
+        {
+            var border = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(216, 223, 228)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 0, 0, 8),
+                Padding = new Thickness(8)
+            };
+
+            var stack = new StackPanel();
+
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var titleBlock = new TextBlock
+            {
+                Text = $"{rule.Title}{Environment.NewLine}{rule.ScopeSummary}",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(titleBlock, 0);
+            header.Children.Add(titleBlock);
+
+            var enabledCheckBox = new CheckBox
+            {
+                Content = "Enabled",
+                IsChecked = rule.Enabled,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(enabledCheckBox, 1);
+            header.Children.Add(enabledCheckBox);
+
+            var severityComboBox = new ComboBox
+            {
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            severityComboBox.Items.Add(new ComboBoxItem { Tag = "blocker", Content = "Blocker" });
+            severityComboBox.Items.Add(new ComboBoxItem { Tag = "warning", Content = "Warning" });
+            severityComboBox.Items.Add(new ComboBoxItem { Tag = "info", Content = "Info" });
+            SetSelectedTag(severityComboBox, rule.Severity);
+            Grid.SetColumn(severityComboBox, 2);
+            header.Children.Add(severityComboBox);
+
+            var categoryBlock = new TextBlock
+            {
+                Text = $"Category: {rule.Category.Replace('_', ' ')}",
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(categoryBlock, 3);
+            header.Children.Add(categoryBlock);
+
+            stack.Children.Add(header);
+
+            var detailGrid = new Grid
+            {
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            TextBox? minSegmentCountTextBox = null;
+            CheckBox? behaviorCheckBox = null;
+
+            if (string.Equals(rule.Category, "minimum_segment_count", StringComparison.OrdinalIgnoreCase))
+            {
+                detailGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var label = new TextBlock
+                {
+                    Text = "Minimum segment count",
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 6, 8, 6)
+                };
+                minSegmentCountTextBox = new TextBox
+                {
+                    Text = rule.MinSegmentCount.ToString(),
+                    Margin = new Thickness(0, 0, 0, 6)
+                };
+                Grid.SetColumn(label, 0);
+                Grid.SetColumn(minSegmentCountTextBox, 1);
+                detailGrid.Children.Add(label);
+                detailGrid.Children.Add(minSegmentCountTextBox);
+            }
+            else
+            {
+                detailGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                behaviorCheckBox = new CheckBox
+                {
+                    Content = GetReadinessBehaviorLabel(rule.Category),
+                    IsChecked = GetReadinessBehaviorValue(rule),
+                    Margin = new Thickness(0, 2, 0, 4)
+                };
+                Grid.SetColumnSpan(behaviorCheckBox, 2);
+                detailGrid.Children.Add(behaviorCheckBox);
+            }
+
+            stack.Children.Add(detailGrid);
+            border.Child = stack;
+            ReadinessRulesEditorPanel.Children.Add(border);
+            readinessRuleEditors[rule.RuleId] = new ReadinessRuleEditorControls(enabledCheckBox, severityComboBox, minSegmentCountTextBox, behaviorCheckBox);
         }
     }
 
@@ -488,7 +659,37 @@ public partial class ConfigurationWindow : ProWindow
             : fallback;
     }
 
+    private static string GetReadinessBehaviorLabel(string category)
+    {
+        return category switch
+        {
+            "boundary_completeness" => "Require contiguous parcel sequence",
+            "line_without_point_support" => "Require all referenced points",
+            "orphan_line_detection" => "Require clean parcel chain continuity",
+            "shared_edge_consistency" => "Detect duplicate / shared-edge conflicts",
+            _ => "Enable rule behavior"
+        };
+    }
+
+    private static bool GetReadinessBehaviorValue(EditableReadinessRule rule)
+    {
+        return rule.Category switch
+        {
+            "boundary_completeness" => rule.RequireContiguousSequence,
+            "line_without_point_support" => rule.RequireReferencedPoints,
+            "orphan_line_detection" => rule.RequireChainConsistency,
+            "shared_edge_consistency" => rule.DetectDuplicateEdges,
+            _ => true
+        };
+    }
+
     private sealed record PreflightRuleEditorControls(
         CheckBox? EnabledCheckBox,
         ComboBox SeverityComboBox);
+
+    private sealed record ReadinessRuleEditorControls(
+        CheckBox EnabledCheckBox,
+        ComboBox SeverityComboBox,
+        TextBox? MinSegmentCountTextBox,
+        CheckBox? BehaviorCheckBox);
 }

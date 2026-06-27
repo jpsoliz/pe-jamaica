@@ -40,6 +40,9 @@ public sealed class SettingsWorkspaceService
         var settingsRoot = LoadSettingsRoot(settingsPath);
         var ruleCatalog = ruleCatalogLoader.Load();
         var closureCatalog = ClosureToleranceCatalog.Load(settingsPath);
+        var readinessCatalog = ReadinessSettingsCatalog.Load(
+            ReadString(settingsRoot, "validation_rules_path") ?? executionSettings.ValidationRulesPath,
+            settingsRoot);
 
         return new SettingsWorkspaceDocument
         {
@@ -93,6 +96,14 @@ public sealed class SettingsWorkspaceService
             ClosureDefaultWarningClosureDistanceM = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).WarningClosureDistanceM),
             ClosureDefaultWarningMiscloseRatioDenominator = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).WarningMiscloseRatioDenominator),
             ClosureToleranceProfileOverridesJson = ReadJson(settingsRoot, "closure_tolerance_profile_overrides"),
+            ReadinessDefaultParcelType = readinessCatalog.DefaultParcelType,
+            ReadinessDefaultEnabled = readinessCatalog.DefaultEnabled,
+            ReadinessDefaultSeverity = readinessCatalog.DefaultSeverity,
+            ReadinessDefaultMinSegmentCount = readinessCatalog.DefaultMinSegmentCount,
+            ReadinessDefaultRequireContiguousSequence = readinessCatalog.DefaultRequireContiguousSequence,
+            ReadinessDefaultRequireReferencedPoints = readinessCatalog.DefaultRequireReferencedPoints,
+            ReadinessDefaultRequireChainConsistency = readinessCatalog.DefaultRequireChainConsistency,
+            ReadinessDefaultDetectDuplicateEdges = readinessCatalog.DefaultDetectDuplicateEdges,
             EnterpriseWorkingEnabled = transactionSettings.EnterpriseWorkingReview.Enabled,
             EnterpriseWorkingServiceRoot = transactionSettings.EnterpriseWorkingReview.ServiceRoot ?? string.Empty,
             EnterpriseWorkingWorkspaceName = transactionSettings.EnterpriseWorkingReview.WorkspaceName,
@@ -127,7 +138,25 @@ public sealed class SettingsWorkspaceService
             GsiPasswordMode = NormalizeGsiPasswordMode(ReadString(settingsRoot, "gsi_password_mode")),
             GsiPasswordEnvironmentVariable = ReadString(settingsRoot, "gsi_password_env_var") ?? "GSI_PASSWORD",
             GsiPassword = ReadString(settingsRoot, "gsi_password") ?? string.Empty,
-            PreflightRules = ruleCatalog.Rules.Select(EditablePreflightRule.FromDefinition).ToList()
+            PreflightRules = ruleCatalog.Rules.Select(EditablePreflightRule.FromDefinition).ToList(),
+            ReadinessRules = readinessCatalog.Rules
+                .Select(rule => new EditableReadinessRule
+                {
+                    RuleId = rule.RuleId,
+                    Title = rule.Title,
+                    Category = rule.Category,
+                    ParcelType = rule.ParcelType,
+                    ScopeSummary = rule.ScopeSummary,
+                    IsDefaultFallback = rule.IsDefaultFallback,
+                    Enabled = rule.Enabled,
+                    Severity = rule.Severity,
+                    MinSegmentCount = rule.MinSegmentCount,
+                    RequireContiguousSequence = rule.RequireContiguousSequence,
+                    RequireReferencedPoints = rule.RequireReferencedPoints,
+                    RequireChainConsistency = rule.RequireChainConsistency,
+                    DetectDuplicateEdges = rule.DetectDuplicateEdges
+                })
+                .ToList()
         };
     }
 
@@ -239,6 +268,34 @@ public sealed class SettingsWorkspaceService
             catch (JsonException exception)
             {
                 messages.Add(new("Spatial Workspace", "Closure Tolerance Overrides", $"Closure tolerance overrides must be valid JSON. {exception.Message}"));
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(document.ReadinessDefaultParcelType))
+        {
+            messages.Add(new("Spatial Workspace", "Readiness Default Parcel Type", "A default parcel type is required for readiness validation."));
+        }
+
+        if (document.ReadinessDefaultMinSegmentCount <= 0)
+        {
+            messages.Add(new("Spatial Workspace", "Readiness Default Minimum Segment Count", "Default readiness minimum segment count must be a positive integer."));
+        }
+
+        if (!IsSupportedReadinessSeverity(document.ReadinessDefaultSeverity))
+        {
+            messages.Add(new("Spatial Workspace", "Readiness Default Severity", $"Readiness default severity '{document.ReadinessDefaultSeverity}' is not supported."));
+        }
+
+        foreach (var rule in document.ReadinessRules)
+        {
+            if (!IsSupportedReadinessSeverity(rule.Severity))
+            {
+                messages.Add(new("Spatial Workspace", $"Readiness Rule {rule.Title}", $"Severity '{rule.Severity}' is not supported."));
+            }
+
+            if (string.Equals(rule.Category, "minimum_segment_count", StringComparison.OrdinalIgnoreCase) && rule.MinSegmentCount <= 0)
+            {
+                messages.Add(new("Spatial Workspace", $"Readiness Rule {rule.Title}", "Minimum segment count must be a positive integer."));
             }
         }
 
@@ -354,6 +411,7 @@ public sealed class SettingsWorkspaceService
         root["spatial_output_add_cogo_labels"] = document.SpatialOutputAddCogoLabels;
         SetString(root, "spatial_output_cogo_source_mode", NormalizeSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode));
         SetJson(root, "closure_tolerance_profile_overrides", BuildClosureToleranceOverridesJson(document));
+        SetJson(root, "parcel_construction_readiness_profile_overrides", BuildReadinessOverridesJson(document));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
         root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
@@ -508,6 +566,47 @@ public sealed class SettingsWorkspaceService
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
+    private static string BuildReadinessOverridesJson(SettingsWorkspaceDocument document)
+    {
+        var root = new JsonObject
+        {
+            ["default_parcel_type"] = document.ReadinessDefaultParcelType,
+            ["default_profile"] = new JsonObject
+            {
+                ["enabled"] = document.ReadinessDefaultEnabled,
+                ["severity"] = document.ReadinessDefaultSeverity,
+                ["min_segment_count"] = document.ReadinessDefaultMinSegmentCount,
+                ["require_contiguous_sequence"] = document.ReadinessDefaultRequireContiguousSequence,
+                ["require_referenced_points"] = document.ReadinessDefaultRequireReferencedPoints,
+                ["require_chain_consistency"] = document.ReadinessDefaultRequireChainConsistency,
+                ["detect_duplicate_edges"] = document.ReadinessDefaultDetectDuplicateEdges
+            }
+        };
+
+        var profiles = new JsonObject();
+        foreach (var rule in document.ReadinessRules)
+        {
+            var key = $"{rule.ParcelType}::{rule.Category}";
+            profiles[key] = new JsonObject
+            {
+                ["rule_id"] = rule.RuleId,
+                ["title"] = rule.Title,
+                ["category"] = rule.Category,
+                ["parcel_type"] = rule.ParcelType,
+                ["enabled"] = rule.Enabled,
+                ["severity"] = rule.Severity,
+                ["min_segment_count"] = rule.MinSegmentCount,
+                ["require_contiguous_sequence"] = rule.RequireContiguousSequence,
+                ["require_referenced_points"] = rule.RequireReferencedPoints,
+                ["require_chain_consistency"] = rule.RequireChainConsistency,
+                ["detect_duplicate_edges"] = rule.DetectDuplicateEdges
+            };
+        }
+
+        root["profiles"] = profiles;
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
     private static string FormatNullableDouble(double? value)
     {
         return value?.ToString("0.###", CultureInfo.InvariantCulture) ?? string.Empty;
@@ -589,6 +688,259 @@ public sealed class SettingsWorkspaceService
         };
     }
 
+    private sealed record ReadinessSettingsRule(
+        string RuleId,
+        string Title,
+        string Category,
+        string ParcelType,
+        string ScopeSummary,
+        bool IsDefaultFallback,
+        bool Enabled,
+        string Severity,
+        int MinSegmentCount,
+        bool RequireContiguousSequence,
+        bool RequireReferencedPoints,
+        bool RequireChainConsistency,
+        bool DetectDuplicateEdges);
+
+    private sealed class ReadinessSettingsCatalog
+    {
+        public string DefaultParcelType { get; set; } = "standard_closed";
+        public bool DefaultEnabled { get; set; } = true;
+        public string DefaultSeverity { get; set; } = "blocker";
+        public int DefaultMinSegmentCount { get; set; } = 3;
+        public bool DefaultRequireContiguousSequence { get; set; } = true;
+        public bool DefaultRequireReferencedPoints { get; set; } = true;
+        public bool DefaultRequireChainConsistency { get; set; } = true;
+        public bool DefaultDetectDuplicateEdges { get; set; } = true;
+        public List<ReadinessSettingsRule> Rules { get; } = new();
+
+        public static ReadinessSettingsCatalog Load(string? rulesPath, JsonObject? settingsRoot)
+        {
+            var catalog = Parse(rulesPath);
+            ApplyOverrides(catalog, settingsRoot);
+            return catalog;
+        }
+
+        private static ReadinessSettingsCatalog Parse(string? rulesPath)
+        {
+            var catalog = new ReadinessSettingsCatalog();
+            if (string.IsNullOrWhiteSpace(rulesPath) || !File.Exists(rulesPath))
+            {
+                return catalog;
+            }
+
+            var lines = File.ReadAllLines(rulesPath);
+            var section = string.Empty;
+            var current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var skipIndent = -1;
+
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var indent = line.Length - line.TrimStart().Length;
+                if (indent == 0)
+                {
+                    if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CommitRule(catalog, current);
+                        current.Clear();
+                    }
+
+                    section = trimmed.TrimEnd(':');
+                    skipIndent = -1;
+                    continue;
+                }
+
+                if (skipIndent >= 0 && indent > skipIndent)
+                {
+                    continue;
+                }
+
+                if (skipIndent >= 0 && indent <= skipIndent)
+                {
+                    skipIndent = -1;
+                }
+
+                var working = trimmed;
+                if (working.StartsWith("- ", StringComparison.Ordinal))
+                {
+                    if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CommitRule(catalog, current);
+                        current.Clear();
+                    }
+
+                    working = working[2..].TrimStart();
+                }
+
+                var splitIndex = working.IndexOf(':');
+                if (splitIndex < 0)
+                {
+                    continue;
+                }
+
+                var key = working[..splitIndex].Trim();
+                var value = working[(splitIndex + 1)..].Trim().Trim('"', '\'');
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    skipIndent = indent;
+                    continue;
+                }
+
+                current[key] = value;
+
+                if (string.Equals(section, "parcel_construction_readiness_defaults", StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyDefaultValue(catalog, key, value);
+                }
+            }
+
+            if (string.Equals(section, "parcel_construction_readiness_profiles", StringComparison.OrdinalIgnoreCase))
+            {
+                CommitRule(catalog, current);
+            }
+
+            return catalog;
+        }
+
+        private static void ApplyOverrides(ReadinessSettingsCatalog catalog, JsonObject? settingsRoot)
+        {
+            if (settingsRoot?["parcel_construction_readiness_profile_overrides"] is not JsonObject overrides)
+            {
+                return;
+            }
+
+            if (overrides["default_parcel_type"] is JsonValue defaultParcelTypeValue
+                && defaultParcelTypeValue.TryGetValue<string>(out var defaultParcelType)
+                && !string.IsNullOrWhiteSpace(defaultParcelType))
+            {
+                catalog.DefaultParcelType = defaultParcelType.Trim();
+            }
+
+            if (overrides["default_profile"] is JsonObject defaultProfile)
+            {
+                catalog.DefaultEnabled = defaultProfile["enabled"]?.GetValue<bool>() ?? catalog.DefaultEnabled;
+                catalog.DefaultSeverity = defaultProfile["severity"]?.GetValue<string>() ?? catalog.DefaultSeverity;
+                catalog.DefaultMinSegmentCount = defaultProfile["min_segment_count"]?.GetValue<int>() ?? catalog.DefaultMinSegmentCount;
+                catalog.DefaultRequireContiguousSequence = defaultProfile["require_contiguous_sequence"]?.GetValue<bool>() ?? catalog.DefaultRequireContiguousSequence;
+                catalog.DefaultRequireReferencedPoints = defaultProfile["require_referenced_points"]?.GetValue<bool>() ?? catalog.DefaultRequireReferencedPoints;
+                catalog.DefaultRequireChainConsistency = defaultProfile["require_chain_consistency"]?.GetValue<bool>() ?? catalog.DefaultRequireChainConsistency;
+                catalog.DefaultDetectDuplicateEdges = defaultProfile["detect_duplicate_edges"]?.GetValue<bool>() ?? catalog.DefaultDetectDuplicateEdges;
+            }
+
+            if (overrides["profiles"] is not JsonObject profiles)
+            {
+                return;
+            }
+
+            foreach (var rule in catalog.Rules)
+            {
+                var key = $"{rule.ParcelType}::{rule.Category}";
+                if (profiles[key] is not JsonObject ruleOverride)
+                {
+                    continue;
+                }
+
+                var index = catalog.Rules.IndexOf(rule);
+                catalog.Rules[index] = rule with
+                {
+                    Enabled = ruleOverride["enabled"]?.GetValue<bool>() ?? rule.Enabled,
+                    Severity = ruleOverride["severity"]?.GetValue<string>() ?? rule.Severity,
+                    MinSegmentCount = ruleOverride["min_segment_count"]?.GetValue<int>() ?? rule.MinSegmentCount,
+                    RequireContiguousSequence = ruleOverride["require_contiguous_sequence"]?.GetValue<bool>() ?? rule.RequireContiguousSequence,
+                    RequireReferencedPoints = ruleOverride["require_referenced_points"]?.GetValue<bool>() ?? rule.RequireReferencedPoints,
+                    RequireChainConsistency = ruleOverride["require_chain_consistency"]?.GetValue<bool>() ?? rule.RequireChainConsistency,
+                    DetectDuplicateEdges = ruleOverride["detect_duplicate_edges"]?.GetValue<bool>() ?? rule.DetectDuplicateEdges
+                };
+            }
+        }
+
+        private static void ApplyDefaultValue(ReadinessSettingsCatalog catalog, string key, string value)
+        {
+            switch (key)
+            {
+                case "parcel_type":
+                    catalog.DefaultParcelType = value;
+                    break;
+                case "enabled":
+                    catalog.DefaultEnabled = bool.TryParse(value, out var enabled) ? enabled : catalog.DefaultEnabled;
+                    break;
+                case "severity":
+                    catalog.DefaultSeverity = value;
+                    break;
+                case "min_segment_count":
+                    catalog.DefaultMinSegmentCount = int.TryParse(value, out var minSegmentCount) ? minSegmentCount : catalog.DefaultMinSegmentCount;
+                    break;
+                case "require_contiguous_sequence":
+                    catalog.DefaultRequireContiguousSequence = bool.TryParse(value, out var contiguous) ? contiguous : catalog.DefaultRequireContiguousSequence;
+                    break;
+                case "require_referenced_points":
+                    catalog.DefaultRequireReferencedPoints = bool.TryParse(value, out var referenced) ? referenced : catalog.DefaultRequireReferencedPoints;
+                    break;
+                case "require_chain_consistency":
+                    catalog.DefaultRequireChainConsistency = bool.TryParse(value, out var chain) ? chain : catalog.DefaultRequireChainConsistency;
+                    break;
+                case "detect_duplicate_edges":
+                    catalog.DefaultDetectDuplicateEdges = bool.TryParse(value, out var duplicateEdges) ? duplicateEdges : catalog.DefaultDetectDuplicateEdges;
+                    break;
+            }
+        }
+
+        private static void CommitRule(ReadinessSettingsCatalog catalog, Dictionary<string, string> values)
+        {
+            if (values.Count == 0)
+            {
+                return;
+            }
+
+            var category = GetValue(values, "category");
+            if (string.IsNullOrWhiteSpace(category))
+            {
+                return;
+            }
+
+            var parcelType = GetValue(values, "parcel_type") ?? catalog.DefaultParcelType;
+            var isDefault = string.Equals(parcelType, catalog.DefaultParcelType, StringComparison.OrdinalIgnoreCase);
+            catalog.Rules.Add(new ReadinessSettingsRule(
+                GetValue(values, "rule_id") ?? $"readiness_{category}",
+                GetValue(values, "title") ?? category.Replace("_", " "),
+                category,
+                parcelType,
+                isDefault
+                    ? $"Default fallback · Parcel type: {parcelType}"
+                    : $"Scoped rule · Parcel type: {parcelType}",
+                isDefault,
+                TryParseBool(GetValue(values, "enabled")) ?? catalog.DefaultEnabled,
+                GetValue(values, "severity") ?? catalog.DefaultSeverity,
+                TryParseInt(GetValue(values, "min_segment_count")) ?? catalog.DefaultMinSegmentCount,
+                TryParseBool(GetValue(values, "require_contiguous_sequence")) ?? catalog.DefaultRequireContiguousSequence,
+                TryParseBool(GetValue(values, "require_referenced_points")) ?? catalog.DefaultRequireReferencedPoints,
+                TryParseBool(GetValue(values, "require_chain_consistency")) ?? catalog.DefaultRequireChainConsistency,
+                TryParseBool(GetValue(values, "detect_duplicate_edges")) ?? catalog.DefaultDetectDuplicateEdges));
+        }
+
+        private static string? GetValue(Dictionary<string, string> values, string key)
+        {
+            return values.TryGetValue(key, out var value) ? value : null;
+        }
+
+        private static bool? TryParseBool(string? value)
+        {
+            return bool.TryParse(value, out var parsed) ? parsed : null;
+        }
+
+        private static int? TryParseInt(string? value)
+        {
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+        }
+    }
+
     private static string? BuildSettingsWarning(InnolaTransactionSettings transactionSettings, ProcessingEnvironmentSettings environmentSettings)
     {
         var warnings = new List<string>();
@@ -666,6 +1018,13 @@ public sealed class SettingsWorkspaceService
         return string.Equals(value, SpatialOutputCogoSourceModeSourceThenComputed, StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, SpatialOutputCogoSourceModePreferSource, StringComparison.OrdinalIgnoreCase)
             || string.Equals(value, SpatialOutputCogoSourceModePreferComputed, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSupportedReadinessSeverity(string? value)
+    {
+        return string.Equals(value, "blocker", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "warning", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "info", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePdfViewerMode(string? value)

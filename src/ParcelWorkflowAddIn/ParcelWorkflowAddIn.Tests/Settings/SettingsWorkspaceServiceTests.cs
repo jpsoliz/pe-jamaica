@@ -471,4 +471,123 @@ internal static class SettingsWorkspaceServiceTests
 
         TestAssert.True(document.SettingsWarning?.Contains("records_layer_url", StringComparison.OrdinalIgnoreCase) == true, "Enterprise Parcel Fabric warning should surface in settings summary.");
     }
+
+    public static void SettingsWorkspaceLoadAndSaveRoundTripPersistsReadinessRuleOverrides()
+    {
+        using var tempDirectory = new TempDirectory();
+        var settingsPath = Path.Combine(tempDirectory.Path, "WorkflowSettings.json");
+        var rulesPath = Path.Combine(tempDirectory.Path, "PreflightRules.json");
+        var validationRulesPath = Path.Combine(tempDirectory.Path, "rules.yaml");
+
+        File.WriteAllText(settingsPath,
+            $$"""
+            {
+              "supported_transaction_types": ["Plan Examination"],
+              "compute_workflow_stages": ["Compute Survey Plan"],
+              "output_adapter_timeout_seconds": 120,
+              "gsi_password_mode": "environment_variable",
+              "gsi_password_env_var": "GSI_PASSWORD",
+              "validation_rules_path": "{{validationRulesPath.Replace("\\", "\\\\")}}"
+            }
+            """);
+
+        File.WriteAllText(rulesPath,
+            """
+            {
+              "schema_version": "1.0.0",
+              "rules": []
+            }
+            """);
+
+        File.WriteAllText(validationRulesPath,
+            """
+            rule_profile: sidwell_validation_v1
+            parcel_construction_readiness_defaults:
+              parcel_type: standard_closed
+              enabled: true
+              severity: blocker
+              min_segment_count: 3
+              require_contiguous_sequence: true
+              require_referenced_points: true
+              require_chain_consistency: true
+              detect_duplicate_edges: true
+            parcel_construction_readiness_profiles:
+              - rule_id: readiness_boundary_completeness
+                title: Boundary completeness
+                category: boundary_completeness
+                parcel_type: standard_closed
+                enabled: true
+                severity: blocker
+                require_contiguous_sequence: true
+              - rule_id: readiness_shared_edge_consistency_open
+                title: Shared-edge consistency for open-boundary review
+                category: shared_edge_consistency
+                parcel_type: open_boundary
+                enabled: false
+                severity: info
+                detect_duplicate_edges: true
+            """);
+
+        var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(rulesPath, settingsPath));
+        var document = service.Load(settingsPath);
+
+        TestAssert.Equal("standard_closed", document.ReadinessDefaultParcelType, "Readiness default parcel type mismatch.");
+        TestAssert.Equal(2, document.ReadinessRules.Count, "Readiness rule count mismatch.");
+
+        document.ReadinessDefaultSeverity = "warning";
+        document.ReadinessDefaultMinSegmentCount = 4;
+        var scopedRule = document.ReadinessRules.Single(rule => rule.RuleId == "readiness_shared_edge_consistency_open");
+        scopedRule.Enabled = true;
+        scopedRule.Severity = "warning";
+        scopedRule.DetectDuplicateEdges = false;
+
+        service.Save(document);
+
+        var reloaded = service.Load(settingsPath);
+        TestAssert.Equal("warning", reloaded.ReadinessDefaultSeverity, "Readiness default severity save mismatch.");
+        TestAssert.Equal(4, reloaded.ReadinessDefaultMinSegmentCount, "Readiness default min segment count save mismatch.");
+        var reloadedRule = reloaded.ReadinessRules.Single(rule => rule.RuleId == "readiness_shared_edge_consistency_open");
+        TestAssert.True(reloadedRule.Enabled, "Readiness rule enabled save mismatch.");
+        TestAssert.Equal("warning", reloadedRule.Severity, "Readiness rule severity save mismatch.");
+        TestAssert.True(!reloadedRule.DetectDuplicateEdges, "Readiness rule behavior save mismatch.");
+    }
+
+    public static void SettingsWorkspaceValidationRejectsInvalidReadinessConfiguration()
+    {
+        var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(Path.Combine(Path.GetTempPath(), "missing-rules.json")));
+        var document = new SettingsWorkspaceDocument
+        {
+            SupportedTransactionTypes = new List<string> { "Plan Examination" },
+            ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
+            OutputAdapterTimeoutSeconds = 120,
+            OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
+            SpatialOutputCogoSourceMode = SettingsWorkspaceService.SpatialOutputCogoSourceModeSourceThenComputed,
+            GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable,
+            GsiPasswordEnvironmentVariable = "GSI_PASSWORD",
+            ReadinessDefaultParcelType = "",
+            ReadinessDefaultSeverity = "critical",
+            ReadinessDefaultMinSegmentCount = 0,
+            ReadinessRules = new List<EditableReadinessRule>
+            {
+                new()
+                {
+                    RuleId = "readiness_minimum_segment_count",
+                    Title = "Minimum segment count",
+                    Category = "minimum_segment_count",
+                    ParcelType = "standard_closed",
+                    ScopeSummary = "Default fallback",
+                    Severity = "bad_value",
+                    MinSegmentCount = 0,
+                    Enabled = true
+                }
+            }
+        };
+
+        var messages = service.Validate(document);
+
+        TestAssert.True(messages.Any(message => message.FieldName == "Readiness Default Parcel Type"), "Expected default parcel type validation message.");
+        TestAssert.True(messages.Any(message => message.FieldName == "Readiness Default Severity"), "Expected default readiness severity validation message.");
+        TestAssert.True(messages.Any(message => message.FieldName == "Readiness Default Minimum Segment Count"), "Expected default minimum segment validation message.");
+        TestAssert.True(messages.Any(message => message.FieldName.Contains("Readiness Rule", StringComparison.OrdinalIgnoreCase)), "Expected readiness rule validation message.");
+    }
 }

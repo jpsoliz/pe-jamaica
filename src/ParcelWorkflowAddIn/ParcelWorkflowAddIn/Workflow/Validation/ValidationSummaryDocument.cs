@@ -20,6 +20,8 @@ public sealed record ValidationSummaryPayload(
     [property: JsonPropertyName("finding_counts")] ValidationFindingCounts FindingCounts,
     [property: JsonPropertyName("closure_summary")] ValidationClosureSummary? ClosureSummary,
     [property: JsonPropertyName("closure_results")] IReadOnlyList<ValidationClosureResult>? ClosureResults,
+    [property: JsonPropertyName("readiness_summary")] ValidationReadinessSummary? ReadinessSummary,
+    [property: JsonPropertyName("readiness_results")] IReadOnlyList<ValidationReadinessResult>? ReadinessResults,
     [property: JsonPropertyName("findings")] IReadOnlyList<ValidationFinding> Findings);
 
 public sealed record ValidationFindingCounts(
@@ -60,6 +62,31 @@ public sealed record ValidationClosureResult(
     [property: JsonPropertyName("warning_closure_distance_m")] double? WarningClosureDistanceM,
     [property: JsonPropertyName("min_misclose_ratio_denominator")] double? MinMiscloseRatioDenominator,
     [property: JsonPropertyName("warning_misclose_ratio_denominator")] double? WarningMiscloseRatioDenominator);
+
+public sealed record ValidationReadinessSummary(
+    [property: JsonPropertyName("blocker")] int Blocker,
+    [property: JsonPropertyName("warning")] int Warning,
+    [property: JsonPropertyName("passed")] int Passed,
+    [property: JsonPropertyName("skipped")] int Skipped);
+
+public sealed record ValidationReadinessResult(
+    [property: JsonPropertyName("parcel_group_id")] string ParcelGroupId,
+    [property: JsonPropertyName("parcel_name")] string ParcelName,
+    [property: JsonPropertyName("parcel_type")] string ParcelType,
+    [property: JsonPropertyName("rule_id")] string RuleId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("category")] string Category,
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("evaluation_status")] string EvaluationStatus,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("affected_point_ids")] IReadOnlyList<string>? AffectedPointIds,
+    [property: JsonPropertyName("affected_segment_ids")] IReadOnlyList<string>? AffectedSegmentIds,
+    [property: JsonPropertyName("boundary_gap_count")] int BoundaryGapCount,
+    [property: JsonPropertyName("shared_edge_conflict_count")] int SharedEdgeConflictCount,
+    [property: JsonPropertyName("orphan_line_count")] int OrphanLineCount,
+    [property: JsonPropertyName("rule_disabled")] bool RuleDisabled,
+    [property: JsonPropertyName("rule_skip_reason")] string? RuleSkipReason);
 
 public sealed record ValidationExecutionResult(
     bool Success,

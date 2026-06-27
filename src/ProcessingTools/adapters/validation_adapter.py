@@ -144,6 +144,84 @@ def _read_closure_profiles(path: Path | None) -> dict[str, Any]:
     return result
 
 
+def _read_readiness_profiles(path: Path | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "default": {
+            "parcel_type": "standard_closed",
+            "enabled": True,
+            "severity": "blocker",
+            "min_segment_count": 3,
+            "require_contiguous_sequence": True,
+            "require_referenced_points": True,
+            "require_chain_consistency": True,
+            "detect_duplicate_edges": True,
+        },
+        "profiles": {},
+    }
+    if path is None or not path.exists():
+        return result
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_default = False
+    in_profiles = False
+    current_profile: dict[str, Any] | None = None
+    skip_nested_indent: int | None = None
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent == 0:
+            in_default = stripped.startswith("parcel_construction_readiness_defaults:")
+            in_profiles = stripped.startswith("parcel_construction_readiness_profiles:")
+            current_profile = None
+            skip_nested_indent = None
+            continue
+
+        if skip_nested_indent is not None and indent > skip_nested_indent:
+            continue
+        if skip_nested_indent is not None and indent <= skip_nested_indent:
+            skip_nested_indent = None
+
+        if in_default:
+            if ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            result["default"][key] = _parse_scalar(raw_value)
+            continue
+
+        if in_profiles:
+            if stripped.startswith("- "):
+                current_profile = {}
+                result["profiles"][f"profile_{len(result['profiles']) + 1}"] = current_profile
+                stripped = stripped[2:].strip()
+                if not stripped:
+                    continue
+            if current_profile is None or ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            current_profile[key] = _parse_scalar(raw_value)
+            profile_key = f"{str(current_profile.get('parcel_type') or '').strip()}::{str(current_profile.get('category') or '').strip()}"
+            if profile_key != "::":
+                result["profiles"][profile_key] = current_profile
+
+    unnamed = [key for key in list(result["profiles"].keys()) if key.startswith("profile_")]
+    for key in unnamed:
+        profile = result["profiles"].pop(key)
+        profile_key = f"{str(profile.get('parcel_type') or 'standard_closed').strip()}::{str(profile.get('category') or key).strip()}"
+        result["profiles"][profile_key] = profile
+
+    return result
+
+
 def _load_settings(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
@@ -179,6 +257,275 @@ def _apply_profile_overrides(rule_config: dict[str, Any], settings: dict[str, An
             target[key] = value
 
     return merged
+
+
+def _apply_readiness_profile_overrides(rule_config: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    overrides = settings.get("parcel_construction_readiness_profile_overrides")
+    if not isinstance(overrides, dict):
+        return rule_config
+
+    merged = {
+        "default": dict(rule_config.get("default") or {}),
+        "profiles": {key: dict(value) for key, value in (rule_config.get("profiles") or {}).items()},
+    }
+
+    default_parcel_type = overrides.get("default_parcel_type")
+    if isinstance(default_parcel_type, str) and default_parcel_type.strip():
+        merged["default"]["parcel_type"] = default_parcel_type.strip()
+
+    default_profile = overrides.get("default_profile")
+    if isinstance(default_profile, dict):
+        for key, value in default_profile.items():
+            merged["default"][key] = value
+
+    profile_overrides = overrides.get("profiles")
+    if not isinstance(profile_overrides, dict):
+        return merged
+
+    for profile_key, override_values in profile_overrides.items():
+        if not isinstance(override_values, dict):
+            continue
+        target = merged["profiles"].setdefault(profile_key, {})
+        for key, value in override_values.items():
+            target[key] = value
+
+    return merged
+
+
+def _normalize_point_id(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _extract_segment_ref(row: dict[str, Any], *names: str) -> str:
+    for name in names:
+        value = row.get(name)
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _readiness_status(enabled: bool, severity: str, has_issue: bool) -> str:
+    if not enabled:
+        return "skipped"
+    if not has_issue:
+        return "passed"
+    return "blocker" if severity in {"critical", "high", "blocker"} else "warning"
+
+
+def _compute_readiness_results(
+    review_data: dict[str, Any],
+    source_files: list[dict[str, Any]],
+    rule_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = review_data.get("rows") or []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        grouped.setdefault(_normalize_parcel_group(row, index), []).append(row)
+
+    default_profile = dict(rule_config.get("default") or {})
+    profile_map = rule_config.get("profiles") or {}
+    all_edges: dict[tuple[str, str], list[str]] = {}
+    parcel_edges: dict[str, list[tuple[str, str]]] = {}
+
+    for group_id, group_rows in grouped.items():
+        ordered_rows = sorted(group_rows, key=lambda row: _sequence_value(row, group_rows.index(row)))
+        edge_keys: list[tuple[str, str]] = []
+        previous_point = ""
+        for row in ordered_rows:
+            current_point = _normalize_point_id(row.get("point_identifier") or row.get("point_id"))
+            from_point = _extract_segment_ref(row, "from_point", "from_pt", "start_pt")
+            to_point = _extract_segment_ref(row, "to_point", "to_pt", "end_pt")
+            edge_start = from_point or previous_point
+            edge_end = to_point or current_point
+            if edge_start and edge_end:
+                key = tuple(sorted((edge_start, edge_end)))
+                edge_keys.append(key)
+                all_edges.setdefault(key, []).append(group_id)
+            previous_point = current_point or previous_point
+        parcel_edges[group_id] = edge_keys
+
+    results: list[dict[str, Any]] = []
+    categories = [
+        "minimum_segment_count",
+        "boundary_completeness",
+        "line_without_point_support",
+        "orphan_line_detection",
+        "shared_edge_consistency",
+    ]
+
+    for group_id, group_rows in grouped.items():
+        ordered_rows = sorted(group_rows, key=lambda row: _sequence_value(row, group_rows.index(row)))
+        parcel_type = _infer_parcel_type(ordered_rows, source_files, str(default_profile.get("parcel_type") or "standard_closed"))
+        parcel_name = next(
+            (
+                str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+                for row in ordered_rows
+                if str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+            ),
+            group_id,
+        )
+        parcel_point_ids = {
+            _normalize_point_id(row.get("point_identifier") or row.get("point_id"))
+            for row in ordered_rows
+            if _normalize_point_id(row.get("point_identifier") or row.get("point_id"))
+        }
+        valid_sequences = sorted(
+            {
+                _sequence_value(row, index)
+                for index, row in enumerate(ordered_rows)
+                if _sequence_value(row, index) > 0
+            }
+        )
+        missing_sequences: list[int] = []
+        if valid_sequences:
+            expected = set(range(1, max(valid_sequences) + 1))
+            missing_sequences = sorted(expected.difference(valid_sequences))
+
+        previous_point = ""
+        referenced_point_misses: list[str] = []
+        orphan_segments: list[str] = []
+        segment_ids: list[str] = []
+        for index, row in enumerate(ordered_rows):
+            segment_id = str(
+                row.get("segment_no")
+                or row.get("segment_index")
+                or row.get("seq")
+                or row.get("sequence_in_group")
+                or index + 1
+            ).strip()
+            current_point = _normalize_point_id(row.get("point_identifier") or row.get("point_id"))
+            from_point = _extract_segment_ref(row, "from_point", "from_pt", "start_pt")
+            to_point = _extract_segment_ref(row, "to_point", "to_pt", "end_pt")
+            if from_point and from_point not in parcel_point_ids:
+                referenced_point_misses.append(from_point)
+                segment_ids.append(segment_id)
+            if to_point and to_point not in parcel_point_ids:
+                referenced_point_misses.append(to_point)
+                segment_ids.append(segment_id)
+            if previous_point and from_point and from_point != previous_point:
+                orphan_segments.append(segment_id)
+            if current_point and to_point and current_point != to_point:
+                orphan_segments.append(segment_id)
+            previous_point = current_point or previous_point
+
+        duplicate_edges = [
+            edge for edge in parcel_edges.get(group_id, [])
+            if sum(1 for candidate in parcel_edges.get(group_id, []) if candidate == edge) > 1
+        ]
+        cross_parcel_shared = [
+            edge for edge in parcel_edges.get(group_id, [])
+            if len(set(all_edges.get(edge, []))) > 2
+        ]
+        shared_conflict_count = len({*duplicate_edges, *cross_parcel_shared})
+
+        for category in categories:
+            profile = dict(default_profile)
+            profile.update(profile_map.get(f"{parcel_type}::{category}") or {})
+            enabled = bool(profile.get("enabled", True))
+            severity = str(profile.get("severity") or "blocker")
+            rule_id = str(profile.get("rule_id") or f"readiness_{category}")
+            title = str(profile.get("title") or category.replace("_", " ").title())
+            min_segment_count = int(profile.get("min_segment_count") or default_profile.get("min_segment_count") or 0)
+            boundary_gap_count = 0
+            orphan_line_count = 0
+            affected_point_ids: list[str] = []
+            affected_segment_ids: list[str] = []
+            has_issue = False
+            message = f"Parcel {group_id} passed {title.lower()}."
+            skip_reason = None
+
+            if not enabled:
+                status = "skipped"
+                skip_reason = "Rule disabled in readiness profile."
+                message = f"{title} is disabled for parcel type {parcel_type}."
+            elif category == "minimum_segment_count":
+                has_issue = len(ordered_rows) < min_segment_count
+                status = _readiness_status(True, severity, has_issue)
+                if has_issue:
+                    message = f"Parcel {group_id} only has {len(ordered_rows)} segment row(s); at least {min_segment_count} are required."
+                else:
+                    message = f"Parcel {group_id} meets the minimum segment count."
+            elif category == "boundary_completeness":
+                if not bool(profile.get("require_contiguous_sequence", True)):
+                    status = "skipped"
+                    skip_reason = "Boundary completeness behavior is disabled in readiness profile."
+                    message = f"{title} is disabled for parcel type {parcel_type}."
+                else:
+                    boundary_gap_count = len(missing_sequences)
+                    has_issue = boundary_gap_count > 0
+                    status = _readiness_status(True, severity, has_issue)
+                    if has_issue:
+                        affected_segment_ids = [str(value) for value in missing_sequences]
+                        message = f"Parcel {group_id} has {boundary_gap_count} missing sequence value(s): {', '.join(affected_segment_ids[:10])}."
+                    else:
+                        message = f"Parcel {group_id} has a contiguous parcel sequence."
+            elif category == "line_without_point_support":
+                if not bool(profile.get("require_referenced_points", True)):
+                    status = "skipped"
+                    skip_reason = "Referenced-point support behavior is disabled in readiness profile."
+                    message = f"{title} is disabled for parcel type {parcel_type}."
+                else:
+                    affected_point_ids = sorted(set(referenced_point_misses))
+                    affected_segment_ids = sorted(set(segment_ids))
+                    has_issue = len(affected_point_ids) > 0
+                    status = _readiness_status(True, severity, has_issue)
+                    if has_issue:
+                        message = f"Parcel {group_id} references point id(s) that are not present in the parcel set: {', '.join(affected_point_ids[:10])}."
+                    else:
+                        message = f"Parcel {group_id} line references are supported by parcel points."
+            elif category == "orphan_line_detection":
+                if not bool(profile.get("require_chain_consistency", True)):
+                    status = "skipped"
+                    skip_reason = "Chain-consistency behavior is disabled in readiness profile."
+                    message = f"{title} is disabled for parcel type {parcel_type}."
+                else:
+                    orphan_line_count = len(set(orphan_segments))
+                    affected_segment_ids = sorted(set(orphan_segments))
+                    has_issue = orphan_line_count > 0
+                    status = _readiness_status(True, severity, has_issue)
+                    if has_issue:
+                        message = f"Parcel {group_id} has {orphan_line_count} segment(s) that do not follow the parcel chain cleanly."
+                    else:
+                        message = f"Parcel {group_id} line chain follows the parcel sequence."
+            else:
+                if not bool(profile.get("detect_duplicate_edges", True)):
+                    status = "skipped"
+                    skip_reason = "Shared-edge conflict detection is disabled in readiness profile."
+                    message = f"{title} is disabled for parcel type {parcel_type}."
+                else:
+                    has_issue = shared_conflict_count > 0
+                    status = _readiness_status(True, severity, has_issue)
+                    if has_issue:
+                        message = f"Parcel {group_id} has {shared_conflict_count} shared-edge or duplicate-edge conflict(s) to review."
+                    else:
+                        message = f"Parcel {group_id} did not produce shared-edge conflicts."
+
+            results.append(
+                {
+                    "parcel_group_id": group_id,
+                    "parcel_name": parcel_name,
+                    "parcel_type": parcel_type,
+                    "rule_id": rule_id,
+                    "title": title,
+                    "category": category,
+                    "severity": severity,
+                    "status": status,
+                    "evaluation_status": "skipped" if status == "skipped" else ("failed" if has_issue else "passed"),
+                    "message": message,
+                    "affected_point_ids": affected_point_ids,
+                    "affected_segment_ids": affected_segment_ids,
+                    "boundary_gap_count": boundary_gap_count,
+                    "shared_edge_conflict_count": shared_conflict_count if category == "shared_edge_consistency" else 0,
+                    "orphan_line_count": orphan_line_count,
+                    "rule_disabled": not enabled,
+                    "rule_skip_reason": skip_reason,
+                }
+            )
+
+    return results
 
 
 def _normalize_parcel_group(row: dict[str, Any], index: int) -> str:
@@ -403,6 +750,7 @@ def build_summary(
     rule_profile, rule_version = _read_rules_metadata(rules_path)
     settings = _load_settings(settings_path)
     closure_rule_config = _apply_profile_overrides(_read_closure_profiles(rules_path), settings)
+    readiness_rule_config = _apply_readiness_profile_overrides(_read_readiness_profiles(rules_path), settings)
     transaction_id = manifest.get("transaction_id") or review_data.get("transaction_number") or ""
     findings: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -639,9 +987,14 @@ def build_summary(
         )
 
     closure_results = _compute_closure_results(review_data, source_files, closure_rule_config)
+    readiness_results = _compute_readiness_results(review_data, source_files, readiness_rule_config)
     closure_blockers = 0
     closure_warnings = 0
     closure_passed = 0
+    readiness_blockers = 0
+    readiness_warnings = 0
+    readiness_passed = 0
+    readiness_skipped = 0
     for closure_result in closure_results:
         status = closure_result["status"]
         if status == "blocker":
@@ -694,6 +1047,72 @@ def build_summary(
                 )
             )
 
+    for readiness_result in readiness_results:
+        status = readiness_result["status"]
+        if status == "blocker":
+            readiness_blockers += 1
+            findings.append(
+                _finding(
+                    str(readiness_result["rule_id"]),
+                    f"{readiness_result['parcel_name']}: {readiness_result['title']}",
+                    "high",
+                    "failed",
+                    (
+                        f"parcel_group={readiness_result['parcel_group_id']}; "
+                        f"category={readiness_result['category']}; "
+                        f"boundary_gap_count={readiness_result['boundary_gap_count']}; "
+                        f"shared_edge_conflict_count={readiness_result['shared_edge_conflict_count']}; "
+                        f"orphan_line_count={readiness_result['orphan_line_count']}"
+                    ),
+                    "Resolve the parcel construction readiness issue before Create Spatial Units proceeds.",
+                )
+            )
+        elif status == "warning":
+            readiness_warnings += 1
+            findings.append(
+                _finding(
+                    str(readiness_result["rule_id"]),
+                    f"{readiness_result['parcel_name']}: {readiness_result['title']}",
+                    "warning",
+                    "failed",
+                    (
+                        f"parcel_group={readiness_result['parcel_group_id']}; "
+                        f"category={readiness_result['category']}; "
+                        f"boundary_gap_count={readiness_result['boundary_gap_count']}; "
+                        f"shared_edge_conflict_count={readiness_result['shared_edge_conflict_count']}; "
+                        f"orphan_line_count={readiness_result['orphan_line_count']}"
+                    ),
+                    "Review the parcel construction readiness warning before final approval.",
+                )
+            )
+        elif status == "skipped":
+            readiness_skipped += 1
+            findings.append(
+                _finding(
+                    str(readiness_result["rule_id"]),
+                    f"{readiness_result['parcel_name']}: {readiness_result['title']}",
+                    "info",
+                    "passed",
+                    readiness_result["rule_skip_reason"] or "Rule skipped.",
+                    None,
+                )
+            )
+        else:
+            readiness_passed += 1
+            findings.append(
+                _finding(
+                    str(readiness_result["rule_id"]),
+                    f"{readiness_result['parcel_name']}: {readiness_result['title']}",
+                    "passed",
+                    "passed",
+                    (
+                        f"parcel_group={readiness_result['parcel_group_id']}; "
+                        f"category={readiness_result['category']}"
+                    ),
+                    None,
+                )
+            )
+
     blocked = any(
         finding["severity"] in {"critical", "high"} and finding["status"] == "failed"
         for finding in findings
@@ -727,6 +1146,13 @@ def build_summary(
                 "passed": closure_passed,
             },
             "closure_results": closure_results,
+            "readiness_summary": {
+                "blocker": readiness_blockers,
+                "warning": readiness_warnings,
+                "passed": readiness_passed,
+                "skipped": readiness_skipped,
+            },
+            "readiness_results": readiness_results,
             "findings": findings,
         },
         "warnings": warnings,

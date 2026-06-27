@@ -318,6 +318,22 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             var closure = parent.ReviewValidationResult.ClosureResults
                 .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
+            var readinessResults = parent.ReviewValidationResult.ReadinessResults
+                .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var readinessBlocker = readinessResults.FirstOrDefault(result => result.Status == ReadinessValidationStatus.Blocker);
+            var readinessWarning = readinessResults.FirstOrDefault(result => result.Status == ReadinessValidationStatus.Warning);
+
+            if (readinessBlocker is not null)
+            {
+                return $"Construction readiness blocked. {readinessBlocker.Title}.";
+            }
+
+            if (readinessWarning is not null)
+            {
+                return $"Construction readiness warning. {readinessWarning.Title}.";
+            }
+
             if (closure is null)
             {
                 return $"{SelectedParcelGroup.RowCount} row(s) in this parcel. No closure diagnostic is available yet.";
@@ -367,6 +383,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 if (!string.IsNullOrWhiteSpace(closure.Message))
                 {
                     details.Add(closure.Message);
+                }
+            }
+
+            foreach (var readinessResult in parent.ReviewValidationResult.ReadinessResults
+                         .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase)))
+            {
+                details.Add($"Rule {readinessResult.RuleId}");
+                if (!string.IsNullOrWhiteSpace(readinessResult.Message))
+                {
+                    details.Add(readinessResult.Message);
                 }
             }
 
