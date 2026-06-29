@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -27,6 +28,11 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         try
         {
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                return await SearchApplicationMyTasksAsync(query, cancellationToken).ConfigureAwait(false);
+            }
+
             var workflowResult = await GetWorkflowMyTasksAsync(query, cancellationToken).ConfigureAwait(false);
             if (!workflowResult.Success || workflowResult.Rows.Count > 0)
             {
@@ -65,13 +71,15 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             HttpMethod.Post,
             InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
         InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
-        request.Content = CreateApplicationSearchContent(
-            """
-            {"start":0,"limit":50,"text":null,"criterias":[],"orderAsc":true,"orderBy":"assignee_text","page":1}
-            """);
+        request.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(query, includeOperator: true));
 
         var result = await SendApplicationSearchAsync(request, query.ProcessStep, cancellationToken).ConfigureAwait(false);
-        if (result.Success || !string.Equals(result.ErrorCategory, "InternalServerError", StringComparison.OrdinalIgnoreCase))
+        if (result.Success && result.Rows.Count > 0)
+        {
+            return result;
+        }
+
+        if (!result.Success && !string.Equals(result.ErrorCategory, "InternalServerError", StringComparison.OrdinalIgnoreCase))
         {
             return result;
         }
@@ -80,16 +88,49 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             HttpMethod.Post,
             InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
         InnolaHttp.ApplyAuthHeaders(retryRequest, query.AccessToken);
-        retryRequest.Content = CreateApplicationSearchContent(
-            """
-            {"start":0,"limit":50,"text":null,"criterias":[],"page":1}
-            """);
+        retryRequest.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(query, includeOperator: false));
         return await SendApplicationSearchAsync(retryRequest, query.ProcessStep, cancellationToken).ConfigureAwait(false);
     }
 
     private static StringContent CreateApplicationSearchContent(string json)
     {
         return new StringContent(json, Encoding.UTF8, "application/json");
+    }
+
+    private static string BuildApplicationSearchPayload(InnolaTransactionQuery query, bool includeOperator)
+    {
+        var search = query.Search?.Trim();
+        var criteria = BuildSearchCriteria(search, includeOperator);
+        var payload = new ApplicationTaskSearchRequest(
+            Start: 0,
+            Limit: 50,
+            Text: criteria.Count == 0 ? search : null,
+            Criterias: criteria,
+            OrderAsc: false,
+            OrderBy: "create_time",
+            Page: 1);
+        return JsonSerializer.Serialize(payload);
+    }
+
+    private static IReadOnlyList<ApplicationTaskSearchCriteria> BuildSearchCriteria(string? search, bool includeOperator)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return Array.Empty<ApplicationTaskSearchCriteria>();
+        }
+
+        if (search.All(char.IsDigit))
+        {
+            return new[]
+            {
+                new ApplicationTaskSearchCriteria(
+                    Field: "transaction_no",
+                    Value: search,
+                    Operator: includeOperator ? "iLike" : null)
+            };
+        }
+
+        return Array.Empty<ApplicationTaskSearchCriteria>();
     }
 
     private async Task<InnolaTransactionListResult> SendApplicationSearchAsync(
@@ -290,4 +331,21 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
 
         return InnolaTransactionStatus.Available;
     }
+
+    private sealed record ApplicationTaskSearchRequest(
+        [property: JsonPropertyName("start")] int Start,
+        [property: JsonPropertyName("limit")] int Limit,
+        [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("criterias")] IReadOnlyList<ApplicationTaskSearchCriteria> Criterias,
+        [property: JsonPropertyName("orderAsc")] bool OrderAsc,
+        [property: JsonPropertyName("orderBy")] string? OrderBy,
+        [property: JsonPropertyName("page")] int Page,
+        [property: JsonPropertyName("@c")] string Type = "SearchRequest");
+
+    private sealed record ApplicationTaskSearchCriteria(
+        [property: JsonPropertyName("field")] string Field,
+        [property: JsonPropertyName("value")] string Value,
+        [property: JsonPropertyName("operator")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? Operator);
 }

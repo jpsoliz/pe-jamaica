@@ -414,7 +414,10 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
-        var profile = sourceInputProfileDetector.Detect(manifest.Payload.SourceFiles);
+        var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(
+            manifest.Payload.SourceFiles,
+            manifest.Payload.SupportingDocumentOptions);
+        var profile = sourceInputProfileDetector.Detect(effectiveSourceFiles);
         var ruleResolution = ResolveWorkflowRule(manifest, profile);
         var updatedManifest = manifest with
         {
@@ -452,11 +455,15 @@ public sealed class WorkflowSession
             return null;
         }
 
+        var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(
+            manifest.Payload.SourceFiles,
+            manifest.Payload.SupportingDocumentOptions);
+
         return workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
             manifest.Payload.InnolaTransaction.CaseType,
             manifest.Payload.InnolaTransaction.ProcessStep,
             profile,
-            manifest.Payload.SourceFiles,
+            effectiveSourceFiles,
             getWorkflowRuleSettings()));
     }
 
@@ -1233,17 +1240,44 @@ public sealed class WorkflowSession
         {
             var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
             var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            var supportingDocumentOptions = new ManifestSupportingDocumentOptions(
+                importStructuredSurveyPoints,
+                importAutoCadSurveySource);
+            var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(
+                manifest.Payload.SourceFiles,
+                supportingDocumentOptions);
+            var profile = sourceInputProfileDetector.Detect(effectiveSourceFiles);
+            var updatedManifest = manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SupportingDocumentOptions = supportingDocumentOptions,
+                    DetectedProfile = profile
+                }
+            };
+            var ruleResolution = ResolveWorkflowRule(updatedManifest, profile);
             ManifestSerializer.Write(
                 layout.ManifestPath,
-                manifest with
+                updatedManifest with
                 {
-                    Payload = manifest.Payload with
+                    Payload = updatedManifest.Payload with
                     {
-                        SupportingDocumentOptions = new ManifestSupportingDocumentOptions(
-                            importStructuredSurveyPoints,
-                            importAutoCadSurveySource)
+                        WorkflowProfile = ruleResolution?.ScriptPlan?.WorkflowProfile,
+                        WorkflowRuleId = ruleResolution?.ScriptPlan?.RuleId,
+                        WorkflowRuleVersion = ruleResolution?.ScriptPlan?.RuleVersion,
+                        ScriptPlan = ruleResolution?.ScriptPlan
                     }
                 });
+            InvalidatePreflight(layout);
+            DetectedProfileLabel = profile.DisplayLabel;
+            intakeIssues.Clear();
+            intakeIssues.AddRange(profile.Issues);
+            if (ruleResolution is { Success: false } && !string.IsNullOrWhiteSpace(ruleResolution.ErrorMessage))
+            {
+                intakeIssues.Add(ruleResolution.ErrorMessage);
+            }
+
+            StatusText = "Supporting document options saved.";
             return true;
         }
         catch (Exception exception) when (exception is JsonException

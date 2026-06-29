@@ -151,8 +151,8 @@ public sealed class InnolaTransactionLoadService
 
         var layout = caseFolderResult.Layout;
         var manifest = caseFolderResult.Manifest;
-        var sourceFiles = manifest.Payload.SourceFiles.ToList();
-        var provenance = (manifest.Payload.AttachmentProvenance ?? Array.Empty<ManifestAttachmentProvenance>()).ToList();
+        var sourceFiles = DeduplicateSourceFiles(manifest.Payload.SourceFiles).ToList();
+        var provenance = DeduplicateAttachmentProvenance(manifest.Payload.AttachmentProvenance ?? Array.Empty<ManifestAttachmentProvenance>()).ToList();
         var loadedAt = getUtcNow().UtcDateTime.ToString("O");
         var newlyWrittenFiles = new List<string>();
 
@@ -209,12 +209,17 @@ public sealed class InnolaTransactionLoadService
                 attachment.SourceType));
         }
 
-        var detectedProfile = profileDetector.Detect(sourceFiles);
+        sourceFiles = DeduplicateSourceFiles(sourceFiles).ToList();
+        provenance = DeduplicateAttachmentProvenance(provenance).ToList();
+
+        var supportingDocumentOptions = manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
+        var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(sourceFiles, supportingDocumentOptions);
+        var detectedProfile = profileDetector.Detect(effectiveSourceFiles);
         var ruleResolution = workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
             detail.CaseType,
             detail.ProcessStep,
             detectedProfile,
-            sourceFiles,
+            effectiveSourceFiles,
             getWorkflowRuleSettings()));
         var updatedManifest = manifest with
         {
@@ -438,6 +443,43 @@ public sealed class InnolaTransactionLoadService
         return selected.TaskId.Equals(detail.TaskId, StringComparison.OrdinalIgnoreCase)
             && selected.TransactionNumber.Equals(detail.TransactionNumber, StringComparison.OrdinalIgnoreCase)
             && selected.ProcessStep.Equals(detail.ProcessStep, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<ManifestSourceFile> DeduplicateSourceFiles(IReadOnlyList<ManifestSourceFile> sourceFiles)
+    {
+        return sourceFiles
+            .GroupBy(
+                source => $"{source.CopiedPath}|{SourceRole.Normalize(source.SourceRole) ?? string.Empty}|{source.SourceType ?? string.Empty}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(source => TryParseCopiedAt(source.CopiedAt))
+                .ThenByDescending(source => source.FileSize)
+                .First())
+            .OrderBy(source => SourceRole.Normalize(source.SourceRole) ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(source => source.CopiedPath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ManifestAttachmentProvenance> DeduplicateAttachmentProvenance(IReadOnlyList<ManifestAttachmentProvenance> provenance)
+    {
+        return provenance
+            .GroupBy(
+                item => $"{item.AttachmentId}|{item.CopiedPath}|{SourceRole.Normalize(item.SourceRole) ?? string.Empty}|{item.SourceType ?? string.Empty}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(item => TryParseCopiedAt(item.CopiedAt))
+                .ThenByDescending(item => item.FileSize ?? 0L)
+                .First())
+            .OrderBy(item => SourceRole.Normalize(item.SourceRole) ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.CopiedPath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static DateTimeOffset TryParseCopiedAt(string? value)
+    {
+        return DateTimeOffset.TryParse(value, out var parsed)
+            ? parsed
+            : DateTimeOffset.MinValue;
     }
 
     private static string NormalizeExtension(InnolaAttachmentMetadata attachment)

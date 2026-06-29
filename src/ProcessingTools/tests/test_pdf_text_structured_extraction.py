@@ -4,6 +4,32 @@ from adapters import pdf_text_structured_extraction
 
 
 class PdfTextStructuredExtractionTests(unittest.TestCase):
+    def test_parcel_name_label_takes_precedence_for_segment_table_blocks(self):
+        pages = [
+            "\n".join(
+                [
+                    "LAMP BLOCK 0 9 SHEET 002",
+                    "Parcel Name: 110900201",
+                    "North: 644211.6910m East: 670076.2940m",
+                    "Segment #1 : Line",
+                    "Course: N4° 07' 50\"E Length: 10.107m",
+                    "North: 644221.7717m East: 670077.0220m",
+                    "Segment #2 : Line",
+                    "Course: N10° 06' 54\"W Length: 45.552m",
+                    "North: 644266.6157m East: 670069.0220m",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000400")
+
+        self.assertEqual("success", result["status"])
+        rows = result["rows"]
+        self.assertEqual("110900201", rows[0]["parcel_name"])
+        self.assertEqual("110900201_P0", rows[0]["point_identifier"])
+        self.assertEqual("110900201_P1", rows[1]["point_identifier"])
+        self.assertEqual("110900201_P2", rows[2]["point_identifier"])
+
     def test_segment_table_rows_assign_coordinates_to_from_point_and_shift_to_point_metadata(self):
         pages = [
             "\n".join(

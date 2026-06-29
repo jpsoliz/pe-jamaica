@@ -184,12 +184,25 @@
             </Border>
           </DockPanel>
 
-          <ComboBox Grid.Row="1"
-                    Margin="0,10,0,0"
+          <StackPanel Grid.Row="1"
+                      Margin="0,10,0,0">
+            <ComboBox
                     ItemsSource="{Binding ReviewSourceOptions}"
                     SelectedItem="{Binding SelectedReviewSource, Mode=TwoWay}"
                     DisplayMemberPath="FileLabel"
                     FontSize="11" />
+            <TextBlock Margin="0,6,0,0"
+                       Text="{Binding ViewerModeLabel}"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933"
+                       TextWrapping="Wrap" />
+            <TextBlock Margin="0,2,0,0"
+                       Text="{Binding ViewerGuidance}"
+                       FontSize="11"
+                       Foreground="#52616B"
+                       TextWrapping="Wrap" />
+          </StackPanel>
 
           <Border Grid.Row="2"
                   Margin="0,10,0,0"

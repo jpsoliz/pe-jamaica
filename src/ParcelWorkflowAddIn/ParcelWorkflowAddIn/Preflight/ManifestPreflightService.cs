@@ -198,7 +198,10 @@ public sealed class ManifestPreflightService
             return;
         }
 
-        var currentHash = WorkflowRuleResolver.ComputeSourceManifestHash(manifest.Payload.SourceFiles);
+        var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(
+            manifest.Payload.SourceFiles,
+            manifest.Payload.SupportingDocumentOptions);
+        var currentHash = WorkflowRuleResolver.ComputeSourceManifestHash(effectiveSourceFiles);
         if (!string.Equals(currentHash, manifest.Payload.ScriptPlan.SourceManifestHash, StringComparison.OrdinalIgnoreCase))
         {
             blockers.Add(PreflightCheck.BlockerForCategory(

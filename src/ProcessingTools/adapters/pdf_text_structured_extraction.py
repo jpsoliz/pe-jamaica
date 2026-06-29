@@ -28,6 +28,7 @@ SEGMENT_RE = re.compile(
 START_POINT_RE = re.compile(r"^(?P<north>\d+(?:\.\d+)?)\s+(?P<east>\d+(?:\.\d+)?)\s+(?P<point>\d+)$")
 PARCEL_NAME_RE = re.compile(r"^(?:Parcel\s+\d+|[A-Z][A-Z0-9 /-]{4,}|\d{6,})$")
 PARCEL_BLOCK_RE = re.compile(r"^Parcel:\s*(?P<parcel>\d[\dA-Z_-]*)$", re.IGNORECASE)
+PARCEL_NAME_LABEL_RE = re.compile(r"^Parcel\s+Name:\s*(?P<parcel>.+?)\s*$", re.IGNORECASE)
 SEGMENT_HEADER_RE = re.compile(r"^Segment\s*#\s*(?P<segment>\d+)\s*:\s*(?P<segment_type>.+)?$", re.IGNORECASE)
 COURSE_LENGTH_RE = re.compile(
     r"^Course:\s*(?P<course>.+?)\s+Length:\s*(?P<length>\d[\d ]*(?:\.\d+)?)m?$",
@@ -170,6 +171,11 @@ def _detect_parcel_name(line: str, current_name: str | None) -> str | None:
     normalized = _normalize_line(line)
     if not normalized:
         return current_name
+
+    parcel_name_match = PARCEL_NAME_LABEL_RE.match(normalized)
+    if parcel_name_match:
+        parcel_name = parcel_name_match.group("parcel").strip()
+        return parcel_name or current_name
 
     upper = normalized.upper()
     if upper.startswith("PROPERTY NAME:"):

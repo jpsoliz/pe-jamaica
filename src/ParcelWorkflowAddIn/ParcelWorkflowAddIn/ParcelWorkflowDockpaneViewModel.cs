@@ -21,6 +21,7 @@ using System.Windows.Media.Imaging;
 using ArcGIS.Desktop.Framework.Controls;
 using System.Threading;
 using System.Globalization;
+using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn;
 
@@ -771,6 +772,31 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 return "Unavailable";
             }
 
+            var fileLabel = source.FileLabel;
+            if (IsPrimaryExtractionSourceFile(fileLabel))
+            {
+                return "Primary extraction source";
+            }
+
+            if (IsPlanReferenceSourceFile(fileLabel))
+            {
+                return "Plan / map reference";
+            }
+
+            if (IsStructuredSurveyPointsSource(source.SourceFile))
+            {
+                return importStructuredSurveyPoints
+                    ? "Optional survey points import selected"
+                    : "Optional survey points import not selected";
+            }
+
+            if (IsAutoCadSurveySource(source.SourceFile))
+            {
+                return importAutoCadSurveySource
+                    ? "Optional AutoCAD import selected"
+                    : "Optional AutoCAD import not selected";
+            }
+
             return source.SourceFile.FileType.ToLowerInvariant() switch
             {
                 ".png" or ".jpg" or ".jpeg" => "Image source",
@@ -789,6 +815,31 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             if (source is null)
             {
                 return "Load or verify source files before reviewing extracted points.";
+            }
+
+            var fileLabel = source.FileLabel;
+            if (IsPrimaryExtractionSourceFile(fileLabel))
+            {
+                return "This file is the active extraction input for parcel points in the current case.";
+            }
+
+            if (IsPlanReferenceSourceFile(fileLabel))
+            {
+                return "This file is kept as the plan or map reference while you validate extracted parcel points.";
+            }
+
+            if (IsStructuredSurveyPointsSource(source.SourceFile))
+            {
+                return importStructuredSurveyPoints
+                    ? "This structured survey points file is selected as an optional downstream import for Create Spatial Units."
+                    : "This structured survey points file is available, but it is not selected as an import source for this run.";
+            }
+
+            if (IsAutoCadSurveySource(source.SourceFile))
+            {
+                return importAutoCadSurveySource
+                    ? "This AutoCAD survey source is selected as an optional downstream import for Create Spatial Units."
+                    : "This AutoCAD survey source is available, but it is not selected as an import source for this run.";
             }
 
             return source.SourceFile.FileType.ToLowerInvariant() switch
@@ -2793,6 +2844,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var downloadedFiles = SupportingDocumentDownloads;
+        var primaryExtractionFile = GetReviewMetadataFileName("points_source") ?? GetReviewMetadataFileName("primary_source_file");
+        var planReferenceFile = GetReviewMetadataFileName("plan_source");
+
         return definitions
             .Select(definition =>
             {
@@ -2805,11 +2859,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                     : definition.Required
                         ? "Missing"
                         : "Optional";
-                var fileText = found
-                    ? string.Join(", ", matches.Select(match => match.FileLabel).Distinct(StringComparer.OrdinalIgnoreCase))
-                    : definition.Required
-                        ? "Not provided"
-                        : "Not provided (optional)";
+                var fileList = matches
+                    .Select(match => match.FileLabel)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var fileText = BuildSupportingDocumentUsageText(
+                    definition,
+                    fileList,
+                    found,
+                    primaryExtractionFile,
+                    planReferenceFile);
 
                 return new SupportingDocumentStatusItem(
                     definition.DisplayName,
@@ -2821,6 +2880,94 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             })
             .ToArray();
     }
+
+    private string BuildSupportingDocumentUsageText(
+        ComputeAttachmentSourceTypeDefinition definition,
+        IReadOnlyList<string> fileList,
+        bool found,
+        string? primaryExtractionFile,
+        string? planReferenceFile)
+    {
+        if (!found)
+        {
+            return definition.Required ? "Not provided" : "Not provided (optional)";
+        }
+
+        var fileText = string.Join(", ", fileList);
+        var usage = definition.WorkflowRole switch
+        {
+            SourceRole.ComputationSheet => "Used for extraction",
+            SourceRole.PlanMapReference => "Used for plan / map reference",
+            SourceRole.CoordinateTextSource => importStructuredSurveyPoints
+                ? "Optional import selected for Create Spatial Units"
+                : "Optional import available, not selected",
+            SourceRole.DwgSource => importAutoCadSurveySource
+                ? "Optional import selected for Create Spatial Units"
+                : "Optional import available, not selected",
+            _ => definition.Required ? "Used in current case context" : "Available in current case context"
+        };
+
+        if (!string.IsNullOrWhiteSpace(primaryExtractionFile)
+            && fileList.Any(file => string.Equals(file, primaryExtractionFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            usage = "Used for extraction";
+        }
+        else if (!string.IsNullOrWhiteSpace(planReferenceFile)
+                 && fileList.Any(file => string.Equals(file, planReferenceFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            usage = "Used for plan / map reference";
+        }
+
+        return $"{fileText} - {usage}";
+    }
+
+    private string? GetReviewMetadataFileName(string propertyName)
+    {
+        if (loadedReviewDocument?.RootMetadata is null)
+        {
+            return null;
+        }
+
+        if (loadedReviewDocument.RootMetadata[propertyName] is not JsonValue value)
+        {
+            return null;
+        }
+
+        var raw = value.GetValue<string?>();
+        return string.IsNullOrWhiteSpace(raw) ? null : Path.GetFileName(raw);
+    }
+
+    private bool IsPrimaryExtractionSourceFile(string? fileLabel)
+    {
+        if (string.IsNullOrWhiteSpace(fileLabel))
+        {
+            return false;
+        }
+
+        var primary = GetReviewMetadataFileName("points_source") ?? GetReviewMetadataFileName("primary_source_file");
+        return !string.IsNullOrWhiteSpace(primary)
+            && string.Equals(primary, fileLabel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsPlanReferenceSourceFile(string? fileLabel)
+    {
+        if (string.IsNullOrWhiteSpace(fileLabel))
+        {
+            return false;
+        }
+
+        var plan = GetReviewMetadataFileName("plan_source");
+        return !string.IsNullOrWhiteSpace(plan)
+            && string.Equals(plan, fileLabel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStructuredSurveyPointsSource(SourceFileCopyResult sourceFile) =>
+        string.Equals(sourceFile.SourceRole, SourceRole.CoordinateTextSource, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(sourceFile.SourceType, "st_survey_points", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsAutoCadSurveySource(SourceFileCopyResult sourceFile) =>
+        string.Equals(sourceFile.SourceRole, SourceRole.DwgSource, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(sourceFile.SourceType, "st_autocad_file", StringComparison.OrdinalIgnoreCase);
 
     private static bool SourceFileMatchesDefinition(SourceFileCopyResult sourceFile, ComputeAttachmentSourceTypeDefinition definition)
     {

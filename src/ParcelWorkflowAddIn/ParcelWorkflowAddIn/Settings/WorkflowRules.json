@@ -96,11 +96,14 @@
       ],
       "required_sources": [
         {
-          "role": "coordinate_text_source",
+          "role": "computation_sheet",
           "extensions": [
             ".pdf",
-            ".txt",
-            ".csv"
+            ".tif",
+            ".tiff",
+            ".png",
+            ".jpg",
+            ".jpeg"
           ]
         },
         {
@@ -123,18 +126,20 @@
       ],
       "script_plan": [
         {
-          "step_name": "normalize_points_computation",
+          "step_name": "extract_points_from_computation",
           "adapter": "extraction_adapter",
-          "script": "normalize_points_computation_source",
+          "script": "extract_points_from_computation_pdf",
           "input_roles": [
-            "coordinate_text_source"
+            "computation_sheet"
           ],
           "output_artifacts": [
-            "working/normalized_points.json"
+            "working/extraction_points.json"
           ],
           "parameters": {
             "provider": "local_or_openai_ocr",
             "ocr_engine": "{settings.ocr_engine}",
+            "openai_model": "{settings.openai_model}",
+            "openai_key_env": "{settings.openai_api_key_environment_variable}",
             "credential_profile": "{settings.credential_profile}"
           },
           "timeout_seconds": 300
