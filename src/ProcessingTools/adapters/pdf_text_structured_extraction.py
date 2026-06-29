@@ -17,25 +17,27 @@ import sys
 from pathlib import Path
 
 
+NUMBER_TOKEN = r"\d[\d ]*(?:\.[\d ]+)?"
+
 SEGMENT_RE = re.compile(
     r"^(?P<from>\d+)\s+"
     r"(?P<bearing>[NS]\d{1,2}[°º]\d{1,2}'\d{1,2}\"?[EW])\s+"
-    r"(?P<distance>\d+(?:\.\d+)?)\s+"
-    r"(?P<north>\d+(?:\.\d+)?)\s+"
-    r"(?P<east>\d+(?:\.\d+)?)\s+"
+    rf"(?P<distance>{NUMBER_TOKEN})\s+"
+    rf"(?P<north>{NUMBER_TOKEN})\s+"
+    rf"(?P<east>{NUMBER_TOKEN})\s+"
     r"(?P<to>\d+)$"
 )
-START_POINT_RE = re.compile(r"^(?P<north>\d+(?:\.\d+)?)\s+(?P<east>\d+(?:\.\d+)?)\s+(?P<point>\d+)$")
+START_POINT_RE = re.compile(rf"^(?P<north>{NUMBER_TOKEN})\s+(?P<east>{NUMBER_TOKEN})\s+(?P<point>\d+)$")
 PARCEL_NAME_RE = re.compile(r"^(?:Parcel\s+\d+|[A-Z][A-Z0-9 /-]{4,}|\d{6,})$")
 PARCEL_BLOCK_RE = re.compile(r"^Parcel:\s*(?P<parcel>\d[\dA-Z_-]*)$", re.IGNORECASE)
 PARCEL_NAME_LABEL_RE = re.compile(r"^Parcel\s+Name:\s*(?P<parcel>.+?)\s*$", re.IGNORECASE)
 SEGMENT_HEADER_RE = re.compile(r"^Segment\s*#\s*(?P<segment>\d+)\s*:\s*(?P<segment_type>.+)?$", re.IGNORECASE)
 COURSE_LENGTH_RE = re.compile(
-    r"^Course:\s*(?P<course>.+?)\s+Length:\s*(?P<length>\d[\d ]*(?:\.\d+)?)m?$",
+    rf"^Course:\s*(?P<course>.+?)\s+Length:\s*(?P<length>{NUMBER_TOKEN})m?$",
     re.IGNORECASE,
 )
 NORTH_EAST_RE = re.compile(
-    r"^North:\s*(?P<north>\d[\d ]*(?:\.\d+)?)m?\s+East:\s*(?P<east>\d[\d ]*(?:\.\d+)?)m?$",
+    rf"^North:\s*(?P<north>{NUMBER_TOKEN})m?\s+East:\s*(?P<east>{NUMBER_TOKEN})m?$",
     re.IGNORECASE,
 )
 

@@ -700,6 +700,12 @@
                             IsEnabled="{Binding CanRunExtractionReview}"
                             Style="{StaticResource SmallButtonStyle}"
                             Margin="0,3,6,3" />
+                    <Button Content="Reprocess"
+                            Command="{Binding ReprocessExtractionReviewCommand}"
+                            IsEnabled="{Binding CanReprocessExtractionReview}"
+                            Style="{StaticResource SmallButtonStyle}"
+                            Margin="0,3,6,3"
+                            Visibility="{Binding ShowReprocessExtractionAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     <Button Content="Use Manual Review Workspace"
                             Command="{Binding UseManualCogoFallbackCommand}"
                             IsEnabled="{Binding CanUseManualCogoFallback}"

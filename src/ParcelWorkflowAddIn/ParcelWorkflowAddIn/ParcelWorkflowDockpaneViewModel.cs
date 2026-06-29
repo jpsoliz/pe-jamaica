@@ -43,6 +43,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
     private readonly RelayCommand runExtractionReviewCommand;
+    private readonly RelayCommand reprocessExtractionReviewCommand;
     private readonly RelayCommand useManualCogoFallbackCommand;
     private readonly RelayCommand runValidationCommand;
     private readonly RelayCommand runOutputsCommand;
@@ -117,6 +118,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
         runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
         runExtractionReviewCommand = new RelayCommand(async () => await RunOrOpenExtractionReviewAsync(), () => CanRunExtractionReview);
+        reprocessExtractionReviewCommand = new RelayCommand(async () => await ReprocessExtractionReviewAsync(), () => CanReprocessExtractionReview);
         useManualCogoFallbackCommand = new RelayCommand(async () => await UseManualCogoFallbackAsync(), () => CanUseManualCogoFallback);
         runValidationCommand = new RelayCommand(async () => await RunValidationAsync(), () => CanRunValidation);
         runOutputsCommand = new RelayCommand(async () => await RunOutputsAsync(), () => CanRunOutputs);
@@ -142,7 +144,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         openExperimentalReviewWorkspaceCommand = new RelayCommand(async () => await OpenExperimentalReviewWorkspaceAsync(), () => CanOpenExperimentalReviewWorkspace);
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
-        cancelProcessCommand = new RelayCommand(CancelProcess, () => ShellState.Session.CanCancelActiveProcess);
+        cancelProcessCommand = new RelayCommand(async () => await CancelProcessAsync(), () => ShellState.Session.CanCancelActiveProcess);
         completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
@@ -364,6 +366,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
 
+    public bool CanReprocessExtractionReview =>
+        CanUseWorkflowActions
+        && workflowSession.CanRunExtractionReview
+        && (HasLoadedReviewData || workflowSession.HasUsableExtractionReview || HasExtractionReviewArtifact(workflowSession));
+
     public bool CanUseManualCogoFallback => CanUseWorkflowActions && workflowSession.CanChooseManualCogoReview && !IsReviewApproved;
 
     public bool CanRunOutputs => CanUseWorkflowActions && workflowSession.CanRunOutputs;
@@ -396,6 +403,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RunPreflightCommand => runPreflightCommand;
 
     public ICommand RunExtractionReviewCommand => runExtractionReviewCommand;
+
+    public ICommand ReprocessExtractionReviewCommand => reprocessExtractionReviewCommand;
 
     public ICommand UseManualCogoFallbackCommand => useManualCogoFallbackCommand;
 
@@ -636,6 +645,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
 
     public bool ShowExtractionDecisionGate => workflowSession.ExtractionResultRequiresDecision;
+
+    public bool ShowReprocessExtractionAction =>
+        HasActiveCase
+        && (HasLoadedReviewData || workflowSession.HasUsableExtractionReview || HasExtractionReviewArtifact(workflowSession));
 
     public string ExtractionDecisionSummaryText => workflowSession.CurrentExtractionDecisionGate.SummaryText;
 
@@ -1216,6 +1229,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         await EnsureExtractionReviewLoadedAsync(workflowSession.ExtractionResultRequiresDecision).ConfigureAwait(true);
+        RefreshWorkflowProperties();
+    }
+
+    private async Task ReprocessExtractionReviewAsync()
+    {
+        var reloaded = await EnsureExtractionReviewLoadedAsync(forceReprocess: true).ConfigureAwait(true);
+        if (!reloaded)
+        {
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        workflowSession.SetValidationFailure("Validate Points was reprocessed from the current extraction source.");
         RefreshWorkflowProperties();
     }
 
@@ -2061,7 +2087,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
-    public void CancelProcess()
+    public async Task CancelProcessAsync()
     {
         if (MessageBox.Show(
                 "Discard the current local session and close this transaction without creating a new resume package?",
@@ -2076,12 +2102,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var result = ShellState.LifecycleCoordinator.CancelActiveProcess();
         if (result.Success)
         {
-            ReturnToTransactionListAsync(
+            await ReturnToTransactionListAsync(
                 cancelledTransactionNumber,
-                result.StatusMessage ?? "Cancelled locally.",
+                "Transaction cancelled. Filters cleared.",
                 preserveSavedMarker: false,
                 suppressTransactionFromList: false,
-                refreshTransactions: false).GetAwaiter().GetResult();
+                refreshTransactions: true).ConfigureAwait(true);
             return;
         }
 
@@ -2649,6 +2675,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ExtractionReviewActionLabel));
         NotifyPropertyChanged(nameof(ExtractionReviewHelpText));
         NotifyPropertyChanged(nameof(ShowExtractionDecisionGate));
+        NotifyPropertyChanged(nameof(ShowReprocessExtractionAction));
         NotifyPropertyChanged(nameof(ExtractionDecisionSummaryText));
         NotifyPropertyChanged(nameof(ExtractionDecisionGuidanceText));
         NotifyPropertyChanged(nameof(ExtractionDecisionAttemptText));
@@ -2671,6 +2698,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
+        NotifyPropertyChanged(nameof(CanReprocessExtractionReview));
         NotifyPropertyChanged(nameof(CanOpenExperimentalReviewWorkspace));
         NotifyPropertyChanged(nameof(CanRunValidation));
         NotifyPropertyChanged(nameof(CanRunOutputs));
@@ -2774,6 +2802,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
         runExtractionReviewCommand.RaiseCanExecuteChanged();
+        reprocessExtractionReviewCommand.RaiseCanExecuteChanged();
         useManualCogoFallbackCommand.RaiseCanExecuteChanged();
         runValidationCommand.RaiseCanExecuteChanged();
         runOutputsCommand.RaiseCanExecuteChanged();

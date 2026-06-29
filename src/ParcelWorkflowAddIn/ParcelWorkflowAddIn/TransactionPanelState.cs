@@ -793,9 +793,28 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ErrorText = null;
         SavedTransactionNumber = preserveSavedMarker ? transactionNumber : null;
 
+        if (!preserveSavedMarker)
+        {
+            if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                searchText = string.Empty;
+                NotifyPropertyChanged(nameof(SearchText));
+            }
+
+            if (!selectedFilter.Equals("All tasks", StringComparison.OrdinalIgnoreCase))
+            {
+                selectedFilter = "All tasks";
+                NotifyPropertyChanged(nameof(SelectedFilter));
+            }
+        }
+
         if (suppressTransactionFromList && !string.IsNullOrWhiteSpace(transactionNumber))
         {
             locallyCompletedTransactionNumbers.Add(transactionNumber);
+            SelectedRow = null;
+        }
+        else if (!preserveSavedMarker && !refreshTransactions)
+        {
             SelectedRow = null;
         }
         else
@@ -809,6 +828,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (refreshTransactions)
         {
             await RefreshAsync(cancellationToken);
+            ErrorText = null;
+            StatusText = statusText;
+            NotifyListState();
         }
     }
 
