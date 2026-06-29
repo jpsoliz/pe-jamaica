@@ -105,6 +105,67 @@ def _append_structured_row(
     )
 
 
+def _append_segment_table_start_row(
+    rows: list[dict],
+    parcel_group_id: str,
+    parcel_name: str,
+    point_identifier: str,
+    easting: str,
+    northing: str,
+    source_page: int,
+) -> None:
+    rows.append(
+        {
+            "parcel_group_id": parcel_group_id,
+            "parcel_name": parcel_name,
+            "point_order": 1,
+            "segment_no": 0,
+            "point_identifier": point_identifier,
+            "from_point": None,
+            "to_point": point_identifier,
+            "course_from_previous": None,
+            "length_from_previous_m": None,
+            "easting": easting,
+            "northing": northing,
+            "source_page": source_page,
+            "is_boundary_break": False,
+            "row_provenance": "embedded_pdf_text",
+            "extraction_status": "matched",
+        }
+    )
+
+
+def _append_segment_table_follow_row(
+    rows: list[dict],
+    pending_segment: dict,
+    parcel_group_id: str,
+    parcel_name: str,
+    point_order: int,
+    easting: str,
+    northing: str,
+    source_page: int,
+) -> None:
+    rows.append(
+        {
+            "parcel_group_id": parcel_group_id,
+            "parcel_name": parcel_name,
+            "point_order": point_order,
+            "segment_no": pending_segment["segment_no"],
+            "point_identifier": pending_segment["to_point"],
+            "from_point": pending_segment["from_point"],
+            "to_point": pending_segment["to_point"],
+            "course_from_previous": pending_segment["course_from_previous"],
+            "length_from_previous_m": pending_segment["length_from_previous_m"],
+            "easting": easting,
+            "northing": northing,
+            "source_page": source_page,
+            "is_boundary_break": False,
+            "row_provenance": "embedded_pdf_text",
+            "extraction_status": "matched",
+        }
+    )
+
+
 def _detect_parcel_name(line: str, current_name: str | None) -> str | None:
     normalized = _normalize_line(line)
     if not normalized:
@@ -131,6 +192,8 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
     pending_segment_no: int | None = None
     pending_course: str | None = None
     pending_length: str | None = None
+    pending_segment_table_row: dict | None = None
+    current_group_uses_segment_table = False
 
     for page_index, page_text in enumerate(pages, start=1):
         for raw_line in page_text.splitlines():
@@ -147,6 +210,8 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
                 pending_segment_no = None
                 pending_course = None
                 pending_length = None
+                pending_segment_table_row = None
+                current_group_uses_segment_table = False
                 continue
 
             segment_header_match = SEGMENT_HEADER_RE.match(line)
@@ -216,6 +281,8 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
                 parcel_names.append(detected_name)
                 current_group = f"parcel-{len(parcel_names):03d}"
                 point_order = 0
+                pending_segment_table_row = None
+                current_group_uses_segment_table = False
 
             segment_match = SEGMENT_RE.match(line)
             if segment_match:
@@ -225,30 +292,56 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
                         parcel_names.append("Parcel 1")
                     current_parcel_name = parcel_names[-1]
 
-                point_order += 1
-                rows.append(
-                    {
-                        "parcel_group_id": current_group,
-                        "parcel_name": current_parcel_name or current_group,
-                        "point_order": point_order,
-                        "segment_no": point_order,
-                        "point_identifier": segment_match.group("to"),
-                        "from_point": segment_match.group("from"),
-                        "to_point": segment_match.group("to"),
-                        "course_from_previous": segment_match.group("bearing"),
-                        "length_from_previous_m": segment_match.group("distance"),
-                        "easting": segment_match.group("east"),
-                        "northing": segment_match.group("north"),
-                        "source_page": page_index,
-                        "is_boundary_break": False,
-                        "row_provenance": "embedded_pdf_text",
-                        "extraction_status": "matched",
-                    }
-                )
+                current_group_uses_segment_table = True
+                current_segment = {
+                    "segment_no": point_order + 1 if point_order > 0 else 1,
+                    "from_point": segment_match.group("from"),
+                    "to_point": segment_match.group("to"),
+                    "course_from_previous": segment_match.group("bearing"),
+                    "length_from_previous_m": segment_match.group("distance"),
+                }
+                current_row_northing = segment_match.group("north")
+                current_row_easting = segment_match.group("east")
+
+                if point_order == 0:
+                    point_order = 1
+                    _append_segment_table_start_row(
+                        rows=rows,
+                        parcel_group_id=current_group,
+                        parcel_name=current_parcel_name or current_group,
+                        point_identifier=current_segment["from_point"],
+                        easting=current_row_easting,
+                        northing=current_row_northing,
+                        source_page=page_index,
+                    )
+                elif pending_segment_table_row is not None:
+                    point_order += 1
+                    _append_segment_table_follow_row(
+                        rows=rows,
+                        pending_segment=pending_segment_table_row,
+                        parcel_group_id=current_group,
+                        parcel_name=current_parcel_name or current_group,
+                        point_order=point_order,
+                        easting=current_row_easting,
+                        northing=current_row_northing,
+                        source_page=page_index,
+                    )
+
+                pending_segment_table_row = current_segment
                 continue
 
             start_match = START_POINT_RE.match(line)
             if start_match and current_group is not None:
+                if current_group_uses_segment_table:
+                    start_key = (
+                        current_group,
+                        start_match.group("point"),
+                        start_match.group("north"),
+                        start_match.group("east"),
+                    )
+                    seen_start_points.add(start_key)
+                    continue
+
                 start_key = (
                     current_group,
                     start_match.group("point"),

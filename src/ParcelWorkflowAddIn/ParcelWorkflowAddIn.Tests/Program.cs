@@ -176,6 +176,7 @@ var tests = new (string Name, Action Run)[]
     ("parcel scoped review validation blocks duplicate point ids", ParcelScopedReviewValidationServiceTests.ValidateBlocksDuplicatePointIdsWithinParcel),
     ("parcel scoped review validation blocks pending manual edit and invalid coordinates", ParcelScopedReviewValidationServiceTests.ValidateBlocksPendingManualEditAndInvalidCoordinates),
     ("parcel scoped review validation blocks missing parcel assignment and invalid sequence", ParcelScopedReviewValidationServiceTests.ValidateBlocksManualRowsWithoutParcelAssignmentOrValidSequence),
+    ("parcel scoped review validation allows implicit closure for structured traverse rows", ParcelScopedReviewValidationServiceTests.ValidateAllowsImplicitClosureForStructuredTraverseRows),
     ("review persistence saves edited row and preserves originals", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsOverrides),
     ("review persistence saves manual row", ExtractionReviewPersistenceServiceTests.ManualPointSavePersistsAsManualRow),
     ("review approval blocks unresolved rows", ExtractionReviewPersistenceServiceTests.ApprovalIsBlockedWhenUnresolvedRowsRemain),

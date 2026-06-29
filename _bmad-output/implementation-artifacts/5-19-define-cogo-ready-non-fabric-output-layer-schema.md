@@ -185,6 +185,8 @@ Recommended line label expression:
 
 This is the core of “COGO-ready non-fabric”: the lines carry the bearing/distance contract even if Parcel Fabric is not present.
 
+For parcel groups that represent closed parcels, the generated `parcel_lines` set should include the final closing segment from the last ordered point back to the first ordered point unless that segment is already explicitly present in the approved review data.
+
 ### Recommended Polygon Feature Class Schema
 
 Feature class name: `parcel_polygons`

@@ -126,4 +126,81 @@ internal static class ParcelScopedReviewValidationServiceTests
                 && issue.Status == ReadinessValidationStatus.Blocker),
             "Boundary completeness readiness blocker should be reported.");
     }
+
+    public static void ValidateAllowsImplicitClosureForStructuredTraverseRows()
+    {
+        var service = new ParcelScopedReviewValidationService();
+        var rows = new[]
+        {
+            new ExtractionReviewRow
+            {
+                RowId = "row-1",
+                ParcelGroupId = "parcel-001",
+                ParcelName = "110402901",
+                SequenceInGroup = 1,
+                PointIdentifier = "338",
+                Easting = "680920.044",
+                Northing = "639209.180",
+                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["to_point"] = "338"
+                }
+            },
+            new ExtractionReviewRow
+            {
+                RowId = "row-2",
+                ParcelGroupId = "parcel-001",
+                ParcelName = "110402901",
+                SequenceInGroup = 2,
+                PointIdentifier = "339",
+                Easting = "680912.604",
+                Northing = "639210.742",
+                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["from_point"] = "338",
+                    ["to_point"] = "339"
+                }
+            },
+            new ExtractionReviewRow
+            {
+                RowId = "row-3",
+                ParcelGroupId = "parcel-001",
+                ParcelName = "110402901",
+                SequenceInGroup = 3,
+                PointIdentifier = "340",
+                Easting = "680912.453",
+                Northing = "639208.761",
+                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["from_point"] = "339",
+                    ["to_point"] = "340"
+                }
+            },
+            new ExtractionReviewRow
+            {
+                RowId = "row-4",
+                ParcelGroupId = "parcel-001",
+                ParcelName = "110402901",
+                SequenceInGroup = 4,
+                PointIdentifier = "337",
+                Easting = "680921.968",
+                Northing = "639216.482",
+                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["from_point"] = "340",
+                    ["to_point"] = "337"
+                }
+            }
+        };
+
+        var result = service.Validate(rows);
+
+        TestAssert.False(result.HasBlockers, "Structured traverse rows with an implicit return to the starting point should not block closure.");
+        TestAssert.True(
+            result.ClosureResults.Any(item =>
+                string.Equals(item.ParcelGroupId, "parcel-001", StringComparison.OrdinalIgnoreCase)
+                && item.Status == ClosureValidationStatus.Passed
+                && Math.Abs(item.ClosureDistanceM ?? -1d) < 0.000001d),
+            "Parcel closure should pass with zero misclose when implicit closing segment rules apply.");
+    }
 }

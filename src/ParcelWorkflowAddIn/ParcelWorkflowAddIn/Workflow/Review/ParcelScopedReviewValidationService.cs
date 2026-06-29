@@ -212,15 +212,21 @@ public sealed class ParcelScopedReviewValidationService
 
             var start = coordinates[0];
             var end = coordinates[^1];
-            var dx = end.X - start.X;
-            var dy = end.Y - start.Y;
-            var closureDistance = Math.Sqrt((dx * dx) + (dy * dy));
+            var implicitClosureUsed = HasImplicitClosingSegment(orderedRows);
+            var dx = implicitClosureUsed ? 0d : end.X - start.X;
+            var dy = implicitClosureUsed ? 0d : end.Y - start.Y;
+            var closureDistance = implicitClosureUsed ? 0d : Math.Sqrt((dx * dx) + (dy * dy));
             var totalLength = 0d;
             for (var index = 1; index < coordinates.Length; index++)
             {
                 var previous = coordinates[index - 1];
                 var current = coordinates[index];
                 totalLength += Math.Sqrt(Math.Pow(current.X - previous.X, 2) + Math.Pow(current.Y - previous.Y, 2));
+            }
+
+            if (implicitClosureUsed && coordinates.Length >= 2)
+            {
+                totalLength += Math.Sqrt(Math.Pow(start.X - end.X, 2) + Math.Pow(start.Y - end.Y, 2));
             }
 
             double? miscloseRatio = null;
@@ -275,6 +281,57 @@ public sealed class ParcelScopedReviewValidationService
         }
 
         return results;
+    }
+
+    private static bool HasImplicitClosingSegment(IReadOnlyList<ExtractionReviewRow> rows)
+    {
+        if (rows.Count < 3)
+        {
+            return false;
+        }
+
+        var firstPointId = NormalizePointId(rows[0].PointIdentifier);
+        if (string.IsNullOrWhiteSpace(firstPointId))
+        {
+            return false;
+        }
+
+        if (rows.Any(row => row.IsBoundaryBreak))
+        {
+            return false;
+        }
+
+        var firstToPoint = ExtractRawText(rows[0], "to_point", "to_pt", "end_pt");
+        if (!string.IsNullOrWhiteSpace(firstToPoint)
+            && !string.Equals(firstToPoint, firstPointId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var previousPointId = firstPointId;
+        for (var index = 1; index < rows.Count; index++)
+        {
+            var row = rows[index];
+            var currentPointId = NormalizePointId(row.PointIdentifier);
+            var fromPointId = ExtractRawText(row, "from_point", "from_pt", "start_pt");
+            var toPointId = ExtractRawText(row, "to_point", "to_pt", "end_pt");
+            if (string.IsNullOrWhiteSpace(currentPointId)
+                || string.IsNullOrWhiteSpace(fromPointId)
+                || string.IsNullOrWhiteSpace(toPointId))
+            {
+                return false;
+            }
+
+            if (!string.Equals(fromPointId, previousPointId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(toPointId, currentPointId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            previousPointId = currentPointId;
+        }
+
+        return true;
     }
 
     private IReadOnlyList<ParcelReadinessReviewResult> ComputeReadinessResults(IReadOnlyList<ExtractionReviewRow> rows)

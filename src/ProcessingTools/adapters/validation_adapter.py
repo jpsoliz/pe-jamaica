@@ -577,6 +577,41 @@ def _infer_parcel_type(rows: list[dict[str, Any]], source_files: list[dict[str, 
     return default_parcel_type or "standard_closed"
 
 
+def _extract_point_identifier(row: dict[str, Any]) -> str:
+    return _normalize_point_id(row.get("point_identifier") or row.get("point_id") or row.get("to_point"))
+
+
+def _has_implicit_closing_segment(rows: list[dict[str, Any]]) -> bool:
+    if len(rows) < 3:
+        return False
+
+    first_point = _extract_point_identifier(rows[0])
+    if not first_point:
+        return False
+
+    if any(bool(row.get("review_is_boundary_break") if "review_is_boundary_break" in row else row.get("is_boundary_break")) for row in rows):
+        return False
+
+    first_to_point = _extract_segment_ref(rows[0], "to_point", "to_pt", "end_pt")
+    if first_to_point and first_to_point != first_point:
+        return False
+
+    previous_point = first_point
+    chain_rows = 0
+    for row in rows[1:]:
+        current_point = _extract_point_identifier(row)
+        from_point = _extract_segment_ref(row, "from_point", "from_pt", "start_pt")
+        to_point = _extract_segment_ref(row, "to_point", "to_pt", "end_pt")
+        if not current_point or not from_point or not to_point:
+            return False
+        if from_point != previous_point or to_point != current_point:
+            return False
+        previous_point = current_point
+        chain_rows += 1
+
+    return chain_rows == len(rows) - 1
+
+
 def _compute_closure_results(
     review_data: dict[str, Any],
     source_files: list[dict[str, Any]],
@@ -638,13 +673,23 @@ def _compute_closure_results(
         else:
             start_x, start_y = coordinates[0]
             end_x, end_y = coordinates[-1]
-            dx = end_x - start_x
-            dy = end_y - start_y
-            closure_distance = math.hypot(dx, dy)
+            implicit_closure_used = _has_implicit_closing_segment(ordered_rows)
+
+            if implicit_closure_used:
+                dx = 0.0
+                dy = 0.0
+                closure_distance = 0.0
+            else:
+                dx = end_x - start_x
+                dy = end_y - start_y
+                closure_distance = math.hypot(dx, dy)
 
             total_length = 0.0
             for previous, current in zip(coordinates, coordinates[1:]):
                 total_length += math.hypot(current[0] - previous[0], current[1] - previous[1])
+
+            if implicit_closure_used and len(coordinates) >= 2:
+                total_length += math.hypot(start_x - end_x, start_y - end_y)
 
             if closure_distance and closure_distance > 0 and total_length > 0:
                 misclose_ratio_denominator = total_length / closure_distance
@@ -693,6 +738,7 @@ def _compute_closure_results(
                 "message": message,
                 "allow_open_boundary": allow_open_boundary,
                 "coordinate_row_count": coordinate_rows,
+                "implicit_closure_used": implicit_closure_used if profile_enabled and len(coordinates) >= 2 else False,
                 "closure_distance_m": round(closure_distance, 6) if closure_distance is not None else None,
                 "misclose_ratio_denominator": round(misclose_ratio_denominator, 2) if misclose_ratio_denominator is not None else None,
                 "max_closure_distance_m": profile.get("max_closure_distance_m"),

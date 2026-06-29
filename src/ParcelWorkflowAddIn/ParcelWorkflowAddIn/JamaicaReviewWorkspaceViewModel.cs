@@ -176,7 +176,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 .ToArray();
 
             return unsupported.Length > 0
-                ? $"Fallback path demonstrated by unsupported source(s): {string.Join(", ", unsupported)}. Use Open source or Reveal instead of embedded rendering."
+                ? $"Fallback path demonstrated by unsupported source(s): {string.Join(", ", unsupported)}. Use Open source or Open in folder instead of embedded rendering."
                 : "TXT/CSV and other unsupported formats should stay reviewable through the center grid while opening externally from the source tools.";
         }
     }
@@ -739,7 +739,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
         if (actualPoints.All(item => item.HasValue))
         {
-            return ScaleToPreview(actualPoints.Select(item => item!.Value).ToArray());
+            return ScaleToPreview(ClosePreviewRingIfNeeded(actualPoints.Select(item => item!.Value).ToArray()));
         }
 
         return BuildSyntheticPreview(rows.Length);
@@ -777,7 +777,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 .ToArray();
             if (actualPoints.All(item => item.HasValue))
             {
-                rawGroups.Add((group, actualPoints.Select(item => item!.Value).ToArray()));
+                rawGroups.Add((group, ClosePreviewRingIfNeeded(actualPoints.Select(item => item!.Value).ToArray()).ToArray()));
             }
         }
 
@@ -874,6 +874,32 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
 
         return points;
+    }
+
+    private static IReadOnlyList<Point> ClosePreviewRingIfNeeded(IReadOnlyList<Point> source)
+    {
+        if (source.Count < 3)
+        {
+            return source;
+        }
+
+        var first = source[0];
+        var last = source[source.Count - 1];
+        if (PointsAreEquivalent(first, last))
+        {
+            return source;
+        }
+
+        var closed = new List<Point>(source.Count + 1);
+        closed.AddRange(source);
+        closed.Add(first);
+        return closed;
+    }
+
+    private static bool PointsAreEquivalent(Point first, Point second)
+    {
+        return Math.Abs(first.X - second.X) < 0.000001d &&
+               Math.Abs(first.Y - second.Y) < 0.000001d;
     }
 
     private static PointCollection BuildSyntheticPreview(int rowCount)

@@ -225,6 +225,117 @@ class ValidationAdapterTests(unittest.TestCase):
             self.assertEqual(1, summary["payload"]["closure_summary"]["blocker"])
             self.assertGreaterEqual(summary["payload"]["finding_counts"]["high"], 1)
 
+    def test_validation_adapter_treats_structured_traverse_rows_as_implicit_closed_ring(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "approved_review.json"
+            review_path = temp_path / "extraction_review_data.json"
+            output_path = temp_path / "validation_summary.json"
+            rules_path = temp_path / "rules.yaml"
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_id": "100000379",
+                        "payload": {"source_files": [{"file_type": ".pdf"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            approved_path.write_text(json.dumps({"review_hash": "hash-review"}), encoding="utf-8")
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000379",
+                        "review_hash": "hash-review",
+                        "rows": [
+                            {
+                                "row_id": "1",
+                                "parcel_group_id": "parcel-001",
+                                "sequence_in_group": 1,
+                                "point_identifier": "338",
+                                "to_point": "338",
+                                "easting": "680920.044",
+                                "northing": "639209.180",
+                            },
+                            {
+                                "row_id": "2",
+                                "parcel_group_id": "parcel-001",
+                                "sequence_in_group": 2,
+                                "point_identifier": "339",
+                                "from_point": "338",
+                                "to_point": "339",
+                                "easting": "680912.604",
+                                "northing": "639210.742",
+                            },
+                            {
+                                "row_id": "3",
+                                "parcel_group_id": "parcel-001",
+                                "sequence_in_group": 3,
+                                "point_identifier": "340",
+                                "from_point": "339",
+                                "to_point": "340",
+                                "easting": "680912.453",
+                                "northing": "639208.761",
+                            },
+                            {
+                                "row_id": "4",
+                                "parcel_group_id": "parcel-001",
+                                "sequence_in_group": 4,
+                                "point_identifier": "337",
+                                "from_point": "340",
+                                "to_point": "337",
+                                "easting": "680921.968",
+                                "northing": "639216.482",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rules_path.write_text(
+                "\n".join(
+                    [
+                        "rule_profile: sidwell_validation_v1",
+                        "rule_version: 1.0.0",
+                        "closure_tolerance_defaults:",
+                        "  rule_id: closure_default_standard",
+                        "  parcel_type: standard_closed",
+                        "  enabled: true",
+                        "  severity: blocker",
+                        "  allow_open_boundary: false",
+                        "  max_closure_distance_m: 0.3",
+                        "  min_misclose_ratio_denominator: 2500",
+                        "  warning_closure_distance_m: 0.15",
+                        "  warning_misclose_ratio_denominator: 4000",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code = validation_adapter.main(
+                [
+                    "--manifest",
+                    str(manifest_path),
+                    "--approved-review",
+                    str(approved_path),
+                    "--review-data",
+                    str(review_path),
+                    "--output",
+                    str(output_path),
+                    "--rules",
+                    str(rules_path),
+                ]
+            )
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual("passed", summary["payload"]["status"])
+            self.assertEqual(1, summary["payload"]["closure_summary"]["passed"])
+            self.assertTrue(summary["payload"]["closure_results"][0]["implicit_closure_used"])
+            self.assertEqual(0.0, summary["payload"]["closure_results"][0]["closure_distance_m"])
+
     def test_validation_adapter_writes_readiness_results_for_sequence_gap(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

@@ -171,6 +171,7 @@ In `Final Review`, keep it short, for example:
 | 2026-06-24 | 0.1 | Drafted parcel-type-aware closure tolerance validation story for Validate Points and Final Review. | Codex |
 | 2026-06-24 | 1.0 | Implemented externalized closure tolerance profiles, parcel-level closure validation, settings overrides, and closure diagnostics across Validate Points and Final Review. | Codex |
 | 2026-06-24 | 1.1 | Exposed standard closure tolerance thresholds directly in the Settings workspace while keeping advanced JSON overrides for profile-level changes. | Codex |
+| 2026-06-28 | 1.2 | Updated closure validation to honor implicit closing segments for structured computation-table traverses that return to the starting point without repeating that first vertex as a final row. | Codex |
 
 ## Dev Agent Record
 
@@ -178,6 +179,7 @@ In `Final Review`, keep it short, for example:
 
 - Added externalized closure tolerance defaults and profiles to the rule catalog, including standard closed, precision/small parcel, open-boundary, and tabular-coordinate variants.
 - Extended the Python validation adapter to load closure profiles plus optional JSON overrides from settings, compute parcel-group closure metrics, and emit closure summary/results in the validation payload.
+- Refined closure computation so structured `from_point -> to_point` traverse rows from computation sheets can validate as closed parcels even when the saved review artifact stores unique ordered vertices instead of repeating the starting point as the last row.
 - Extended the C# validation summary contract and the in-review `ParcelScopedReviewValidationService` so the Points Validation Tool and dockpane share parcel-scoped closure blocker/warning/pass decisions.
 - Added a settings workspace field for `closure_tolerance_profile_overrides` so tolerance profiles can be adjusted without code changes.
 - Exposed the standard closed-parcel closure thresholds directly in the Settings workspace so reviewers can see and adjust blocker/warning distance and ratio values without editing raw JSON.

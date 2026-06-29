@@ -126,6 +126,7 @@ This story should not change:
 |---|---:|---|---|
 | 2026-06-27 | 0.1 | Drafted follow-up story for active-parcel-first preview mode, optional all-parcels context toggle, and clearer validation status readability in Points Validation Tool. | Codex |
 | 2026-06-27 | 1.0 | Implemented active-parcel-first preview mode, optional all-parcels context toggle, and grouped rule-status diagnostics in Points Validation Tool. | Codex |
+| 2026-06-28 | 1.1 | Closed preview parcel rings so parcel preview context matches the saved parcel geometry contract. | Codex |
 
 ## Dev Agent Record
 
@@ -133,6 +134,7 @@ This story should not change:
 
 - Added a parcel preview mode toggle so the right-panel preview now defaults to the active parcel only, with optional surrounding parcel context when needed.
 - Refined preview rendering so non-active parcels render only as faint background outlines while the active parcel stays visually dominant.
+- Closed preview parcel rings when a parcel is represented by distinct ordered points so the preview no longer drops the final return segment.
 - Fixed the right-panel layout hierarchy so parcel title, summary, context toggle, issues, preview, and diagnostics occupy separate rows and no longer crowd each other.
 - Reworked validation diagnostics into grouped `Blocked`, `Warnings`, and `Passed checks` sections so reviewers can see the actionable issues first without losing audit detail.
 

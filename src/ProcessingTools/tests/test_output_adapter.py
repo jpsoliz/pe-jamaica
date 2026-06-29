@@ -90,23 +90,23 @@ class OutputAdapterTests(unittest.TestCase):
             summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
             self.assertEqual("created", summary["payload"]["status"])
             self.assertEqual(3, summary["payload"]["point_count"])
-            self.assertEqual(2, summary["payload"]["line_count"])
+            self.assertEqual(3, summary["payload"]["line_count"])
             self.assertEqual(1, summary["payload"]["polygon_count"])
             self.assertTrue(summary["payload"]["add_cogo_attributes"])
             self.assertTrue(summary["payload"]["add_cogo_labels"])
             self.assertEqual("source_then_computed", summary["payload"]["cogo_source_mode"])
             self.assertEqual("non_fabric", summary["payload"]["map_load_mode"])
             self.assertTrue(summary["payload"]["bearing_txt_populated"])
-            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["bearing_txt_populated_count"])
             self.assertTrue(summary["payload"]["distance_txt_populated"])
-            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
-            self.assertEqual(2, summary["payload"]["computed_cogo_fallback_line_count"])
+            self.assertEqual(3, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["computed_cogo_fallback_line_count"])
             self.assertIn("root_line_feature_class_diagnostic", summary["payload"])
             self.assertTrue(summary["payload"]["root_line_bearing_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_distance_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_length_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_distance_m_exists"])
-            self.assertEqual(2, summary["payload"]["root_line_feature_class_diagnostic"]["row_count"])
+            self.assertEqual(3, summary["payload"]["root_line_feature_class_diagnostic"]["row_count"])
             self.assertTrue(summary["payload"]["result_gdb_path"].endswith(".gdb"))
             self.assertTrue(summary["payload"]["polygon_feature_class_path"].endswith("parcel_polygons"))
 
@@ -283,10 +283,10 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertAlmostEqual(90.0, line_rows[0]["azimuth_deg"], places=6)
             self.assertTrue(line_rows[0]["is_computed_cogo"])
             self.assertTrue(summary["payload"]["bearing_txt_populated"])
-            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["bearing_txt_populated_count"])
             self.assertTrue(summary["payload"]["distance_txt_populated"])
-            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
-            self.assertEqual(2, summary["payload"]["computed_cogo_fallback_line_count"])
+            self.assertEqual(3, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["computed_cogo_fallback_line_count"])
 
     def test_output_adapter_rejects_stale_approval_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -478,14 +478,14 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual("compute_review", summary["payload"]["parcel_type"])
             self.assertEqual("sidwell-record-100000206", summary["payload"]["parcel_record_name"])
             self.assertEqual(1, summary["payload"]["built_parcel_count"])
-            self.assertEqual(2, summary["payload"]["built_line_count"])
+            self.assertEqual(3, summary["payload"]["built_line_count"])
             self.assertEqual(3, summary["payload"]["built_point_count"])
             self.assertTrue(summary["payload"]["root_line_bearing_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_distance_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_length_txt_exists"])
             self.assertTrue(summary["payload"]["root_line_distance_m_exists"])
-            self.assertEqual(2, summary["payload"]["bearing_txt_populated_count"])
-            self.assertEqual(2, summary["payload"]["distance_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["bearing_txt_populated_count"])
+            self.assertEqual(3, summary["payload"]["distance_txt_populated_count"])
             self.assertEqual([], summary["warnings"])
 
     def test_output_adapter_respects_parcel_group_boundaries_for_segments(self):
@@ -556,6 +556,73 @@ class OutputAdapterTests(unittest.TestCase):
             line_features = [feature for feature in geojson["features"] if feature["geometry"]["type"] == "LineString"]
             self.assertEqual(2, len(line_features))
             self.assertEqual({"parcel-a", "parcel-b"}, {feature["properties"]["parcel_group_id"] for feature in line_features})
+
+    def test_output_adapter_adds_closing_segment_for_closed_parcel_review(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "approved_review.json"
+            review_path = temp_path / "extraction_review_data.json"
+            output_root = temp_path / "output"
+            output_summary_path = output_root / "output_summary.json"
+
+            manifest_path.write_text(
+                json.dumps({"transaction_id": "100000401", "payload": {"script_plan": {"source_manifest_hash": "hash-123"}}}),
+                encoding="utf-8",
+            )
+            approved_path.write_text(
+                json.dumps({"transaction_number": "100000401", "review_hash": "approved-hash", "approved_by": "tester"}),
+                encoding="utf-8",
+            )
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000401",
+                        "review_hash": "approved-hash",
+                        "rows": [
+                            {"row_id": "1", "parcel_group_id": "parcel-a", "sequence_in_group": 1, "point_identifier": "P1", "easting": "1000.0", "northing": "2000.0"},
+                            {"row_id": "2", "parcel_group_id": "parcel-a", "sequence_in_group": 2, "point_identifier": "P2", "easting": "1010.0", "northing": "2000.0"},
+                            {"row_id": "3", "parcel_group_id": "parcel-a", "sequence_in_group": 3, "point_identifier": "P3", "easting": "1010.0", "northing": "2010.0"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            previous = os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE")
+            os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = "1"
+            try:
+                exit_code = output_adapter.main(
+                    [
+                        "--manifest",
+                        str(manifest_path),
+                        "--approved-review",
+                        str(approved_path),
+                        "--review-data",
+                        str(review_path),
+                        "--add-cogo-attributes",
+                        "true",
+                        "--output-root",
+                        str(output_root),
+                        "--output-summary",
+                        str(output_summary_path),
+                    ]
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", None)
+                else:
+                    os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = previous
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(3, summary["payload"]["line_count"])
+
+            line_rows = json.loads(Path(summary["payload"]["line_feature_class_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(3, len(line_rows))
+            self.assertEqual("P3", line_rows[-1]["from_point_id"])
+            self.assertEqual("P1", line_rows[-1]["to_point_id"])
+            self.assertEqual("closure", line_rows[-1]["line_type"])
 
     def test_output_adapter_computes_canonical_non_fabric_schema_values(self):
         with tempfile.TemporaryDirectory() as temp_dir:

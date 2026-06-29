@@ -316,6 +316,76 @@ def _apply_group_parcel_metadata(point_groups: list[dict[str, Any]]) -> list[dic
 
 
 def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def append_segment(
+        group_id: str,
+        parcel_id: str,
+        segment_order: int,
+        start: dict[str, Any],
+        end: dict[str, Any],
+        *,
+        is_closure: bool = False,
+    ) -> None:
+        nonlocal segment_index
+        computed_distance_m = _distance_between(
+            float(start["easting"]),
+            float(start["northing"]),
+            float(end["easting"]),
+            float(end["northing"]),
+        )
+        distance_m = end.get("distance_m")
+        distance_txt = _normalize_text(end.get("distance_txt") or end.get("length") or "", 64)
+        is_manual = bool(start.get("is_manual")) or bool(end.get("is_manual"))
+        is_edited = bool(start.get("is_edited")) or bool(end.get("is_edited"))
+        segments.append(
+            {
+                "line_id": f"{parcel_id}_L{segment_order}",
+                "segment_index": segment_index,
+                "segment_order": segment_order,
+                "parcel_id": parcel_id,
+                "parcel_group_id": group_id,
+                "traverse_id": start.get("traverse_id") or end.get("traverse_id") or "",
+                "line_type": "curve" if end.get("radius_m") or end.get("arc_length_m") else ("closure" if is_closure else "line"),
+                "start_point": start["point_identifier"],
+                "end_point": end["point_identifier"],
+                "from_point_id": start["point_identifier"],
+                "to_point_id": end["point_identifier"],
+                "start": (start["easting"], start["northing"]),
+                "end": (end["easting"], end["northing"]),
+                "bearing": end.get("bearing") or "",
+                "bearing_txt": end.get("bearing") or "",
+                "length": end.get("length") or "",
+                "length_txt": end.get("length") or "",
+                "distance_txt": distance_txt,
+                "distance_m": distance_m if distance_m is not None else computed_distance_m,
+                "radius_m": end.get("radius_m"),
+                "arc_length_m": end.get("arc_length_m"),
+                "delta_angle_txt": _normalize_text(end.get("delta_angle_txt") or "", 64),
+                "chord_bearing_txt": _normalize_text(end.get("chord_bearing_txt") or "", 64),
+                "chord_distance_m": _parse_coordinate(end.get("chord_distance_m")),
+                "doc_type_id": end.get("doc_type_id") or "",
+                "source_doc": end.get("source_doc") or "",
+                "row_id": end.get("row_id") or "",
+                "status": end.get("status") or "",
+                "status_txt": end.get("status") or "",
+                "source_evidence": end.get("source_evidence") or "",
+                "source_txt": end.get("source_evidence") or "",
+                "is_boundary_break": bool(end.get("is_boundary_break")),
+                "is_manual": is_manual,
+                "is_edited": is_edited,
+            }
+        )
+        segment_index += 1
+
+    def points_match(first: dict[str, Any], second: dict[str, Any]) -> bool:
+        first_id = (first.get("point_identifier") or "").strip()
+        second_id = (second.get("point_identifier") or "").strip()
+        if first_id and second_id and first_id == second_id:
+            return True
+        return (
+            math.isclose(float(first["easting"]), float(second["easting"]), abs_tol=1e-9)
+            and math.isclose(float(first["northing"]), float(second["northing"]), abs_tol=1e-9)
+        )
+
     segments: list[dict[str, Any]] = []
     segment_index = 1
     for group in point_groups:
@@ -325,55 +395,9 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
         for index in range(len(points) - 1):
             start = points[index]
             end = points[index + 1]
-            computed_distance_m = _distance_between(
-                float(start["easting"]),
-                float(start["northing"]),
-                float(end["easting"]),
-                float(end["northing"]),
-            )
-            distance_m = end.get("distance_m")
-            distance_txt = _normalize_text(end.get("distance_txt") or end.get("length") or "", 64)
-            is_manual = bool(start.get("is_manual")) or bool(end.get("is_manual"))
-            is_edited = bool(start.get("is_edited")) or bool(end.get("is_edited"))
-            segments.append(
-                {
-                    "line_id": f"{parcel_id}_L{index + 1}",
-                    "segment_index": segment_index,
-                    "segment_order": index + 1,
-                    "parcel_id": parcel_id,
-                    "parcel_group_id": group_id,
-                    "traverse_id": start.get("traverse_id") or end.get("traverse_id") or "",
-                    "line_type": "curve" if end.get("radius_m") or end.get("arc_length_m") else "line",
-                    "start_point": start["point_identifier"],
-                    "end_point": end["point_identifier"],
-                    "from_point_id": start["point_identifier"],
-                    "to_point_id": end["point_identifier"],
-                    "start": (start["easting"], start["northing"]),
-                    "end": (end["easting"], end["northing"]),
-                    "bearing": end.get("bearing") or "",
-                    "bearing_txt": end.get("bearing") or "",
-                    "length": end.get("length") or "",
-                    "length_txt": end.get("length") or "",
-                    "distance_txt": distance_txt,
-                    "distance_m": distance_m if distance_m is not None else computed_distance_m,
-                    "radius_m": end.get("radius_m"),
-                    "arc_length_m": end.get("arc_length_m"),
-                    "delta_angle_txt": _normalize_text(end.get("delta_angle_txt") or "", 64),
-                    "chord_bearing_txt": _normalize_text(end.get("chord_bearing_txt") or "", 64),
-                    "chord_distance_m": _parse_coordinate(end.get("chord_distance_m")),
-                    "doc_type_id": end.get("doc_type_id") or "",
-                    "source_doc": end.get("source_doc") or "",
-                    "row_id": end.get("row_id") or "",
-                    "status": end.get("status") or "",
-                    "status_txt": end.get("status") or "",
-                    "source_evidence": end.get("source_evidence") or "",
-                    "source_txt": end.get("source_evidence") or "",
-                    "is_boundary_break": bool(end.get("is_boundary_break")),
-                    "is_manual": is_manual,
-                    "is_edited": is_edited,
-                }
-            )
-            segment_index += 1
+            append_segment(group_id, parcel_id, index + 1, start, end)
+        if len(points) >= 3 and not points_match(points[0], points[-1]):
+            append_segment(group_id, parcel_id, len(points), points[-1], points[0], is_closure=True)
     return segments
 
 

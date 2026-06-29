@@ -13,6 +13,23 @@
                     Background="#F7F8FA">
   <controls:ProWindow.Resources>
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    <SolidColorBrush x:Key="ActionIconBrush" Color="#1F2933" />
+    <Geometry x:Key="OpenSourceDocumentIconGeometry">F1 M2,1 L9,1 L13,5 L13,15 L2,15 Z M9,1 L9,5 L13,5 M5,9 L12,2 M9,2 L12,2 L12,5</Geometry>
+    <Geometry x:Key="OpenInFolderIconGeometry">F1 M1,5 L5,5 L6.4,7 L15,7 L15,14 L1,14 Z M1,5 L1,3 L6,3 L7.4,5 L15,5 L15,7</Geometry>
+    <Geometry x:Key="ReloadViewerIconGeometry">F1 M8,2 C4.7,2 2,4.7 2,8 C2,11.3 4.7,14 8,14 C10.7,14 13,12.1 13.7,9.6 M13,4 L13.7,9.6 L8.2,9.1</Geometry>
+    <Geometry x:Key="AddPointIconGeometry">F1 M8,2 L8,14 M2,8 L14,8</Geometry>
+    <Geometry x:Key="RemovePointIconGeometry">F1 M2,8 L14,8 M5,3 L11,3 M6,3 L6,13 M10,3 L10,13 M4,5 L12,5 M4,5 L5,14 L11,14 L12,5</Geometry>
+    <Geometry x:Key="DiscardPointEditIconGeometry">F1 M3,3 L13,13 M13,3 L3,13</Geometry>
+    <Style x:Key="VectorIconPathStyle"
+           TargetType="Path">
+      <Setter Property="Stroke" Value="{StaticResource ActionIconBrush}" />
+      <Setter Property="StrokeThickness" Value="1.7" />
+      <Setter Property="StrokeStartLineCap" Value="Round" />
+      <Setter Property="StrokeEndLineCap" Value="Round" />
+      <Setter Property="StrokeLineJoin" Value="Round" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="SnapsToDevicePixels" Value="True" />
+    </Style>
     <Style x:Key="IconButtonStyle"
            TargetType="Button">
       <Setter Property="Width" Value="26" />
@@ -193,17 +210,29 @@
                   <StackPanel DockPanel.Dock="Right"
                             Orientation="Horizontal">
                   <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE8A7;"
                           Command="{Binding OpenReviewSourceCommand}"
-                          ToolTip="Open source document" />
+                          ToolTip="Open source document">
+                    <Viewbox Width="14" Height="14">
+                      <Path Style="{StaticResource VectorIconPathStyle}"
+                            Data="{StaticResource OpenSourceDocumentIconGeometry}" />
+                    </Viewbox>
+                  </Button>
                   <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE838;"
                           Command="{Binding RevealReviewSourceCommand}"
-                          ToolTip="Reveal source in folder" />
+                          ToolTip="Open in folder">
+                    <Viewbox Width="15" Height="15">
+                      <Path Style="{StaticResource VectorIconPathStyle}"
+                            Data="{StaticResource OpenInFolderIconGeometry}" />
+                    </Viewbox>
+                  </Button>
                   <Button Style="{StaticResource IconButtonStyle}"
-                          Content="&#xE72C;"
                           Command="{Binding ReloadReviewViewerCommand}"
-                          ToolTip="Reload viewer" />
+                          ToolTip="Reload viewer">
+                    <Viewbox Width="14" Height="14">
+                      <Path Style="{StaticResource VectorIconPathStyle}"
+                            Data="{StaticResource ReloadViewerIconGeometry}" />
+                    </Viewbox>
+                  </Button>
                   <Border Background="#F3F6F7"
                           BorderBrush="#D8E1E7"
                           BorderThickness="1"
@@ -362,27 +391,29 @@
             <StackPanel DockPanel.Dock="Right"
                         Orientation="Horizontal">
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Content="&#xE710;"
                       Command="{Binding AddManualPointCommand}"
-                      ToolTip="Add point" />
+                      ToolTip="Add point">
+                <Viewbox Width="16" Height="16">
+                  <Path Style="{StaticResource VectorIconPathStyle}"
+                        Data="{StaticResource AddPointIconGeometry}" />
+                </Viewbox>
+              </Button>
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Content="&#xE74D;"
                       Command="{Binding RemoveManualPointCommand}"
-                      ToolTip="Remove selected manual point" />
+                      ToolTip="Remove selected manual point">
+                <Viewbox Width="16" Height="16">
+                  <Path Style="{StaticResource VectorIconPathStyle}"
+                        Data="{StaticResource RemovePointIconGeometry}" />
+                </Viewbox>
+              </Button>
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Content="&#xE711;"
                       Command="{Binding CancelPendingManualPointCommand}"
-                      ToolTip="Discard in-progress manual point" />
-              <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Content="&#xE74E;"
-                      IsEnabled="{Binding CanSaveReview}"
-                      Click="SaveButton_Click"
-                      ToolTip="Save review" />
-              <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Content="&#xE73E;"
-                      IsEnabled="{Binding CanCompleteValidation}"
-                      Click="ValidationCompleteButton_Click"
-                      ToolTip="Validation complete" />
+                      ToolTip="Discard in-progress manual point">
+                <Viewbox Width="15" Height="15">
+                  <Path Style="{StaticResource VectorIconPathStyle}"
+                        Data="{StaticResource DiscardPointEditIconGeometry}" />
+                </Viewbox>
+              </Button>
             </StackPanel>
           </DockPanel>
 

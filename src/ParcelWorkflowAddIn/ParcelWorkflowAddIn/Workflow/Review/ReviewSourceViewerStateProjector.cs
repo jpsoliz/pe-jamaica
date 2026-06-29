@@ -18,7 +18,7 @@ internal static class ReviewSourceViewerStateProjector
                 "Unavailable",
                 "Waiting for source",
                 "Load or verify source files before reviewing extracted points.",
-                "Open source and Reveal stay available when a source document is present.",
+                "Open source and Open in folder stay available when a source document is present.",
                 null);
         }
 
@@ -35,7 +35,7 @@ internal static class ReviewSourceViewerStateProjector
                 "Copied file unavailable",
                 "Viewer unavailable",
                 "The selected source has not been copied into the Case Folder yet.",
-                "Use Open source or Reveal after the copied case file is available.",
+                "Use Open source or Open in folder after the copied case file is available.",
                 null);
         }
 
@@ -49,7 +49,7 @@ internal static class ReviewSourceViewerStateProjector
                 "Missing file",
                 "Viewer unavailable",
                 "The copied Case Folder file is missing, so the embedded viewer cannot load it.",
-                "Use Reveal to inspect the case folder and restore the missing source file if needed.",
+                "Use Open in folder to inspect the case folder and restore the missing source file if needed.",
                 sourceFile.CopiedPath);
         }
 
@@ -67,7 +67,7 @@ internal static class ReviewSourceViewerStateProjector
                     "Image source",
                     "Embedded image ready",
                     "Verify extracted points directly against the embedded image. Use Fit/Actual size as needed.",
-                    "If the image does not render correctly, use Open source or Reveal.",
+                    "If the image does not render correctly, use Open source or Open in folder.",
                     sourceFile.CopiedPath);
             case ".tif":
             case ".tiff":
@@ -79,7 +79,7 @@ internal static class ReviewSourceViewerStateProjector
                     "Scanned raster source",
                     "Embedded raster ready",
                     "Verify extracted points against the embedded TIFF/TIF image. Use Fit/Actual size as needed.",
-                    "If the raster does not render correctly, use Open source or Reveal.",
+                    "If the raster does not render correctly, use Open source or Open in folder.",
                     sourceFile.CopiedPath);
             case ".pdf":
                 if (string.Equals(pdfViewerMode, Innola.InnolaTransactionSettings.PdfViewerModeExternalOnly, StringComparison.OrdinalIgnoreCase))
@@ -92,7 +92,7 @@ internal static class ReviewSourceViewerStateProjector
                         "PDF source - external viewer",
                         "External viewer recommended",
                         "This build is set to open PDFs in your default viewer for a cleaner, more stable reading experience.",
-                        "Use Open source to inspect the PDF in your default viewer, or Reveal to jump to the case folder copy.",
+                        "Use Open source to inspect the PDF in your default viewer, or Open in folder to jump to the case folder copy.",
                         sourceFile.CopiedPath);
                 }
 
@@ -104,7 +104,7 @@ internal static class ReviewSourceViewerStateProjector
                     "PDF source",
                     "Embedded PDF ready",
                     "Verify extracted points against the embedded PDF viewer. Use the PDF pane controls for zoom, scroll, and page navigation.",
-                    "If the PDF does not render correctly, use Open source or Reveal.",
+                    "If the PDF does not render correctly, use Open source or Open in folder.",
                     sourceFile.CopiedPath);
             default:
                 return new ReviewSourceViewerState(
@@ -115,7 +115,7 @@ internal static class ReviewSourceViewerStateProjector
                     "Unsupported format",
                     "Fallback only",
                     "This source format is not rendered inside the add-in in this build.",
-                    $"Embedded viewing is not available for {extension}. Use Open source or Reveal instead.",
+                    $"Embedded viewing is not available for {extension}. Use Open source or Open in folder instead.",
                     sourceFile.CopiedPath);
         }
     }
@@ -130,7 +130,7 @@ internal static class ReviewSourceViewerStateProjector
             Mode = ReviewSourceViewerMode.Error,
             LoadState = "Render failed",
             Guidance = "The source is still available, but embedded rendering failed for this attempt.",
-            FallbackMessage = $"{reason} Use Open source or Reveal as the fallback path."
+            FallbackMessage = $"{reason} Use Open source or Open in folder as the fallback path."
         };
     }
 
