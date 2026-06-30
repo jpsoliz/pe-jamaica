@@ -436,8 +436,8 @@ internal static class OutputMapReviewStyling
         var textSymbol = SymbolFactory.Instance.ConstructTextSymbol(
             ColorFactory.Instance.CreateRGBColor(255, 255, 255, 75),
             9.0,
-            "Arial",
-            "Regular");
+            "Landform",
+            "Physical Region");
 
         textSymbol.HorizontalAlignment = HorizontalAlignment.Center;
         textSymbol.VerticalAlignment = VerticalAlignment.Center;

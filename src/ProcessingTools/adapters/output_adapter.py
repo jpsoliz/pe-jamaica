@@ -401,6 +401,69 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
     return segments
 
 
+def _rounded_coord_key(coord: Any) -> tuple[float, float]:
+    return (round(float(coord[0]), 6), round(float(coord[1]), 6))
+
+
+def _dedupe_spatial_points_for_output(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for point in points:
+        point_identifier = str(point.get("point_identifier") or point.get("point_id") or "").strip().lower()
+        coord_key = (round(float(point["easting"]), 6), round(float(point["northing"]), 6))
+        key = ("id_coord", point_identifier, coord_key) if point_identifier else ("coord", coord_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(point)
+    return deduped
+
+
+def _segment_output_key(segment: dict[str, Any]) -> tuple[Any, ...]:
+    start_key = _rounded_coord_key(segment["start"])
+    end_key = _rounded_coord_key(segment["end"])
+    edge_key = tuple(sorted((start_key, end_key)))
+    line_type = str(segment.get("line_type") or "line").strip().lower()
+    if line_type == "curve":
+        return (
+            line_type,
+            edge_key,
+            round(float(segment.get("radius_m") or 0.0), 6),
+            round(float(segment.get("arc_length_m") or 0.0), 6),
+            str(segment.get("delta_angle_txt") or "").strip().lower(),
+            str(segment.get("chord_bearing_txt") or "").strip().lower(),
+        )
+    return ("straight", edge_key)
+
+
+def _segment_output_score(segment: dict[str, Any]) -> tuple[int, int, int, int]:
+    has_bearing = 1 if str(segment.get("bearing_txt") or segment.get("bearing") or "").strip() else 0
+    has_distance = 1 if str(segment.get("distance_txt") or segment.get("length_txt") or segment.get("length") or "").strip() else 0
+    is_boundary = 0 if str(segment.get("line_type") or "").strip().lower() == "closure" else 1
+    has_source = 1 if str(segment.get("source_evidence") or segment.get("source_txt") or "").strip() else 0
+    return (has_bearing, has_distance, is_boundary, has_source)
+
+
+def _dedupe_spatial_segments_for_output(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: dict[tuple[Any, ...], dict[str, Any]] = {}
+    order: list[tuple[Any, ...]] = []
+    for segment in segments:
+        key = _segment_output_key(segment)
+        if key not in selected:
+            selected[key] = segment
+            order.append(key)
+            continue
+        if _segment_output_score(segment) > _segment_output_score(selected[key]):
+            selected[key] = segment
+
+    deduped: list[dict[str, Any]] = []
+    for index, key in enumerate(order, start=1):
+        updated = dict(selected[key])
+        updated["segment_index"] = index
+        deduped.append(updated)
+    return deduped
+
+
 def _polygon_points(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
     if len(points) < 3:
         return []
@@ -1867,6 +1930,8 @@ def main(argv: list[str] | None = None) -> int:
         add_cogo_attributes,
         cogo_source_mode,
     )
+    output_points = _dedupe_spatial_points_for_output(points)
+    output_segments = _dedupe_spatial_segments_for_output(segments)
     transaction_number = review_data.get("transaction_number") or approved_review.get("transaction_number") or manifest.get("transaction_id") or "transaction"
     output_metadata = _derive_output_metadata(
         manifest,
@@ -1885,8 +1950,8 @@ def main(argv: list[str] | None = None) -> int:
             arcpy,
             result_gdb_path,
             template_gdb_path,
-            points,
-            segments,
+            output_points,
+            output_segments,
             polygons,
             output_metadata,
             add_cogo_attributes,
@@ -1900,8 +1965,8 @@ def main(argv: list[str] | None = None) -> int:
     elif os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", "").strip() == "1":
         layer_paths, review_paths, warnings = _create_outputs_filesystem_fallback(
             result_gdb_path,
-            points,
-            segments,
+            output_points,
+            output_segments,
             polygons,
             output_metadata,
             review_workspace_mode,
@@ -1913,10 +1978,10 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("ArcPy is not available for output generation.")
 
     effective_polygons = polygons if layer_paths.get("polygon_fc") else []
-    _write_json(geojson_path, _build_geojson(points, segments, effective_polygons))
-    payload_bearing_txt_populated_count = sum(1 for segment in segments if str(segment.get("bearing_txt") or "").strip())
-    payload_distance_txt_populated_count = sum(1 for segment in segments if str(segment.get("distance_txt") or "").strip())
-    payload_computed_cogo_fallback_line_count = sum(1 for segment in segments if bool(segment.get("is_computed_cogo")))
+    _write_json(geojson_path, _build_geojson(output_points, output_segments, effective_polygons))
+    payload_bearing_txt_populated_count = sum(1 for segment in output_segments if str(segment.get("bearing_txt") or "").strip())
+    payload_distance_txt_populated_count = sum(1 for segment in output_segments if str(segment.get("distance_txt") or "").strip())
+    payload_computed_cogo_fallback_line_count = sum(1 for segment in output_segments if bool(segment.get("is_computed_cogo")))
     diagnostic_fields = ["bearing_txt", "distance_txt", "length_txt", "distance_m"]
     root_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, layer_paths.get("line_fc"), diagnostic_fields)
     review_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, review_paths.get("review_line_fc"), diagnostic_fields)
@@ -1928,8 +1993,8 @@ def main(argv: list[str] | None = None) -> int:
         geojson_path,
         layer_paths,
         review_paths,
-        points,
-        segments,
+        output_points,
+        output_segments,
         effective_polygons,
         args.operator,
         args.template_project,
