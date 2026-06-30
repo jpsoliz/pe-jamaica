@@ -50,7 +50,8 @@
   "gsi_password": "",
   "supported_transaction_types": [
     "Plan Examination",
-    "Cadastral Plan Examination"
+    "Cadastral Plan Examination",
+    "Compute Survey Plan"
   ],
   "compute_workflow_stages": [
     "Compute Survey Plan",

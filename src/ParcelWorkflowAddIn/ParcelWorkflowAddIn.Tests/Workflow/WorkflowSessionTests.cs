@@ -38,7 +38,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(result.Success, "Workflow case creation should succeed.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Workflow should move to intake.");
         TestAssert.Equal("TR-SMD-0000001", session.TransactionId, "Transaction ID should be exposed.");
-        TestAssert.Equal("Attachments", session.CurrentStep, "Current step should be attachments.");
+        TestAssert.Equal("Supporting Document Check", session.CurrentStep, "Current step should be Supporting Document Check.");
         TestAssert.Equal("Case created", session.StatusText, "Status text should indicate creation.");
     }
 
@@ -130,18 +130,30 @@ internal static class WorkflowSessionTests
         var manifest = ManifestSerializer.Read(caseResult.Layout!.ManifestPath);
         var sourceFiles = new[]
         {
+            new ManifestSourceFile("C:\\incoming\\computation.pdf", Path.Combine(caseResult.Layout.SourceDirectory, "computation.pdf"), ".pdf", 10, "2026-06-09T01:00:00Z", "computation_source"),
             new ManifestSourceFile("C:\\incoming\\points.csv", Path.Combine(caseResult.Layout.SourceDirectory, "points.csv"), ".csv", 10, "2026-06-09T01:00:00Z", "points_computation"),
             new ManifestSourceFile("C:\\incoming\\reference.dwg", Path.Combine(caseResult.Layout.SourceDirectory, "reference.dwg"), ".dwg", 10, "2026-06-09T01:00:00Z", "dwg_reference"),
             new ManifestSourceFile("C:\\incoming\\plan.pdf", Path.Combine(caseResult.Layout.SourceDirectory, "plan.pdf"), ".pdf", 10, "2026-06-09T01:00:00Z", "plan_map_reference")
         };
-        ManifestSerializer.Write(caseResult.Layout.ManifestPath, manifest with { Payload = manifest.Payload with { SourceFiles = sourceFiles } });
+        ManifestSerializer.Write(
+            caseResult.Layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = sourceFiles,
+                    SupportingDocumentOptions = new ManifestSupportingDocumentOptions(
+                        ImportStructuredSurveyPoints: true,
+                        ImportAutoCadSurveySource: true)
+                }
+            });
 
         var profile = session.RefreshInputProfile();
 
         var updatedManifest = ManifestSerializer.Read(caseResult.Layout.ManifestPath);
         TestAssert.Equal("scenario_b", profile.ProfileCode, "Workflow profile code mismatch.");
         TestAssert.Equal("scenario_b", updatedManifest.Payload.DetectedProfile!.ProfileCode, "Manifest profile code mismatch.");
-        TestAssert.Equal(3, updatedManifest.Payload.SourceFiles.Count, "Profile persistence must preserve source files.");
+        TestAssert.Equal(4, updatedManifest.Payload.SourceFiles.Count, "Profile persistence must preserve source files.");
         TestAssert.Equal("Scenario B - points/computation + DWG + plan/map reference", session.DetectedProfileLabel, "Session detected profile label mismatch.");
         TestAssert.Equal(0, session.IntakeIssues.Count, "Scenario B should not expose intake issues.");
     }
@@ -569,6 +581,7 @@ internal static class WorkflowSessionTests
             "scenario_b",
             new[]
             {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
                 ManifestPreflightServiceTests.Source("points.csv", ".csv", "points_computation"),
                 ManifestPreflightServiceTests.Source("reference.dwg", ".dwg", "dwg_reference")
             });
@@ -578,9 +591,9 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blockers should move workflow to preflight blocked.");
-        TestAssert.Equal("Data Extraction blocked: missing plan/map reference.", session.StatusText, "Blocked data extraction status mismatch.");
+        TestAssert.Equal("Early compute checks blocked: survey plan / map reference: missing.", session.StatusText, "Blocked data extraction status mismatch.");
         TestAssert.Equal(1, session.PreflightBlockers.Count, "Session should expose preflight blockers.");
-        TestAssert.Equal(0, session.PreflightWarnings.Count, "Session should expose preflight warnings.");
+        TestAssert.Equal(1, session.PreflightWarnings.Count, "Session should expose preflight warnings.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Session should expose passed checks.");
         TestAssert.Equal("blocked", summary.Payload.Status, "Workflow preflight summary should be blocked.");
         TestAssert.Equal("preflight_blocked", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight blocked.");
@@ -603,7 +616,7 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Data Extraction passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
+        TestAssert.Equal("Structure Check and Georeference Check passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
@@ -718,7 +731,7 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
-        TestAssert.Equal("Run Data Extraction successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
+        TestAssert.Equal("Run Structure Check and Georeference Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
     }
 
     public static void WorkflowSessionWeakExtractionTriggersDecisionGate()
@@ -915,7 +928,7 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("blocked", summary.Payload.Status, "Corrupt manifest should return a blocked summary.");
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "manifest_readable"), "Corrupt manifest blocker should be present.");
         TestAssert.True(session.PreflightBlockers.Any(check => check.CheckId == "manifest_readable"), "Session should expose corrupt manifest blocker.");
-        TestAssert.Equal("Data Extraction blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
+        TestAssert.Equal("Early compute checks blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
     }
 
     public static void WorkflowSessionReopensPreflightArtifactWithoutDownstreamCommands()

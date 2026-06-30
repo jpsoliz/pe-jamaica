@@ -178,6 +178,31 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasMissingRequiredValues));
     }
 
+    public void ApplyCommittedEdit(PointEditDraft draft)
+    {
+        pointIdentifier = draft.PointIdentifier;
+        easting = draft.Easting;
+        northing = draft.Northing;
+        length = draft.Length;
+        extractionStatus = draft.ExtractionStatus;
+        sourceEvidence = draft.SourceEvidence;
+        unresolved = draft.Unresolved;
+        unresolvedReason = draft.UnresolvedReason;
+        reviewNotes = draft.ReviewNotes;
+
+        SyncBackToModel();
+        OnPropertyChanged(nameof(PointIdentifier));
+        OnPropertyChanged(nameof(Easting));
+        OnPropertyChanged(nameof(Northing));
+        OnPropertyChanged(nameof(Length));
+        OnPropertyChanged(nameof(ExtractionStatus));
+        OnPropertyChanged(nameof(SourceEvidence));
+        OnPropertyChanged(nameof(Unresolved));
+        OnPropertyChanged(nameof(UnresolvedReason));
+        OnPropertyChanged(nameof(ReviewNotes));
+        onRowChanged();
+    }
+
     private void UpdateValue<T>(ref T field, T value, Action<ExtractionReviewRow> applyToModel, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))

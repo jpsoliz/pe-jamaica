@@ -7,6 +7,7 @@ namespace ParcelWorkflowAddIn.Innola;
 
 public sealed class InnolaTransactionService : IInnolaTransactionService
 {
+    private const int ApplicationSearchLimit = 25;
     private readonly HttpClient httpClient;
 
     public InnolaTransactionService()
@@ -71,12 +72,58 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             HttpMethod.Post,
             InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
         InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
-        request.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(query, includeOperator: true));
+        request.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(
+            query,
+            includeOperator: false,
+            includeOrderBy: true,
+            transactionSearchMode: ApplicationTransactionSearchMode.Exact));
 
         var result = await SendApplicationSearchAsync(request, query.ProcessStep, cancellationToken).ConfigureAwait(false);
         if (result.Success && result.Rows.Count > 0)
         {
             return result;
+        }
+
+        if (result.Success && result.Rows.Count == 0 && IsNumericSearch(query.Search))
+        {
+            using var wildcardRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
+            InnolaHttp.ApplyAuthHeaders(wildcardRequest, query.AccessToken);
+            wildcardRequest.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(
+                query,
+                includeOperator: true,
+                includeOrderBy: true,
+                transactionSearchMode: ApplicationTransactionSearchMode.PrefixWildcard));
+
+            var wildcardResult = await SendApplicationSearchAsync(wildcardRequest, query.ProcessStep, cancellationToken).ConfigureAwait(false);
+            if (wildcardResult.Success && wildcardResult.Rows.Count > 0)
+            {
+                return wildcardResult;
+            }
+
+            result = wildcardResult.Success ? wildcardResult : result;
+
+            if (wildcardResult.Success && wildcardResult.Rows.Count == 0 && IsNumericFragmentSearch(query.Search))
+            {
+                using var containsRequest = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
+                InnolaHttp.ApplyAuthHeaders(containsRequest, query.AccessToken);
+                containsRequest.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(
+                    query,
+                    includeOperator: true,
+                    includeOrderBy: true,
+                    transactionSearchMode: ApplicationTransactionSearchMode.ContainsWildcard));
+
+                var containsResult = await SendApplicationSearchAsync(containsRequest, query.ProcessStep, cancellationToken).ConfigureAwait(false);
+                if (containsResult.Success && containsResult.Rows.Count > 0)
+                {
+                    return containsResult;
+                }
+
+                result = containsResult.Success ? containsResult : result;
+            }
         }
 
         if (!result.Success && !string.Equals(result.ErrorCategory, "InternalServerError", StringComparison.OrdinalIgnoreCase))
@@ -88,7 +135,11 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             HttpMethod.Post,
             InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}application/my-tasks/search"));
         InnolaHttp.ApplyAuthHeaders(retryRequest, query.AccessToken);
-        retryRequest.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(query, includeOperator: false));
+        retryRequest.Content = CreateApplicationSearchContent(BuildApplicationSearchPayload(
+            query,
+            includeOperator: false,
+            includeOrderBy: false,
+            transactionSearchMode: ApplicationTransactionSearchMode.Exact));
         return await SendApplicationSearchAsync(retryRequest, query.ProcessStep, cancellationToken).ConfigureAwait(false);
     }
 
@@ -97,40 +148,64 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
 
-    private static string BuildApplicationSearchPayload(InnolaTransactionQuery query, bool includeOperator)
+    private static string BuildApplicationSearchPayload(
+        InnolaTransactionQuery query,
+        bool includeOperator,
+        bool includeOrderBy,
+        ApplicationTransactionSearchMode transactionSearchMode)
     {
         var search = query.Search?.Trim();
-        var criteria = BuildSearchCriteria(search, includeOperator);
+        var criteria = BuildSearchCriteria(search, includeOperator, transactionSearchMode);
         var payload = new ApplicationTaskSearchRequest(
             Start: 0,
-            Limit: 50,
+            Limit: ApplicationSearchLimit,
             Text: criteria.Count == 0 ? search : null,
             Criterias: criteria,
             OrderAsc: false,
-            OrderBy: "create_time",
+            OrderBy: includeOrderBy ? "create_time" : null,
             Page: 1);
         return JsonSerializer.Serialize(payload);
     }
 
-    private static IReadOnlyList<ApplicationTaskSearchCriteria> BuildSearchCriteria(string? search, bool includeOperator)
+    private static IReadOnlyList<ApplicationTaskSearchCriteria> BuildSearchCriteria(
+        string? search,
+        bool includeOperator,
+        ApplicationTransactionSearchMode transactionSearchMode)
     {
         if (string.IsNullOrWhiteSpace(search))
         {
             return Array.Empty<ApplicationTaskSearchCriteria>();
         }
 
-        if (search.All(char.IsDigit))
+        if (IsNumericSearch(search))
         {
+            var value = transactionSearchMode switch
+            {
+                ApplicationTransactionSearchMode.PrefixWildcard => $"{search}%",
+                ApplicationTransactionSearchMode.ContainsWildcard => $"%{search}%",
+                _ => search
+            };
             return new[]
             {
                 new ApplicationTaskSearchCriteria(
                     Field: "transaction_no",
-                    Value: search,
-                    Operator: includeOperator ? "iLike" : null)
+                    Value: value,
+                    Operator: includeOperator ? "ilike" : null)
             };
         }
 
         return Array.Empty<ApplicationTaskSearchCriteria>();
+    }
+
+    private static bool IsNumericSearch(string? search)
+    {
+        return !string.IsNullOrWhiteSpace(search) && search.Trim().All(char.IsDigit);
+    }
+
+    private static bool IsNumericFragmentSearch(string? search)
+    {
+        var trimmed = search?.Trim();
+        return IsNumericSearch(trimmed) && trimmed!.Length is >= 3 and < 9;
     }
 
     private async Task<InnolaTransactionListResult> SendApplicationSearchAsync(
@@ -338,7 +413,9 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         [property: JsonPropertyName("text")] string? Text,
         [property: JsonPropertyName("criterias")] IReadOnlyList<ApplicationTaskSearchCriteria> Criterias,
         [property: JsonPropertyName("orderAsc")] bool OrderAsc,
-        [property: JsonPropertyName("orderBy")] string? OrderBy,
+        [property: JsonPropertyName("orderBy")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? OrderBy,
         [property: JsonPropertyName("page")] int Page,
         [property: JsonPropertyName("@c")] string Type = "SearchRequest");
 
@@ -348,4 +425,11 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         [property: JsonPropertyName("operator")]
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         string? Operator);
+
+    private enum ApplicationTransactionSearchMode
+    {
+        Exact,
+        PrefixWildcard,
+        ContainsWildcard
+    }
 }

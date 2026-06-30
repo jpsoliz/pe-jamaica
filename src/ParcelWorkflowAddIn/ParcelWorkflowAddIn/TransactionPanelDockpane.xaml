@@ -124,7 +124,7 @@
                   Style="{StaticResource ControlComboBox}"
                   ItemsSource="{Binding State.Filters}"
                   SelectedItem="{Binding State.SelectedFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                  IsEnabled="{Binding State.CanUseListControls}" />
+                  IsEnabled="{Binding State.CanEditListCriteria}" />
 
         <TextBlock Grid.Row="0"
                    Grid.Column="3"
@@ -134,7 +134,7 @@
                  Grid.Column="4"
                  Style="{StaticResource ControlTextBox}"
                  Text="{Binding State.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                 IsEnabled="{Binding State.CanUseListControls}" />
+                 IsEnabled="{Binding State.CanSearchTransactions}" />
 
         <TextBlock Grid.Row="1"
                    Grid.Column="0"
@@ -154,12 +154,12 @@
                     Style="{StaticResource ControlComboBox}"
                     ItemsSource="{Binding State.SortFields}"
                     SelectedItem="{Binding State.SortField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    IsEnabled="{Binding State.CanUseListControls}" />
+                    IsEnabled="{Binding State.CanEditListCriteria}" />
           <ComboBox Grid.Column="2"
                     Style="{StaticResource ControlComboBox}"
                     ItemsSource="{Binding State.SortDirections}"
                     SelectedItem="{Binding State.SortDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    IsEnabled="{Binding State.CanUseListControls}" />
+                    IsEnabled="{Binding State.CanEditListCriteria}" />
         </Grid>
       </Grid>
     </Border>

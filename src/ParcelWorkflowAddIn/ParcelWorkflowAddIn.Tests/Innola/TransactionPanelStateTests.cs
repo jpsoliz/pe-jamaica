@@ -55,6 +55,22 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("Records retrieved: 2", panel.RetrievedRecordCountText, "Refresh count footer mismatch.");
     }
 
+    public static async Task SearchRemainsEnabledWhenRefreshReturnsNoRows()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(Array.Empty<InnolaTransactionRow>())
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+
+        TestAssert.Equal(0, panel.Rows.Count, "Empty refresh should leave no visible rows.");
+        TestAssert.True(panel.CanSearchTransactions, "Search should remain enabled so the user can correct or broaden the search.");
+        TestAssert.True(panel.CanEditListCriteria, "Filter and sort criteria should remain editable after an empty refresh.");
+        TestAssert.True(!panel.CanUseListControls, "Row interaction should remain disabled when there are no rows.");
+    }
+
     public static async Task SearchSortAndSelectionUpdatePanelState()
     {
         var service = new FakeTransactionService
@@ -88,6 +104,56 @@ internal static class TransactionPanelStateTests
         TestAssert.True(!manager.IsTransactionLoaded, "Selecting a transaction must not mark parcel workflow loaded.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after selection.");
         TestAssert.Equal("Selected transaction: TR100000009.", panel.StatusText, "Selection status mismatch.");
+    }
+
+    public static async Task SearchTextRefreshesFromServerForMissingTransactionNumber()
+    {
+        var previousDelay = TransactionPanelState.SearchRefreshDelay;
+        TransactionPanelState.SearchRefreshDelay = TimeSpan.Zero;
+        try
+        {
+            var service = new SearchAwareTransactionService();
+            var manager = LoggedInManager();
+            var panel = new TransactionPanelState(manager, service, "parcel_workflow", () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero));
+
+            await panel.RefreshAsync();
+            TestAssert.Equal(1, panel.Rows.Count, "Initial list should only contain the first page row.");
+            TestAssert.Equal("TR100000004", panel.Rows[0].TransactionNumber, "Initial row mismatch.");
+
+            panel.SearchText = "100000400";
+
+            var completed = await Task.WhenAny(service.SearchObserved.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+            TestAssert.True(ReferenceEquals(completed, service.SearchObserved.Task), "Search text should trigger a server search.");
+            await WaitForAsync(() => panel.Rows.Any(row => row.TransactionNumber == "TR100000400"));
+
+            TestAssert.Equal("100000400", service.SearchObserved.Task.Result, "Server search query mismatch.");
+            TestAssert.Equal("TR100000400", panel.Rows[0].TransactionNumber, "Remote search should surface the requested transaction.");
+        }
+        finally
+        {
+            TransactionPanelState.SearchRefreshDelay = previousDelay;
+        }
+    }
+
+    public static async Task LoadSelectedTransactionClearsStaleSearchText()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000400", "TR100000400", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
+            })
+        };
+        var manager = LoggedInManager();
+        var panel = new TransactionPanelState(manager, service, "parcel_workflow", () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero));
+
+        await panel.RefreshAsync();
+        panel.SearchText = "100000400";
+        panel.SelectedRow = panel.Rows[0];
+        await panel.LoadSelectedTransactionAsync();
+
+        TestAssert.Equal(string.Empty, panel.SearchText, "Successful load should clear stale transaction search text.");
+        TestAssert.Equal("TR100000400", panel.SelectedRow?.TransactionNumber, "Loaded transaction row should remain selected.");
     }
 
     public static async Task LoadActionLoadsTransactionAndKeepsParcelWorkflowDisabledUntilStart()
@@ -576,7 +642,9 @@ internal static class TransactionPanelStateTests
 
         TestAssert.True(panel.IsLoading, "Panel should be loading while refresh awaits service.");
         TestAssert.True(!panel.CanRefresh, "Refresh should be disabled while loading.");
-        TestAssert.True(!panel.CanUseListControls, "Filter/search/sort controls should be disabled while loading.");
+        TestAssert.True(!panel.CanUseListControls, "Row interaction should be disabled while loading.");
+        TestAssert.True(!panel.CanEditListCriteria, "Filter and sort controls should be disabled while loading.");
+        TestAssert.True(panel.CanSearchTransactions, "Search should remain editable while loading so typing is not frozen.");
         TestAssert.True(!panel.CanLoadSelectedTransaction, "Load should be disabled while loading.");
 
         service.Complete();
@@ -705,6 +773,22 @@ internal static class TransactionPanelStateTests
         return panel.Rows.First(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        TestAssert.True(condition(), "Condition was not satisfied before timeout.");
+    }
+
     private sealed class FakeTransactionService : IInnolaTransactionService
     {
         public int CallCount { get; private set; }
@@ -718,6 +802,28 @@ internal static class TransactionPanelStateTests
             CallCount++;
             LastQuery = query;
             return Task.FromResult(Result);
+        }
+    }
+
+    private sealed class SearchAwareTransactionService : IInnolaTransactionService
+    {
+        public TaskCompletionSource<string?> SearchObserved { get; } = new();
+
+        public Task<InnolaTransactionListResult> GetAvailableTransactionsAsync(InnolaTransactionQuery query, CancellationToken cancellationToken = default)
+        {
+            if (string.Equals(query.Search, "100000400", StringComparison.OrdinalIgnoreCase))
+            {
+                SearchObserved.TrySetResult(query.Search);
+                return Task.FromResult(InnolaTransactionListResult.Succeeded(new[]
+                {
+                    Row("task-100000400", "TR100000400", "Computation Check", "tester", "2024-10-15T09:53:00-05:00")
+                }));
+            }
+
+            return Task.FromResult(InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
+            }));
         }
     }
 

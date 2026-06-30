@@ -51,6 +51,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand openCogoReaderCommand;
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
+    private readonly RelayCommand editReviewPointCommand;
     private readonly RelayCommand removeManualPointCommand;
     private readonly RelayCommand cancelPendingManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
@@ -91,6 +92,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private string? activeReviewParcelGroupId;
     private string? activeReviewParcelName;
     private string? activeReviewTraverseId;
+    private bool pointEditorOpen;
     private int reviewContentVersion;
     private int reviewViewerReloadVersion;
     private int reviewViewerPageIndex;
@@ -125,8 +127,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         loadSpatialReviewLayersCommand = new RelayCommand(async () => await LoadSpatialReviewLayersAsync(), () => CanLoadSpatialReviewLayers);
         openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
-        addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode);
-        removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null);
+        addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode && !pointEditorOpen);
+        editReviewPointCommand = new RelayCommand(EditSelectedReviewPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !IsManualReviewEditMode && !pointEditorOpen);
+        removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !pointEditorOpen);
         cancelPendingManualPointCommand = new RelayCommand(CancelPendingManualPointEdit, () => CanCancelPendingManualPointEdit);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => CanSaveReviewChangesFromWorkspace);
         approveReviewCommand = new RelayCommand(ApproveReview, () => HasLoadedReviewData && ReviewRows.Count > 0 && !IsReviewLocked && !ReviewHasBlockers && !IsManualReviewEditMode);
@@ -420,6 +423,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand AddManualPointCommand => addManualPointCommand;
 
+    public ICommand EditReviewPointCommand => editReviewPointCommand;
+
     public ICommand RemoveManualPointCommand => removeManualPointCommand;
 
     public ICommand CancelPendingManualPointCommand => cancelPendingManualPointCommand;
@@ -674,6 +679,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsTitle));
                 NotifyPropertyChanged(nameof(SelectedReviewRowDetailsText));
                 NotifyPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
+                editReviewPointCommand.RaiseCanExecuteChanged();
                 removeManualPointCommand.RaiseCanExecuteChanged();
             }
         }
@@ -935,7 +941,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanCancelPendingManualPointEdit => IsManualReviewEditMode && !IsReviewLocked;
 
-    public bool CanChangeReviewParcelSelection => !IsManualReviewEditMode;
+    public bool CanChangeReviewParcelSelection => !IsManualReviewEditMode && !pointEditorOpen;
 
     public bool HasSingleReviewParcelGroup =>
         ReviewRows
@@ -1383,14 +1389,58 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var parcelName = ResolveActiveReviewParcelName();
         var traverseId = ResolveActiveReviewTraverseId();
         var manualRow = manualPointService.CreateManualRow(loadedReviewDocument, parcelGroupId, parcelName, traverseId);
+        var draft = PointEditDraft.CreateForNew(manualRow);
+        if (!TryEditReviewPoint(draft, out var committedDraft))
+        {
+            workflowSession.SetValidationFailure($"Point add cancelled for parcel {parcelGroupId}.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        committedDraft.ApplyTo(manualRow);
         loadedReviewDocument.Rows.Add(manualRow);
         var reviewRow = new ExtractionReviewRowViewModel(manualRow, OnReviewRowChanged);
         ReviewRows.Add(reviewRow);
         SelectedReviewRow = reviewRow;
         reviewDirty = true;
-        pendingManualRowId = manualRow.RowId;
+        pendingManualRowId = null;
         reviewContentVersion++;
-        workflowSession.SetValidationFailure($"Manual point added to parcel {parcelGroupId}. Complete the row, save review, or discard it before switching parcels.");
+        workflowSession.SetValidationFailure($"Point added to parcel {parcelGroupId}. Save review to persist the change.");
+        RefreshWorkflowProperties();
+    }
+
+    private void EditSelectedReviewPoint()
+    {
+        ClearPendingManualPointIfStale();
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (SelectedReviewRow is null)
+        {
+            workflowSession.SetValidationFailure("Select a point before editing it.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var targetRow = SelectedReviewRow;
+        var draft = PointEditDraft.CreateForEdit(targetRow.Model);
+        if (!TryEditReviewPoint(draft, out var committedDraft))
+        {
+            workflowSession.SetValidationFailure($"Point edit cancelled for parcel {targetRow.ParcelGroupId}.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        targetRow.ApplyCommittedEdit(committedDraft);
+        SetReviewWorkspaceParcelContext(targetRow.ParcelGroupId, targetRow.Model.ParcelName, targetRow.TraverseId, refreshProperties: false);
+        SelectedReviewRow = targetRow;
+        reviewDirty = true;
+        reviewContentVersion++;
+        workflowSession.SetValidationFailure($"Point {targetRow.PointIdentifier} updated. Save review to persist the change.");
         RefreshWorkflowProperties();
     }
 
@@ -1429,6 +1479,27 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             pendingManualRowId = null;
         }
         RefreshWorkflowProperties();
+    }
+
+    private bool TryEditReviewPoint(PointEditDraft draft, out PointEditDraft committedDraft)
+    {
+        committedDraft = draft;
+        pointEditorOpen = true;
+        RefreshWorkflowProperties();
+
+        try
+        {
+            var dialogViewModel = new PointEditDialogViewModel(draft, ReviewRows.ToArray());
+            var dialog = new PointEditDialogWindow(dialogViewModel);
+            var accepted = dialog.ShowDialog() == true;
+            committedDraft = dialogViewModel.CommittedDraft;
+            return accepted;
+        }
+        finally
+        {
+            pointEditorOpen = false;
+            RefreshWorkflowProperties();
+        }
     }
 
     private void CancelPendingManualPointEdit()
@@ -2809,6 +2880,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         loadSpatialReviewLayersCommand.RaiseCanExecuteChanged();
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
+        editReviewPointCommand.RaiseCanExecuteChanged();
         removeManualPointCommand.RaiseCanExecuteChanged();
         cancelPendingManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();
@@ -3064,27 +3136,27 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         foreach (var row in ReviewRows)
         {
-            var issues = new List<string>();
+            var rowIssues = new List<string>();
             var parcelGroupId = NormalizeReviewParcelGroupId(row.ParcelGroupId);
 
             if (row.Unresolved)
             {
-                issues.Add("Row is unresolved.");
+                rowIssues.Add("Row is unresolved.");
             }
 
             if (row.HasMissingRequiredValues)
             {
-                issues.Add("Point id or coordinates are missing.");
+                rowIssues.Add("Point id or coordinates are missing.");
             }
 
             if (!string.IsNullOrWhiteSpace(row.Easting) && !TryParseReviewCoordinate(row.Easting))
             {
-                issues.Add("Easting is not a valid number.");
+                rowIssues.Add("Easting is not a valid number.");
             }
 
             if (!string.IsNullOrWhiteSpace(row.Northing) && !TryParseReviewCoordinate(row.Northing))
             {
-                issues.Add("Northing is not a valid number.");
+                rowIssues.Add("Northing is not a valid number.");
             }
 
             if (!string.IsNullOrWhiteSpace(row.PointIdentifier))
@@ -3092,7 +3164,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 var duplicatePointKey = $"{parcelGroupId}|{row.PointIdentifier.Trim()}";
                 if (duplicatePointKeys.Contains(duplicatePointKey))
                 {
-                    issues.Add("Duplicate point id exists in this parcel.");
+                    rowIssues.Add("Duplicate point id exists in this parcel.");
                 }
             }
 
@@ -3101,18 +3173,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 var duplicateSequenceKey = $"{parcelGroupId}|{row.SequenceInGroup.Value.ToString(CultureInfo.InvariantCulture)}";
                 if (duplicateSequenceKeys.Contains(duplicateSequenceKey))
                 {
-                    issues.Add("Duplicate sequence exists in this parcel.");
+                    rowIssues.Add("Duplicate sequence exists in this parcel.");
                 }
             }
 
-            if (reviewValidationResult.ParcelIssues.TryGetValue(parcelGroupId, out var parcelIssue)
-                && !string.IsNullOrWhiteSpace(parcelIssue))
-            {
-                issues.Add(parcelIssue);
-            }
-
-            row.HasValidationBlocker = issues.Count > 0;
-            row.ValidationIssueSummary = string.Join(" ", issues.Distinct(StringComparer.Ordinal));
+            row.HasValidationBlocker = rowIssues.Count > 0;
+            row.ValidationIssueSummary = string.Join(" ", rowIssues.Distinct(StringComparer.Ordinal));
         }
     }
 

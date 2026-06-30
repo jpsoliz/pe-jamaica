@@ -147,7 +147,8 @@ internal static class CreateParcelDraftExtractionAdapterTests
             {
                 new ManifestSourceFile("innola:computation", computationPath, ".pdf", 10, "2026-06-16T00:00:00Z", "computation_source")
             },
-            pointsSourceRole: "points_computation");
+            pointsSourceRole: "points_computation",
+            supportingDocumentOptions: new ManifestSupportingDocumentOptions(ImportStructuredSurveyPoints: true));
 
         var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
 
@@ -166,6 +167,94 @@ internal static class CreateParcelDraftExtractionAdapterTests
         var iniText = File.ReadAllText(iniPath);
         TestAssert.True(iniText.Contains("case1_extraction_mode = structured_points", StringComparison.Ordinal), "Structured sources should switch extraction mode.");
         TestAssert.True(iniText.Contains("points_file = points.csv", StringComparison.Ordinal), "Structured source should feed points_file.");
+    }
+
+    public static void ExtractionAdapterDoesNotPromoteStructuredPointsWhenImportIsDisabled()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000416");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var computationPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var pointsPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN-PNT.txt");
+        var planPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        File.WriteAllText(catalogPath, BuildCatalogJson(includeStructuredPoints: true));
+        File.WriteAllText(computationPath, "computation");
+        File.WriteAllText(pointsPath, "1 639134.237 680857.247 0.000");
+        File.WriteAllText(planPath, "plan");
+
+        var reviewOutputPath = Path.Combine(layout.WorkingDirectory, "100000416_review_data.json");
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            if (arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new ProcessRunResult(
+                    0,
+                    """
+                    {
+                      "status": "fallback_requested",
+                      "text_layer_available": false,
+                      "parser_status": "no_usable_text_layer",
+                      "fallback_reason": "no_usable_text_layer"
+                    }
+                    """,
+                    string.Empty,
+                    false));
+            }
+
+            File.WriteAllText(
+                reviewOutputPath,
+                $$"""
+                {
+                  "transaction_number": "100000416",
+                  "row_count": 1,
+                  "rows": [
+                    {
+                      "point_identifier": "338",
+                      "easting": "680920.044",
+                      "northing": "639209.180"
+                    }
+                  ],
+                  "outputs": {
+                    "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """);
+            var stdout = $$"""
+            {
+              "transaction_number": "100000416",
+              "row_count": 1,
+              "outputs": {
+                "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(
+            layout,
+            computationPath,
+            planPath,
+            additionalSources: new[]
+            {
+                new ManifestSourceFile("innola:points", pointsPath, ".txt", 10, "2026-06-16T00:00:00Z", "coordinate_text_source")
+            },
+            pointsSourceRole: "computation_sheet",
+            openAiEnabled: false,
+            supportingDocumentOptions: new ManifestSupportingDocumentOptions(ImportStructuredSurveyPoints: false));
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Disabled structured-point import should still allow computation-sheet extraction.");
+        var routeArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_route.json");
+        using var routeDocument = JsonDocument.Parse(File.ReadAllText(routeArtifactPath));
+        var routeRoot = routeDocument.RootElement;
+        TestAssert.Equal("GEOLAND_COMPUTATION_TABLE_V2", routeRoot.GetProperty("doc_type_id").GetString(), "Computation sheet should remain the primary route.");
+        TestAssert.Equal("computation_sheet", routeRoot.GetProperty("primary_source_role").GetString(), "Primary role should remain computation_sheet.");
+        TestAssert.Equal("BELLEV029GEOLANCOMSHEET.pdf", routeRoot.GetProperty("primary_source_file").GetString(), "Primary file should remain the survey sheet.");
+        TestAssert.True(routeRoot.GetProperty("secondary_sources").EnumerateArray().Any(source =>
+            source.GetProperty("file_name").GetString() == "BELLEV029GEOLAN-PNT.txt"), "Structured points should remain visible as a secondary copied source.");
     }
 
     public static void ExtractionAdapterRecordsAiFallbackWhenAiIsDisabled()
@@ -601,7 +690,8 @@ internal static class CreateParcelDraftExtractionAdapterTests
         string? planPath,
         IReadOnlyList<ManifestSourceFile>? additionalSources = null,
         string pointsSourceRole = "computation_source",
-        bool openAiEnabled = true)
+        bool openAiEnabled = true,
+        ManifestSupportingDocumentOptions? supportingDocumentOptions = null)
     {
         var sourceFiles = new List<ManifestSourceFile>
         {
@@ -662,7 +752,8 @@ internal static class CreateParcelDraftExtractionAdapterTests
                             true,
                             "openai",
                             "local")
-                    }))
+                    }),
+                supportingDocumentOptions)
         };
 
         var step = manifest.Payload.ScriptPlan!.Steps[0];

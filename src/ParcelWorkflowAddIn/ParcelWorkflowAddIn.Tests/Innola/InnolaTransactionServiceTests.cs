@@ -89,7 +89,7 @@ internal static class InnolaTransactionServiceTests
             new[] { "survey", "qc" },
             "parcel_workflow",
             "All tasks",
-            "TR100",
+            "",
             "Transaction no",
             "Ascending"));
 
@@ -151,8 +151,8 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/my-tasks", StringComparison.Ordinal), "Workflow endpoint mismatch.");
         TestAssert.Equal(HttpMethod.Post, handler.Requests[1].Method, "Second request should be search POST.");
         TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/v4/rest/application/my-tasks/search", StringComparison.Ordinal), "Search endpoint mismatch.");
-        TestAssert.True(handler.Requests[1].Body.Contains("\"limit\":50", StringComparison.Ordinal), "Search body should include the expected page limit.");
-        TestAssert.True(handler.Requests[1].Body.Contains("\"orderBy\":\"assignee_text\"", StringComparison.Ordinal), "Search body should match the working add-in order field.");
+        TestAssert.True(handler.Requests[1].Body.Contains("\"limit\":25", StringComparison.Ordinal), "Search body should include the expected page limit.");
+        TestAssert.True(handler.Requests[1].Body.Contains("\"orderBy\":\"create_time\"", StringComparison.Ordinal), "Search body should match the Innola task search order field.");
 
         var row = result.Rows[0];
         TestAssert.Equal("task-search-1", row.TaskId, "Search task id mismatch.");
@@ -188,8 +188,137 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(result.Success, "A failing search fallback should not turn an empty workflow result into a hard refresh failure.");
         TestAssert.Equal(0, result.Rows.Count, "Workflow empty result should remain empty.");
         TestAssert.Equal(3, handler.Requests.Count, "InternalServerError should trigger one minimal search retry.");
-        TestAssert.True(handler.Requests[2].Body.Contains("\"limit\":50", StringComparison.Ordinal), "Retry search body should include limit.");
+        TestAssert.True(handler.Requests[2].Body.Contains("\"limit\":25", StringComparison.Ordinal), "Retry search body should include limit.");
         TestAssert.True(!handler.Requests[2].Body.Contains("orderBy", StringComparison.Ordinal), "Retry search body should remove orderBy.");
+    }
+
+    public static async Task HttpTransactionServiceUsesExactTransactionNumberSearchPayload()
+    {
+        var handler = new CapturingHttpMessageHandler("""
+            {
+              "records": [
+                {
+                  "id": "task-100000400",
+                  "transaction_no": "100000400",
+                  "name": "Compute Survey Plan",
+                  "transaction_type_text": "Plan Examination",
+                  "assignee": "jpablo",
+                  "tr_status_text": "Processing"
+                }
+              ],
+              "allowRead": true,
+              "allowWrite": true
+            }
+            """);
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs-dev.innola-solutions.com/",
+            "token-abc",
+            "jpablo",
+            new[] { "Super Group" },
+            "parcel_workflow",
+            "All tasks",
+            "100000400",
+            "Received",
+            "Descending"));
+
+        TestAssert.True(result.Success, "Exact transaction search should return a successful list.");
+        TestAssert.Equal(1, result.Rows.Count, "Exact transaction search row count mismatch.");
+        TestAssert.Equal(HttpMethod.Post, handler.LastMethod, "Exact transaction search should use application search POST.");
+        TestAssert.True(handler.LastUri?.AbsoluteUri.EndsWith("/api/v4/rest/application/my-tasks/search", StringComparison.Ordinal) ?? false, "Search endpoint mismatch.");
+        TestAssert.True(handler.LastRequestBody.Contains("\"@c\":\"SearchRequest\"", StringComparison.Ordinal), "Search body should declare SearchRequest.");
+        TestAssert.True(handler.LastRequestBody.Contains("\"field\":\"transaction_no\"", StringComparison.Ordinal), "Search body should target transaction_no.");
+        TestAssert.True(handler.LastRequestBody.Contains("\"value\":\"100000400\"", StringComparison.Ordinal), "Search body should use the exact transaction number.");
+        TestAssert.True(!handler.LastRequestBody.Contains("\"operator\"", StringComparison.Ordinal), "Exact transaction search should not send an operator.");
+        TestAssert.True(handler.LastRequestBody.Contains("\"limit\":25", StringComparison.Ordinal), "Search body should use Innola's expected limit.");
+        TestAssert.True(handler.LastRequestBody.Contains("\"orderBy\":\"create_time\"", StringComparison.Ordinal), "Search body should use create_time ordering.");
+        TestAssert.Equal("100000400", result.Rows[0].TransactionNumber, "Exact transaction result mismatch.");
+        TestAssert.Equal("Compute Survey Plan", result.Rows[0].TaskName, "Exact transaction task name mismatch.");
+        TestAssert.Equal(InnolaTransactionStatus.InProgress, result.Rows[0].Status, "Exact transaction status mismatch.");
+    }
+
+    public static async Task HttpTransactionServiceFallsBackToWildcardTransactionSearchWhenExactReturnsEmpty()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """{ "records": [] }"""),
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "records": [
+                    {
+                      "id": "task-100000400",
+                      "transaction_no": "100000400",
+                      "name": "Compute Survey Plan",
+                      "transaction_type_text": "Plan Examination",
+                      "assignee": "jpablo",
+                      "tr_status_text": "Processing"
+                    }
+                  ]
+                }
+                """));
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs-dev.innola-solutions.com/",
+            "token-abc",
+            "jpablo",
+            new[] { "Super Group" },
+            "parcel_workflow",
+            "All tasks",
+            "100000400",
+            "Received",
+            "Descending"));
+
+        TestAssert.True(result.Success, "Wildcard transaction fallback should return a successful list.");
+        TestAssert.Equal(1, result.Rows.Count, "Wildcard transaction fallback row count mismatch.");
+        TestAssert.Equal(2, handler.Requests.Count, "Empty exact search should trigger one wildcard search.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"value\":\"100000400\"", StringComparison.Ordinal), "First search should use exact transaction number.");
+        TestAssert.True(!handler.Requests[0].Body.Contains("\"operator\"", StringComparison.Ordinal), "First search should not send an operator.");
+        TestAssert.True(handler.Requests[1].Body.Contains("\"value\":\"100000400%\"", StringComparison.Ordinal), "Wildcard search should use transaction prefix wildcard.");
+        TestAssert.True(handler.Requests[1].Body.Contains("\"operator\":\"ilike\"", StringComparison.Ordinal), "Wildcard search should use lowercase ilike operator.");
+        TestAssert.Equal("100000400", result.Rows[0].TransactionNumber, "Wildcard transaction result mismatch.");
+    }
+
+    public static async Task HttpTransactionServiceFallsBackToContainsWildcardForShortTransactionFragments()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """{ "records": [] }"""),
+            new SequencedResponse(HttpStatusCode.OK, """{ "records": [] }"""),
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "records": [
+                    {
+                      "id": "task-100000379",
+                      "transaction_no": "100000379",
+                      "name": "Compute Survey Plan",
+                      "transaction_type_text": "Plan Examination",
+                      "assignee": "jpablo",
+                      "tr_status_text": "Processing"
+                    }
+                  ]
+                }
+                """));
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs-dev.innola-solutions.com/",
+            "token-abc",
+            "jpablo",
+            new[] { "Super Group" },
+            "parcel_workflow",
+            "All tasks",
+            "379",
+            "Received",
+            "Descending"));
+
+        TestAssert.True(result.Success, "Short transaction fragment fallback should return a successful list.");
+        TestAssert.Equal(1, result.Rows.Count, "Short transaction fragment fallback row count mismatch.");
+        TestAssert.Equal(3, handler.Requests.Count, "Short numeric fragments should try exact, prefix wildcard, then contains wildcard.");
+        TestAssert.True(handler.Requests[0].Body.Contains("\"value\":\"379\"", StringComparison.Ordinal), "First search should use the exact fragment.");
+        TestAssert.True(handler.Requests[1].Body.Contains("\"value\":\"379%\"", StringComparison.Ordinal), "Second search should use prefix wildcard.");
+        TestAssert.True(handler.Requests[2].Body.Contains("\"value\":\"%379%\"", StringComparison.Ordinal), "Third search should use contains wildcard.");
+        TestAssert.True(handler.Requests[2].Body.Contains("\"operator\":\"ilike\"", StringComparison.Ordinal), "Contains wildcard search should use lowercase ilike operator.");
+        TestAssert.Equal("100000379", result.Rows[0].TransactionNumber, "Short transaction fragment result mismatch.");
     }
 
     public static async Task MockTransactionServiceRequiresSessionAndFiltersRows()

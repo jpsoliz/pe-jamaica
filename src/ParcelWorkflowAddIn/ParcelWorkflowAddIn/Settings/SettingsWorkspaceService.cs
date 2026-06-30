@@ -504,6 +504,11 @@ public sealed class SettingsWorkspaceService
                 continue;
             }
 
+            writableRule["group"] = editableRule.Group;
+            writableRule["category"] = editableRule.Category;
+            writableRule["display_name"] = editableRule.DisplayName;
+            writableRule["description"] = editableRule.Description;
+            writableRule["locked"] = editableRule.Locked;
             writableRule["enabled"] = editableRule.Locked ? existingRule["enabled"]?.GetValue<bool>() ?? true : editableRule.Enabled;
             writableRule["severity"] = editableRule.Locked
                 ? existingRule["severity"]?.GetValue<string>() ?? "blocker"
@@ -839,15 +844,15 @@ public sealed class SettingsWorkspaceService
                 return;
             }
 
-            foreach (var rule in catalog.Rules)
+            for (var index = 0; index < catalog.Rules.Count; index++)
             {
+                var rule = catalog.Rules[index];
                 var key = $"{rule.ParcelType}::{rule.Category}";
                 if (profiles[key] is not JsonObject ruleOverride)
                 {
                     continue;
                 }
 
-                var index = catalog.Rules.IndexOf(rule);
                 catalog.Rules[index] = rule with
                 {
                     Enabled = ruleOverride["enabled"]?.GetValue<bool>() ?? rule.Enabled,

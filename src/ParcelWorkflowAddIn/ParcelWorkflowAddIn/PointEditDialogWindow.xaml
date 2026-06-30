@@ -1,0 +1,217 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.PointEditDialogWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    x:ClassModifier="internal"
+                    Title="{Binding DialogTitle}"
+                    Width="480"
+                    Height="560"
+                    MinWidth="440"
+                    MinHeight="520"
+                    WindowStartupLocation="CenterOwner"
+                    Background="#F7F8FA">
+  <controls:ProWindow.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+  </controls:ProWindow.Resources>
+  <Grid Margin="14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Border Background="#EEF3F8"
+            BorderBrush="#C9D2D8"
+            BorderThickness="1"
+            CornerRadius="4"
+            Padding="12">
+      <StackPanel>
+        <TextBlock Text="{Binding DialogTitle}"
+                   FontSize="15"
+                   FontWeight="SemiBold"
+                   Foreground="#1F2933" />
+        <TextBlock Text="{Binding DialogSummary}"
+                   Margin="0,6,0,0"
+                   FontSize="12"
+                   Foreground="#52616B"
+                   TextWrapping="Wrap" />
+        <WrapPanel Margin="0,10,0,0">
+          <Border Background="#F3F6F7"
+                  BorderBrush="#C9D2D8"
+                  BorderThickness="1"
+                  CornerRadius="2"
+                  Padding="6,2"
+                  Margin="0,0,6,0">
+            <TextBlock Text="{Binding ParcelGroupLabel}"
+                       FontSize="11"
+                       Foreground="#1F2933" />
+          </Border>
+          <Border Background="#F3F6F7"
+                  BorderBrush="#C9D2D8"
+                  BorderThickness="1"
+                  CornerRadius="2"
+                  Padding="6,2">
+            <TextBlock Text="{Binding SequenceInGroup, StringFormat=Seq {0}}"
+                       FontSize="11"
+                       Foreground="#1F2933" />
+          </Border>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Grid.Row="1"
+                  Margin="0,12,0,12"
+                  VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <Border Background="#FFF1F1"
+                BorderBrush="#E7B5B5"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="8,6"
+                Margin="0,0,0,12"
+                Visibility="{Binding HasValidationSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <TextBlock Text="{Binding ValidationSummary}"
+                     Foreground="#B42318"
+                     TextWrapping="Wrap" />
+        </Border>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Parcel"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBlock Grid.Column="1"
+                     Text="{Binding ParcelLabel}"
+                     Margin="0,6,0,6"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Point identifier"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding PointIdentifier, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Easting"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding Easting, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Northing"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding Northing, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Length"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding Length, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Status"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding ExtractionStatus, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Source evidence"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding SourceEvidence, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <CheckBox Content="Mark as unresolved"
+                  IsChecked="{Binding Unresolved}"
+                  Margin="0,0,0,10" />
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Unresolved reason"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding UnresolvedReason, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Review notes"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding ReviewNotes, UpdateSourceTrigger=PropertyChanged}"
+                   AcceptsReturn="True"
+                   TextWrapping="Wrap"
+                   VerticalScrollBarVisibility="Auto"
+                   MinHeight="96" />
+        </Grid>
+      </StackPanel>
+    </ScrollViewer>
+
+    <DockPanel Grid.Row="2"
+               LastChildFill="False">
+      <TextBlock Text="Changes apply only when you save this dialog."
+                 VerticalAlignment="Center"
+                 Foreground="#52616B" />
+      <StackPanel DockPanel.Dock="Right"
+                  Orientation="Horizontal">
+        <Button Content="Cancel"
+                Width="88"
+                Margin="0,0,8,0"
+                Click="CancelButton_Click" />
+        <Button Content="Save point"
+                Width="96"
+                IsDefault="True"
+                Click="SaveButton_Click" />
+      </StackPanel>
+    </DockPanel>
+  </Grid>
+</controls:ProWindow>

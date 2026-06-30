@@ -14,6 +14,7 @@ namespace ParcelWorkflowAddIn;
 public sealed class TransactionPanelState : INotifyPropertyChanged
 {
     public static TimeSpan RefreshTimeout { get; set; } = TimeSpan.FromSeconds(15);
+    public static TimeSpan SearchRefreshDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
     private readonly InnolaSessionManager session;
     private readonly IInnolaTransactionService transactionService;
@@ -26,6 +27,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
     private readonly HashSet<string> locallyCompletedTransactionNumbers = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? searchRefreshCancellation;
     private string selectedFilter = "All tasks";
     private string searchText = string.Empty;
     private string sortField = "Received";
@@ -146,6 +148,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             isLoading = value;
             NotifyPropertyChanged(nameof(IsLoading));
             NotifyPropertyChanged(nameof(CanRefresh));
+            NotifyPropertyChanged(nameof(CanEditListCriteria));
+            NotifyPropertyChanged(nameof(CanSearchTransactions));
             NotifyPropertyChanged(nameof(CanUseListControls));
             NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
             NotifyPropertyChanged(nameof(IsEmpty));
@@ -177,6 +181,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     }
 
     public bool CanRefresh => IsLoggedIn && !IsLoading && !IsTransactionPanelLocked;
+
+    public bool CanEditListCriteria => IsLoggedIn && !IsLoading && !IsTransactionPanelLocked;
+
+    public bool CanSearchTransactions => IsLoggedIn && !IsTransactionPanelLocked;
 
     public bool CanUseListControls => IsLoggedIn && !IsLoading && allRows.Count > 0 && !IsTransactionPanelLocked;
 
@@ -294,6 +302,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             searchText = normalized;
             ApplyView();
             NotifyPropertyChanged(nameof(SearchText));
+            QueueSearchRefresh();
         }
     }
 
@@ -471,6 +480,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
         catch (OperationCanceledException)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             ErrorText = "Transaction refresh timed out. Try again.";
             StatusText = ErrorText;
             Debug.WriteLine("Innola transaction refresh timed out.");
@@ -572,15 +586,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         session.SelectTransaction(requestedRow, clock());
+        ClearSearchText(SelectedRow?.TransactionNumber);
         if (transactionLoadService is null)
         {
-            StatusText = $"Selected transaction: {SelectedRow.TransactionNumber}.";
+            StatusText = $"Selected transaction: {requestedRow.TransactionNumber}.";
             return;
         }
 
         IsLoading = true;
         ErrorText = null;
-        StatusText = $"Loading transaction: {SelectedRow.TransactionNumber}.";
+        StatusText = $"Loading transaction: {requestedRow.TransactionNumber}.";
         try
         {
             var result = await transactionLoadService.LoadSelectedTransactionAsync(cancellationToken);
@@ -593,7 +608,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             }
 
             StatusText = string.IsNullOrWhiteSpace(result.StatusMessage)
-                ? $"Opened case {SelectedRow.TransactionNumber}."
+                ? $"Opened case {requestedRow.TransactionNumber}."
                 : result.StatusMessage;
             NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         }
@@ -813,10 +828,6 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             locallyCompletedTransactionNumbers.Add(transactionNumber);
             SelectedRow = null;
         }
-        else if (!preserveSavedMarker && !refreshTransactions)
-        {
-            SelectedRow = null;
-        }
         else
         {
             RestoreSelectedRow(transactionNumber);
@@ -950,6 +961,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         NotifyPropertyChanged(nameof(IsLoggedIn));
         NotifyPropertyChanged(nameof(CanRefresh));
+        NotifyPropertyChanged(nameof(CanEditListCriteria));
+        NotifyPropertyChanged(nameof(CanSearchTransactions));
         NotifyPropertyChanged(nameof(CanUseListControls));
         NotifyPropertyChanged(nameof(IsTransactionActive));
         NotifyPropertyChanged(nameof(IsTransactionPanelLocked));
@@ -991,6 +1004,51 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         NotifyListState();
+    }
+
+    private void QueueSearchRefresh()
+    {
+        if (!IsLoggedIn || IsTransactionPanelLocked)
+        {
+            return;
+        }
+
+        searchRefreshCancellation?.Cancel();
+        searchRefreshCancellation?.Dispose();
+        searchRefreshCancellation = new CancellationTokenSource();
+        var token = searchRefreshCancellation.Token;
+        _ = RefreshAfterSearchDelayAsync(token);
+    }
+
+    private async Task RefreshAfterSearchDelayAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (SearchRefreshDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(SearchRefreshDelay, cancellationToken);
+            }
+
+            await RefreshAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void ClearSearchText(string? selectedTransactionNumber)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return;
+        }
+
+        searchRefreshCancellation?.Cancel();
+        searchRefreshCancellation?.Dispose();
+        searchRefreshCancellation = null;
+        searchText = string.Empty;
+        ApplyView(selectedTransactionNumber);
+        NotifyPropertyChanged(nameof(SearchText));
     }
 
     private void RestoreSelectedRow(string? transactionNumber)
@@ -1091,6 +1149,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         NotifyPropertyChanged(nameof(HasRows));
         NotifyPropertyChanged(nameof(IsEmpty));
+        NotifyPropertyChanged(nameof(CanEditListCriteria));
+        NotifyPropertyChanged(nameof(CanSearchTransactions));
         NotifyPropertyChanged(nameof(CanUseListControls));
         NotifyPropertyChanged(nameof(IsTransactionActive));
         NotifyPropertyChanged(nameof(IsTransactionPanelLocked));

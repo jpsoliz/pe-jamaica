@@ -27,6 +27,7 @@ internal static class SourceInputProfileDetectorTests
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));
         var sources = new[]
         {
+            Source("computation.pdf", ".pdf", "computation_source"),
             Source("points.csv", ".csv", "points_computation"),
             Source("reference.dwg", ".dwg", "dwg_reference"),
             Source("plan.pdf", ".pdf", "plan_map_reference")
@@ -56,11 +57,12 @@ internal static class SourceInputProfileDetectorTests
         TestAssert.True(profile.Issues.Count > 0, "Incomplete intake should include issues.");
     }
 
-    public static void InfersTxtCsvAsPointsComputationWithoutFilenameHints()
+    public static void InfersTxtCsvAsPointsComputationWhenComputationAndPlanExist()
     {
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));
         var sources = new[]
         {
+            Source("computation.pdf", ".pdf", "computation_source"),
             Source("survey.csv", ".csv", null),
             Source("reference.dwg", ".dwg", null),
             Source("plan.pdf", ".pdf", "plan_map_reference")
@@ -69,7 +71,7 @@ internal static class SourceInputProfileDetectorTests
         var profile = detector.Detect(sources);
 
         TestAssert.Equal("scenario_b", profile.ProfileCode, "CSV should infer points/computation without filename hints.");
-        TestAssert.Equal("matched", profile.Status, "CSV/DWG/plan should match Scenario B.");
+        TestAssert.Equal("matched", profile.Status, "Computation/CSV/DWG/plan should match Scenario B.");
     }
 
     public static void InfersLiveTwoPdfComputationAndPlanFilenames()
@@ -116,7 +118,7 @@ internal static class SourceInputProfileDetectorTests
 
         TestAssert.Equal("incomplete_intake", profile.ProfileCode, "DWG-only intake should be incomplete.");
         TestAssert.Equal("incomplete", profile.Status, "DWG-only status should be incomplete.");
-        TestAssert.True(profile.MissingRoles.Contains("points_computation"), "DWG-only intake should report missing points/computation.");
+        TestAssert.True(profile.MissingRoles.Contains("computation_sheet"), "DWG-only intake should report missing computation sheet.");
         TestAssert.True(profile.MissingRoles.Contains("plan_map_reference"), "DWG-only intake should report missing plan/map reference.");
     }
 

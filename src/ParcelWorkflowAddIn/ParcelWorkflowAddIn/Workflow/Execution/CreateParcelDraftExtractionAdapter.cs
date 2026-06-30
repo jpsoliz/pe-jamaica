@@ -477,7 +477,10 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private ResolvedExtractionRoute ResolveExtractionRoute(WorkflowScriptExecutionContext context)
     {
         var catalog = new DocumentTypeCatalogLoader(documentTypeCatalogPath).Load();
-        var sourceFiles = context.Manifest.Payload.SourceFiles;
+        var sourceFiles = SupportingDocumentSourceFilter.Apply(
+            context.Manifest.Payload.SourceFiles,
+            context.Manifest.Payload.SupportingDocumentOptions);
+        var allSourceFiles = context.Manifest.Payload.SourceFiles;
         var candidates = sourceFiles
             .Where(source => !SourceRole.Matches(source.SourceRole, SourceRole.DwgSource))
             .Select(source => new SourceRouteCandidate(
@@ -504,8 +507,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             .ThenByDescending(candidate => candidate.Match.Definition.Priority)
             .FirstOrDefault();
 
-        var selected = computationCandidate
-            ?? structuredCandidate
+        var selected = structuredCandidate
+            ?? computationCandidate
             ?? candidates
                 .OrderBy(candidate => GetSourcePriority(candidate.Source, context.Step.InputRoles))
                 .ThenByDescending(candidate => candidate.Match.MatchScore)
@@ -519,9 +522,9 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 primarySource is null ? string.Empty : Path.GetFileName(primarySource.CopiedPath),
                 primarySource?.FileType ?? string.Empty));
 
-        var planSource = ResolveFirstSource(sourceFiles, SourceRole.PlanMapReference);
-        var dwgSource = ResolveFirstSource(sourceFiles, SourceRole.DwgSource);
-        var secondarySources = sourceFiles
+        var planSource = ResolveFirstSource(allSourceFiles, SourceRole.PlanMapReference);
+        var dwgSource = ResolveFirstSource(allSourceFiles, SourceRole.DwgSource);
+        var secondarySources = allSourceFiles
             .Where(source => primarySource is null || !string.Equals(source.CopiedPath, primarySource.CopiedPath, StringComparison.OrdinalIgnoreCase))
             .ToArray();
 

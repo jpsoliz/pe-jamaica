@@ -167,10 +167,13 @@ public sealed class ManifestPreflightService
 
         EvaluateSupportingDocumentInventory(manifest, blockers, warnings, passed);
 
-        foreach (var role in GetRequiredRoles(manifest, profile.ProfileCode))
+        var requiredRoles = GetRequiredRoles(manifest, profile.ProfileCode);
+        foreach (var role in requiredRoles)
         {
             await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
+
+        await EvaluateOptionalDwgSources(manifest.Payload.SourceFiles, layout, requiredRoles, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
     }
 
     private static void EvaluateScriptPlan(
@@ -482,6 +485,26 @@ public sealed class ManifestPreflightService
         if (SourceRole.Matches(role, SourceRole.DwgSource))
         {
             await ValidateDwgReadiness(source, copiedPath, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task EvaluateOptionalDwgSources(
+        IReadOnlyList<ManifestSourceFile> sources,
+        CaseFolderLayout layout,
+        IReadOnlyList<string> requiredRoles,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        List<PreflightCheck> passed,
+        CancellationToken cancellationToken)
+    {
+        if (SourceRole.MatchesAny(SourceRole.DwgSource, requiredRoles))
+        {
+            return;
+        }
+
+        foreach (var source in sources.Where(source => SourceRole.Matches(source.SourceRole, SourceRole.DwgSource)))
+        {
+            await ValidateCopiedSource(layout, source, SourceRole.DwgSource, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
     }
 

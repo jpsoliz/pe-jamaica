@@ -94,6 +94,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand AddManualPointCommand => parent.AddManualPointCommand;
 
+    public ICommand EditReviewPointCommand => parent.EditReviewPointCommand;
+
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
     public ICommand CancelPendingManualPointCommand => parent.CancelPendingManualPointCommand;

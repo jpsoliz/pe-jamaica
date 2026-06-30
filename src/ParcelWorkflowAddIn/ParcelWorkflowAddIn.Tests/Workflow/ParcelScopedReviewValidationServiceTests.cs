@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Workflow.Review;
+using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -141,7 +142,7 @@ internal static class ParcelScopedReviewValidationServiceTests
                 PointIdentifier = "338",
                 Easting = "680920.044",
                 Northing = "639209.180",
-                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                RawRow = new JsonObject
                 {
                     ["to_point"] = "338"
                 }
@@ -155,7 +156,7 @@ internal static class ParcelScopedReviewValidationServiceTests
                 PointIdentifier = "339",
                 Easting = "680912.604",
                 Northing = "639210.742",
-                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                RawRow = new JsonObject
                 {
                     ["from_point"] = "338",
                     ["to_point"] = "339"
@@ -170,7 +171,7 @@ internal static class ParcelScopedReviewValidationServiceTests
                 PointIdentifier = "340",
                 Easting = "680912.453",
                 Northing = "639208.761",
-                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                RawRow = new JsonObject
                 {
                     ["from_point"] = "339",
                     ["to_point"] = "340"
@@ -185,7 +186,7 @@ internal static class ParcelScopedReviewValidationServiceTests
                 PointIdentifier = "337",
                 Easting = "680921.968",
                 Northing = "639216.482",
-                Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                RawRow = new JsonObject
                 {
                     ["from_point"] = "340",
                     ["to_point"] = "337"

@@ -110,7 +110,7 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.True(detail.Success, "Detail should load from transaction source fallback.");
         TestAssert.Equal(2, detail.Detail?.Attachments.Count ?? -1, "Source fallback attachment count mismatch.");
         TestAssert.Equal("computation.pdf", detail.Detail!.Attachments[0].FileName, "Body name and extension should form file name.");
-        TestAssert.Equal(SourceRole.ComputationSource, detail.Detail.Attachments[0].SourceRole, "Computation role mismatch.");
+        TestAssert.Equal(SourceRole.ComputationSheet, detail.Detail.Attachments[0].SourceRole, "Computation role mismatch.");
         TestAssert.Equal(SourceRole.PlanMapReference, detail.Detail.Attachments[1].SourceRole, "Plan role mismatch.");
         TestAssert.True(content.Success, "Source body content should download.");
         TestAssert.Equal(3, handler.Requests.Count, "Task detail, source list, and body download endpoints should be called.");

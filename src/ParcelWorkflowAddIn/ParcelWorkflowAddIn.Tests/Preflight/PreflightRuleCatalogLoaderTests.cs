@@ -154,7 +154,7 @@ internal static class PreflightRuleCatalogLoaderTests
                   "description": "Custom georeference source text.",
                   "enabled": true,
                   "severity": "blocker",
-                  "locked": false
+                  "locked": true
                 },
                 {
                   "rule_id": "tabular_coordinate_columns",

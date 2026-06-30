@@ -29,7 +29,7 @@ internal static class WorkflowRuleResolverTests
         TestAssert.Equal("scenario_a_two_pdf_v1", result.ScriptPlan!.RuleId, "Scenario A rule id mismatch.");
         TestAssert.Equal("scenario_a_two_pdf", result.ScriptPlan.WorkflowProfile, "Scenario A workflow profile mismatch.");
         TestAssert.Equal(2, result.ScriptPlan.Steps.Count, "Scenario A should plan two script steps.");
-        TestAssert.True(result.ScriptPlan.Steps.Any(step => step.InputRoles.Contains(SourceRole.ComputationSource)), "Plan should include computation input role.");
+        TestAssert.True(result.ScriptPlan.Steps.Any(step => step.InputRoles.Contains(SourceRole.ComputationSheet)), "Plan should include computation input role.");
         TestAssert.True(result.ScriptPlan.Steps.Any(step => step.InputRoles.Contains(SourceRole.PlanMapReference)), "Plan should include plan/map input role.");
     }
 
@@ -46,6 +46,7 @@ internal static class WorkflowRuleResolverTests
             Array.Empty<string>());
         var sources = new[]
         {
+            Source("computation.pdf", ".pdf", SourceRole.ComputationSource),
             Source("points.csv", ".csv", SourceRole.PointsComputation),
             Source("reference.dwg", ".dwg", SourceRole.DwgReference),
             Source("plan.pdf", ".pdf", SourceRole.PlanMapReference)
@@ -55,7 +56,7 @@ internal static class WorkflowRuleResolverTests
 
         TestAssert.True(result.Success, "Scenario B sources should resolve.");
         TestAssert.Equal("scenario_b_points_dwg_plan_v1", result.ScriptPlan!.RuleId, "Scenario B rule id mismatch.");
-        TestAssert.True(result.ScriptPlan.Steps.Any(step => step.InputRoles.Contains(SourceRole.DwgReference)), "Scenario B plan should include DWG-aware step.");
+        TestAssert.True(result.ScriptPlan.Steps.Any(step => step.InputRoles.Contains(SourceRole.DwgSource)), "Scenario B plan should include DWG-aware step.");
     }
 
     public static void UnknownSourceCombinationReturnsNoMatch()

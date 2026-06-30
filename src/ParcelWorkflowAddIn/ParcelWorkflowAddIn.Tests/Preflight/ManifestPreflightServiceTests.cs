@@ -28,7 +28,7 @@ internal static class ManifestPreflightServiceTests
 
         TestAssert.Equal("passed", summary.Payload.Status, "Scenario A manifest preflight should pass.");
         TestAssert.Equal(0, summary.Payload.Blockers.Count, "Valid Scenario A should have no blockers.");
-        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_computation_source"), "Scenario A should pass computation role check.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_computation_sheet"), "Scenario A should pass computation role check.");
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_plan_map_reference"), "Scenario A should pass plan role check.");
         TestAssert.True(File.Exists(layout.PreflightSummaryPath), "Preflight summary should be written.");
         AssertNoDownstreamArtifacts(layout);
@@ -42,6 +42,7 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference"),
                 Source("plan.pdf", ".pdf", "plan_map_reference")
@@ -69,12 +70,13 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference"),
                 Source("plan.pdf", ".pdf", "plan_map_reference")
             });
 
-        File.WriteAllBytes(sources[1].CopiedPath, Array.Empty<byte>());
+        File.WriteAllBytes(sources[2].CopiedPath, Array.Empty<byte>());
 
         var summary = new ManifestPreflightService().Run(layout, "tester");
 
@@ -91,18 +93,19 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference"),
                 Source("plan.pdf", ".pdf", "plan_map_reference")
             });
 
-        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("not-a-dwg"));
+        File.WriteAllBytes(sources[2].CopiedPath, Encoding.UTF8.GetBytes("not-a-dwg"));
 
         var summary = new ManifestPreflightService().Run(layout, "tester");
 
         TestAssert.Equal("blocked", summary.Payload.Status, "Malformed DWG should block preflight.");
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "dwg_source_signature"), "DWG signature blocker should be present.");
-        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_dwg_reference"), "Scenario B should pass DWG role check.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_source_present"), "Scenario B should pass DWG presence check.");
     }
 
     public static void ManifestPreflightBlocksDwgWithoutReadableSublayers()
@@ -113,12 +116,13 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference"),
                 Source("plan.pdf", ".pdf", "plan_map_reference")
             });
 
-        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+        File.WriteAllBytes(sources[2].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
 
         var summary = new ManifestPreflightService(
             () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
@@ -143,12 +147,13 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference"),
                 Source("plan.pdf", ".pdf", "plan_map_reference")
             });
 
-        File.WriteAllBytes(sources[1].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+        File.WriteAllBytes(sources[2].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
         var catalog = new PreflightRuleCatalog(
             Path.Combine(tempRoot.Path, "PreflightRules.json"),
             UsingSafeDefaults: false,
@@ -197,6 +202,7 @@ internal static class ManifestPreflightServiceTests
             "scenario_b",
             new[]
             {
+                Source("computation.pdf", ".pdf", "computation_source"),
                 Source("points.csv", ".csv", "points_computation"),
                 Source("reference.dwg", ".dwg", "dwg_reference")
             });
