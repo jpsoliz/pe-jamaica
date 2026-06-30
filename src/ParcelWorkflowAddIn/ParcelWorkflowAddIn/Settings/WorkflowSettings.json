@@ -25,6 +25,19 @@
       "case_index": ""
     }
   },
+  "enterprise_working_admin": {
+    "provisioning_enabled": false,
+    "provisioning_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\admin\\provision_enterprise_working_layers.py",
+    "portal_url": "",
+    "schema_version": "sidwell_enterprise_working_v1",
+    "target_folder": "Sidwell Working Review",
+    "target_service_name": "sidwell_working_review",
+    "allow_settings_writeback": true,
+    "cleanup_mode": "deactivate",
+    "require_cleanup_scope": true,
+    "last_validation_summary_path": "",
+    "last_maintenance_audit_path": ""
+  },
   "enterprise_parcel_fabric_review": {
     "enabled": false,
     "service_root": "",

@@ -11,6 +11,7 @@ using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -1091,6 +1092,80 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(1, records.GetArrayLength(), "Republish should replace existing transaction-scoped enterprise content.");
         var transactionNumber = records[0].GetProperty("Payload").GetProperty("transaction_number").GetString();
         TestAssert.Equal("100000206", transactionNumber, "Published enterprise record should still belong to the active transaction.");
+        var pointRecord = records[0].GetProperty("Payload").GetProperty("records")[0];
+        TestAssert.Equal("100000206", pointRecord.GetProperty("transaction_number").GetString(), "Point rows should include transaction scope metadata.");
+        TestAssert.Equal("task-1", pointRecord.GetProperty("task_id").GetString(), "Point rows should include Innola task metadata.");
+        TestAssert.Equal("published_to_working", pointRecord.GetProperty("review_state").GetString(), "Point rows should include working review state.");
+        TestAssert.True(pointRecord.TryGetProperty("geometry", out var pointGeometry), "Point rows should include Enterprise publish geometry.");
+        TestAssert.True(pointGeometry.TryGetProperty("x", out _), "Point geometry should include x coordinate.");
+        TestAssert.True(pointGeometry.TryGetProperty("y", out _), "Point geometry should include y coordinate.");
+
+        var caseIndexStore = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(tempRoot.Path, "enterprise-case-index.json")));
+        var caseIndexRecords = caseIndexStore.RootElement.GetProperty("Records");
+        TestAssert.Equal(1, caseIndexRecords.GetArrayLength(), "Case index should contain one row per transaction scope after republish.");
+        var caseIndexPayload = caseIndexRecords[0].GetProperty("Payload").GetProperty("records")[0];
+        TestAssert.Equal("100000206", caseIndexPayload.GetProperty("transaction_number").GetString(), "Case index should include transaction number.");
+        TestAssert.Equal("spatial_review_pending", caseIndexPayload.GetProperty("workflow_stage").GetString(), "Case index should record workflow stage.");
+        TestAssert.Equal("output-test", caseIndexPayload.GetProperty("run_id").GetString(), "Case index should link to current output run id.");
+        TestAssert.Equal("current", caseIndexPayload.GetProperty("recoverability_state").GetString(), "Case index should mark current output summary linkage.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishDetectsFailedDeleteResults()
+    {
+        var response = new JsonObject
+        {
+            ["deleteResults"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["objectId"] = 1,
+                    ["success"] = false
+                }
+            }
+        };
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "EnsureArcGisSuccess",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { response, "deleteFeatures", "points" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("could not be removed", StringComparison.OrdinalIgnoreCase), "Delete failure should explain that existing rows were not removed.");
+            return;
+        }
+
+        throw new InvalidOperationException("Delete results failure should throw.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishRequiresCaseIndexTarget()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path) with
+        {
+            EnterpriseWorkingReview = CreateEnterpriseWorkingSettings(tempRoot.Path).EnterpriseWorkingReview with
+            {
+                Layers = CreateEnterpriseWorkingSettings(tempRoot.Path).EnterpriseWorkingReview.Layers with
+                {
+                    CaseIndex = null
+                }
+            }
+        };
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+
+        var publishResult = session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(!publishResult.Success, "Enterprise working publish should fail when case index target is missing.");
+        TestAssert.True(publishResult.Summary?.Errors.Any(error => error.Contains("Case index", StringComparison.OrdinalIgnoreCase)) == true, "Failure summary should mention missing case index target.");
     }
 
     public static void WorkflowSessionEnterprisePublishFailureKeepsLocalOutputs()
@@ -1415,6 +1490,90 @@ internal static class WorkflowSessionTests
             Directory.CreateDirectory(layout.OutputDirectory);
             var gdbPath = Path.Combine(layout.OutputDirectory, $"{manifest.TransactionId}_parcel_output.gdb");
             Directory.CreateDirectory(gdbPath);
+            var pointFeatureClassPath = Path.Combine(gdbPath, "parcel_points");
+            var lineFeatureClassPath = Path.Combine(gdbPath, "parcel_lines");
+            var polygonFeatureClassPath = Path.Combine(gdbPath, "parcel_polygons");
+            File.WriteAllText(pointFeatureClassPath, JsonSerializer.Serialize(new[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["point_id"] = "P1",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["point_role"] = "corner",
+                    ["easting"] = "680920.044",
+                    ["northing"] = "639209.180",
+                    ["status_txt"] = "verified",
+                    ["source_txt"] = "Sheet 1"
+                },
+                new Dictionary<string, object?>
+                {
+                    ["point_id"] = "P2",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["point_role"] = "corner",
+                    ["easting"] = "680912.604",
+                    ["northing"] = "639210.742",
+                    ["status_txt"] = "verified",
+                    ["source_txt"] = "Sheet 1"
+                },
+                new Dictionary<string, object?>
+                {
+                    ["point_id"] = "P3",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["point_role"] = "corner",
+                    ["easting"] = "680912.453",
+                    ["northing"] = "639208.761",
+                    ["status_txt"] = "verified",
+                    ["source_txt"] = "Sheet 1"
+                }
+            }));
+            File.WriteAllText(lineFeatureClassPath, JsonSerializer.Serialize(new[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["line_id"] = "L1",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["start_pt"] = "P1",
+                    ["end_pt"] = "P2",
+                    ["bearing_txt"] = "N70°40'53\"W",
+                    ["distance_txt"] = "78.36",
+                    ["length_txt"] = "78.36",
+                    ["line_type"] = "line",
+                    ["seg_index"] = 1,
+                    ["source_txt"] = "Sheet 1"
+                },
+                new Dictionary<string, object?>
+                {
+                    ["line_id"] = "L2",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["start_pt"] = "P2",
+                    ["end_pt"] = "P3",
+                    ["bearing_txt"] = "S85°01'15\"E",
+                    ["distance_txt"] = "40.43",
+                    ["length_txt"] = "40.43",
+                    ["line_type"] = "line",
+                    ["seg_index"] = 2,
+                    ["source_txt"] = "Sheet 1"
+                }
+            }));
+            File.WriteAllText(polygonFeatureClassPath, JsonSerializer.Serialize(new[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402905",
+                    ["parcel_type"] = "compute_review",
+                    ["validation_status"] = "passed",
+                    ["closure_status"] = "closed",
+                    ["area_sq_m"] = 1000.0,
+                    ["perimeter_m"] = 200.0,
+                    ["source_txt"] = "Sheet 1"
+                }
+            }));
             var geoJsonPath = Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson");
             File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"features\":[]}");
             var summary = new OutputSummaryDocument(
@@ -1429,10 +1588,10 @@ internal static class WorkflowSessionTests
                     "normal",
                     gdbPath,
                     new[] { geoJsonPath },
-                    new[] { Path.Combine(gdbPath, "parcel_points") },
-                    Path.Combine(gdbPath, "parcel_points"),
-                    Path.Combine(gdbPath, "parcel_lines"),
-                    Path.Combine(gdbPath, "parcel_polygons"),
+                    new[] { pointFeatureClassPath },
+                    pointFeatureClassPath,
+                    lineFeatureClassPath,
+                    polygonFeatureClassPath,
                     null,
                     null,
                     null,
@@ -1584,7 +1743,7 @@ internal static class WorkflowSessionTests
                     Path.Combine(rootPath, "enterprise-lines.json"),
                     Path.Combine(rootPath, "enterprise-polygons.json"),
                     null,
-                    null),
+                    Path.Combine(rootPath, "enterprise-case-index.json")),
                 null)
         };
     }

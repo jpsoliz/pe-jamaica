@@ -1,0 +1,766 @@
+"""Admin helper for Enterprise generic working layer provisioning.
+
+The default mode is dry-run so tests and Settings validation never require
+portal credentials. Live ArcGIS Enterprise calls can be added behind the same
+contract without changing the Settings workspace.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import getpass
+import json
+import os
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+LAYER_ROLES = ("points", "lines", "polygons", "case_index", "issues")
+REQUIRED_LAYER_ROLES = ("points", "lines", "polygons", "case_index")
+SCHEMA_TEMPLATE_ENV_VAR = "ARCGIS_WORKING_SCHEMA_TEMPLATE"
+SHARED_FIELDS = (
+    "transaction_number",
+    "transaction_id",
+    "task_id",
+    "workflow_stage",
+    "review_state",
+    "case_status",
+    "created_by",
+    "created_utc",
+    "last_saved_by",
+    "last_saved_utc",
+    "run_id",
+    "is_active",
+    "edit_generation",
+)
+
+
+def build_payload(args: argparse.Namespace) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    layers = _read_layer_arguments(args)
+
+    if not args.schema_version.strip():
+        errors.append("schema_version is required.")
+
+    if not args.target_service_name.strip():
+        errors.append("target_service_name is required.")
+
+    if args.mode in {"validate", "cleanup"}:
+        for role in REQUIRED_LAYER_ROLES:
+            if not layers[role]:
+                errors.append(f"{role} layer URL is required for {args.mode}.")
+
+    if args.mode == "cleanup" and args.require_cleanup_scope and not args.cleanup_scope_value.strip():
+        errors.append("cleanup_scope_value is required for cleanup.")
+
+    live_metadata: dict[str, Any] = {}
+    if args.mode == "validate" and args.dry_run is False and not errors:
+        live_metadata = _validate_live_layers(args, layers, errors, warnings)
+
+    generated_layers = layers if any(layers.values()) else _generated_layer_urls(args)
+    cleanup_counts = {role: 0 for role in LAYER_ROLES}
+    if args.mode == "provision" and args.dry_run is False and not errors:
+        generated_layers = _provision_live_layers(args, errors, warnings)
+    elif args.mode == "cleanup" and args.dry_run is False and not errors:
+        cleanup_counts = _cleanup_live_layers(args, layers, errors, warnings)
+
+    status = "failed" if errors else _status_for_mode(args.mode, args.dry_run)
+    now_utc = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+    return {
+        "schema_version": args.schema_version,
+        "mode": args.mode,
+        "status": status,
+        "dry_run": args.dry_run,
+        "operator": getpass.getuser(),
+        "timestamp_utc": now_utc,
+        "target": {
+            "portal_url": args.portal_url,
+            "service_root": args.service_root,
+            "target_folder": args.target_folder,
+            "target_service_name": args.target_service_name,
+            "workspace_name": args.workspace_name,
+        },
+        "schema": {
+            "layer_roles": list(LAYER_ROLES),
+            "required_layer_roles": list(REQUIRED_LAYER_ROLES),
+            "shared_fields": list(SHARED_FIELDS),
+        },
+        "layers": generated_layers,
+        "validation": {
+            "errors": errors,
+            "warnings": warnings,
+            "live_metadata": live_metadata,
+        },
+        "cleanup": {
+            "scope_field": args.cleanup_scope_field,
+            "scope_value": args.cleanup_scope_value,
+            "mode": args.cleanup_mode,
+            "affected_counts": cleanup_counts,
+        },
+        "generated_settings": {
+            "enterprise_working_review": {
+                "enabled": True,
+                "service_root": args.service_root,
+                "workspace_name": args.workspace_name or args.target_service_name,
+                "transaction_scope_field": args.cleanup_scope_field,
+                "layers": generated_layers,
+            }
+        },
+        "messages": _messages_for_mode(args.mode, args.dry_run, errors),
+    }
+
+
+def write_payload(payload: dict[str, Any], output_json: str | None) -> None:
+    text = json.dumps(payload, indent=2)
+    if output_json:
+        output_path = Path(output_json)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(text, encoding="utf-8")
+
+    print(text)
+
+
+def write_cleanup_audit(payload: dict[str, Any], audit_json: str | None) -> None:
+    if payload["mode"] != "cleanup" or not audit_json:
+        return
+
+    cleanup = payload["cleanup"]
+    audit_payload = {
+        "schema_version": payload["schema_version"],
+        "operator": payload["operator"],
+        "timestamp_utc": payload["timestamp_utc"],
+        "scope_field": cleanup["scope_field"],
+        "scope_value": cleanup["scope_value"],
+        "cleanup_mode": cleanup["mode"],
+        "affected_counts": cleanup["affected_counts"],
+        "status": payload["status"],
+    }
+    audit_path = Path(audit_json)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(json.dumps(audit_payload, indent=2), encoding="utf-8")
+
+
+def _read_layer_arguments(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        "points": args.points_layer.strip(),
+        "lines": args.lines_layer.strip(),
+        "polygons": args.polygons_layer.strip(),
+        "case_index": args.case_index_layer.strip(),
+        "issues": args.issues_layer.strip(),
+    }
+
+
+def _generated_layer_urls(args: argparse.Namespace) -> dict[str, str]:
+    root = args.service_root.rstrip("/") or "https://example.invalid/arcgis/rest"
+    service = args.target_service_name.strip() or "sidwell_working_review"
+    base = _default_feature_service_url(root, service)
+    return {
+        "points": f"{base}/0",
+        "lines": f"{base}/1",
+        "polygons": f"{base}/2",
+        "case_index": f"{base}/3",
+        "issues": f"{base}/4",
+    }
+
+
+def _validate_live_layers(
+    args: argparse.Namespace,
+    layers: dict[str, str],
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for role, url in layers.items():
+        if not url:
+            continue
+
+        try:
+            layer_metadata = _fetch_layer_metadata(url, args.token_env_var)
+        except Exception as exc:  # noqa: BLE001 - diagnostics must stay non-secret and non-fatal.
+            errors.append(f"{role} layer metadata could not be read: {exc}")
+            continue
+
+        metadata[role] = _summarize_layer_metadata(layer_metadata)
+        _validate_capabilities(role, layer_metadata, errors)
+        _validate_geometry(role, layer_metadata, errors, warnings)
+        _validate_fields(role, layer_metadata, errors)
+
+    return metadata
+
+
+def _fetch_layer_metadata(url: str, token_env_var: str) -> dict[str, Any]:
+    query = {"f": "json"}
+    token = os.environ.get(token_env_var, "") if token_env_var else ""
+    if token:
+        query["token"] = token
+
+    separator = "&" if "?" in url else "?"
+    request_url = f"{url}{separator}{urlencode(query)}"
+    with urlopen(request_url, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _post_form(url: str, form: dict[str, Any], token_env_var: str, *, raise_on_error: bool = True) -> dict[str, Any]:
+    token = os.environ.get(token_env_var, "") if token_env_var else ""
+    payload = {"f": "json", **form}
+    if token:
+        payload["token"] = token
+
+    data = urlencode(payload).encode("utf-8")
+    request = Request(url, data=data, method="POST")
+    with urlopen(request, timeout=60) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
+    if raise_on_error and isinstance(result, dict) and result.get("error"):
+        if isinstance(result["error"], dict):
+            message = result["error"].get("message") or "ArcGIS Enterprise returned an error."
+            details = result["error"].get("details") or []
+            if details:
+                message = f"{message} Details: {'; '.join(str(detail) for detail in details)}"
+        else:
+            message = str(result["error"])
+        raise RuntimeError(message or "ArcGIS Enterprise returned an error.")
+
+    if raise_on_error and isinstance(result, dict) and result.get("success") is False:
+        message = str(result.get("message") or "ArcGIS Enterprise returned success=false.")
+        details = result.get("details") or []
+        if details:
+            message = f"{message} Details: {'; '.join(str(detail) for detail in details)}"
+        raise RuntimeError(message)
+
+    if raise_on_error and isinstance(result, dict) and str(result.get("status") or "").lower() == "error":
+        message = str(result.get("message") or "ArcGIS Enterprise returned status=error.")
+        messages = result.get("messages") or []
+        if messages:
+            message = f"{message} Messages: {'; '.join(str(detail) for detail in messages)}"
+        raise RuntimeError(message)
+
+    return result
+
+
+def _post_multipart_file(
+    url: str,
+    form: dict[str, Any],
+    file_field: str,
+    file_path: Path,
+    token_env_var: str,
+) -> dict[str, Any]:
+    token = os.environ.get(token_env_var, "") if token_env_var else ""
+    boundary = f"----SidwellEnterpriseWorking{_dt.datetime.now(_dt.timezone.utc).timestamp():.0f}"
+    parts: list[bytes] = []
+    payload = {"f": "json", **form}
+    if token:
+        payload["token"] = token
+
+    for name, value in payload.items():
+        parts.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                f"{value}\r\n".encode("utf-8"),
+            ]
+        )
+
+    parts.extend(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{file_path.name}"\r\n'.encode("utf-8"),
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            file_path.read_bytes(),
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ]
+    )
+    request = Request(
+        url,
+        data=b"".join(parts),
+        method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urlopen(request, timeout=120) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
+    if isinstance(result, dict) and result.get("error"):
+        raise RuntimeError(_format_arcgis_error(result["error"]))
+    if isinstance(result, dict) and result.get("success") is False:
+        raise RuntimeError(str(result.get("message") or "ArcGIS Enterprise returned success=false."))
+    if isinstance(result, dict) and str(result.get("status") or "").lower() == "error":
+        messages = result.get("messages") or []
+        message = "ArcGIS Enterprise returned status=error."
+        if messages:
+            message = f"{message} Messages: {'; '.join(str(detail) for detail in messages)}"
+        raise RuntimeError(message)
+
+    return result
+
+
+def _provision_live_layers(
+    args: argparse.Namespace,
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, str]:
+    token = os.environ.get(args.token_env_var, "") if args.token_env_var else ""
+    if not token:
+        errors.append(f"Live provisioning requires a portal token in {args.token_env_var}.")
+        return {}
+
+    if not args.portal_url.strip():
+        errors.append("portal_url is required for live provisioning.")
+        return {}
+
+    try:
+        return _provision_live_layers_rest(args)
+    except Exception as exc:  # noqa: BLE001 - surface admin failure without leaking secrets.
+        errors.append(f"Live provisioning failed: {type(exc).__name__}: {exc}")
+        warnings.append("No generated layer URLs were written back because provisioning did not complete.")
+        return {}
+
+
+def _provision_live_layers_rest(args: argparse.Namespace) -> dict[str, str]:
+    portal_url = args.portal_url.strip().rstrip("/")
+    username = _read_portal_username(portal_url, args.token_env_var)
+    service_url = _publish_schema_template(portal_url, username, args)
+    _verify_service_children_or_raise(service_url, args.token_env_var)
+
+    return {
+        "points": f"{service_url}/0",
+        "lines": f"{service_url}/1",
+        "polygons": f"{service_url}/2",
+        "case_index": f"{service_url}/3",
+        "issues": f"{service_url}/4",
+    }
+
+
+def _publish_schema_template(portal_url: str, username: str, args: argparse.Namespace) -> str:
+    template_path = _resolve_schema_template_path(args)
+    if template_path is None:
+        existing_service_url = _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+        try:
+            _verify_service_children_or_raise(existing_service_url, args.token_env_var)
+            return existing_service_url
+        except Exception as exc:  # noqa: BLE001 - convert empty/invalid existing target into actionable setup guidance.
+            raise RuntimeError(
+                "Schema-backed provisioning requires a File Geodatabase (.zip) or Service Definition (.sd) template. "
+                f"Set --schema-template-path or {SCHEMA_TEMPLATE_ENV_VAR}. "
+                f"If the target service already exists, delete or replace any invalid empty service first. Existing target check: {exc}"
+            ) from exc
+
+    item_type, file_type = _schema_template_item_types(template_path)
+    add_item_url = f"{portal_url}/sharing/rest/content/users/{username}/addItem"
+    add_result = _post_multipart_file(
+        add_item_url,
+        {
+            "title": f"{args.target_service_name.strip()} schema template",
+            "type": item_type,
+            "tags": "sidwell,parcel-workflow,enterprise-working-review,schema-template",
+            "overwrite": "false",
+        },
+        "file",
+        template_path,
+        args.token_env_var,
+    )
+    item_id = str(add_result.get("id") or add_result.get("itemId") or "").strip()
+    if not item_id:
+        raise RuntimeError("Schema template upload succeeded but no portal item id was returned.")
+
+    publish_url = f"{portal_url}/sharing/rest/content/users/{username}/items/{item_id}/publish"
+    publish_result = _post_form(
+        publish_url,
+        {
+            "filetype": file_type,
+            "publishParameters": json.dumps(
+                {
+                    "name": args.target_service_name.strip(),
+                    "serviceName": args.target_service_name.strip(),
+                    "maxRecordCount": 2000,
+                    "layerInfo": {"capabilities": "Query,Create,Update,Delete,Editing"},
+                }
+            ),
+        },
+        args.token_env_var,
+    )
+    return _read_published_service_url(publish_result, args)
+
+
+def _resolve_schema_template_path(args: argparse.Namespace) -> Path | None:
+    candidates = [
+        getattr(args, "schema_template_path", ""),
+        os.environ.get(SCHEMA_TEMPLATE_ENV_VAR, ""),
+        str(Path(__file__).resolve().parent / "templates" / f"{args.schema_version}.zip"),
+        str(Path(__file__).resolve().parent / "templates" / "enterprise_working_schema_template.zip"),
+        str(Path(__file__).resolve().parent / "templates" / f"{args.schema_version}.sd"),
+        str(Path(__file__).resolve().parent / "templates" / "enterprise_working_schema_template.sd"),
+    ]
+    for candidate in candidates:
+        if not str(candidate).strip():
+            continue
+
+        path = Path(str(candidate).strip())
+        if path.exists():
+            return path
+
+    return None
+
+
+def _schema_template_item_types(path: Path) -> tuple[str, str]:
+    suffix = path.suffix.lower()
+    if suffix == ".zip":
+        return "File Geodatabase", "fileGeodatabase"
+    if suffix == ".sd":
+        return "Service Definition", "serviceDefinition"
+
+    raise RuntimeError(f"Unsupported schema template extension '{path.suffix}'. Use .zip or .sd.")
+
+
+def _read_published_service_url(publish_result: dict[str, Any], args: argparse.Namespace) -> str:
+    service_url = (
+        publish_result.get("serviceurl")
+        or publish_result.get("serviceUrl")
+        or publish_result.get("serviceURL")
+        or publish_result.get("url")
+    )
+    if service_url:
+        return str(service_url).rstrip("/")
+
+    services = publish_result.get("services")
+    if isinstance(services, list):
+        for service in services:
+            if isinstance(service, dict):
+                service_url = service.get("serviceurl") or service.get("serviceUrl") or service.get("serviceURL") or service.get("url")
+                if service_url:
+                    return str(service_url).rstrip("/")
+
+    item_id = publish_result.get("itemId") or publish_result.get("itemid") or publish_result.get("id")
+    if item_id:
+        return _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+
+    raise RuntimeError("Schema template publish did not return a FeatureServer URL.")
+
+
+def _read_portal_username(portal_url: str, token_env_var: str) -> str:
+    profile = _post_form(f"{portal_url}/sharing/rest/community/self", {}, token_env_var)
+    username = str(profile.get("username") or "").strip()
+    if not username:
+        raise RuntimeError("Portal token was accepted but the current username could not be read.")
+
+    return username
+
+
+def _format_arcgis_error(error: Any) -> str:
+    if not isinstance(error, dict):
+        return str(error)
+
+    message = str(error.get("message") or "ArcGIS Enterprise returned an error.")
+    details = error.get("details") or []
+    if details:
+        message = f"{message} Details: {'; '.join(str(detail) for detail in details)}"
+    return message
+
+
+def _read_service_url(create_result: dict[str, Any], args: argparse.Namespace) -> str:
+    service_url = (
+        create_result.get("serviceurl")
+        or create_result.get("serviceUrl")
+        or create_result.get("serviceURL")
+        or create_result.get("encodedServiceURL")
+    )
+    if service_url:
+        return str(service_url).rstrip("/")
+
+    return _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+
+
+def _default_feature_service_url(service_root: str, service_name: str) -> str:
+    root = service_root.rstrip("/")
+    if root.lower().endswith("/services"):
+        return f"{root}/Hosted/{service_name}/FeatureServer"
+
+    return f"{root}/services/Hosted/{service_name}/FeatureServer"
+
+
+def _service_has_expected_children(service_url: str, token_env_var: str) -> bool:
+    metadata = _fetch_layer_metadata(service_url, token_env_var)
+    return len(metadata.get("layers") or []) >= 4 and len(metadata.get("tables") or []) >= 1
+
+
+def _verify_service_children_or_raise(service_url: str, token_env_var: str) -> None:
+    metadata = _fetch_layer_metadata(service_url, token_env_var)
+    layers = metadata.get("layers") or []
+    tables = metadata.get("tables") or []
+    if len(layers) >= 4 and len(tables) >= 1:
+        return
+
+    if not layers and not tables:
+        raise RuntimeError(
+            "Target service is an empty hosted Feature Service. Delete or replace it before provisioning working layers."
+        )
+
+    raise RuntimeError(
+        f"Target service does not expose the expected working children. Found layers={len(layers)}, tables={len(tables)}."
+    )
+
+
+def _add_feature_service_definition(service_url: str, definition: dict[str, Any], token_env_var: str) -> None:
+    errors: list[str] = []
+    for add_definition_url in _add_to_definition_urls(service_url):
+        try:
+            _post_form(
+                add_definition_url,
+                {"addToDefinition": json.dumps(definition)},
+                token_env_var,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - try the next supported Enterprise URL shape.
+            errors.append(f"{add_definition_url}: {exc}")
+
+    raise RuntimeError("Feature service was created, but layer/table definition could not be added. " + " | ".join(errors))
+
+
+def _add_to_definition_urls(service_url: str) -> list[str]:
+    service_url = service_url.rstrip("/")
+    urls = [
+        f"{service_url}/addToDefinition",
+        f"{service_url}/admin/addToDefinition",
+    ]
+    marker = "/rest/services/"
+    if marker in service_url:
+        root, service_path = service_url.split(marker, 1)
+        if service_path.endswith("/FeatureServer"):
+            service_name = service_path[: -len("/FeatureServer")]
+            urls.append(f"{root}/rest/admin/services/{service_name}.FeatureServer/addToDefinition")
+            urls.append(f"{root}/admin/services/{service_name}.FeatureServer/addToDefinition")
+            urls.append(f"{root}/rest/services/{service_name}/FeatureServer/admin/addToDefinition")
+
+    return list(dict.fromkeys(urls))
+
+
+def _feature_service_definition(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "layers": [
+            _layer_definition(0, "working_points", "esriGeometryPoint", _field_definitions(SHARED_FIELDS)),
+            _layer_definition(1, "working_lines", "esriGeometryPolyline", _field_definitions(SHARED_FIELDS)),
+            _layer_definition(2, "working_polygons", "esriGeometryPolygon", _field_definitions(SHARED_FIELDS)),
+            _layer_definition(4, "working_issues", "esriGeometryPoint", _field_definitions(SHARED_FIELDS + ("issue_type", "issue_text"))),
+        ],
+        "tables": [
+            {
+                "id": 3,
+                "name": "working_case_index",
+                "type": "Table",
+                "capabilities": "Query,Create,Update,Delete,Editing",
+                "fields": _field_definitions(SHARED_FIELDS + ("case_id", "workflow_name", "assigned_user", "assigned_group", "output_summary_ref", "working_publish_ref")),
+            }
+        ],
+    }
+
+
+def _layer_definition(layer_id: int, name: str, geometry_type: str, fields: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": layer_id,
+        "name": name,
+        "type": "Feature Layer",
+        "geometryType": geometry_type,
+        "capabilities": "Query,Create,Update,Delete,Editing",
+        "fields": fields,
+    }
+
+
+def _field_definitions(field_names: tuple[str, ...] | list[str]) -> list[dict[str, Any]]:
+    definitions = [
+        {"name": "OBJECTID", "type": "esriFieldTypeOID", "alias": "OBJECTID", "nullable": False, "editable": False},
+    ]
+    seen = {"objectid"}
+    for name in field_names:
+        if name.lower() in seen:
+            continue
+
+        seen.add(name.lower())
+        if name in {"is_active", "edit_generation"}:
+            field_type = "esriFieldTypeInteger"
+            length = None
+        else:
+            field_type = "esriFieldTypeString"
+            length = 1024 if name.endswith("_ref") or name.endswith("_text") else 255
+
+        definition = {"name": name, "type": field_type, "alias": name, "nullable": True, "editable": True}
+        if length is not None:
+            definition["length"] = length
+        definitions.append(definition)
+
+    return definitions
+
+
+def _cleanup_live_layers(
+    args: argparse.Namespace,
+    layers: dict[str, str],
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, int]:
+    token = os.environ.get(args.token_env_var, "") if args.token_env_var else ""
+    if not token:
+        errors.append(f"Live cleanup requires a portal token in {args.token_env_var}.")
+        return {role: 0 for role in LAYER_ROLES}
+
+    counts: dict[str, int] = {role: 0 for role in LAYER_ROLES}
+    where = f"{args.cleanup_scope_field} = '{_escape_sql_literal(args.cleanup_scope_value)}'"
+    for role, url in layers.items():
+        if not url:
+            continue
+
+        try:
+            if args.cleanup_mode == "delete":
+                result = _post_form(f"{url.rstrip('/')}/deleteFeatures", {"where": where}, args.token_env_var)
+                counts[role] = _count_successful_results(result.get("deleteResults", []))
+            else:
+                object_ids, object_id_field = _query_object_ids(url, where, args.token_env_var)
+                if not object_ids:
+                    continue
+
+                features = [
+                    {"attributes": {object_id_field: object_id, "is_active": 0, "case_status": "cleanup_removed"}}
+                    for object_id in object_ids
+                ]
+                result = _post_form(
+                    f"{url.rstrip('/')}/updateFeatures",
+                    {"features": json.dumps(features)},
+                    args.token_env_var,
+                )
+                counts[role] = _count_successful_results(result.get("updateResults", []))
+        except Exception as exc:  # noqa: BLE001 - continue collecting role-specific diagnostics.
+            errors.append(f"{role} cleanup failed: {exc}")
+
+    if not errors and all(count == 0 for count in counts.values()):
+        warnings.append("Cleanup completed but did not find matching rows for the requested scope.")
+
+    return counts
+
+
+def _query_object_ids(url: str, where: str, token_env_var: str) -> tuple[list[int], str]:
+    result = _post_form(
+        f"{url.rstrip('/')}/query",
+        {"where": where, "returnIdsOnly": "true"},
+        token_env_var,
+    )
+    object_ids = [int(value) for value in result.get("objectIds", [])]
+    object_id_field = str(result.get("objectIdFieldName") or "OBJECTID")
+    return object_ids, object_id_field
+
+
+def _count_successful_results(results: Any) -> int:
+    if not isinstance(results, list):
+        return 0
+
+    return sum(1 for result in results if isinstance(result, dict) and result.get("success") is True)
+
+
+def _escape_sql_literal(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _summarize_layer_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": metadata.get("type", ""),
+        "geometryType": metadata.get("geometryType", ""),
+        "capabilities": metadata.get("capabilities", ""),
+        "field_names": [field.get("name", "") for field in metadata.get("fields", [])],
+    }
+
+
+def _validate_capabilities(role: str, metadata: dict[str, Any], errors: list[str]) -> None:
+    capabilities = {capability.strip().lower() for capability in str(metadata.get("capabilities", "")).split(",")}
+    if "query" not in capabilities:
+        errors.append(f"{role} layer must support Query capability.")
+
+    if role in REQUIRED_LAYER_ROLES and not ({"editing", "create", "update", "delete"} & capabilities):
+        errors.append(f"{role} layer must expose edit capability for working review updates.")
+
+
+def _validate_geometry(role: str, metadata: dict[str, Any], errors: list[str], warnings: list[str]) -> None:
+    expected = {
+        "points": "esriGeometryPoint",
+        "lines": "esriGeometryPolyline",
+        "polygons": "esriGeometryPolygon",
+    }.get(role)
+    geometry_type = metadata.get("geometryType", "")
+    if expected and geometry_type != expected:
+        errors.append(f"{role} layer geometry must be {expected}; found {geometry_type or 'none'}.")
+    elif role == "issues" and geometry_type not in {"", "esriGeometryPoint", "esriGeometryPolygon"}:
+        warnings.append(f"issues role has unexpected geometry type {geometry_type}.")
+
+
+def _validate_fields(role: str, metadata: dict[str, Any], errors: list[str]) -> None:
+    field_names = {str(field.get("name", "")).lower() for field in metadata.get("fields", [])}
+    required_fields = {"transaction_number"} if role == "case_index" else set(SHARED_FIELDS)
+    missing = sorted(field for field in required_fields if field.lower() not in field_names)
+    if missing:
+        errors.append(f"{role} layer is missing required fields: {', '.join(missing)}.")
+
+
+def _status_for_mode(mode: str, dry_run: bool) -> str:
+    if dry_run:
+        return {
+            "validate": "validated",
+            "provision": "provision_ready",
+            "cleanup": "cleanup_ready",
+        }[mode]
+
+    return {
+        "validate": "validated",
+        "provision": "provisioned",
+        "cleanup": "cleanup_completed",
+    }[mode]
+
+def _messages_for_mode(mode: str, dry_run: bool, errors: list[str]) -> list[str]:
+    if errors:
+        return ["Admin request failed validation. No Enterprise changes were made."]
+
+    if mode == "cleanup":
+        return ["Cleanup request is scoped and ready for admin execution."] if dry_run else ["Cleanup completed for the requested scope."]
+
+    if mode == "provision":
+        return ["Provisioning request is ready. Dry-run output includes generated layer URLs."] if dry_run else ["Enterprise working layers were provisioned."]
+
+    return ["Enterprise working layer settings validated."]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Provision or maintain Enterprise generic working layers.")
+    parser.add_argument("--mode", choices=("validate", "provision", "cleanup"), required=True)
+    parser.add_argument("--portal-url", default="")
+    parser.add_argument("--service-root", default="")
+    parser.add_argument("--workspace-name", default="sidwell_working_review")
+    parser.add_argument("--target-folder", default="Sidwell Working Review")
+    parser.add_argument("--target-service-name", default="sidwell_working_review")
+    parser.add_argument("--schema-version", default="sidwell_enterprise_working_v1")
+    parser.add_argument("--schema-template-path", default="")
+    parser.add_argument("--points-layer", default="")
+    parser.add_argument("--lines-layer", default="")
+    parser.add_argument("--polygons-layer", default="")
+    parser.add_argument("--case-index-layer", default="")
+    parser.add_argument("--issues-layer", default="")
+    parser.add_argument("--cleanup-scope-field", default="transaction_number")
+    parser.add_argument("--cleanup-scope-value", default="")
+    parser.add_argument("--cleanup-mode", choices=("deactivate", "delete"), default="deactivate")
+    parser.add_argument("--require-cleanup-scope", action="store_true", default=False)
+    parser.add_argument("--token-env-var", default="ARCGIS_PORTAL_TOKEN")
+    parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--output-json", default="")
+    parser.add_argument("--audit-json", default="")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    payload = build_payload(args)
+    write_payload(payload, args.output_json)
+    write_cleanup_audit(payload, args.audit_json)
+    return 1 if payload["status"] == "failed" else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

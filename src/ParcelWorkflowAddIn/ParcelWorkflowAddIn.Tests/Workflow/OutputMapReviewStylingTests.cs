@@ -343,6 +343,82 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[4], "Point overlay should remain available.");
     }
 
+    public static void EnterpriseWorkingLayersModeReturnsTransactionScopedWorkingTargets()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000206",
+            "run-3b",
+            "2026-06-23T00:00:00Z",
+            "tester",
+            "hash-3b",
+            new OutputSummaryPayload(
+                "created",
+                "enterprise_working_layers",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                3,
+                2,
+                1,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview,
+                new EnterpriseWorkingPublishSummary(
+                    "published",
+                    "Published.",
+                    "2026-06-23T00:00:00Z",
+                    "tester",
+                    "transaction_number",
+                    "100000206",
+                    "parcel_workflow_compute",
+                    "spatial_review_pending",
+                    "txn-1",
+                    "100000206",
+                    "task-1",
+                    "Assign Computation Task",
+                    "tester",
+                    "reviewers",
+                    "2026-06-23T00:00:00Z",
+                    new[]
+                    {
+                        new EnterpriseWorkingPublishedLayer("points", @"https://enterprise.local/server/rest/services/Working/FeatureServer/0", 3, false),
+                        new EnterpriseWorkingPublishedLayer("lines", @"https://enterprise.local/server/rest/services/Working/FeatureServer/1", 2, false),
+                        new EnterpriseWorkingPublishedLayer("polygons", @"https://enterprise.local/server/rest/services/Working/FeatureServer/2", 1, false),
+                        new EnterpriseWorkingPublishedLayer("case_index", @"https://enterprise.local/server/rest/services/Working/FeatureServer/3", 1, false)
+                    },
+                    Array.Empty<string>(),
+                    Array.Empty<string>(),
+                    Array.Empty<string>())),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var service = new OutputSummaryPersistenceService();
+        var paths = service.GetMapLayerPaths(summary);
+
+        TestAssert.Equal(3, paths.Count, "Enterprise working mode should return transaction-scoped spatial working targets.");
+        TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/2", paths[0], "Working polygons should load first.");
+        TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/1", paths[1], "Working lines should load second.");
+        TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/0", paths[2], "Working points should load last.");
+    }
+
     public static void BuildSuccessMessageUsesEnterpriseParcelFabricLanguage()
     {
         var summary = new OutputSummaryDocument(

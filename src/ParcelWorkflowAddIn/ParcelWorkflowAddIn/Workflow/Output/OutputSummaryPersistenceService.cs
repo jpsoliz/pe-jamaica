@@ -102,6 +102,23 @@ public sealed class OutputSummaryPersistenceService
                 summary.Payload.PointFeatureClassPath
             };
         }
+        else if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
+        {
+            var publishedLayers = summary.Payload.EnterpriseWorkingPublish?.PublishedLayers ?? Array.Empty<EnterpriseWorkingPublishedLayer>();
+            var pointsLayer = publishedLayers.FirstOrDefault(layer =>
+                string.Equals(layer.LayerRole, "points", StringComparison.OrdinalIgnoreCase))?.Target;
+            var linesLayer = publishedLayers.FirstOrDefault(layer =>
+                string.Equals(layer.LayerRole, "lines", StringComparison.OrdinalIgnoreCase))?.Target;
+            var polygonsLayer = publishedLayers.FirstOrDefault(layer =>
+                string.Equals(layer.LayerRole, "polygons", StringComparison.OrdinalIgnoreCase))?.Target;
+
+            paths = new string?[]
+            {
+                polygonsLayer,
+                linesLayer,
+                pointsLayer
+            };
+        }
 
         return paths
             .Where(path => !string.IsNullOrWhiteSpace(path))

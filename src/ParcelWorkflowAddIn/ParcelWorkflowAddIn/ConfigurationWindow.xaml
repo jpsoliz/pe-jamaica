@@ -1152,6 +1152,174 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+      <TabItem Header="Enterprise Admin">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="10">
+            <TextBlock Text="Enterprise Working Layer Admin"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,6" />
+            <TextBlock Foreground="#53636A"
+                       Text="Create, validate, and maintain the Enterprise generic working layers used by the review workspace."
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,12" />
+
+            <Border BorderBrush="#D8DFE4"
+                    BorderThickness="1"
+                    Padding="10"
+                    Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Configured working targets"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6" />
+                <TextBlock x:Name="EnterpriseAdminRuntimeSummaryTextBlock"
+                           FontFamily="Consolas"
+                           FontSize="12"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <CheckBox x:Name="EnterpriseAdminProvisioningEnabledCheckBox"
+                      Content="Enable provisioning tools in Settings"
+                      Margin="0,0,0,8" />
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Provisioning script" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminProvisioningScriptPathTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Portal URL" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminPortalUrlTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Schema version" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminSchemaVersionTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Target folder" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminTargetFolderTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Target service name" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminTargetServiceNameTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <CheckBox x:Name="EnterpriseAdminAllowSettingsWritebackCheckBox"
+                      Content="Allow generated layer URLs to be written back to WorkflowSettings.json"
+                      Margin="0,0,0,8" />
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Cleanup mode" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <ComboBox Grid.Column="1"
+                        x:Name="EnterpriseAdminCleanupModeComboBox"
+                        Margin="0,0,0,6">
+                <ComboBoxItem Tag="deactivate" Content="Deactivate rows" />
+                <ComboBoxItem Tag="delete" Content="Delete rows" />
+              </ComboBox>
+            </Grid>
+
+            <CheckBox x:Name="EnterpriseAdminRequireCleanupScopeCheckBox"
+                      Content="Require explicit cleanup scope"
+                      Margin="0,0,0,8" />
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Cleanup scope" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminCleanupScopeTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Last validation summary" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminLastValidationSummaryPathTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="210" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="Last maintenance audit" FontWeight="SemiBold" Margin="0,6,8,6" />
+              <TextBox Grid.Column="1"
+                       x:Name="EnterpriseAdminLastMaintenanceAuditPathTextBox"
+                       Margin="0,0,0,6" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,4,0,8">
+              <Button Width="130"
+                      Margin="0,0,8,0"
+                      Content="Validate"
+                      Click="ValidateEnterpriseWorkingAdminButton_Click" />
+              <Button Width="130"
+                      Margin="0,0,8,0"
+                      Content="Provision"
+                      Click="ProvisionEnterpriseWorkingAdminButton_Click" />
+              <Button Width="130"
+                      Content="Cleanup"
+                      Click="CleanupEnterpriseWorkingAdminButton_Click" />
+            </StackPanel>
+
+            <Border BorderBrush="#D8DFE4"
+                    BorderThickness="1"
+                    Background="#F8FAFC"
+                    Padding="8">
+              <TextBlock x:Name="EnterpriseAdminStatusTextBlock"
+                         Foreground="#53636A"
+                         TextWrapping="Wrap" />
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
 
     <Border Grid.Row="3"

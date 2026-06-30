@@ -2,6 +2,10 @@ using ArcGIS.Desktop.Framework.Controls;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Settings;
+using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -67,6 +71,292 @@ public partial class ConfigurationWindow : ProWindow
     private void OpenAiExtractionProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ApplyOpenAiExtractionProfilePresentation();
+    }
+
+    private async void ValidateEnterpriseWorkingAdminButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunEnterpriseWorkingAdminOperationAsync("validate").ConfigureAwait(true);
+    }
+
+    private async void ProvisionEnterpriseWorkingAdminButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunEnterpriseWorkingAdminOperationAsync("provision").ConfigureAwait(true);
+    }
+
+    private async void CleanupEnterpriseWorkingAdminButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunEnterpriseWorkingAdminOperationAsync("cleanup").ConfigureAwait(true);
+    }
+
+    private async Task RunEnterpriseWorkingAdminOperationAsync(string mode)
+    {
+        var document = BuildDocumentFromUi();
+        var messages = settingsWorkspaceService.Validate(document)
+            .Where(message => IsBlockingEnterpriseAdminMessage(mode, message))
+            .ToList();
+        if (messages.Count > 0)
+        {
+            EnterpriseAdminStatusTextBlock.Text = string.Join(Environment.NewLine, messages.Select(message => $"{message.FieldName}: {message.Message}"));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminProvisioningScriptPath) || !File.Exists(document.EnterpriseWorkingAdminProvisioningScriptPath))
+        {
+            EnterpriseAdminStatusTextBlock.Text = "Provisioning script path is required before running Enterprise admin operations.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminPortalUrl))
+        {
+            EnterpriseAdminStatusTextBlock.Text = "Portal URL is required before running Enterprise admin operations.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingServiceRoot))
+        {
+            EnterpriseAdminStatusTextBlock.Text = "Enterprise working service root is required before running Enterprise admin operations.";
+            return;
+        }
+
+        var cleanupScope = EnterpriseAdminCleanupScopeTextBox.Text.Trim();
+        if (string.Equals(mode, "cleanup", StringComparison.OrdinalIgnoreCase)
+            && document.EnterpriseWorkingAdminRequireCleanupScope
+            && string.IsNullOrWhiteSpace(cleanupScope))
+        {
+            EnterpriseAdminStatusTextBlock.Text = "Cleanup requires an explicit transaction number or test scope. No delete-all operation is available from Settings.";
+            return;
+        }
+
+        var outputJson = ResolveEnterpriseAdminOutputPath(document, mode);
+        var auditJson = ResolveEnterpriseAdminAuditPath(document);
+        Directory.CreateDirectory(Path.GetDirectoryName(outputJson) ?? ".");
+        if (string.Equals(mode, "cleanup", StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(auditJson) ?? ".");
+        }
+
+        EnterpriseAdminStatusTextBlock.Text = $"Running Enterprise admin {mode} with configured ArcGIS Python. Credentials are read from runtime environment variables only.";
+
+        try
+        {
+            var result = await RunEnterpriseAdminScriptAsync(document, mode, cleanupScope, outputJson, auditJson).ConfigureAwait(true);
+            var payload = File.Exists(outputJson)
+                ? JsonNode.Parse(File.ReadAllText(outputJson))?.AsObject()
+                : null;
+            if (payload is not null)
+            {
+                ApplyEnterpriseAdminResult(mode, document, payload, outputJson, auditJson);
+            }
+
+            var statusText = payload is null
+                ? string.Join(Environment.NewLine, new[] { result.StandardOutput, result.StandardError }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim()
+                : BuildEnterpriseAdminResultSummary(payload);
+            if (result.ExitCode != 0)
+            {
+                EnterpriseAdminStatusTextBlock.Text = $"Enterprise admin {mode} failed.{Environment.NewLine}{statusText}";
+                return;
+            }
+
+            EnterpriseAdminStatusTextBlock.Text = statusText;
+            EnterpriseAdminRuntimeSummaryTextBlock.Text = BuildEnterpriseAdminRuntimeSummary(BuildDocumentFromUi());
+        }
+        catch (Exception exception)
+        {
+            EnterpriseAdminStatusTextBlock.Text = $"Enterprise admin {mode} could not run. {exception.Message}";
+        }
+    }
+
+    private static async Task<EnterpriseAdminProcessResult> RunEnterpriseAdminScriptAsync(
+        SettingsWorkspaceDocument document,
+        string mode,
+        string cleanupScope,
+        string outputJson,
+        string auditJson)
+    {
+        var pythonExecutable = string.IsNullOrWhiteSpace(document.ArcGisPythonExecutable)
+            ? "python"
+            : document.ArcGisPythonExecutable;
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = pythonExecutable,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        startInfo.ArgumentList.Add(document.EnterpriseWorkingAdminProvisioningScriptPath);
+        startInfo.ArgumentList.Add("--mode");
+        startInfo.ArgumentList.Add(mode);
+        startInfo.ArgumentList.Add("--no-dry-run");
+        AddArgument(startInfo, "--portal-url", document.EnterpriseWorkingAdminPortalUrl);
+        AddArgument(startInfo, "--service-root", document.EnterpriseWorkingServiceRoot);
+        AddArgument(startInfo, "--workspace-name", document.EnterpriseWorkingWorkspaceName);
+        AddArgument(startInfo, "--target-folder", document.EnterpriseWorkingAdminTargetFolder);
+        AddArgument(startInfo, "--target-service-name", document.EnterpriseWorkingAdminTargetServiceName);
+        AddArgument(startInfo, "--schema-version", document.EnterpriseWorkingAdminSchemaVersion);
+        AddArgument(startInfo, "--points-layer", document.EnterpriseWorkingPointsLayer);
+        AddArgument(startInfo, "--lines-layer", document.EnterpriseWorkingLinesLayer);
+        AddArgument(startInfo, "--polygons-layer", document.EnterpriseWorkingPolygonsLayer);
+        AddArgument(startInfo, "--case-index-layer", document.EnterpriseWorkingCaseIndexLayer);
+        AddArgument(startInfo, "--issues-layer", document.EnterpriseWorkingIssuesLayer);
+        AddArgument(startInfo, "--cleanup-scope-field", document.EnterpriseWorkingTransactionScopeField);
+        AddArgument(startInfo, "--cleanup-scope-value", cleanupScope);
+        AddArgument(startInfo, "--cleanup-mode", document.EnterpriseWorkingAdminCleanupMode);
+        startInfo.ArgumentList.Add("--require-cleanup-scope");
+        AddArgument(startInfo, "--output-json", outputJson);
+        AddArgument(startInfo, "--audit-json", auditJson);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start Enterprise admin provisioning script.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync().ConfigureAwait(false);
+        return new EnterpriseAdminProcessResult(
+            process.ExitCode,
+            await stdoutTask.ConfigureAwait(false),
+            await stderrTask.ConfigureAwait(false));
+    }
+
+    private void ApplyEnterpriseAdminResult(
+        string mode,
+        SettingsWorkspaceDocument document,
+        JsonObject payload,
+        string outputJson,
+        string auditJson)
+    {
+        EnterpriseAdminLastValidationSummaryPathTextBox.Text = outputJson;
+        if (string.Equals(mode, "cleanup", StringComparison.OrdinalIgnoreCase))
+        {
+            EnterpriseAdminLastMaintenanceAuditPathTextBox.Text = auditJson;
+        }
+
+        var status = ReadJsonString(payload, "status");
+        if (!string.Equals(status, "provisioned", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "provision_ready", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (document.EnterpriseWorkingAdminAllowSettingsWriteback && payload["layers"] is JsonObject layers)
+        {
+            EnterpriseWorkingPointsLayerTextBox.Text = ReadJsonString(layers, "points") ?? EnterpriseWorkingPointsLayerTextBox.Text;
+            EnterpriseWorkingLinesLayerTextBox.Text = ReadJsonString(layers, "lines") ?? EnterpriseWorkingLinesLayerTextBox.Text;
+            EnterpriseWorkingPolygonsLayerTextBox.Text = ReadJsonString(layers, "polygons") ?? EnterpriseWorkingPolygonsLayerTextBox.Text;
+            EnterpriseWorkingCaseIndexLayerTextBox.Text = ReadJsonString(layers, "case_index") ?? EnterpriseWorkingCaseIndexLayerTextBox.Text;
+            EnterpriseWorkingIssuesLayerTextBox.Text = ReadJsonString(layers, "issues") ?? EnterpriseWorkingIssuesLayerTextBox.Text;
+            settingsWorkspaceService.Save(BuildDocumentFromUi());
+        }
+    }
+
+    private static string BuildEnterpriseAdminResultSummary(JsonObject payload)
+    {
+        var lines = new List<string>
+        {
+            $"Status: {ReadJsonString(payload, "status") ?? "(unknown)"}"
+        };
+        if (payload["messages"] is JsonArray messages)
+        {
+            lines.AddRange(messages
+                .Select(message => message?.GetValue<string>())
+                .Where(message => !string.IsNullOrWhiteSpace(message))
+                .Select(message => message!));
+        }
+
+        if (payload["validation"] is JsonObject validation)
+        {
+            AddJsonArrayMessages(lines, "Errors", validation["errors"] as JsonArray);
+            AddJsonArrayMessages(lines, "Warnings", validation["warnings"] as JsonArray);
+        }
+
+        if (payload["cleanup"] is JsonObject cleanup && cleanup["affected_counts"] is JsonObject counts)
+        {
+            lines.Add("Cleanup counts: " + string.Join(", ", counts.Select(item => $"{item.Key}={item.Value}")));
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AddJsonArrayMessages(ICollection<string> lines, string label, JsonArray? messages)
+    {
+        if (messages is null || messages.Count == 0)
+        {
+            return;
+        }
+
+        lines.Add($"{label}:");
+        foreach (var message in messages)
+        {
+            lines.Add($"- {message?.GetValue<string>()}");
+        }
+    }
+
+    private static string ResolveEnterpriseAdminOutputPath(SettingsWorkspaceDocument document, string mode)
+    {
+        if (!string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminLastValidationSummaryPath))
+        {
+            return document.EnterpriseWorkingAdminLastValidationSummaryPath;
+        }
+
+        return Path.Combine(ResolveSettingsDirectory(document), $"enterprise_working_admin_{mode}.json");
+    }
+
+    private static string ResolveEnterpriseAdminAuditPath(SettingsWorkspaceDocument document)
+    {
+        if (!string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminLastMaintenanceAuditPath))
+        {
+            return document.EnterpriseWorkingAdminLastMaintenanceAuditPath;
+        }
+
+        return Path.Combine(ResolveSettingsDirectory(document), "enterprise_working_admin_audit.json");
+    }
+
+    private static string ResolveSettingsDirectory(SettingsWorkspaceDocument document)
+    {
+        return Path.GetDirectoryName(document.SettingsPath)
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    }
+
+    private static void AddArgument(ProcessStartInfo startInfo, string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        startInfo.ArgumentList.Add(name);
+        startInfo.ArgumentList.Add(value);
+    }
+
+    private static bool IsBlockingEnterpriseAdminMessage(string mode, SettingsWorkspaceValidationMessage message)
+    {
+        if (string.Equals(message.TabName, "Enterprise Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.Equals(message.TabName, "Spatial Workspace", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(mode, "provision", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(message.FieldName, "Enterprise Working Review", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(message.FieldName, "Enterprise Targets", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return string.Equals(message.FieldName, "Enterprise Working Review", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(message.FieldName, "Enterprise Targets", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(message.FieldName, "ArcGIS Enterprise Server", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ReadJsonString(JsonObject node, string propertyName)
+    {
+        return node.TryGetPropertyValue(propertyName, out var value) && value is not null
+            ? value.GetValue<string>()
+            : null;
     }
 
     private void ReloadWorkspace(string? footerMessage = null)
@@ -155,6 +445,19 @@ public partial class ConfigurationWindow : ProWindow
         EnterpriseWorkingPolygonsLayerTextBox.Text = document.EnterpriseWorkingPolygonsLayer;
         EnterpriseWorkingIssuesLayerTextBox.Text = document.EnterpriseWorkingIssuesLayer;
         EnterpriseWorkingCaseIndexLayerTextBox.Text = document.EnterpriseWorkingCaseIndexLayer;
+        EnterpriseAdminRuntimeSummaryTextBlock.Text = BuildEnterpriseAdminRuntimeSummary(document);
+        EnterpriseAdminProvisioningEnabledCheckBox.IsChecked = document.EnterpriseWorkingAdminProvisioningEnabled;
+        EnterpriseAdminProvisioningScriptPathTextBox.Text = document.EnterpriseWorkingAdminProvisioningScriptPath;
+        EnterpriseAdminPortalUrlTextBox.Text = document.EnterpriseWorkingAdminPortalUrl;
+        EnterpriseAdminSchemaVersionTextBox.Text = document.EnterpriseWorkingAdminSchemaVersion;
+        EnterpriseAdminTargetFolderTextBox.Text = document.EnterpriseWorkingAdminTargetFolder;
+        EnterpriseAdminTargetServiceNameTextBox.Text = document.EnterpriseWorkingAdminTargetServiceName;
+        EnterpriseAdminAllowSettingsWritebackCheckBox.IsChecked = document.EnterpriseWorkingAdminAllowSettingsWriteback;
+        SetSelectedTag(EnterpriseAdminCleanupModeComboBox, document.EnterpriseWorkingAdminCleanupMode);
+        EnterpriseAdminRequireCleanupScopeCheckBox.IsChecked = document.EnterpriseWorkingAdminRequireCleanupScope;
+        EnterpriseAdminLastValidationSummaryPathTextBox.Text = document.EnterpriseWorkingAdminLastValidationSummaryPath;
+        EnterpriseAdminLastMaintenanceAuditPathTextBox.Text = document.EnterpriseWorkingAdminLastMaintenanceAuditPath;
+        EnterpriseAdminStatusTextBlock.Text = "Admin operations require explicit portal credentials at runtime. Credentials are not saved here.";
         EnterpriseParcelFabricEnabledCheckBox.IsChecked = document.EnterpriseParcelFabricEnabled;
         EnterpriseParcelFabricServiceRootTextBox.Text = document.EnterpriseParcelFabricServiceRoot;
         EnterpriseParcelFabricFabricLayerUrlTextBox.Text = document.EnterpriseParcelFabricFabricLayerUrl;
@@ -255,6 +558,17 @@ public partial class ConfigurationWindow : ProWindow
         document.EnterpriseWorkingPolygonsLayer = EnterpriseWorkingPolygonsLayerTextBox.Text.Trim();
         document.EnterpriseWorkingIssuesLayer = EnterpriseWorkingIssuesLayerTextBox.Text.Trim();
         document.EnterpriseWorkingCaseIndexLayer = EnterpriseWorkingCaseIndexLayerTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminProvisioningEnabled = EnterpriseAdminProvisioningEnabledCheckBox.IsChecked == true;
+        document.EnterpriseWorkingAdminProvisioningScriptPath = EnterpriseAdminProvisioningScriptPathTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminPortalUrl = EnterpriseAdminPortalUrlTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminSchemaVersion = EnterpriseAdminSchemaVersionTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminTargetFolder = EnterpriseAdminTargetFolderTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminTargetServiceName = EnterpriseAdminTargetServiceNameTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminAllowSettingsWriteback = EnterpriseAdminAllowSettingsWritebackCheckBox.IsChecked == true;
+        document.EnterpriseWorkingAdminCleanupMode = GetSelectedTag(EnterpriseAdminCleanupModeComboBox, SettingsWorkspaceService.EnterpriseWorkingAdminCleanupModeDeactivate);
+        document.EnterpriseWorkingAdminRequireCleanupScope = EnterpriseAdminRequireCleanupScopeCheckBox.IsChecked == true;
+        document.EnterpriseWorkingAdminLastValidationSummaryPath = EnterpriseAdminLastValidationSummaryPathTextBox.Text.Trim();
+        document.EnterpriseWorkingAdminLastMaintenanceAuditPath = EnterpriseAdminLastMaintenanceAuditPathTextBox.Text.Trim();
         document.EnterpriseParcelFabricEnabled = EnterpriseParcelFabricEnabledCheckBox.IsChecked == true;
         document.EnterpriseParcelFabricServiceRoot = EnterpriseParcelFabricServiceRootTextBox.Text.Trim();
         document.EnterpriseParcelFabricFabricLayerUrl = EnterpriseParcelFabricFabricLayerUrlTextBox.Text.Trim();
@@ -623,6 +937,30 @@ public partial class ConfigurationWindow : ProWindow
         }
     }
 
+    private static string BuildEnterpriseAdminRuntimeSummary(SettingsWorkspaceDocument document)
+    {
+        return string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                $"Service root: {BlankIfEmpty(document.EnterpriseWorkingServiceRoot)}",
+                $"Admin portal URL: {BlankIfEmpty(document.EnterpriseWorkingAdminPortalUrl)}",
+                $"Workspace: {BlankIfEmpty(document.EnterpriseWorkingWorkspaceName)}",
+                $"Publish behavior: {BlankIfEmpty(document.EnterpriseWorkingPublishBehavior)}",
+                $"Transaction scope field: {BlankIfEmpty(document.EnterpriseWorkingTransactionScopeField)}",
+                $"Points: {BlankIfEmpty(document.EnterpriseWorkingPointsLayer)}",
+                $"Lines: {BlankIfEmpty(document.EnterpriseWorkingLinesLayer)}",
+                $"Polygons: {BlankIfEmpty(document.EnterpriseWorkingPolygonsLayer)}",
+                $"Case index: {BlankIfEmpty(document.EnterpriseWorkingCaseIndexLayer)}",
+                $"Issues: {BlankIfEmpty(document.EnterpriseWorkingIssuesLayer)}"
+            });
+    }
+
+    private static string BlankIfEmpty(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "(not configured)" : value.Trim();
+    }
+
     private static int ParsePositiveInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;
@@ -692,4 +1030,9 @@ public partial class ConfigurationWindow : ProWindow
         ComboBox SeverityComboBox,
         TextBox? MinSegmentCountTextBox,
         CheckBox? BehaviorCheckBox);
+
+    private sealed record EnterpriseAdminProcessResult(
+        int ExitCode,
+        string StandardOutput,
+        string StandardError);
 }

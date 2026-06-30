@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -16,6 +17,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
+    private static readonly HttpClient HttpClient = new();
 
     private readonly Func<InnolaTransactionSettings> getSettings;
 
@@ -29,7 +31,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         this.getSettings = getSettings;
     }
 
-    public Task<EnterpriseWorkingLayerPublishResult> PublishAsync(
+    public async Task<EnterpriseWorkingLayerPublishResult> PublishAsync(
         CaseFolderLayout layout,
         ManifestDocument manifest,
         OutputSummaryDocument outputSummary,
@@ -40,13 +42,13 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         var settings = getSettings();
         if (!string.Equals(settings.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
         {
-            return Task.FromResult(EnterpriseWorkingLayerPublishResult.Skipped("Enterprise working layers mode is not active for this case."));
+            return EnterpriseWorkingLayerPublishResult.Skipped("Enterprise working layers mode is not active for this case.");
         }
 
         var reviewSettings = settings.EnterpriseWorkingReview;
         if (!reviewSettings.Enabled)
         {
-            return Task.FromResult(WriteFailureSummary(
+            return WriteFailureSummary(
                 layout,
                 manifest,
                 outputSummary,
@@ -54,13 +56,13 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 reviewSettings.TransactionScopeField,
                 "Enterprise working layers mode is configured, but enterprise working review is disabled.",
                 warnings: new[] { reviewSettings.Warning ?? "Enable enterprise_working_review to publish shared review geometry." },
-                errors: Array.Empty<string>()));
+                errors: Array.Empty<string>());
         }
 
         var missingTargets = GetMissingRequiredTargets(reviewSettings);
         if (missingTargets.Count > 0)
         {
-            return Task.FromResult(WriteFailureSummary(
+            return WriteFailureSummary(
                 layout,
                 manifest,
                 outputSummary,
@@ -68,7 +70,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 reviewSettings.TransactionScopeField,
                 "Enterprise working-layer publish is missing required layer targets.",
                 warnings: Array.Empty<string>(),
-                errors: missingTargets));
+                errors: missingTargets);
         }
 
         var transaction = manifest.Payload.InnolaTransaction;
@@ -78,7 +80,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         var transactionScopeValue = ResolveScopeValue(manifest, transactionScopeField);
         if (string.IsNullOrWhiteSpace(transactionScopeValue))
         {
-            return Task.FromResult(WriteFailureSummary(
+            return WriteFailureSummary(
                 layout,
                 manifest,
                 outputSummary,
@@ -86,7 +88,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 transactionScopeField,
                 "Enterprise working-layer publish could not resolve the configured transaction scope value.",
                 warnings: Array.Empty<string>(),
-                errors: new[] { $"The scope field '{transactionScopeField}' does not map to a value from the current manifest." }));
+                errors: new[] { $"The scope field '{transactionScopeField}' does not map to a value from the current manifest." });
         }
 
         var approvedReview = TryLoadApprovedReview(Path.Combine(layout.WorkingDirectory, "approved_review.json"));
@@ -100,26 +102,48 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             var warnings = new List<string>();
             warnings.AddRange(BuildReviewWarnings(approvedReview, outputSummary));
 
-            publishedLayers.Add(PublishLayer(
+            publishedLayers.Add(await PublishLayerAsync(
                 reviewSettings.Layers.Points!,
                 "points",
                 transactionScopeField,
                 transactionScopeValue,
-                BuildPointPayload(reviewRows, manifest, outputSummary)));
+                BuildPointPayload(reviewRows, manifest, outputSummary, operatorId, publishTime),
+                cancellationToken).ConfigureAwait(false));
 
-            publishedLayers.Add(PublishLayer(
+            publishedLayers.Add(await PublishLayerAsync(
                 reviewSettings.Layers.Lines!,
                 "lines",
                 transactionScopeField,
                 transactionScopeValue,
-                BuildLinePayload(reviewRows, manifest, outputSummary)));
+                BuildLinePayload(reviewRows, manifest, outputSummary, operatorId, publishTime),
+                cancellationToken).ConfigureAwait(false));
 
-            publishedLayers.Add(PublishLayer(
+            publishedLayers.Add(await PublishLayerAsync(
                 reviewSettings.Layers.Polygons!,
                 "polygons",
                 transactionScopeField,
                 transactionScopeValue,
-                BuildPolygonPayload(reviewRows, manifest, outputSummary)));
+                BuildPolygonPayload(reviewRows, manifest, outputSummary, operatorId, publishTime),
+                cancellationToken).ConfigureAwait(false));
+
+            publishedLayers.Add(await PublishLayerAsync(
+                reviewSettings.Layers.CaseIndex!,
+                "case_index",
+                transactionScopeField,
+                transactionScopeValue,
+                BuildCaseIndexPayload(layout, manifest, outputSummary, operatorId, publishTime),
+                cancellationToken).ConfigureAwait(false));
+
+            if (!string.IsNullOrWhiteSpace(reviewSettings.Layers.Issues))
+            {
+                publishedLayers.Add(await PublishLayerAsync(
+                    reviewSettings.Layers.Issues!,
+                    "issues",
+                    transactionScopeField,
+                    transactionScopeValue,
+                    BuildIssuesPayload(manifest, outputSummary, operatorId, publishTime),
+                    cancellationToken).ConfigureAwait(false));
+            }
 
             var summary = BuildSummary(
                 status: "published",
@@ -136,11 +160,11 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 Array.Empty<string>());
 
             var summaryPath = WriteSummary(layout, summary);
-            return Task.FromResult(EnterpriseWorkingLayerPublishResult.Succeeded(summary.Message, summaryPath, summary));
+            return EnterpriseWorkingLayerPublishResult.Succeeded(summary.Message, summaryPath, summary);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or NotSupportedException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or NotSupportedException or HttpRequestException or TaskCanceledException)
         {
-            return Task.FromResult(WriteFailureSummary(
+            return WriteFailureSummary(
                 layout,
                 manifest,
                 outputSummary,
@@ -148,7 +172,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 transactionScopeField,
                 "Enterprise working-layer publish failed. Local output artifacts remain available.",
                 warnings: Array.Empty<string>(),
-                errors: new[] { exception.Message }));
+                errors: new[] { exception.Message });
         }
     }
 
@@ -268,6 +292,11 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             missing.Add("Polygons working layer target is not configured.");
         }
 
+        if (string.IsNullOrWhiteSpace(settings.Layers.CaseIndex))
+        {
+            missing.Add("Case index working table target is not configured.");
+        }
+
         return missing;
     }
 
@@ -319,7 +348,25 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return warnings;
     }
 
-    private static EnterpriseWorkingPublishedLayer PublishLayer(
+    private static async Task<EnterpriseWorkingPublishedLayer> PublishLayerAsync(
+        string targetPath,
+        string layerRole,
+        string transactionScopeField,
+        string transactionScopeValue,
+        JsonObject payload,
+        CancellationToken cancellationToken)
+    {
+        if (Uri.TryCreate(targetPath, UriKind.Absolute, out var uri)
+            && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            return await PublishFeatureServiceLayerAsync(targetPath, layerRole, transactionScopeField, transactionScopeValue, payload, cancellationToken).ConfigureAwait(false);
+        }
+
+        return PublishJsonLayer(targetPath, layerRole, transactionScopeField, transactionScopeValue, payload);
+    }
+
+    private static EnterpriseWorkingPublishedLayer PublishJsonLayer(
         string targetPath,
         string layerRole,
         string transactionScopeField,
@@ -348,6 +395,133 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return new EnterpriseWorkingPublishedLayer(layerRole, targetPath, recordCount, removedExisting > 0);
     }
 
+    private static async Task<EnterpriseWorkingPublishedLayer> PublishFeatureServiceLayerAsync(
+        string targetUrl,
+        string layerRole,
+        string transactionScopeField,
+        string transactionScopeValue,
+        JsonObject payload,
+        CancellationToken cancellationToken)
+    {
+        var token = Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN");
+        var where = $"{transactionScopeField} = '{EscapeSqlLiteral(transactionScopeValue)}'";
+        var deleteForm = new Dictionary<string, string>
+        {
+            ["f"] = "json",
+            ["where"] = where
+        };
+        AddToken(deleteForm, token);
+        var deleteResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/deleteFeatures", deleteForm, cancellationToken).ConfigureAwait(false);
+        EnsureArcGisSuccess(deleteResponse, "deleteFeatures", layerRole);
+
+        var features = BuildArcGisFeatures(payload, layerRole);
+        var addForm = new Dictionary<string, string>
+        {
+            ["f"] = "json",
+            ["features"] = features.ToJsonString(JsonOptions)
+        };
+        AddToken(addForm, token);
+        var addResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/addFeatures", addForm, cancellationToken).ConfigureAwait(false);
+        EnsureArcGisSuccess(addResponse, "addFeatures", layerRole);
+
+        return new EnterpriseWorkingPublishedLayer(layerRole, targetUrl, ExtractPayloadCount(payload), true);
+    }
+
+    private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken)
+    {
+        using var content = new FormUrlEncodedContent(form);
+        using var response = await HttpClient.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return JsonNode.Parse(text)?.AsObject() ?? [];
+    }
+
+    private static JsonArray BuildArcGisFeatures(JsonObject payload, string layerRole)
+    {
+        var features = new JsonArray();
+        if (payload["records"] is not JsonArray records)
+        {
+            return features;
+        }
+
+        foreach (var record in records.OfType<JsonObject>())
+        {
+            var attributes = new JsonObject();
+            JsonNode? geometry = null;
+            foreach (var property in record)
+            {
+                if (string.Equals(property.Key, "geometry", StringComparison.OrdinalIgnoreCase))
+                {
+                    geometry = property.Value?.DeepClone();
+                    continue;
+                }
+
+                attributes[property.Key] = property.Value?.DeepClone();
+            }
+
+            var feature = new JsonObject
+            {
+                ["attributes"] = attributes
+            };
+            if (geometry is not null)
+            {
+                feature["geometry"] = NormalizeArcGisGeometry(geometry);
+            }
+            else if (RequiresGeometry(layerRole))
+            {
+                throw new InvalidOperationException($"Cannot publish {layerRole}: one or more records do not contain geometry.");
+            }
+
+            features.Add(feature);
+        }
+
+        return features;
+    }
+
+    private static void EnsureArcGisSuccess(JsonObject response, string operation, string layerRole)
+    {
+        if (response.TryGetPropertyValue("error", out var errorNode) && errorNode is JsonObject error)
+        {
+            var message = ReadJsonString(error, "message") ?? "ArcGIS Enterprise returned an error.";
+            throw new InvalidOperationException($"{operation} failed for {layerRole}: {message}");
+        }
+
+        if (response.TryGetPropertyValue("addResults", out var addResultsNode) && addResultsNode is JsonArray addResults)
+        {
+            var failed = addResults.OfType<JsonObject>().FirstOrDefault(result =>
+                result.TryGetPropertyValue("success", out var successNode)
+                && successNode?.GetValue<bool>() == false);
+            if (failed is not null)
+            {
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more rows were rejected.");
+            }
+        }
+
+        if (response.TryGetPropertyValue("deleteResults", out var deleteResultsNode) && deleteResultsNode is JsonArray deleteResults)
+        {
+            var failed = deleteResults.OfType<JsonObject>().FirstOrDefault(result =>
+                result.TryGetPropertyValue("success", out var successNode)
+                && successNode?.GetValue<bool>() == false);
+            if (failed is not null)
+            {
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more existing rows could not be removed.");
+            }
+        }
+    }
+
+    private static void AddToken(IDictionary<string, string> form, string? token)
+    {
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            form["token"] = token;
+        }
+    }
+
+    private static string EscapeSqlLiteral(string value)
+    {
+        return value.Replace("'", "''", StringComparison.Ordinal);
+    }
+
     private static EnterpriseWorkingLayerStoreDocument LoadTargetDocument(string targetPath)
     {
         if (!File.Exists(targetPath))
@@ -367,9 +541,17 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
     private static JsonObject BuildPointPayload(
         IReadOnlyList<ExtractionReviewRow> rows,
         ManifestDocument manifest,
-        OutputSummaryDocument outputSummary)
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
     {
-        var records = new JsonArray();
+        var records = ReadFeatureRows(outputSummary.Payload.PointFeatureClassPath, outputSummary, "points");
+        if (records.Count > 0)
+        {
+            EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+            return BuildLayerEnvelope("points", manifest, outputSummary, records, operatorId, publishTime);
+        }
+
         foreach (var row in rows)
         {
             var node = new JsonObject
@@ -387,25 +569,42 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 ["unresolved"] = row.Unresolved,
                 ["row_provenance"] = row.RowProvenance
             };
+            AddPointGeometry(node);
             records.Add(node);
         }
 
-        return BuildLayerEnvelope("points", manifest, outputSummary, records);
+        EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+        return BuildLayerEnvelope("points", manifest, outputSummary, records, operatorId, publishTime);
     }
 
     private static JsonObject BuildLinePayload(
         IReadOnlyList<ExtractionReviewRow> rows,
         ManifestDocument manifest,
-        OutputSummaryDocument outputSummary)
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
     {
-        var records = new JsonArray();
+        var records = ReadFeatureRows(outputSummary.Payload.LineFeatureClassPath, outputSummary, "lines");
+        if (records.Count > 0)
+        {
+            foreach (var record in records.OfType<JsonObject>())
+            {
+                SetIfMissing(record, "bearing_txt", ReadJsonString(record, "bearing") ?? ReadJsonString(record, "course") ?? string.Empty);
+                SetIfMissing(record, "distance_txt", ReadJsonString(record, "distance") ?? ReadJsonString(record, "distance_m") ?? string.Empty);
+                SetIfMissing(record, "length_txt", ReadJsonString(record, "length") ?? ReadJsonString(record, "distance_txt") ?? string.Empty);
+            }
+
+            EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+            return BuildLayerEnvelope("lines", manifest, outputSummary, records, operatorId, publishTime);
+        }
+
         foreach (var row in rows.Where(HasLineSignals))
         {
             var raw = row.RawRow;
             var node = new JsonObject
             {
                 ["row_id"] = row.RowId,
-                ["segment_id"] = ReadRawString(raw, "segment_no") ?? row.RowId,
+                ["line_id"] = ReadRawString(raw, "segment_no") ?? row.RowId,
                 ["start_pt"] = ReadRawString(raw, "from_point") ?? string.Empty,
                 ["end_pt"] = ReadRawString(raw, "to_point") ?? string.Empty,
                 ["length_txt"] = row.Length,
@@ -425,15 +624,25 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             });
         }
 
-        return BuildLayerEnvelope("lines", manifest, outputSummary, records);
+        EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+        return BuildLayerEnvelope("lines", manifest, outputSummary, records, operatorId, publishTime);
     }
 
     private static JsonObject BuildPolygonPayload(
         IReadOnlyList<ExtractionReviewRow> rows,
         ManifestDocument manifest,
-        OutputSummaryDocument outputSummary)
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
     {
-        var records = new JsonArray
+        var records = ReadFeatureRows(outputSummary.Payload.PolygonFeatureClassPath, outputSummary, "polygons");
+        if (records.Count > 0)
+        {
+            EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+            return BuildLayerEnvelope("polygons", manifest, outputSummary, records, operatorId, publishTime);
+        }
+
+        records = new JsonArray
         {
             new JsonObject
             {
@@ -446,16 +655,79 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             }
         };
 
-        return BuildLayerEnvelope("polygons", manifest, outputSummary, records);
+        EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+        return BuildLayerEnvelope("polygons", manifest, outputSummary, records, operatorId, publishTime);
+    }
+
+    private static JsonObject BuildCaseIndexPayload(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
+    {
+        var transaction = manifest.Payload.InnolaTransaction;
+        var publishedUtc = publishTime.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+        var records = new JsonArray
+        {
+            new JsonObject
+            {
+                ["case_id"] = Path.GetFileName(layout.RootDirectory),
+                ["transaction_number"] = transaction?.TransactionNumber ?? manifest.TransactionId,
+                ["transaction_id"] = manifest.TransactionId,
+                ["task_id"] = transaction?.TaskId ?? string.Empty,
+                ["workflow_name"] = manifest.Payload.WorkflowProfile ?? transaction?.ProcessStep ?? "parcel_workflow",
+                ["workflow_stage"] = WorkflowState.SpatialReviewPending.ToContractValue(),
+                ["case_status"] = "review_pending",
+                ["review_state"] = "published_to_working",
+                ["assigned_user"] = transaction?.AssignedUser ?? transaction?.SelectedUser ?? string.Empty,
+                ["assigned_group"] = transaction?.AssignedGroup ?? string.Empty,
+                ["created_by"] = operatorId ?? string.Empty,
+                ["created_utc"] = publishedUtc,
+                ["last_saved_by"] = operatorId ?? string.Empty,
+                ["last_saved_utc"] = publishedUtc,
+                ["run_id"] = outputSummary.RunId,
+                ["output_summary_ref"] = Path.Combine(layout.OutputDirectory, "output_summary.json"),
+                ["working_publish_ref"] = Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json"),
+                ["recoverability_state"] = "current",
+                ["is_active"] = 1,
+                ["edit_generation"] = 1
+            }
+        };
+
+        return BuildLayerEnvelope("case_index", manifest, outputSummary, records, operatorId, publishTime);
+    }
+
+    private static JsonObject BuildIssuesPayload(
+        ManifestDocument manifest,
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
+    {
+        var records = new JsonArray();
+        foreach (var warning in outputSummary.Warnings)
+        {
+            records.Add(new JsonObject
+            {
+                ["issue_type"] = "warning",
+                ["issue_text"] = Truncate(warning, 512)
+            });
+        }
+
+        EnrichRecords(records, manifest, outputSummary, operatorId, publishTime);
+        return BuildLayerEnvelope("issues", manifest, outputSummary, records, operatorId, publishTime);
     }
 
     private static JsonObject BuildLayerEnvelope(
         string layerRole,
         ManifestDocument manifest,
         OutputSummaryDocument outputSummary,
-        JsonArray records)
+        JsonArray records,
+        string? operatorId,
+        DateTimeOffset publishTime)
     {
         var transaction = manifest.Payload.InnolaTransaction;
+        var publishedUtc = publishTime.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
         return new JsonObject
         {
             ["layer_role"] = layerRole,
@@ -467,10 +739,268 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             ["transaction_type"] = ReadTransactionType(manifest),
             ["assigned_user"] = transaction?.AssignedUser ?? string.Empty,
             ["assigned_group"] = transaction?.AssignedGroup ?? string.Empty,
-            ["last_saved_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            ["created_by"] = operatorId ?? string.Empty,
+            ["created_utc"] = publishedUtc,
+            ["last_saved_by"] = operatorId ?? string.Empty,
+            ["last_saved_utc"] = publishedUtc,
+            ["run_id"] = outputSummary.RunId,
             ["result_gdb_path"] = outputSummary.Payload.ResultGdbPath ?? string.Empty,
             ["records"] = records
         };
+    }
+
+    private static JsonArray ReadFeatureRows(string? featureClassPath, OutputSummaryDocument outputSummary, string layerRole)
+    {
+        if (!string.IsNullOrWhiteSpace(featureClassPath) && File.Exists(featureClassPath))
+        {
+            var node = JsonNode.Parse(File.ReadAllText(featureClassPath));
+            if (node is JsonArray array)
+            {
+                var clone = new JsonArray();
+                foreach (var item in array)
+                {
+                    clone.Add(item?.DeepClone());
+                }
+
+                AddDerivedGeometry(clone, layerRole);
+                if (RequiresGeometry(layerRole) && clone.OfType<JsonObject>().Any(record => !record.ContainsKey("geometry")))
+                {
+                    var fallbackGeoJsonPath = FindGeoJsonPath(outputSummary);
+                    var geoJsonRows = string.IsNullOrWhiteSpace(fallbackGeoJsonPath)
+                        ? []
+                        : ReadGeoJsonRows(fallbackGeoJsonPath, layerRole);
+                    if (geoJsonRows.Count > 0)
+                    {
+                        return geoJsonRows;
+                    }
+                }
+
+                return clone;
+            }
+        }
+
+        var geoJsonPath = FindGeoJsonPath(outputSummary);
+        return string.IsNullOrWhiteSpace(geoJsonPath)
+            ? []
+            : ReadGeoJsonRows(geoJsonPath, layerRole);
+    }
+
+    private static string? FindGeoJsonPath(OutputSummaryDocument outputSummary)
+    {
+        return outputSummary.Payload.ArtifactPaths.FirstOrDefault(path =>
+            !string.IsNullOrWhiteSpace(path)
+            && File.Exists(path)
+            && string.Equals(Path.GetFileName(path), "extracted_geometry.geojson", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static JsonArray ReadGeoJsonRows(string geoJsonPath, string layerRole)
+    {
+        var node = JsonNode.Parse(File.ReadAllText(geoJsonPath));
+        if (node is not JsonObject root || root["features"] is not JsonArray features)
+        {
+            return [];
+        }
+
+        var rows = new JsonArray();
+        foreach (var feature in features.OfType<JsonObject>())
+        {
+            if (feature["geometry"] is not JsonObject geometry || !GeoJsonTypeMatchesRole(ReadJsonString(geometry, "type"), layerRole))
+            {
+                continue;
+            }
+
+            var row = feature["properties"]?.DeepClone() as JsonObject ?? [];
+            row["geometry"] = ConvertGeoJsonGeometry(geometry);
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private static void AddDerivedGeometry(JsonArray records, string layerRole)
+    {
+        if (!string.Equals(layerRole, "points", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        foreach (var record in records.OfType<JsonObject>())
+        {
+            if (record.ContainsKey("geometry"))
+            {
+                continue;
+            }
+
+            AddPointGeometry(record);
+        }
+    }
+
+    private static void AddPointGeometry(JsonObject record)
+    {
+        if (record.ContainsKey("geometry"))
+        {
+            return;
+        }
+
+        var xText = ReadJsonString(record, "x") ?? ReadJsonString(record, "easting");
+        var yText = ReadJsonString(record, "y") ?? ReadJsonString(record, "northing");
+        if (double.TryParse(xText, NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+            && double.TryParse(yText, NumberStyles.Float, CultureInfo.InvariantCulture, out var y))
+        {
+            record["geometry"] = new JsonObject
+            {
+                ["x"] = x,
+                ["y"] = y
+            };
+        }
+    }
+
+    private static bool RequiresGeometry(string layerRole)
+    {
+        return string.Equals(layerRole, "points", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(layerRole, "lines", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(layerRole, "polygons", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool GeoJsonTypeMatchesRole(string? geometryType, string layerRole)
+    {
+        return layerRole.ToLowerInvariant() switch
+        {
+            "points" => string.Equals(geometryType, "Point", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(geometryType, "MultiPoint", StringComparison.OrdinalIgnoreCase),
+            "lines" => string.Equals(geometryType, "LineString", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(geometryType, "MultiLineString", StringComparison.OrdinalIgnoreCase),
+            "polygons" => string.Equals(geometryType, "Polygon", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(geometryType, "MultiPolygon", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+
+    private static JsonNode? NormalizeArcGisGeometry(JsonNode geometry)
+    {
+        if (geometry is JsonObject geometryObject && geometryObject.TryGetPropertyValue("type", out var typeNode))
+        {
+            return ConvertGeoJsonGeometry(geometryObject);
+        }
+
+        return geometry.DeepClone();
+    }
+
+    private static JsonObject ConvertGeoJsonGeometry(JsonObject geometry)
+    {
+        var type = ReadJsonString(geometry, "type") ?? string.Empty;
+        var coordinates = geometry["coordinates"];
+        return type.ToLowerInvariant() switch
+        {
+            "point" => ConvertPointGeometry(coordinates),
+            "multipoint" => new JsonObject { ["points"] = ConvertCoordinateArray(coordinates) },
+            "linestring" => new JsonObject { ["paths"] = new JsonArray(ConvertCoordinateArray(coordinates)) },
+            "multilinestring" => new JsonObject { ["paths"] = ConvertCoordinateArray(coordinates) },
+            "polygon" => new JsonObject { ["rings"] = ConvertCoordinateArray(coordinates) },
+            "multipolygon" => new JsonObject { ["rings"] = FlattenMultiPolygonRings(coordinates) },
+            _ => []
+        };
+    }
+
+    private static JsonObject ConvertPointGeometry(JsonNode? coordinates)
+    {
+        var point = coordinates is JsonArray values ? values : [];
+        var geometry = new JsonObject
+        {
+            ["x"] = ReadCoordinate(point, 0),
+            ["y"] = ReadCoordinate(point, 1)
+        };
+        if (point.Count > 2)
+        {
+            geometry["z"] = ReadCoordinate(point, 2);
+        }
+
+        return geometry;
+    }
+
+    private static JsonArray FlattenMultiPolygonRings(JsonNode? coordinates)
+    {
+        var rings = new JsonArray();
+        if (coordinates is not JsonArray polygons)
+        {
+            return rings;
+        }
+
+        foreach (var polygon in polygons.OfType<JsonArray>())
+        {
+            foreach (var ring in polygon.OfType<JsonArray>())
+            {
+                rings.Add(ConvertCoordinateArray(ring));
+            }
+        }
+
+        return rings;
+    }
+
+    private static JsonArray ConvertCoordinateArray(JsonNode? coordinates)
+    {
+        var converted = new JsonArray();
+        if (coordinates is not JsonArray array)
+        {
+            return converted;
+        }
+
+        foreach (var item in array)
+        {
+            converted.Add(item is JsonArray child ? ConvertCoordinateArray(child) : item?.DeepClone());
+        }
+
+        return converted;
+    }
+
+    private static double ReadCoordinate(JsonArray coordinates, int index)
+    {
+        return coordinates.Count > index && coordinates[index] is not null
+            ? coordinates[index]!.GetValue<double>()
+            : 0d;
+    }
+
+    private static void EnrichRecords(
+        JsonArray records,
+        ManifestDocument manifest,
+        OutputSummaryDocument outputSummary,
+        string? operatorId,
+        DateTimeOffset publishTime)
+    {
+        var transaction = manifest.Payload.InnolaTransaction;
+        var publishedUtc = publishTime.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+        foreach (var record in records.OfType<JsonObject>())
+        {
+            SetIfMissing(record, "transaction_number", transaction?.TransactionNumber ?? manifest.TransactionId);
+            SetIfMissing(record, "transaction_id", manifest.TransactionId);
+            SetIfMissing(record, "task_id", transaction?.TaskId ?? string.Empty);
+            SetIfMissing(record, "workflow_stage", WorkflowState.SpatialReviewPending.ToContractValue());
+            SetIfMissing(record, "review_state", "published_to_working");
+            SetIfMissing(record, "case_status", "review_pending");
+            SetIfMissing(record, "created_by", operatorId ?? string.Empty);
+            SetIfMissing(record, "created_utc", publishedUtc);
+            SetIfMissing(record, "last_saved_by", operatorId ?? string.Empty);
+            SetIfMissing(record, "last_saved_utc", publishedUtc);
+            SetIfMissing(record, "run_id", outputSummary.RunId);
+            SetIfMissing(record, "is_active", 1);
+            SetIfMissing(record, "edit_generation", 1);
+        }
+    }
+
+    private static void SetIfMissing(JsonObject record, string propertyName, string value)
+    {
+        if (!record.ContainsKey(propertyName) || record[propertyName] is null)
+        {
+            record[propertyName] = value;
+        }
+    }
+
+    private static void SetIfMissing(JsonObject record, string propertyName, int value)
+    {
+        if (!record.ContainsKey(propertyName) || record[propertyName] is null)
+        {
+            record[propertyName] = value;
+        }
     }
 
     private static string ReadTransactionType(ManifestDocument manifest)
@@ -495,6 +1025,23 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return raw.TryGetPropertyValue(propertyName, out var node)
             ? node?.GetValue<string>()
             : null;
+    }
+
+    private static string? ReadJsonString(JsonObject raw, string propertyName)
+    {
+        if (!raw.TryGetPropertyValue(propertyName, out var node) || node is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return node.GetValue<string>();
+        }
+        catch (InvalidOperationException)
+        {
+            return node.ToJsonString();
+        }
     }
 
     private static string Truncate(string? value, int maxLength)

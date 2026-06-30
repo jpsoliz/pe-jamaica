@@ -174,9 +174,9 @@ internal static class SettingsWorkspaceServiceTests
         var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(rulesPath, settingsPath));
         var document = service.Load(settingsPath);
 
-        TestAssert.Equal(5, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
+        TestAssert.Equal(6, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
         TestAssert.Equal("General", SettingsWorkspaceDocument.TabNames[0], "First tab mismatch.");
-        TestAssert.Equal("Spatial Workspace", SettingsWorkspaceDocument.TabNames[4], "Last tab mismatch.");
+        TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[5], "Last tab mismatch.");
         TestAssert.Equal("https://example.local/", document.InnolaServerUrl, "Innola server mismatch.");
         TestAssert.Equal("openai", document.OcrEngine, "OCR engine mismatch.");
         TestAssert.True(document.OpenAiEnabled, "OpenAI enabled mismatch.");
@@ -189,6 +189,9 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.True(document.EnterpriseParcelFabricEnabled, "Enterprise Parcel Fabric enabled mismatch.");
         TestAssert.Equal("compute_review", document.EnterpriseParcelFabricParcelTypeName, "Enterprise Parcel Fabric parcel type mismatch.");
         TestAssert.Equal("https://fabric.local/server/rest/services/Fabric/FeatureServer/0", document.EnterpriseParcelFabricFabricLayerUrl, "Enterprise Parcel Fabric fabric layer mismatch.");
+        TestAssert.Equal("sidwell_enterprise_working_v1", document.EnterpriseWorkingAdminSchemaVersion, "Enterprise admin schema default mismatch.");
+        TestAssert.Equal("sidwell_working_review", document.EnterpriseWorkingAdminTargetServiceName, "Enterprise admin target service default mismatch.");
+        TestAssert.True(document.EnterpriseWorkingAdminRequireCleanupScope, "Enterprise admin cleanup scope default mismatch.");
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
@@ -360,6 +363,17 @@ internal static class SettingsWorkspaceServiceTests
         document.EnterpriseParcelFabricOverlaySource = EnterpriseParcelFabricReviewSettings.OverlaySourceNone;
         document.EnterpriseParcelFabricAllowReplaceTransactionScope = false;
         document.EnterpriseParcelFabricRequireActiveMap = true;
+        document.EnterpriseWorkingAdminProvisioningEnabled = true;
+        document.EnterpriseWorkingAdminProvisioningScriptPath = @"D:\tools\provision_enterprise_working_layers.py";
+        document.EnterpriseWorkingAdminPortalUrl = "https://portal.local/portal";
+        document.EnterpriseWorkingAdminSchemaVersion = "sidwell_enterprise_working_v2";
+        document.EnterpriseWorkingAdminTargetFolder = "Working Review QA";
+        document.EnterpriseWorkingAdminTargetServiceName = "sidwell_working_review_qa";
+        document.EnterpriseWorkingAdminAllowSettingsWriteback = false;
+        document.EnterpriseWorkingAdminCleanupMode = SettingsWorkspaceService.EnterpriseWorkingAdminCleanupModeDelete;
+        document.EnterpriseWorkingAdminRequireCleanupScope = true;
+        document.EnterpriseWorkingAdminLastValidationSummaryPath = @"D:\cases\validation.json";
+        document.EnterpriseWorkingAdminLastMaintenanceAuditPath = @"D:\cases\maintenance.json";
         document.GsiServerUrl = "https://gsi.local/";
         document.GsiUsername = "gsi-user";
         document.GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect;
@@ -387,6 +401,17 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal(EnterpriseParcelFabricReviewSettings.PublishTimingOnFinalReview, reloaded.EnterpriseParcelFabricPublishTiming, "Enterprise Parcel Fabric publish timing save mismatch.");
         TestAssert.Equal(EnterpriseParcelFabricReviewSettings.BuildBehaviorCopyOnly, reloaded.EnterpriseParcelFabricBuildBehavior, "Enterprise Parcel Fabric build behavior save mismatch.");
         TestAssert.True(!reloaded.EnterpriseParcelFabricLoadOverlays, "Enterprise Parcel Fabric overlay load save mismatch.");
+        TestAssert.True(reloaded.EnterpriseWorkingAdminProvisioningEnabled, "Enterprise admin provisioning enabled save mismatch.");
+        TestAssert.Equal(@"D:\tools\provision_enterprise_working_layers.py", reloaded.EnterpriseWorkingAdminProvisioningScriptPath, "Enterprise admin script path save mismatch.");
+        TestAssert.Equal("https://portal.local/portal", reloaded.EnterpriseWorkingAdminPortalUrl, "Enterprise admin portal URL save mismatch.");
+        TestAssert.Equal("sidwell_enterprise_working_v2", reloaded.EnterpriseWorkingAdminSchemaVersion, "Enterprise admin schema save mismatch.");
+        TestAssert.Equal("Working Review QA", reloaded.EnterpriseWorkingAdminTargetFolder, "Enterprise admin target folder save mismatch.");
+        TestAssert.Equal("sidwell_working_review_qa", reloaded.EnterpriseWorkingAdminTargetServiceName, "Enterprise admin service name save mismatch.");
+        TestAssert.True(!reloaded.EnterpriseWorkingAdminAllowSettingsWriteback, "Enterprise admin writeback save mismatch.");
+        TestAssert.Equal(SettingsWorkspaceService.EnterpriseWorkingAdminCleanupModeDelete, reloaded.EnterpriseWorkingAdminCleanupMode, "Enterprise admin cleanup mode save mismatch.");
+        TestAssert.True(reloaded.EnterpriseWorkingAdminRequireCleanupScope, "Enterprise admin cleanup scope save mismatch.");
+        TestAssert.Equal(@"D:\cases\validation.json", reloaded.EnterpriseWorkingAdminLastValidationSummaryPath, "Enterprise admin validation path save mismatch.");
+        TestAssert.Equal(@"D:\cases\maintenance.json", reloaded.EnterpriseWorkingAdminLastMaintenanceAuditPath, "Enterprise admin audit path save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeDirect, reloaded.GsiPasswordMode, "GSI password mode save mismatch.");
         TestAssert.Equal("masked-secret", reloaded.GsiPassword, "GSI password save mismatch.");
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
@@ -404,12 +429,16 @@ internal static class SettingsWorkspaceServiceTests
             EnterpriseWorkingPointsLayer = "",
             EnterpriseWorkingLinesLayer = "",
             EnterpriseWorkingPolygonsLayer = "",
+            EnterpriseWorkingCaseIndexLayer = "",
             EnterpriseWorkingTransactionScopeField = "",
             SupportedTransactionTypes = new List<string> { "Plan Examination" },
             ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
             OutputAdapterTimeoutSeconds = 120,
             OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
             SpatialOutputCogoSourceMode = "not_supported",
+            EnterpriseWorkingAdminSchemaVersion = "sidwell_enterprise_working_v1",
+            EnterpriseWorkingAdminTargetServiceName = "sidwell_working_review",
+            EnterpriseWorkingAdminCleanupMode = SettingsWorkspaceService.EnterpriseWorkingAdminCleanupModeDeactivate,
             GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect,
             GsiPassword = ""
         };
@@ -420,6 +449,36 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Targets"), "Expected enterprise targets validation message.");
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "COGO Source Mode"), "Expected COGO source mode validation message.");
         TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "ArcGIS Enterprise Password"), "Expected direct GSI password validation message.");
+    }
+
+    public static void SettingsWorkspaceValidationRequiresEnterpriseWorkingCaseIndexLayer()
+    {
+        var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(Path.Combine(Path.GetTempPath(), "missing-rules.json")));
+        var document = new SettingsWorkspaceDocument
+        {
+            ReviewWorkspaceMode = InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers,
+            EnterpriseWorkingEnabled = true,
+            EnterpriseWorkingPointsLayer = "https://enterprise.local/FeatureServer/0",
+            EnterpriseWorkingLinesLayer = "https://enterprise.local/FeatureServer/1",
+            EnterpriseWorkingPolygonsLayer = "https://enterprise.local/FeatureServer/2",
+            EnterpriseWorkingCaseIndexLayer = "",
+            EnterpriseWorkingTransactionScopeField = "transaction_number",
+            SupportedTransactionTypes = new List<string> { "Plan Examination" },
+            ComputeWorkflowStages = new List<string> { "Compute Survey Plan" },
+            ComputeAttachmentSourceTypesJson = "[]",
+            OutputAdapterTimeoutSeconds = 120,
+            OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileCustom,
+            SpatialOutputCogoSourceMode = SettingsWorkspaceService.SpatialOutputCogoSourceModeSourceThenComputed,
+            EnterpriseWorkingAdminSchemaVersion = "sidwell_enterprise_working_v1",
+            EnterpriseWorkingAdminTargetServiceName = "sidwell_working_review",
+            EnterpriseWorkingAdminCleanupMode = SettingsWorkspaceService.EnterpriseWorkingAdminCleanupModeDeactivate,
+            GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable,
+            GsiPasswordEnvironmentVariable = "GSI_PASSWORD"
+        };
+
+        var messages = service.Validate(document);
+
+        TestAssert.True(messages.Any(message => message.TabName == "Spatial Workspace" && message.FieldName == "Enterprise Targets" && message.Message.Contains("case index", StringComparison.OrdinalIgnoreCase)), "Expected case index target validation message.");
     }
 
     public static void SettingsWorkspaceValidationRejectsInvalidEnterpriseParcelFabricConfiguration()

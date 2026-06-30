@@ -18,6 +18,8 @@ public sealed class SettingsWorkspaceService
     public const string SpatialOutputCogoSourceModeSourceThenComputed = "source_then_computed";
     public const string SpatialOutputCogoSourceModePreferSource = "prefer_source";
     public const string SpatialOutputCogoSourceModePreferComputed = "prefer_computed";
+    public const string EnterpriseWorkingAdminCleanupModeDeactivate = "deactivate";
+    public const string EnterpriseWorkingAdminCleanupModeDelete = "delete";
 
     private readonly PreflightRuleCatalogLoader ruleCatalogLoader;
 
@@ -38,6 +40,7 @@ public sealed class SettingsWorkspaceService
         var executionSettings = Workflow.Execution.WorkflowExecutionSettings.Load(settingsPath);
         var environmentSettings = LoadProcessingEnvironmentSettings(settingsPath);
         var settingsRoot = LoadSettingsRoot(settingsPath);
+        var enterpriseWorkingAdminRoot = settingsRoot?["enterprise_working_admin"] as JsonObject;
         var ruleCatalog = ruleCatalogLoader.Load();
         var closureCatalog = ClosureToleranceCatalog.Load(settingsPath);
         var readinessCatalog = ReadinessSettingsCatalog.Load(
@@ -117,6 +120,20 @@ public sealed class SettingsWorkspaceService
             EnterpriseWorkingPolygonsLayer = transactionSettings.EnterpriseWorkingReview.Layers.Polygons ?? string.Empty,
             EnterpriseWorkingIssuesLayer = transactionSettings.EnterpriseWorkingReview.Layers.Issues ?? string.Empty,
             EnterpriseWorkingCaseIndexLayer = transactionSettings.EnterpriseWorkingReview.Layers.CaseIndex ?? string.Empty,
+            EnterpriseWorkingAdminProvisioningEnabled = ReadBool(enterpriseWorkingAdminRoot, "provisioning_enabled") ?? false,
+            EnterpriseWorkingAdminProvisioningScriptPath = ReadString(enterpriseWorkingAdminRoot, "provisioning_script_path") ?? GetDefaultEnterpriseWorkingAdminScriptPath(settingsPath),
+            EnterpriseWorkingAdminPortalUrl = ReadString(enterpriseWorkingAdminRoot, "portal_url")
+                ?? BuildDefaultPortalUrl(transactionSettings.EnterpriseWorkingReview.ServiceRoot)
+                ?? ReadString(settingsRoot, "gsi_server_url")
+                ?? string.Empty,
+            EnterpriseWorkingAdminSchemaVersion = ReadString(enterpriseWorkingAdminRoot, "schema_version") ?? "sidwell_enterprise_working_v1",
+            EnterpriseWorkingAdminTargetFolder = ReadString(enterpriseWorkingAdminRoot, "target_folder") ?? "Sidwell Working Review",
+            EnterpriseWorkingAdminTargetServiceName = ReadString(enterpriseWorkingAdminRoot, "target_service_name") ?? "sidwell_working_review",
+            EnterpriseWorkingAdminAllowSettingsWriteback = ReadBool(enterpriseWorkingAdminRoot, "allow_settings_writeback") ?? true,
+            EnterpriseWorkingAdminCleanupMode = NormalizeEnterpriseWorkingAdminCleanupMode(ReadString(enterpriseWorkingAdminRoot, "cleanup_mode")),
+            EnterpriseWorkingAdminRequireCleanupScope = ReadBool(enterpriseWorkingAdminRoot, "require_cleanup_scope") ?? true,
+            EnterpriseWorkingAdminLastValidationSummaryPath = ReadString(enterpriseWorkingAdminRoot, "last_validation_summary_path") ?? string.Empty,
+            EnterpriseWorkingAdminLastMaintenanceAuditPath = ReadString(enterpriseWorkingAdminRoot, "last_maintenance_audit_path") ?? string.Empty,
             EnterpriseParcelFabricEnabled = transactionSettings.EnterpriseParcelFabricReview.Enabled,
             EnterpriseParcelFabricServiceRoot = transactionSettings.EnterpriseParcelFabricReview.ServiceRoot ?? string.Empty,
             EnterpriseParcelFabricFabricLayerUrl = transactionSettings.EnterpriseParcelFabricReview.FabricLayerUrl ?? string.Empty,
@@ -309,10 +326,36 @@ public sealed class SettingsWorkspaceService
             if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingPointsLayer)
                 || string.IsNullOrWhiteSpace(document.EnterpriseWorkingLinesLayer)
                 || string.IsNullOrWhiteSpace(document.EnterpriseWorkingPolygonsLayer)
+                || string.IsNullOrWhiteSpace(document.EnterpriseWorkingCaseIndexLayer)
                 || string.IsNullOrWhiteSpace(document.EnterpriseWorkingTransactionScopeField))
             {
-                messages.Add(new("Spatial Workspace", "Enterprise Targets", "Enterprise working layers mode requires points, lines, polygons, and transaction scope field values."));
+                messages.Add(new("Spatial Workspace", "Enterprise Targets", "Enterprise working layers mode requires points, lines, polygons, case index, and transaction scope field values."));
             }
+        }
+
+        if (document.EnterpriseWorkingAdminProvisioningEnabled && string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminProvisioningScriptPath))
+        {
+            messages.Add(new("Enterprise Admin", "Provisioning Script", "Provisioning script path is required when Enterprise working admin provisioning is enabled."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminPortalUrl) && !Uri.TryCreate(document.EnterpriseWorkingAdminPortalUrl, UriKind.Absolute, out _))
+        {
+            messages.Add(new("Enterprise Admin", "Portal URL", "Enterprise working admin portal URL must be a valid absolute URL."));
+        }
+
+        if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminSchemaVersion))
+        {
+            messages.Add(new("Enterprise Admin", "Schema Version", "Enterprise working admin schema version is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(document.EnterpriseWorkingAdminTargetServiceName))
+        {
+            messages.Add(new("Enterprise Admin", "Target Service Name", "Enterprise working admin target service name is required."));
+        }
+
+        if (!IsSupportedEnterpriseWorkingAdminCleanupMode(document.EnterpriseWorkingAdminCleanupMode))
+        {
+            messages.Add(new("Enterprise Admin", "Cleanup Mode", $"Enterprise working admin cleanup mode '{document.EnterpriseWorkingAdminCleanupMode}' is not supported."));
         }
 
         if (string.Equals(document.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))
@@ -413,6 +456,7 @@ public sealed class SettingsWorkspaceService
         SetJson(root, "closure_tolerance_profile_overrides", BuildClosureToleranceOverridesJson(document));
         SetJson(root, "parcel_construction_readiness_profile_overrides", BuildReadinessOverridesJson(document));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
+        root["enterprise_working_admin"] = CreateEnterpriseWorkingAdminNode(document);
         root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
         SetString(root, "gsi_username", document.GsiUsername);
@@ -667,6 +711,24 @@ public sealed class SettingsWorkspaceService
                 ["issues"] = document.EnterpriseWorkingIssuesLayer,
                 ["case_index"] = document.EnterpriseWorkingCaseIndexLayer
             }
+        };
+    }
+
+    private static JsonObject CreateEnterpriseWorkingAdminNode(SettingsWorkspaceDocument document)
+    {
+        return new JsonObject
+        {
+            ["provisioning_enabled"] = document.EnterpriseWorkingAdminProvisioningEnabled,
+            ["provisioning_script_path"] = document.EnterpriseWorkingAdminProvisioningScriptPath,
+            ["portal_url"] = document.EnterpriseWorkingAdminPortalUrl,
+            ["schema_version"] = document.EnterpriseWorkingAdminSchemaVersion,
+            ["target_folder"] = document.EnterpriseWorkingAdminTargetFolder,
+            ["target_service_name"] = document.EnterpriseWorkingAdminTargetServiceName,
+            ["allow_settings_writeback"] = document.EnterpriseWorkingAdminAllowSettingsWriteback,
+            ["cleanup_mode"] = NormalizeEnterpriseWorkingAdminCleanupMode(document.EnterpriseWorkingAdminCleanupMode),
+            ["require_cleanup_scope"] = document.EnterpriseWorkingAdminRequireCleanupScope,
+            ["last_validation_summary_path"] = document.EnterpriseWorkingAdminLastValidationSummaryPath,
+            ["last_maintenance_audit_path"] = document.EnterpriseWorkingAdminLastMaintenanceAuditPath
         };
     }
 
@@ -1039,6 +1101,52 @@ public sealed class SettingsWorkspaceService
             InnolaTransactionSettings.PdfViewerModeExternalOnly => InnolaTransactionSettings.PdfViewerModeExternalOnly,
             _ => InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser
         };
+    }
+
+    private static string NormalizeEnterpriseWorkingAdminCleanupMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            EnterpriseWorkingAdminCleanupModeDelete => EnterpriseWorkingAdminCleanupModeDelete,
+            _ => EnterpriseWorkingAdminCleanupModeDeactivate
+        };
+    }
+
+    private static bool IsSupportedEnterpriseWorkingAdminCleanupMode(string? value)
+    {
+        return string.Equals(value, EnterpriseWorkingAdminCleanupModeDeactivate, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, EnterpriseWorkingAdminCleanupModeDelete, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetDefaultEnterpriseWorkingAdminScriptPath(string settingsPath)
+    {
+        var settingsDirectory = Path.GetDirectoryName(settingsPath) ?? AppContext.BaseDirectory;
+        return Path.GetFullPath(Path.Combine(
+            settingsDirectory,
+            "..",
+            "..",
+            "..",
+            "ProcessingTools",
+            "admin",
+            "provision_enterprise_working_layers.py"));
+    }
+
+    private static string? BuildDefaultPortalUrl(string? serviceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(serviceRoot) || !Uri.TryCreate(serviceRoot, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var path = uri.AbsolutePath;
+        var serverIndex = path.IndexOf("/server/", StringComparison.OrdinalIgnoreCase);
+        if (serverIndex < 0)
+        {
+            return null;
+        }
+
+        var portalPath = string.Concat(path.AsSpan(0, serverIndex), "/portal");
+        return new UriBuilder(uri.Scheme, uri.Host, uri.IsDefaultPort ? -1 : uri.Port, portalPath).Uri.ToString().TrimEnd('/');
     }
 
     private static string? ReadString(JsonObject? root, string name)

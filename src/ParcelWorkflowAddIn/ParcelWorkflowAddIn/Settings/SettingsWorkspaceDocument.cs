@@ -10,7 +10,8 @@ public sealed class SettingsWorkspaceDocument
         "AI Toolset",
         "Innola Integration",
         "Preflight Rules",
-        "Spatial Workspace"
+        "Spatial Workspace",
+        "Enterprise Admin"
     };
 
     public string SettingsPath { get; init; } = string.Empty;
@@ -88,6 +89,17 @@ public sealed class SettingsWorkspaceDocument
     public string EnterpriseWorkingPolygonsLayer { get; set; } = string.Empty;
     public string EnterpriseWorkingIssuesLayer { get; set; } = string.Empty;
     public string EnterpriseWorkingCaseIndexLayer { get; set; } = string.Empty;
+    public bool EnterpriseWorkingAdminProvisioningEnabled { get; set; }
+    public string EnterpriseWorkingAdminProvisioningScriptPath { get; set; } = string.Empty;
+    public string EnterpriseWorkingAdminPortalUrl { get; set; } = string.Empty;
+    public string EnterpriseWorkingAdminSchemaVersion { get; set; } = string.Empty;
+    public string EnterpriseWorkingAdminTargetFolder { get; set; } = string.Empty;
+    public string EnterpriseWorkingAdminTargetServiceName { get; set; } = string.Empty;
+    public bool EnterpriseWorkingAdminAllowSettingsWriteback { get; set; }
+    public string EnterpriseWorkingAdminCleanupMode { get; set; } = string.Empty;
+    public bool EnterpriseWorkingAdminRequireCleanupScope { get; set; }
+    public string EnterpriseWorkingAdminLastValidationSummaryPath { get; set; } = string.Empty;
+    public string EnterpriseWorkingAdminLastMaintenanceAuditPath { get; set; } = string.Empty;
 
     public bool EnterpriseParcelFabricEnabled { get; set; }
     public string EnterpriseParcelFabricServiceRoot { get; set; } = string.Empty;
