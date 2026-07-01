@@ -12,6 +12,47 @@ namespace ParcelWorkflowAddIn.Workflow.Output;
 
 public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkingLayerPublishService
 {
+    private static readonly string[] SharedEnterpriseAttributes =
+    [
+        "transaction_number",
+        "transaction_id",
+        "task_id",
+        "workflow_stage",
+        "review_state",
+        "case_status",
+        "created_by",
+        "created_utc",
+        "last_saved_by",
+        "last_saved_utc",
+        "run_id",
+        "review_decision",
+        "review_decision_by",
+        "review_decision_utc",
+        "review_comment",
+        "official_comparison_status",
+        "official_reference_ids",
+        "is_active",
+        "edit_generation"
+    ];
+
+    private static readonly IReadOnlySet<string> EnterpriseDateAttributes =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "created_utc",
+            "last_saved_utc",
+            "review_decision_utc"
+        };
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> EnterpriseAttributeAllowlists =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["points"] = BuildAllowlist("point_id", "parcel_group_id", "parcel_name", "point_role", "status_txt", "source_txt", "row_id"),
+            ["lines"] = BuildAllowlist("line_id", "parcel_group_id", "parcel_name", "start_pt", "end_pt", "bearing_txt", "distance_txt", "length_txt", "line_type", "seg_index", "source_txt"),
+            ["polygons"] = BuildAllowlist("parcel_group_id", "parcel_name", "parcel_type", "validation_status", "closure_status", "area_sq_m", "perimeter_m", "review_note", "source_txt"),
+            ["issues"] = BuildAllowlist("issue_type", "issue_text"),
+            ["case_index"] = BuildAllowlist("case_id", "workflow_name", "assigned_user", "assigned_group", "output_summary_ref", "working_publish_ref", "recoverability_state")
+        };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -456,7 +497,16 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                     continue;
                 }
 
-                attributes[property.Key] = property.Value?.DeepClone();
+                var attributeName = NormalizeEnterpriseAttributeName(property.Key, layerRole);
+                if (!IsAllowedEnterpriseAttribute(attributeName, layerRole))
+                {
+                    continue;
+                }
+
+                if (!attributes.ContainsKey(attributeName) || attributes[attributeName] is null)
+                {
+                    attributes[attributeName] = NormalizeEnterpriseAttributeValue(attributeName, property.Value);
+                }
             }
 
             var feature = new JsonObject
@@ -476,6 +526,94 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         }
 
         return features;
+    }
+
+    private static IReadOnlySet<string> BuildAllowlist(params string[] layerAttributes)
+    {
+        var fields = new HashSet<string>(SharedEnterpriseAttributes, StringComparer.OrdinalIgnoreCase);
+        foreach (var attribute in layerAttributes)
+        {
+            fields.Add(attribute);
+        }
+
+        return fields;
+    }
+
+    private static bool IsAllowedEnterpriseAttribute(string attributeName, string layerRole)
+    {
+        return EnterpriseAttributeAllowlists.TryGetValue(layerRole, out var allowlist)
+            && allowlist.Contains(attributeName);
+    }
+
+    private static string NormalizeEnterpriseAttributeName(string attributeName, string layerRole)
+    {
+        if (string.Equals(layerRole, "points", StringComparison.OrdinalIgnoreCase))
+        {
+            return attributeName.ToLowerInvariant() switch
+            {
+                "point_identifier" => "point_id",
+                "status" => "status_txt",
+                "source_evidence" => "source_txt",
+                "source_doc" => "source_txt",
+                _ => attributeName
+            };
+        }
+
+        if (string.Equals(layerRole, "lines", StringComparison.OrdinalIgnoreCase))
+        {
+            return attributeName.ToLowerInvariant() switch
+            {
+                "from_point_id" => "start_pt",
+                "to_point_id" => "end_pt",
+                "from_point" => "start_pt",
+                "to_point" => "end_pt",
+                "bearing" => "bearing_txt",
+                "course" => "bearing_txt",
+                "distance" => "distance_txt",
+                "distance_m" => "distance_txt",
+                "length" => "length_txt",
+                "source_evidence" => "source_txt",
+                "source_doc" => "source_txt",
+                _ => attributeName
+            };
+        }
+
+        if (string.Equals(layerRole, "polygons", StringComparison.OrdinalIgnoreCase))
+        {
+            return attributeName.ToLowerInvariant() switch
+            {
+                "status" => "validation_status",
+                "source_evidence" => "source_txt",
+                "source_doc" => "source_txt",
+                _ => attributeName
+            };
+        }
+
+        return attributeName;
+    }
+
+    private static JsonNode? NormalizeEnterpriseAttributeValue(string attributeName, JsonNode? value)
+    {
+        if (!EnterpriseDateAttributes.Contains(attributeName) || value is null)
+        {
+            return value?.DeepClone();
+        }
+
+        try
+        {
+            if (value is JsonValue jsonValue
+                && jsonValue.TryGetValue<string>(out var text)
+                && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            {
+                return parsed.ToUnixTimeMilliseconds();
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return value.DeepClone();
+        }
+
+        return value.DeepClone();
     }
 
     private static void EnsureArcGisSuccess(JsonObject response, string operation, string layerRole)

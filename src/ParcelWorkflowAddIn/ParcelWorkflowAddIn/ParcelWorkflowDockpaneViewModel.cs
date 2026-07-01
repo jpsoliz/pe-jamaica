@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Contracts;
@@ -71,6 +72,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand suspendTransactionCommand;
     private readonly RelayCommand cancelProcessCommand;
+    private readonly RelayCommand rejectComputeReviewCommand;
+    private readonly RelayCommand postponeComputeReviewCommand;
     private readonly RelayCommand completeTransactionCommand;
     private readonly IOutputMapIntegrationService outputMapIntegrationService = new ArcGisOutputMapIntegrationService();
     private string? outputLocation;
@@ -148,6 +151,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
         cancelProcessCommand = new RelayCommand(async () => await CancelProcessAsync(), () => ShellState.Session.CanCancelActiveProcess);
+        rejectComputeReviewCommand = new RelayCommand(ShowRejectNotImplemented, () => CanRejectComputeReview);
+        postponeComputeReviewCommand = new RelayCommand(ShowPostponeNotImplemented, () => CanPostponeComputeReview);
         completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
@@ -387,6 +392,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanCompleteTransaction => ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
 
+    public bool CanRejectComputeReview => false;
+
+    public bool CanPostponeComputeReview => false;
+
     public ICommand CreateCaseCommand => createCaseCommand;
 
     public ICommand BrowseOutputLocationCommand => browseOutputLocationCommand;
@@ -462,6 +471,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand SuspendTransactionCommand => suspendTransactionCommand;
 
     public ICommand CancelProcessCommand => cancelProcessCommand;
+
+    public ICommand RejectComputeReviewCommand => rejectComputeReviewCommand;
+
+    public ICommand PostponeComputeReviewCommand => postponeComputeReviewCommand;
 
     public ICommand CompleteTransactionCommand => completeTransactionCommand;
 
@@ -1091,13 +1104,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReadyToCompleteSummaryText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Final Review is complete. When you approve the transaction, the reviewed result will be shared and the compute task will be finalized."
+            ? "Final Review is complete. Approve records that the submitted geometry passed Compute review; Reject and Postpone require reason capture before they can be used."
             : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Use the ArcGIS Pro map to do a final visual check, confirm the created spatial outputs look right, then select Approve to publish the completed review and close the transaction. Select Suspend if you need to save this state and come back later."
-            : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks final transaction completion.";
+            ? "Use the ArcGIS Pro map for a final visual check, compare the temporary geometry with official reference layers, then select Approve to record the Compute disposition and close the Innola task. Select Suspend to save this state and come back later."
+            : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks Compute closeout.";
 
     public string ValidationBadge =>
         workflowSession.CurrentState switch
@@ -2189,8 +2202,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public async Task CompleteTransactionAsync()
     {
         if (MessageBox.Show(
-                "Approve this transaction, publish the completed review for shared visibility, upload the completed package to Innola, and mark the task complete?",
-                "Approve Transaction",
+                "Approve this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
+                "Approve Compute Review",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
@@ -2199,6 +2212,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
         if (publishResult.Attempted && !publishResult.Success)
+        {
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
+            ComputeReviewDecision.Approved,
+            null,
+            Environment.UserName);
+        if (!dispositionResult.Success)
         {
             RefreshWorkflowProperties();
             return;
@@ -2218,6 +2241,18 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
+        RefreshWorkflowProperties();
+    }
+
+    private void ShowRejectNotImplemented()
+    {
+        workflowSession.SetValidationFailure("Reject will require a review reason before it can record a Compute disposition.");
+        RefreshWorkflowProperties();
+    }
+
+    private void ShowPostponeNotImplemented()
+    {
+        workflowSession.SetValidationFailure("Postpone will require a review reason before it can record a Compute disposition.");
         RefreshWorkflowProperties();
     }
 
@@ -2776,6 +2811,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanLoadSpatialReviewLayers));
         NotifyPropertyChanged(nameof(CanApproveSpatialReview));
         NotifyPropertyChanged(nameof(CanCompleteTransaction));
+        NotifyPropertyChanged(nameof(CanRejectComputeReview));
+        NotifyPropertyChanged(nameof(CanPostponeComputeReview));
         NotifyPropertyChanged(nameof(WorkflowSteps));
         NotifyPropertyChanged(nameof(DetectedProfileLabel));
         NotifyPropertyChanged(nameof(IntakeIssues));
@@ -2900,6 +2937,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         suspendTransactionCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
+        rejectComputeReviewCommand.RaiseCanExecuteChanged();
+        postponeComputeReviewCommand.RaiseCanExecuteChanged();
         completeTransactionCommand.RaiseCanExecuteChanged();
     }
 

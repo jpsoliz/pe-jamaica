@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -10,15 +11,18 @@ public sealed class InnolaTransactionLifecycleCoordinator
     private readonly InnolaSessionManager sessionManager;
     private readonly IInnolaTransactionDetailService detailService;
     private readonly IInnolaTransactionLifecycleService lifecycleService;
+    private readonly IInnolaSpatialUnitService spatialUnitService;
     private readonly ITransactionCompletionReadinessService readinessService;
     private readonly WorkflowLifecycleAuditService auditService;
     private readonly CaseResumePackageService resumePackageService;
+    private readonly ComputeReviewDispositionPersistenceService dispositionPersistenceService;
     private readonly Func<DateTimeOffset> getUtcNow;
 
     public InnolaTransactionLifecycleCoordinator(
         InnolaSessionManager sessionManager,
         IInnolaTransactionDetailService detailService,
         IInnolaTransactionLifecycleService lifecycleService,
+        IInnolaSpatialUnitService spatialUnitService,
         ITransactionCompletionReadinessService readinessService,
         WorkflowLifecycleAuditService auditService,
         CaseResumePackageService resumePackageService,
@@ -27,9 +31,11 @@ public sealed class InnolaTransactionLifecycleCoordinator
         this.sessionManager = sessionManager;
         this.detailService = detailService;
         this.lifecycleService = lifecycleService;
+        this.spatialUnitService = spatialUnitService;
         this.readinessService = readinessService;
         this.auditService = auditService;
         this.resumePackageService = resumePackageService;
+        dispositionPersistenceService = new ComputeReviewDispositionPersistenceService();
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -238,15 +244,108 @@ public sealed class InnolaTransactionLifecycleCoordinator
         var now = NowString();
         try
         {
+            var disposition = dispositionPersistenceService.Load(layout);
+            if (disposition is not null)
+            {
+                var spatialUnitResult = await spatialUnitService.CreateOrUpdateAsync(
+                    sessionManager.CurrentSession!,
+                    sessionManager.SelectedTransaction!,
+                    layout.RootDirectory,
+                    disposition,
+                    cancellationToken).ConfigureAwait(false);
+                if (!spatialUnitResult.Success)
+                {
+                    var message = SafeRetryMessage(spatialUnitResult.Message, "Could not create Spatial Unit. Try again.");
+                    sessionManager.MarkLifecycleError(message);
+                    UpdateManifestAndAudit(
+                        "compute_spatial_unit_save_failed",
+                        "failed",
+                        message,
+                        spatialUnitResult.ErrorCategory,
+                        "error",
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        lastErrorCategory: spatialUnitResult.ErrorCategory);
+                    return InnolaTransactionLoadResult.Failure(message);
+                }
+
+                var updatedDisposition = disposition with
+                {
+                    SpatialUnitApiStatus = "saved",
+                    SpatialUnitId = spatialUnitResult.SpatialUnitId
+                };
+                dispositionPersistenceService.Save(layout, updatedDisposition);
+                UpdateManifestAndAudit(
+                    "compute_spatial_unit_saved",
+                    "succeeded",
+                    spatialUnitResult.Message,
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready");
+
+                disposition = updatedDisposition;
+            }
+
+            var packageFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName(sessionManager.SelectedTransaction!.TransactionNumber);
+            if (disposition is not null)
+            {
+                disposition = SaveWorkingPackageState(
+                    layout,
+                    disposition,
+                    packageFileName,
+                    ShellState.CompletedAttachmentSourceType,
+                    "pending");
+            }
+
             var packageUpload = await UploadCasePackageAsync(
                 layout,
                 sessionManager.SelectedTransaction!,
-                InnolaResumePackageConventions.BuildCompletedAttachmentFileName,
+                _ => packageFileName,
                 ShellState.CompletedAttachmentSourceType,
                 cancellationToken);
             if (!packageUpload.Success)
             {
+                if (disposition is not null)
+                {
+                    SaveWorkingPackageState(
+                        layout,
+                        disposition,
+                        packageUpload.FileName,
+                        packageUpload.SourceType,
+                        "failed");
+                }
+
+                var packageMessage = packageUpload.ErrorMessage ?? "Could not upload completed case package. Try again.";
+                sessionManager.MarkLifecycleError(packageMessage);
+                UpdateManifestAndAudit(
+                    "compute_working_package_upload_failed",
+                    "failed",
+                    packageMessage,
+                    packageUpload.ErrorCategory,
+                    "error",
+                    completionReady: true,
+                    completionReadyReason: "ready",
+                    lastErrorCategory: packageUpload.ErrorCategory);
                 return InnolaTransactionLoadResult.Failure(packageUpload.ErrorMessage ?? "Could not upload completed case package. Try again.");
+            }
+
+            if (disposition is not null)
+            {
+                disposition = SaveWorkingPackageState(
+                    layout,
+                    disposition,
+                    packageUpload.FileName,
+                    packageUpload.SourceType,
+                    "uploaded");
+                UpdateManifestAndAudit(
+                    "compute_working_package_uploaded",
+                    "succeeded",
+                    "Compute working package uploaded.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready");
             }
 
             var result = await lifecycleService.CompleteAsync(CreateRequest("complete"), cancellationToken);
@@ -271,7 +370,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
         }
     }
 
-    private async Task<InnolaAttachmentUploadResult> UploadCasePackageAsync(
+    private async Task<CasePackageUploadResult> UploadCasePackageAsync(
         CaseFolderLayout layout,
         SelectedInnolaTransaction transaction,
         Func<string, string> attachmentNameBuilder,
@@ -279,28 +378,32 @@ public sealed class InnolaTransactionLifecycleCoordinator
         CancellationToken cancellationToken)
     {
         string? packagePath = null;
+        var fileName = attachmentNameBuilder(transaction.TransactionNumber);
         try
         {
             var package = resumePackageService.Build(layout, transaction, sessionManager.CurrentUser?.Username);
             if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath) || string.IsNullOrWhiteSpace(package.ContentType))
             {
-                return InnolaAttachmentUploadResult.Failure(package.ErrorMessage ?? "Resume package could not be created.");
+                return CasePackageUploadResult.Failure(fileName, sourceType, package.ErrorMessage ?? "Resume package could not be created.");
             }
 
             packagePath = package.PackagePath;
             var content = await File.ReadAllBytesAsync(package.PackagePath, cancellationToken);
-            return await detailService.UploadAttachmentAsync(
+            var result = await detailService.UploadAttachmentAsync(
                 sessionManager.CurrentSession!,
                 transaction,
-                attachmentNameBuilder(transaction.TransactionNumber),
+                fileName,
                 package.ContentType,
                 content,
                 sourceType,
                 cancellationToken);
+            return result.Success
+                ? CasePackageUploadResult.Succeeded(fileName, sourceType)
+                : CasePackageUploadResult.Failure(fileName, sourceType, result.ErrorMessage ?? "Could not upload case package.", result.ErrorCategory);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or TaskCanceledException)
         {
-            return InnolaAttachmentUploadResult.Failure("Could not package case state for upload.", exception.GetType().Name);
+            return CasePackageUploadResult.Failure(fileName, sourceType, "Could not package case state for upload.", exception.GetType().Name);
         }
         finally
         {
@@ -316,6 +419,23 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 // Best effort cleanup.
             }
         }
+    }
+
+    private ComputeReviewDispositionDocument SaveWorkingPackageState(
+        CaseFolderLayout layout,
+        ComputeReviewDispositionDocument disposition,
+        string fileName,
+        string sourceType,
+        string uploadStatus)
+    {
+        var updated = disposition with
+        {
+            WorkingPackageFileName = fileName,
+            WorkingPackageSourceType = sourceType,
+            WorkingPackageUploadStatus = uploadStatus
+        };
+        dispositionPersistenceService.Save(layout, updated);
+        return updated;
     }
 
     private string? ValidateActiveTransaction(bool requireOwner = false)
@@ -443,5 +563,23 @@ public sealed class InnolaTransactionLifecycleCoordinator
             or NotSupportedException
             or UnauthorizedAccessException
             or TaskCanceledException;
+    }
+
+    private sealed record CasePackageUploadResult(
+        bool Success,
+        string FileName,
+        string SourceType,
+        string? ErrorMessage,
+        string? ErrorCategory)
+    {
+        public static CasePackageUploadResult Succeeded(string fileName, string sourceType)
+        {
+            return new CasePackageUploadResult(true, fileName, sourceType, null, null);
+        }
+
+        public static CasePackageUploadResult Failure(string fileName, string sourceType, string errorMessage, string? errorCategory = null)
+        {
+            return new CasePackageUploadResult(false, fileName, sourceType, errorMessage, errorCategory);
+        }
     }
 }

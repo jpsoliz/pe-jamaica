@@ -742,6 +742,7 @@ internal static class TransactionPanelStateTests
             manager,
             new MockInnolaTransactionDetailService(),
             new MockInnolaTransactionLifecycleService(),
+            new MockInnolaSpatialUnitService(),
             readinessService ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(clock),
             new CaseResumePackageService(clock, () => "test"),

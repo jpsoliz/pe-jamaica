@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-06-30
 
 # Story 7.8: Add Enterprise Working Layer Admin Provisioning And Maintenance Settings Tab
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -74,12 +74,12 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
   - [x] Validate case index exists and supports one row per transaction scope.
   - [x] Show warnings for optional issues layer absence, not blockers.
 
-- [ ] Update schema validation for Compute disposition fields. (AC: 9, 13-14)
-  - [ ] Require `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids` on working points, lines, polygons, and case index.
-  - [ ] Validate that `review_decision` supports the expected values: `pending`, `approved`, `rejected`, and `postponed`.
-  - [ ] Validate that rejected/postponed cases have capacity for a useful comment/reason.
-  - [ ] Return an explicit "schema upgrade required" diagnostic for live services missing these fields.
-  - [ ] Keep optional issues layer validation warning-only unless a later story makes issues required.
+- [x] Update schema validation for Compute disposition fields. (AC: 9, 13-14)
+  - [x] Require `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids` on working points, lines, polygons, and case index.
+  - [x] Validate that `review_decision` supports the expected values: `pending`, `approved`, `rejected`, and `postponed`.
+  - [x] Validate that rejected/postponed cases have capacity for a useful comment/reason.
+  - [x] Return an explicit "schema upgrade required" diagnostic for live services missing these fields.
+  - [x] Keep optional issues layer validation warning-only unless a later story makes issues required.
 
 - [x] Implement maintenance cleanup operations. (AC: 6-8)
   - [x] Support cleanup by `transaction_number`.
@@ -119,12 +119,12 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
   - [x] Add tests for empty FeatureServer detection and no-writeback behavior.
   - [x] Add tests for schema-backed publish success payload mapping to `enterprise_working_review.layers`.
 
-- [ ] Rework the provisioned template/schema for Compute disposition support. (AC: 3-5, 8-14)
-  - [ ] Update the schema template generator to include disposition fields on points, lines, polygons, and case index.
-  - [ ] Regenerate the default schema template artifact with the updated fields.
-  - [ ] Decide whether to keep `sidwell_enterprise_working_v1` with additive field validation or introduce a new schema version such as `sidwell_enterprise_working_v2`.
-  - [ ] Ensure live provisioning writes generated URLs only after the final FeatureServer children expose both geometry roles and disposition fields.
-  - [ ] Add regression coverage for old-schema rejection and new-schema success.
+- [x] Rework the provisioned template/schema for Compute disposition support. (AC: 3-5, 8-14)
+  - [x] Update the schema template generator to include disposition fields on points, lines, polygons, and case index.
+  - [x] Regenerate the default schema template artifact with the updated fields.
+  - [x] Decide whether to keep `sidwell_enterprise_working_v1` with additive field validation or introduce a new schema version such as `sidwell_enterprise_working_v2`.
+  - [x] Ensure live provisioning writes generated URLs only after the final FeatureServer children expose both geometry roles and disposition fields.
+  - [x] Add regression coverage for old-schema rejection and new-schema success.
 
 ### Review Findings
 
@@ -133,6 +133,7 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
 - [x] [Live Enterprise Rework] The current live provisioning path creates `working_review` as a hosted Feature Service item, but the service remains empty (`layers: []`, `tables: []`). Settings must not treat this as provisioned. Evidence from `https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer?f=pjson`, item `1187be5fe87f42a5952992dedf5f34c2`.
 - [x] [Live Enterprise Rework] The tested ArcGIS Enterprise 11.5 server accepts empty `createService`, rejects inline layer definitions during `createService`, and rejects all tested `addToDefinition` URL shapes for empty hosted Feature Services. Provisioning must move to a schema-backed publish/template method instead of endpoint guessing.
 - [x] [Live Enterprise Rework] The current invalid empty `working_review` portal item must be deleted or replaced before the corrected provisioning run; otherwise validation/writeback may point at a FeatureServer with no usable child layers.
+- [x] [Review][Patch] Post-provision URL writeback validates disposition fields but not child geometry/capabilities [src/ProcessingTools/admin/provision_enterprise_working_layers.py:870]
 
 ## Live Enterprise Findings From 2026-06-30
 
@@ -377,6 +378,16 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 - Final live provisioning route uses a transient Feature Collection schema item and publishes it to the hosted Feature Service. This is the Enterprise-supported path that created all five working children while preserving `latestWkid: 3448` on this server. The transient Feature Collection item is deleted after publish; the hosted `working_review` Feature Service remains.
 - Live verification created `working_review` with `working_points` `/0`, `working_lines` `/1`, `working_polygons` `/2`, `working_issues` `/3`, and `working_case_index` `/4`.
 - Story 7.7 was amended after this provisioning pass: the existing `sidwell_enterprise_working_v1` template/live service may need additive fields or a replacement schema version before approve/reject/postpone dispositions can be written.
+- Kept `sidwell_enterprise_working_v1` as an additive schema upgrade because the current Settings/admin contract already points to that version and the change is field-additive, not a breaking rename.
+- Added Compute disposition fields to the live Feature Collection schema and FileGDB template generator: `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids`.
+- Added a coded value domain for `review_decision` with `pending`, `approved`, `rejected`, and `postponed`; validation now rejects required working roles missing the fields/domain/comment capacity with an explicit "schema upgrade required" diagnostic.
+- Updated post-provision verification so generated URLs are returned only after the required FeatureServer children are present and their child metadata passes disposition-field validation.
+- Regenerated `src/ProcessingTools/admin/templates/sidwell_enterprise_working_v1.zip`; direct artifact inspection confirmed `working_points`, `working_lines`, `working_polygons`, `working_issues`, `working_case_index`, disposition fields, and EPSG:3448.
+- Verified with `python -m unittest tests.test_enterprise_working_admin`, `python -m unittest discover -s tests` from `src\ProcessingTools`, and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` still fails at existing Innola resume-package test `ResumePackageRestoresSavedWorkflowState` with assertion "Load from resume package should succeed"; the failing test files are not modified by this story.
+- Addressed the final 7.8 review patch: post-provision URL writeback now verifies required child capabilities and geometry types as well as disposition schema before generated URLs can be returned for Settings writeback.
+- Added regression coverage that rejects a published child URL when the `working_lines` role resolves to point geometry.
+- Verified the review patch with `python -m unittest tests.test_enterprise_working_admin`, `python -m unittest discover -s tests` from `src\ProcessingTools`, and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln`.
 
 ### File List
 
@@ -408,3 +419,5 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 | 2026-07-01 | 1.5 | Moved working layer/table creation into the initial `createService` payload after live Enterprise rejected post-create `addToDefinition`; existing empty services now fail with delete/recreate guidance. | Amelia / Codex |
 | 2026-07-01 | 1.6 | Switched live provisioning to publish a transient Feature Collection schema item after Enterprise rejected both post-create `addToDefinition` and layer-bearing `createService`; live `working_review` service provisioned successfully with all five children and EPSG:3448 metadata. | Amelia / Codex |
 | 2026-07-01 | 2.0 | Reopened story for Compute disposition schema support: provisioning and validation must include approve/reject/postpone decision fields across working layers and case index. | Mary / Codex |
+| 2026-07-01 | 2.1 | Implemented additive Compute disposition schema fields, decision-domain validation, schema-upgrade diagnostics, regenerated v1 FileGDB template, and post-provision child field verification. | Amelia / Codex |
+| 2026-07-01 | 2.2 | Addressed review patch by requiring post-provision child capability and geometry validation before generated Enterprise URLs are written back. | Amelia / Codex |

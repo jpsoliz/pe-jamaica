@@ -13,6 +13,34 @@ SPEC = importlib.util.spec_from_file_location("provision_enterprise_working_laye
 admin_script = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(admin_script)
 
+TEMPLATE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "admin" / "create_enterprise_working_schema_template.py"
+TEMPLATE_SPEC = importlib.util.spec_from_file_location("create_enterprise_working_schema_template", TEMPLATE_SCRIPT_PATH)
+template_script = importlib.util.module_from_spec(TEMPLATE_SPEC)
+TEMPLATE_SPEC.loader.exec_module(template_script)
+
+
+def _valid_child_metadata(role: str = "points"):
+    role_fields = {
+        "points": admin_script.POINT_FIELDS,
+        "lines": admin_script.LINE_FIELDS,
+        "polygons": admin_script.POLYGON_FIELDS,
+        "case_index": admin_script.CASE_INDEX_FIELDS,
+        "issues": admin_script.ISSUE_FIELDS,
+    }[role]
+    metadata = {
+        "fields": admin_script._field_definitions([*admin_script.SHARED_FIELDS, *role_fields]),
+        "capabilities": "Query,Create,Update,Delete,Editing",
+    }
+    geometry_types = {
+        "points": "esriGeometryPoint",
+        "lines": "esriGeometryPolyline",
+        "polygons": "esriGeometryPolygon",
+        "issues": "esriGeometryPoint",
+    }
+    if role in geometry_types:
+        metadata["geometryType"] = geometry_types[role]
+    return metadata
+
 
 class EnterpriseWorkingAdminTests(unittest.TestCase):
     def test_validate_requires_case_index_layer(self):
@@ -272,16 +300,31 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             admin_script._post_form = fake_post
             admin_script._post_multipart_file = fake_multipart
             admin_script.Path.exists = lambda self: str(self).endswith("working_review_schema.zip")
-            admin_script._fetch_layer_metadata = lambda url, token_env_var: {
-                "spatialReference": {"wkid": 3448, "latestWkid": 3448},
-                "layers": [
-                    {"id": 0, "name": "working_points"},
-                    {"id": 1, "name": "working_lines"},
-                    {"id": 2, "name": "working_polygons"},
-                    {"id": 4, "name": "working_issues"},
-                ],
-                "tables": [{"id": 3, "name": "working_case_index"}],
-            }
+            def fake_fetch(url, token_env_var):
+                if url.endswith("/FeatureServer"):
+                    return {
+                        "spatialReference": {"wkid": 3448, "latestWkid": 3448},
+                        "layers": [
+                            {"id": 0, "name": "working_points"},
+                            {"id": 1, "name": "working_lines"},
+                            {"id": 2, "name": "working_polygons"},
+                            {"id": 4, "name": "working_issues"},
+                        ],
+                        "tables": [{"id": 3, "name": "working_case_index"}],
+                    }
+                role_by_suffix = {
+                    "/0": "points",
+                    "/1": "lines",
+                    "/2": "polygons",
+                    "/3": "case_index",
+                    "/4": "issues",
+                }
+                for suffix, role in role_by_suffix.items():
+                    if url.endswith(suffix):
+                        return _valid_child_metadata(role)
+                return _valid_child_metadata()
+
+            admin_script._fetch_layer_metadata = fake_fetch
 
             layers = admin_script._provision_live_layers_rest(args)
         finally:
@@ -455,6 +498,7 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
                 field_names = {field["name"] for field in schema["layers"][1]["layerDefinition"]["fields"]}
                 self.assertIn("bearing_txt", field_names)
                 self.assertIn("distance_txt", field_names)
+                self.assertIn("review_decision", field_names)
                 return {"success": True, "id": "feature-collection-item"}
             if url.endswith("/publish"):
                 return {
@@ -476,6 +520,18 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             fetch_count["value"] += 1
             if fetch_count["value"] == 1:
                 raise RuntimeError("not found")
+            if not url.endswith("/FeatureServer"):
+                role_by_suffix = {
+                    "/0": "points",
+                    "/1": "lines",
+                    "/2": "polygons",
+                    "/3": "case_index",
+                    "/4": "issues",
+                }
+                for suffix, role in role_by_suffix.items():
+                    if url.endswith(suffix):
+                        return _valid_child_metadata(role)
+                return _valid_child_metadata()
             return {
                 "spatialReference": {"wkid": 3448, "latestWkid": 3448},
                 "layers": [
@@ -504,6 +560,152 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         )
         self.assertTrue(any(url.endswith("/addItem") for url, _ in post_calls))
         self.assertTrue(any(url.endswith("/publish") for url, _ in post_calls))
+
+    def test_feature_collection_schema_includes_compute_disposition_fields_and_domain(self):
+        args = admin_script.parse_args(["--mode", "provision"])
+
+        schema = admin_script._feature_collection_schema(args)
+
+        for child in schema["layers"]:
+            layer_definition = child["layerDefinition"]
+            if layer_definition["name"] == "working_issues":
+                continue
+
+            fields = {field["name"]: field for field in layer_definition["fields"]}
+            for field_name in (
+                "review_decision",
+                "review_decision_by",
+                "review_decision_utc",
+                "review_comment",
+                "official_comparison_status",
+                "official_reference_ids",
+            ):
+                self.assertIn(field_name, fields, f"{layer_definition['name']} missing {field_name}")
+
+            self.assertGreaterEqual(fields["review_comment"]["length"], 1024)
+            coded_values = {
+                value["code"]
+                for value in fields["review_decision"]["domain"]["codedValues"]
+            }
+            self.assertEqual({"pending", "approved", "rejected", "postponed"}, coded_values)
+
+    def test_file_geodatabase_template_generator_includes_compute_disposition_fields(self):
+        shared_fields = {field_name for field_name, _, _ in template_script.SHARED_FIELDS}
+
+        self.assertIn("review_decision", shared_fields)
+        self.assertIn("review_decision_by", shared_fields)
+        self.assertIn("review_decision_utc", shared_fields)
+        self.assertIn("review_comment", shared_fields)
+        self.assertIn("official_comparison_status", shared_fields)
+        self.assertIn("official_reference_ids", shared_fields)
+
+    def test_validate_fields_reports_schema_upgrade_for_missing_disposition_fields(self):
+        metadata = {
+            "fields": [
+                {"name": field_name}
+                for field_name in (
+                    "transaction_number",
+                    "transaction_id",
+                    "task_id",
+                    "workflow_stage",
+                    "review_state",
+                    "case_status",
+                    "created_by",
+                    "created_utc",
+                    "last_saved_by",
+                    "last_saved_utc",
+                    "run_id",
+                    "is_active",
+                    "edit_generation",
+                )
+            ]
+        }
+        errors = []
+
+        admin_script._validate_fields("points", metadata, errors)
+
+        self.assertTrue(any("schema upgrade required" in error for error in errors))
+        self.assertTrue(any("review_decision" in error for error in errors))
+
+    def test_verified_layer_urls_rejects_old_schema_before_writeback(self):
+        service_url = "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer"
+        parent_metadata = {
+            "layers": [
+                {"id": 0, "name": "working_points"},
+                {"id": 1, "name": "working_lines"},
+                {"id": 2, "name": "working_polygons"},
+                {"id": 3, "name": "working_issues"},
+            ],
+            "tables": [{"id": 4, "name": "working_case_index"}],
+        }
+        old_child_metadata = {
+            "fields": [
+                {"name": field_name}
+                for field_name in (
+                    "transaction_number",
+                    "transaction_id",
+                    "task_id",
+                    "workflow_stage",
+                    "review_state",
+                    "case_status",
+                    "created_by",
+                    "created_utc",
+                    "last_saved_by",
+                    "last_saved_utc",
+                    "run_id",
+                    "is_active",
+                    "edit_generation",
+                )
+            ],
+            "capabilities": "Query,Create,Update,Delete,Editing",
+        }
+
+        def fake_fetch(url, token_env_var):
+            if url == service_url:
+                return parent_metadata
+            return old_child_metadata
+
+        original_fetch = admin_script._fetch_layer_metadata
+        try:
+            admin_script._fetch_layer_metadata = fake_fetch
+            with self.assertRaisesRegex(RuntimeError, "schema upgrade required"):
+                admin_script._verified_layer_urls(service_url, "")
+        finally:
+            admin_script._fetch_layer_metadata = original_fetch
+
+    def test_verified_layer_urls_rejects_wrong_child_geometry_before_writeback(self):
+        service_url = "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer"
+        parent_metadata = {
+            "layers": [
+                {"id": 0, "name": "working_points"},
+                {"id": 1, "name": "working_lines"},
+                {"id": 2, "name": "working_polygons"},
+            ],
+            "tables": [{"id": 4, "name": "working_case_index"}],
+        }
+
+        def fake_fetch(url, token_env_var):
+            if url == service_url:
+                return parent_metadata
+            if url.endswith("/0"):
+                return _valid_child_metadata("points")
+            if url.endswith("/1"):
+                metadata = _valid_child_metadata("lines")
+                metadata["geometryType"] = "esriGeometryPoint"
+                return metadata
+            if url.endswith("/2"):
+                return _valid_child_metadata("polygons")
+            if url.endswith("/4"):
+                return _valid_child_metadata("case_index")
+            return _valid_child_metadata()
+
+        original_fetch = admin_script._fetch_layer_metadata
+        try:
+            admin_script._fetch_layer_metadata = fake_fetch
+            with self.assertRaisesRegex(RuntimeError, "lines layer geometry must be esriGeometryPolyline"):
+                admin_script._verified_layer_urls(service_url, "")
+        finally:
+            admin_script._fetch_layer_metadata = original_fetch
 
     def test_schema_template_publish_resolves_service_item_id_url(self):
         args = admin_script.parse_args(
@@ -579,15 +781,30 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
     def test_verified_layer_urls_are_mapped_by_child_name_not_fixed_position(self):
         original_fetch = admin_script._fetch_layer_metadata
         try:
-            admin_script._fetch_layer_metadata = lambda url, token_env_var: {
-                "layers": [
-                    {"id": 7, "name": "working_polygons"},
-                    {"id": 2, "name": "working_points"},
-                    {"id": 9, "name": "working_issues"},
-                    {"id": 4, "name": "working_lines"},
-                ],
-                "tables": [{"id": 12, "name": "working_case_index"}],
-            }
+            def fake_fetch(url, token_env_var):
+                if url.endswith("/FeatureServer"):
+                    return {
+                        "layers": [
+                            {"id": 7, "name": "working_polygons"},
+                            {"id": 2, "name": "working_points"},
+                            {"id": 9, "name": "working_issues"},
+                            {"id": 4, "name": "working_lines"},
+                        ],
+                        "tables": [{"id": 12, "name": "working_case_index"}],
+                    }
+                role_by_suffix = {
+                    "/2": "points",
+                    "/4": "lines",
+                    "/7": "polygons",
+                    "/9": "issues",
+                    "/12": "case_index",
+                }
+                for suffix, role in role_by_suffix.items():
+                    if url.endswith(suffix):
+                        return _valid_child_metadata(role)
+                return _valid_child_metadata()
+
+            admin_script._fetch_layer_metadata = fake_fetch
 
             layers = admin_script._verified_layer_urls("https://enterprise.local/FeatureServer", "")
         finally:

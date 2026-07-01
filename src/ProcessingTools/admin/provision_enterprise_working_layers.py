@@ -34,9 +34,24 @@ SHARED_FIELDS = (
     "last_saved_by",
     "last_saved_utc",
     "run_id",
+    "review_decision",
+    "review_decision_by",
+    "review_decision_utc",
+    "review_comment",
+    "official_comparison_status",
+    "official_reference_ids",
     "is_active",
     "edit_generation",
 )
+DISPOSITION_FIELDS = (
+    "review_decision",
+    "review_decision_by",
+    "review_decision_utc",
+    "review_comment",
+    "official_comparison_status",
+    "official_reference_ids",
+)
+REVIEW_DECISION_VALUES = ("pending", "approved", "rejected", "postponed")
 FIELD_SPECS = {
     "transaction_number": ("esriFieldTypeString", 64),
     "transaction_id": ("esriFieldTypeString", 64),
@@ -49,6 +64,12 @@ FIELD_SPECS = {
     "last_saved_by": ("esriFieldTypeString", 128),
     "last_saved_utc": ("esriFieldTypeDate", None),
     "run_id": ("esriFieldTypeString", 64),
+    "review_decision": ("esriFieldTypeString", 32),
+    "review_decision_by": ("esriFieldTypeString", 128),
+    "review_decision_utc": ("esriFieldTypeDate", None),
+    "review_comment": ("esriFieldTypeString", 1024),
+    "official_comparison_status": ("esriFieldTypeString", 64),
+    "official_reference_ids": ("esriFieldTypeString", 512),
     "is_active": ("esriFieldTypeInteger", None),
     "edit_generation": ("esriFieldTypeInteger", None),
     "point_id": ("esriFieldTypeString", 64),
@@ -277,7 +298,7 @@ def _validate_live_layers(
         metadata[role] = _summarize_layer_metadata(layer_metadata)
         _validate_capabilities(role, layer_metadata, errors)
         _validate_geometry(role, layer_metadata, errors, warnings)
-        _validate_fields(role, layer_metadata, errors)
+        _validate_fields(role, layer_metadata, errors, warnings)
 
     return metadata
 
@@ -795,12 +816,15 @@ def _assert_working_service_spatial_reference(metadata: dict[str, Any]) -> None:
 
 def _verify_service_children_or_raise(service_url: str, token_env_var: str) -> None:
     metadata = _fetch_layer_metadata(service_url, token_env_var)
-    _layer_urls_from_metadata(service_url, metadata)
+    role_urls = _layer_urls_from_metadata(service_url, metadata)
+    _validate_verified_children_fields(role_urls, token_env_var)
 
 
 def _verified_layer_urls(service_url: str, token_env_var: str) -> dict[str, str]:
     metadata = _fetch_layer_metadata(service_url, token_env_var)
-    return _layer_urls_from_metadata(service_url, metadata)
+    role_urls = _layer_urls_from_metadata(service_url, metadata)
+    _validate_verified_children_fields(role_urls, token_env_var)
+    return role_urls
 
 
 def _layer_urls_from_metadata(service_url: str, metadata: dict[str, Any]) -> dict[str, str]:
@@ -841,6 +865,23 @@ def _layer_urls_from_metadata(service_url: str, metadata: dict[str, Any]) -> dic
         "Target service does not expose the expected working children. "
         f"Missing roles: {', '.join(missing_required)}. Found layers={len(layers)}, tables={len(tables)}."
     )
+
+
+def _validate_verified_children_fields(role_urls: dict[str, str], token_env_var: str) -> None:
+    errors: list[str] = []
+    warnings: list[str] = []
+    for role in REQUIRED_LAYER_ROLES:
+        url = role_urls.get(role, "")
+        if not url:
+            continue
+
+        metadata = _fetch_layer_metadata(url, token_env_var)
+        _validate_capabilities(role, metadata, errors)
+        _validate_geometry(role, metadata, errors, warnings)
+        _validate_fields(role, metadata, errors, warnings)
+
+    if errors:
+        raise RuntimeError(" ".join(errors))
 
 
 def _add_feature_service_definition(service_url: str, definition: dict[str, Any], token_env_var: str) -> None:
@@ -1001,6 +1042,12 @@ def _field_definitions(field_names: tuple[str, ...] | list[str]) -> list[dict[st
         definition = {"name": name, "type": field_type, "alias": name, "nullable": True, "editable": True}
         if length is not None:
             definition["length"] = length
+        if name == "review_decision":
+            definition["domain"] = {
+                "type": "codedValue",
+                "name": "review_decision_domain",
+                "codedValues": [{"name": value.title(), "code": value} for value in REVIEW_DECISION_VALUES],
+            }
         definitions.append(definition)
 
     return definitions
@@ -1104,12 +1151,68 @@ def _validate_geometry(role: str, metadata: dict[str, Any], errors: list[str], w
         warnings.append(f"issues role has unexpected geometry type {geometry_type}.")
 
 
-def _validate_fields(role: str, metadata: dict[str, Any], errors: list[str]) -> None:
-    field_names = {str(field.get("name", "")).lower() for field in metadata.get("fields", [])}
-    required_fields = {"transaction_number"} if role == "case_index" else set(SHARED_FIELDS)
+def _validate_fields(role: str, metadata: dict[str, Any], errors: list[str], warnings: list[str] | None = None) -> None:
+    warnings = warnings if warnings is not None else []
+    fields = [field for field in metadata.get("fields", []) if isinstance(field, dict)]
+    field_names = {str(field.get("name", "")).lower() for field in fields}
+    required_fields = {"transaction_number", *DISPOSITION_FIELDS} if role == "case_index" else set(SHARED_FIELDS)
     missing = sorted(field for field in required_fields if field.lower() not in field_names)
     if missing:
-        errors.append(f"{role} layer is missing required fields: {', '.join(missing)}.")
+        message = (
+            f"{role} layer schema upgrade required: missing required fields for Compute disposition support: "
+            f"{', '.join(missing)}."
+        )
+        if role == "issues":
+            warnings.append(message)
+        else:
+            errors.append(message)
+
+    if role != "issues":
+        _validate_review_decision_domain(role, fields, errors)
+        _validate_review_comment_capacity(role, fields, errors)
+
+
+def _validate_review_decision_domain(role: str, fields: list[dict[str, Any]], errors: list[str]) -> None:
+    review_decision_field = _find_field(fields, "review_decision")
+    if not review_decision_field:
+        return
+
+    domain = review_decision_field.get("domain")
+    coded_values = domain.get("codedValues") if isinstance(domain, dict) else None
+    values = {
+        str(value.get("code") or "").lower()
+        for value in coded_values
+        if isinstance(value, dict)
+    } if isinstance(coded_values, list) else set()
+    missing = [value for value in REVIEW_DECISION_VALUES if value not in values]
+    if missing:
+        errors.append(
+            f"{role} layer schema upgrade required: review_decision must support values "
+            f"{', '.join(REVIEW_DECISION_VALUES)}."
+        )
+
+
+def _validate_review_comment_capacity(role: str, fields: list[dict[str, Any]], errors: list[str]) -> None:
+    review_comment_field = _find_field(fields, "review_comment")
+    if not review_comment_field:
+        return
+
+    length = review_comment_field.get("length")
+    if isinstance(length, int) and length >= 1024:
+        return
+
+    errors.append(
+        f"{role} layer schema upgrade required: review_comment must allow at least 1024 characters "
+        "for rejected/postponed reason text."
+    )
+
+
+def _find_field(fields: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    for field in fields:
+        if str(field.get("name") or "").lower() == name.lower():
+            return field
+
+    return None
 
 
 def _status_for_mode(mode: str, dry_run: bool) -> str:

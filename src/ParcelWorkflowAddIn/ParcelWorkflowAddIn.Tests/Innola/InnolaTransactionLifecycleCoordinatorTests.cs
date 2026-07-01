@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
@@ -92,6 +93,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             manager,
             detailService,
             lifecycleService,
+            new MockInnolaSpatialUnitService(),
             new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
@@ -165,6 +167,104 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal("tester", manifest.Payload.InnolaLifecycle.CompletedBy, "Manifest completed user mismatch.");
     }
 
+    public static async Task CompleteCreatesSpatialUnitAndPersistsReturnedIdBeforeLifecycleComplete()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = Coordinator(manager, service, tempRoot.Path, new FakeReadiness(true), spatialUnits);
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(result.Success, "Complete should succeed when Spatial Unit save succeeds.");
+        TestAssert.Equal(1, spatialUnits.CallCount, "Spatial Unit service should be called once.");
+        TestAssert.Equal(1, service.CompleteCalls, "Lifecycle complete should run after Spatial Unit save.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal("saved", disposition?.SpatialUnitApiStatus, "Disposition should persist Spatial Unit API status.");
+        TestAssert.Equal("su-100000004", disposition?.SpatialUnitId, "Disposition should persist returned Spatial Unit id.");
+        TestAssert.Equal(InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"), disposition?.WorkingPackageFileName, "Disposition should persist completed package file name.");
+        TestAssert.Equal(ShellState.CompletedAttachmentSourceType, disposition?.WorkingPackageSourceType, "Disposition should persist completed package source type.");
+        TestAssert.Equal("uploaded", disposition?.WorkingPackageUploadStatus, "Disposition should persist completed package upload status.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit save.");
+        TestAssert.True(audit.Contains("compute_working_package_uploaded", StringComparison.OrdinalIgnoreCase), "Audit should record package upload.");
+    }
+
+    public static async Task CompleteStopsBeforePackageUploadAndLifecycleCompleteWhenSpatialUnitFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Failed("Could not create Spatial Unit. Try again.", "spatial_unit_unavailable"));
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow());
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+        var before = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        var beforeCount = before.Detail!.Attachments.Count;
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should fail when Spatial Unit save fails.");
+        TestAssert.Equal(1, spatialUnits.CallCount, "Spatial Unit service should be called once.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after Spatial Unit failure.");
+        var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        TestAssert.Equal(beforeCount, after.Detail!.Attachments.Count, "Completed package must not upload after Spatial Unit failure.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal(null, disposition?.SpatialUnitApiStatus, "Failed Spatial Unit save must not be recorded as saved.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_save_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit failure.");
+    }
+
+    public static async Task CompleteStopsBeforeLifecycleCompleteWhenWorkingPackageUploadFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new FailingUploadDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow());
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should fail when package upload fails.");
+        TestAssert.Equal(1, spatialUnits.CallCount, "Spatial Unit save should run before package upload.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after package upload failure.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal("saved", disposition?.SpatialUnitApiStatus, "Spatial Unit status should remain saved after later package failure.");
+        TestAssert.Equal("failed", disposition?.WorkingPackageUploadStatus, "Disposition should persist package upload failure.");
+        TestAssert.Equal(InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"), disposition?.WorkingPackageFileName, "Package file name should be persisted even when upload fails.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_working_package_upload_failed", StringComparison.OrdinalIgnoreCase), "Audit should record package upload failure.");
+    }
+
     public static async Task LifecycleFailuresPreserveStateAndRedactSecrets()
     {
         using var tempRoot = new TempDirectory();
@@ -220,16 +320,42 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         InnolaSessionManager manager,
         IInnolaTransactionLifecycleService lifecycleService,
         string outputRoot,
-        ITransactionCompletionReadinessService? readiness = null)
+        ITransactionCompletionReadinessService? readiness = null,
+        IInnolaSpatialUnitService? spatialUnitService = null)
     {
         return new InnolaTransactionLifecycleCoordinator(
             manager,
             new MockInnolaTransactionDetailService(),
             lifecycleService,
+            spatialUnitService ?? new MockInnolaSpatialUnitService(),
             readiness ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => FixedNow());
+    }
+
+    private static void WriteDisposition(CaseFolderLayout layout)
+    {
+        var document = new ComputeReviewDispositionDocument(
+            "compute_review_disposition_v1",
+            "100000004",
+            "TR100000004",
+            "task-100000004",
+            "approved",
+            "Approved for compute closeout.",
+            "tester",
+            FixedNow().UtcDateTime.ToString("O"),
+            Path.Combine(layout.OutputDirectory, "output_summary.json"),
+            Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json"),
+            "run-output",
+            "written",
+            Path.Combine(layout.OutputDirectory, "enterprise_working_disposition.json"),
+            null,
+            null,
+            null,
+            null,
+            null);
+        new ComputeReviewDispositionPersistenceService().Save(layout, document);
     }
 
     private static InnolaSessionManager LoggedInManager()
@@ -310,6 +436,63 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
             throw new HttpRequestException("token secret-password {raw}");
+        }
+    }
+
+    private sealed class RecordingSpatialUnitService : IInnolaSpatialUnitService
+    {
+        private readonly InnolaSpatialUnitSaveResult result;
+
+        public RecordingSpatialUnitService(InnolaSpatialUnitSaveResult result)
+        {
+            this.result = result;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction transaction,
+            string caseFolderPath,
+            ComputeReviewDispositionDocument disposition,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class FailingUploadDetailService : IInnolaTransactionDetailService
+    {
+        private readonly MockInnolaTransactionDetailService inner = new();
+
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            return inner.GetTransactionDetailAsync(session, selectedTransaction, cancellationToken);
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            return inner.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Failure("Could not upload completed case package. Try again.", "upload_failed"));
         }
     }
 

@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
@@ -31,6 +32,8 @@ public sealed class WorkflowSession
     private readonly OutputSummaryPersistenceService outputSummaryPersistenceService;
     private readonly IEnterpriseWorkingLayerPublishService enterpriseWorkingLayerPublishService;
     private readonly IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService;
+    private readonly IEnterpriseWorkingDispositionService enterpriseWorkingDispositionService;
+    private readonly ComputeReviewDispositionPersistenceService computeReviewDispositionPersistenceService;
     private readonly SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService;
     private readonly ExtractionDecisionGateService extractionDecisionGateService;
     private readonly WorkflowLifecycleAuditService workflowLifecycleAuditService;
@@ -99,6 +102,8 @@ public sealed class WorkflowSession
             new OutputSummaryPersistenceService(),
             new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
+            new JsonEnterpriseWorkingDispositionService(),
+            new ComputeReviewDispositionPersistenceService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
             new WorkflowLifecycleAuditService(),
@@ -133,6 +138,8 @@ public sealed class WorkflowSession
             new OutputSummaryPersistenceService(),
             new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
+            new JsonEnterpriseWorkingDispositionService(),
+            new ComputeReviewDispositionPersistenceService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
             new WorkflowLifecycleAuditService(),
@@ -170,10 +177,57 @@ public sealed class WorkflowSession
             new OutputSummaryPersistenceService(),
             new JsonEnterpriseReviewPublishService(),
             new JsonEnterpriseWorkingStateRestoreService(),
+            new JsonEnterpriseWorkingDispositionService(),
+            new ComputeReviewDispositionPersistenceService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
             new WorkflowLifecycleAuditService(),
             Innola.InnolaTransactionSettings.Load)
+    {
+    }
+
+    public WorkflowSession(
+        CaseFolderStore caseFolderStore,
+        SourceFileCopyService sourceFileCopyService,
+        SourceInputProfileDetector sourceInputProfileDetector,
+        SourceFileActionService sourceFileActionService,
+        SourceFileActionAuditService sourceFileActionAuditService,
+        ManifestPreflightService manifestPreflightService,
+        WorkflowRuleResolver workflowRuleResolver,
+        Func<WorkflowRuleSettings> getWorkflowRuleSettings,
+        IWorkflowScriptExecutor workflowScriptExecutor,
+        ExtractionReviewPersistenceService extractionReviewService,
+        IValidationExecutionService validationExecutionService,
+        ValidationSummaryPersistenceService validationSummaryPersistenceService,
+        IOutputExecutionService outputExecutionService,
+        OutputSummaryPersistenceService outputSummaryPersistenceService,
+        IEnterpriseWorkingLayerPublishService enterpriseWorkingLayerPublishService,
+        IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService,
+        IEnterpriseWorkingDispositionService enterpriseWorkingDispositionService,
+        ComputeReviewDispositionPersistenceService computeReviewDispositionPersistenceService,
+        SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService)
+        : this(
+            caseFolderStore,
+            sourceFileCopyService,
+            sourceInputProfileDetector,
+            sourceFileActionService,
+            sourceFileActionAuditService,
+            manifestPreflightService,
+            workflowRuleResolver,
+            getWorkflowRuleSettings,
+            workflowScriptExecutor,
+            extractionReviewService,
+            validationExecutionService,
+            validationSummaryPersistenceService,
+            outputExecutionService,
+            outputSummaryPersistenceService,
+            enterpriseWorkingLayerPublishService,
+            enterpriseWorkingStateRestoreService,
+            enterpriseWorkingDispositionService,
+            computeReviewDispositionPersistenceService,
+            spatialReviewApprovalPersistenceService,
+            new ExtractionDecisionGateService(),
+            new WorkflowLifecycleAuditService())
     {
     }
 
@@ -212,6 +266,8 @@ public sealed class WorkflowSession
             outputSummaryPersistenceService,
             enterpriseWorkingLayerPublishService,
             enterpriseWorkingStateRestoreService,
+            new JsonEnterpriseWorkingDispositionService(),
+            new ComputeReviewDispositionPersistenceService(),
             spatialReviewApprovalPersistenceService,
             new ExtractionDecisionGateService(),
             new WorkflowLifecycleAuditService())
@@ -235,6 +291,8 @@ public sealed class WorkflowSession
         OutputSummaryPersistenceService outputSummaryPersistenceService,
         IEnterpriseWorkingLayerPublishService enterpriseWorkingLayerPublishService,
         IEnterpriseWorkingStateRestoreService enterpriseWorkingStateRestoreService,
+        IEnterpriseWorkingDispositionService enterpriseWorkingDispositionService,
+        ComputeReviewDispositionPersistenceService computeReviewDispositionPersistenceService,
         SpatialReviewApprovalPersistenceService spatialReviewApprovalPersistenceService,
         ExtractionDecisionGateService extractionDecisionGateService,
         WorkflowLifecycleAuditService workflowLifecycleAuditService,
@@ -256,6 +314,8 @@ public sealed class WorkflowSession
         this.outputSummaryPersistenceService = outputSummaryPersistenceService;
         this.enterpriseWorkingLayerPublishService = enterpriseWorkingLayerPublishService;
         this.enterpriseWorkingStateRestoreService = enterpriseWorkingStateRestoreService;
+        this.enterpriseWorkingDispositionService = enterpriseWorkingDispositionService;
+        this.computeReviewDispositionPersistenceService = computeReviewDispositionPersistenceService;
         this.spatialReviewApprovalPersistenceService = spatialReviewApprovalPersistenceService;
         this.extractionDecisionGateService = extractionDecisionGateService;
         this.workflowLifecycleAuditService = workflowLifecycleAuditService;
@@ -1142,6 +1202,105 @@ public sealed class WorkflowSession
                 ? $"Enterprise Parcel Fabric publish failed. Local outputs remain available. {publishResult.Message}"
                 : $"Enterprise working-layer publish failed. Local outputs remain available. {publishResult.Message}";
         return publishResult;
+    }
+
+    public async Task<ComputeReviewDispositionResult> RecordComputeDispositionAsync(
+        ComputeReviewDecision decision,
+        string? comment,
+        string? operatorId,
+        CancellationToken cancellationToken = default)
+    {
+        if (CurrentState != WorkflowState.SpatialReviewApproved || string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            StatusText = "Compute disposition can only be recorded after Final Review is marked reviewed.";
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        if (decision is ComputeReviewDecision.Rejected or ComputeReviewDecision.Postponed
+            && string.IsNullOrWhiteSpace(comment))
+        {
+            StatusText = "Reject and Postpone require a review comment.";
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+            currentOutputSummary ??= outputSummaryPersistenceService.Load(layout);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            StatusText = "Compute disposition could not start because current case artifacts could not be read.";
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        if (currentOutputSummary is null)
+        {
+            StatusText = "Compute disposition requires a current output summary.";
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        var enterprisePublish = currentOutputSummary.Payload.EnterpriseWorkingPublish;
+        var enterprisePublishPath = Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json");
+        if (enterprisePublish is null || !File.Exists(enterprisePublishPath))
+        {
+            StatusText = "Compute disposition requires current Enterprise working publish evidence.";
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        var request = new ComputeReviewDispositionRequest(
+            decision,
+            comment,
+            operatorId,
+            currentOutputSummary,
+            enterprisePublish,
+            Path.Combine(layout.OutputDirectory, outputSummaryPersistenceService.OutputArtifactFileName),
+            enterprisePublishPath);
+        var enterpriseResult = await enterpriseWorkingDispositionService
+            .RecordDispositionAsync(layout, manifest, request, cancellationToken)
+            .ConfigureAwait(false);
+        if (!enterpriseResult.Success)
+        {
+            StatusText = enterpriseResult.Message;
+            return ComputeReviewDispositionResult.Failed(StatusText);
+        }
+
+        var transaction = manifest.Payload.InnolaTransaction;
+        var document = new ComputeReviewDispositionDocument(
+            "1.0.0",
+            manifest.TransactionId,
+            transaction?.TransactionNumber ?? manifest.TransactionId,
+            transaction?.TaskId,
+            decision.ToContractValue(),
+            comment,
+            operatorId,
+            DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+            request.OutputSummaryPath,
+            request.EnterprisePublishPath,
+            currentOutputSummary.RunId,
+            "recorded",
+            enterpriseResult.EvidencePath,
+            "not_started",
+            null,
+            null,
+            null,
+            null);
+        var artifactPath = computeReviewDispositionPersistenceService.Save(layout, document);
+        UpsertAvailableArtifact(new AvailableArtifact(ComputeReviewDispositionPersistenceService.DispositionArtifactFileName, artifactPath));
+        if (!string.IsNullOrWhiteSpace(enterpriseResult.EvidencePath) && File.Exists(enterpriseResult.EvidencePath))
+        {
+            UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(enterpriseResult.EvidencePath), enterpriseResult.EvidencePath));
+        }
+
+        StatusText = $"Compute review {decision.ToContractValue()} disposition recorded.";
+        return ComputeReviewDispositionResult.Succeeded(StatusText, artifactPath, document);
     }
 
     private void PersistEnterprisePublishResult(CaseFolderLayout layout, EnterpriseWorkingLayerPublishResult publishResult)

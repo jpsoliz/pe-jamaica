@@ -26,6 +26,12 @@ SHARED_FIELDS = (
     ("last_saved_by", "string", 128),
     ("last_saved_utc", "datetime", None),
     ("run_id", "string", 64),
+    ("review_decision", "string", 32),
+    ("review_decision_by", "string", 128),
+    ("review_decision_utc", "datetime", None),
+    ("review_comment", "string", 1024),
+    ("official_comparison_status", "string", 64),
+    ("official_reference_ids", "string", 512),
     ("is_active", "integer", None),
     ("edit_generation", "integer", None),
 )

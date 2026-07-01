@@ -5,6 +5,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
@@ -1140,6 +1141,60 @@ internal static class WorkflowSessionTests
         throw new InvalidOperationException("Delete results failure should throw.");
     }
 
+    public static void WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema()
+    {
+        var payload = new JsonObject
+        {
+            ["records"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["geometry"] = new JsonObject
+                    {
+                        ["x"] = 680920.044,
+                        ["y"] = 639209.18
+                    },
+                    ["row_id"] = "338",
+                    ["point_identifier"] = "338",
+                    ["parcel_group_id"] = "parcel-001",
+                    ["parcel_name"] = "110402901",
+                    ["source_evidence"] = "BELLEV029GEOLANCOMSHEET.pdf",
+                    ["status"] = "approved",
+                    ["point_order"] = 1,
+                    ["sequence_in_group"] = 1,
+                    ["doc_type_id"] = "GEOLAND_COMPUTATION_TABLE_V1",
+                    ["length"] = "7.60",
+                    ["distance_txt"] = "7.60",
+                    ["transaction_number"] = "100000416",
+                    ["created_utc"] = "2026-07-01T06:27:36.4063171Z",
+                    ["last_saved_utc"] = "2026-07-01T06:27:36.4063171Z",
+                    ["is_active"] = 1,
+                    ["edit_generation"] = 1
+                }
+            }
+        };
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "BuildArcGisFeatures",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var features = (JsonArray?)method?.Invoke(null, new object[] { payload, "points" });
+
+        TestAssert.True(features is not null, "Point Enterprise features should be built.");
+        var feature = features![0]!.AsObject();
+        var attributes = feature["attributes"]!.AsObject();
+        TestAssert.Equal("338", attributes["point_id"]?.GetValue<string>(), "Point identifier should map into the Enterprise point_id field.");
+        TestAssert.Equal("approved", attributes["status_txt"]?.GetValue<string>(), "Raw point status should map into status_txt.");
+        TestAssert.Equal("BELLEV029GEOLANCOMSHEET.pdf", attributes["source_txt"]?.GetValue<string>(), "Source evidence should map into source_txt.");
+        TestAssert.True(attributes["created_utc"]?.GetValue<long>() > 0, "Enterprise date fields should be serialized as ArcGIS epoch milliseconds.");
+        TestAssert.True(!attributes.ContainsKey("point_identifier"), "Raw point_identifier should not be sent to Enterprise.");
+        TestAssert.True(!attributes.ContainsKey("point_order"), "Raw point_order should not be sent to Enterprise.");
+        TestAssert.True(!attributes.ContainsKey("sequence_in_group"), "Raw sequence_in_group should not be sent to Enterprise.");
+        TestAssert.True(!attributes.ContainsKey("doc_type_id"), "Raw extraction metadata should not be sent to Enterprise.");
+        TestAssert.True(!attributes.ContainsKey("length"), "Unsupported point length should not be sent to Enterprise.");
+        TestAssert.True(!attributes.ContainsKey("distance_txt"), "Unsupported point distance_txt should not be sent to Enterprise.");
+        TestAssert.True(feature.ContainsKey("geometry"), "Geometry should still be sent with the filtered attributes.");
+    }
+
     public static void WorkflowSessionEnterprisePublishRequiresCaseIndexTarget()
     {
         using var tempRoot = new TempDirectory();
@@ -1191,6 +1246,70 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.SpatialReviewApproved, session.CurrentState, "Enterprise publish failure should not revoke the approved spatial review state.");
         TestAssert.True(File.Exists(Path.Combine(layout.OutputDirectory, "output_summary.json")), "Local output summary should remain intact.");
         TestAssert.True(session.StatusText.Contains("enterprise working-layer publish failed", StringComparison.OrdinalIgnoreCase), "Status should explain the enterprise publish failure.");
+    }
+
+    public static void WorkflowSessionRecordsApprovedComputeDispositionArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Looks correct.", "tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Approved Compute disposition should be recorded.");
+        var artifactPath = Path.Combine(layout.WorkingDirectory, "compute_review_disposition.json");
+        TestAssert.True(File.Exists(artifactPath), "Disposition artifact should be written.");
+        using var document = JsonDocument.Parse(File.ReadAllText(artifactPath));
+        var root = document.RootElement;
+        TestAssert.Equal("approved", root.GetProperty("decision").GetString(), "Disposition decision mismatch.");
+        TestAssert.Equal("Looks correct.", root.GetProperty("comment").GetString(), "Disposition comment mismatch.");
+        TestAssert.Equal("100000206", root.GetProperty("transaction_number").GetString(), "Disposition transaction number mismatch.");
+        TestAssert.Equal("tester", root.GetProperty("operator_id").GetString(), "Disposition operator mismatch.");
+        TestAssert.Equal("output_summary.json", Path.GetFileName(root.GetProperty("output_summary_ref").GetString()), "Output summary ref mismatch.");
+        TestAssert.Equal("enterprise_working_publish.json", Path.GetFileName(root.GetProperty("enterprise_publish_ref").GetString()), "Publish ref mismatch.");
+    }
+
+    public static void WorkflowSessionDispositionWritebackUpdatesScopedEnterpriseRows()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+
+        var result = session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Approved after comparison.", "tester").GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Disposition writeback should succeed.");
+        foreach (var enterpriseFile in new[]
+        {
+            "enterprise-points.json",
+            "enterprise-lines.json",
+            "enterprise-polygons.json",
+            "enterprise-case-index.json"
+        })
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(tempRoot.Path, enterpriseFile)));
+            var record = document.RootElement.GetProperty("Records")[0].GetProperty("Payload").GetProperty("records")[0];
+            TestAssert.Equal("approved", record.GetProperty("review_decision").GetString(), $"{enterpriseFile} decision mismatch.");
+            TestAssert.Equal("tester", record.GetProperty("review_decision_by").GetString(), $"{enterpriseFile} decision by mismatch.");
+            TestAssert.Equal("Approved after comparison.", record.GetProperty("review_comment").GetString(), $"{enterpriseFile} comment mismatch.");
+            TestAssert.Equal("final_review_decided", record.GetProperty("review_state").GetString(), $"{enterpriseFile} review state mismatch.");
+            TestAssert.Equal("review_closed", record.GetProperty("case_status").GetString(), $"{enterpriseFile} case status mismatch.");
+        }
     }
 
     public static void WorkflowSessionEnterpriseParcelFabricPublishesDuringOutputsWhenConfigured()
@@ -1718,6 +1837,8 @@ internal static class WorkflowSessionTests
             new OutputSummaryPersistenceService(),
             enterpriseWorkingLayerPublishService ?? new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
             enterpriseWorkingStateRestoreService ?? new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
+            new JsonEnterpriseWorkingDispositionService(settingsLoader ?? InnolaTransactionSettings.Load),
+            new ComputeReviewDispositionPersistenceService(),
             new SpatialReviewApprovalPersistenceService(),
             new ExtractionDecisionGateService(),
             new WorkflowLifecycleAuditService(),

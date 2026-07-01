@@ -18,6 +18,8 @@ internal static class ShellState
 
     public static IInnolaTransactionLifecycleService TransactionLifecycle { get; } = CreateTransactionLifecycleService();
 
+    public static IInnolaSpatialUnitService SpatialUnits { get; } = CreateSpatialUnitService();
+
     public static ITransactionCompletionReadinessService CompletionReadiness { get; } = new DefaultTransactionCompletionReadinessService();
 
     public static WorkflowLifecycleAuditService LifecycleAudit { get; } = new();
@@ -39,6 +41,7 @@ internal static class ShellState
         Session,
         TransactionDetails,
         TransactionLifecycle,
+        SpatialUnits,
         CompletionReadiness,
         LifecycleAudit,
         ResumePackages);
@@ -103,5 +106,12 @@ internal static class ShellState
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaTransactionLifecycleService()
             : new InnolaTransactionLifecycleService(SharedInnolaHttpClient);
+    }
+
+    private static IInnolaSpatialUnitService CreateSpatialUnitService()
+    {
+        return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
+            ? new MockInnolaSpatialUnitService()
+            : new InnolaSpatialUnitService(SharedInnolaHttpClient);
     }
 }
