@@ -419,6 +419,63 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/0", paths[2], "Working points should load last.");
     }
 
+    public static void EnterpriseWorkingLayersModeFallsBackToLocalOutputsWhenPublishEvidenceIsMissing()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000416",
+            "run-3c",
+            "2026-07-01T00:00:00Z",
+            "tester",
+            "hash-3c",
+            new OutputSummaryPayload(
+                "created",
+                "enterprise_working_layers",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                new[]
+                {
+                    @"C:\case\output\case.gdb\parcel_points",
+                    @"C:\case\output\case.gdb\parcel_lines",
+                    @"C:\case\output\case.gdb\parcel_polygons",
+                    @"C:\case\output\case.gdb\survey_cad_reference"
+                },
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                46,
+                55,
+                10,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var service = new OutputSummaryPersistenceService();
+        var paths = service.GetMapLayerPaths(summary);
+
+        TestAssert.Equal(4, paths.Count, "Enterprise working mode should keep local GDB layers loadable when publish evidence is missing.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[0], "Local points should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[1], "Local lines should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[2], "Local polygons should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\survey_cad_reference", paths[3], "Optional local supporting layers should remain available.");
+    }
+
     public static void BuildSuccessMessageUsesEnterpriseParcelFabricLanguage()
     {
         var summary = new OutputSummaryDocument(

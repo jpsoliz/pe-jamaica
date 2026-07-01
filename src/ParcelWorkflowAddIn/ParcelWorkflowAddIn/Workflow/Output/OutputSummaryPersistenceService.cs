@@ -112,12 +112,15 @@ public sealed class OutputSummaryPersistenceService
             var polygonsLayer = publishedLayers.FirstOrDefault(layer =>
                 string.Equals(layer.LayerRole, "polygons", StringComparison.OrdinalIgnoreCase))?.Target;
 
-            paths = new string?[]
+            var enterprisePaths = new string?[]
             {
                 polygonsLayer,
                 linesLayer,
                 pointsLayer
             };
+            paths = enterprisePaths.Any(path => !string.IsNullOrWhiteSpace(path))
+                ? enterprisePaths
+                : LocalOutputMapLayerPaths(summary.Payload);
         }
 
         return paths
@@ -125,6 +128,21 @@ public sealed class OutputSummaryPersistenceService
             .Select(path => path!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static IEnumerable<string?> LocalOutputMapLayerPaths(OutputSummaryPayload payload)
+    {
+        if (payload.MapLayerPaths.Count > 0)
+        {
+            return payload.MapLayerPaths;
+        }
+
+        return new string?[]
+        {
+            payload.PolygonFeatureClassPath,
+            payload.LineFeatureClassPath,
+            payload.PointFeatureClassPath
+        };
     }
 
     public bool IsCreated(OutputSummaryDocument? document)

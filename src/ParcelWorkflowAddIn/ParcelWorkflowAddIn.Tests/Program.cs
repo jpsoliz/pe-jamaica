@@ -164,6 +164,7 @@ var tests = new (string Name, Action Run)[]
     ("output summary persistence returns parcel fabric layer plus review overlays", OutputMapReviewStylingTests.ParcelFabricModeReturnsFabricLayerPlusReviewOverlays),
     ("output summary persistence returns enterprise parcel fabric targets plus overlays", OutputMapReviewStylingTests.EnterpriseParcelFabricModeReturnsPublishedFabricTargetsPlusOverlays),
     ("output summary persistence returns enterprise working layer targets", OutputMapReviewStylingTests.EnterpriseWorkingLayersModeReturnsTransactionScopedWorkingTargets),
+    ("output summary persistence keeps local enterprise working outputs loadable without publish evidence", OutputMapReviewStylingTests.EnterpriseWorkingLayersModeFallsBackToLocalOutputsWhenPublishEvidenceIsMissing),
     ("output map review styling uses enterprise parcel fabric review messaging", OutputMapReviewStylingTests.BuildSuccessMessageUsesEnterpriseParcelFabricLanguage),
     ("review source resolver prefers computation first", ReviewSourceSelectionResolverTests.ResolverPrefersComputationThenPointsThenPlan),
     ("review source resolver keeps explicit selection", ReviewSourceSelectionResolverTests.ResolverKeepsExplicitSelectionWhenAvailable),

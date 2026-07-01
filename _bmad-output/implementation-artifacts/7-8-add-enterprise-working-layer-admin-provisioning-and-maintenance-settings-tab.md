@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-06-30
 
 # Story 7.8: Add Enterprise Working Layer Admin Provisioning And Maintenance Settings Tab
 
-Status: review
+Status: ready-for-dev
 
 ## Story
 
@@ -14,11 +14,15 @@ so that testing and deployment teams can create, verify, and maintain the shared
 
 ## Business Context
 
-Story 7.7 now targets generic Enterprise working layers for transaction review: working points, lines, polygons/parcels, and a case index. Those layers must exist before examiners can publish validated spatial units into Enterprise.
+Story 7.7 now targets generic Enterprise working layers for transaction review: working points, lines, polygons/parcels, and a case index. Those layers must exist before examiners can publish validated spatial units into Enterprise and before Final Review can record the Compute disposition (`approved`, `rejected`, or `postponed`).
 
 Creating and maintaining these layers is an **admin task**. It should not happen silently during `Create Spatial Units`, `Final Review`, or `Finalize`.
 
 During testing, admins also need a controlled cleanup path because working layers may accumulate test transaction geometry. Cleanup must be explicit, scoped, and auditable.
+
+## Latest Review Adjustment
+
+Compute is a temporary document-geometry review stage. The Enterprise working workspace must now support both the generated geometry and the examiner's Final Review disposition. Provisioned schemas and validation rules must include disposition fields across working points, lines, polygons, and the case index so approved, rejected, and postponed Compute outcomes can be stored in Enterprise without implying authoritative cadastral promotion.
 
 ## Acceptance Criteria
 
@@ -34,6 +38,8 @@ During testing, admins also need a controlled cleanup path because working layer
 10. Given this story is complete, when an examiner processes a transaction, then normal transaction workflow can only consume configured/validated Enterprise working layers; it does not create or clean up Enterprise layers automatically.
 11. Given live Enterprise provisioning is run against `https://jm-gis.innola-solutions.com/portal`, when provisioning returns success, then the resulting FeatureServer must expose real child resources for the required roles (`/0`, `/1`, `/2`, `/3`) and optional issues role (`/4`) before URLs are written back.
 12. Given the portal/server rejects empty-service `addToDefinition` provisioning, when the admin script provisions working layers, then it must use a schema-backed publish/template path rather than reporting success for an empty hosted Feature Service shell.
+13. Given Story 7.7 now records Compute dispositions, when provisioning or validation runs, then the working points, lines, polygons, and case index must contain the required disposition fields for `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids`.
+14. Given an existing Enterprise working service was provisioned with the older v1 schema, when Settings validation runs, then it must report a clear schema upgrade/remediation message instead of treating the service as ready for Compute approve/reject/postpone decisions.
 
 ## Tasks / Subtasks
 
@@ -67,6 +73,13 @@ During testing, admins also need a controlled cleanup path because working layer
   - [x] Validate geometry type for points, lines, and polygons.
   - [x] Validate case index exists and supports one row per transaction scope.
   - [x] Show warnings for optional issues layer absence, not blockers.
+
+- [ ] Update schema validation for Compute disposition fields. (AC: 9, 13-14)
+  - [ ] Require `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids` on working points, lines, polygons, and case index.
+  - [ ] Validate that `review_decision` supports the expected values: `pending`, `approved`, `rejected`, and `postponed`.
+  - [ ] Validate that rejected/postponed cases have capacity for a useful comment/reason.
+  - [ ] Return an explicit "schema upgrade required" diagnostic for live services missing these fields.
+  - [ ] Keep optional issues layer validation warning-only unless a later story makes issues required.
 
 - [x] Implement maintenance cleanup operations. (AC: 6-8)
   - [x] Support cleanup by `transaction_number`.
@@ -105,6 +118,13 @@ During testing, admins also need a controlled cleanup path because working layer
   - [x] If an existing target service exists but has no layers/tables, fail with a clear remediation message telling the admin to delete or replace the invalid empty service.
   - [x] Add tests for empty FeatureServer detection and no-writeback behavior.
   - [x] Add tests for schema-backed publish success payload mapping to `enterprise_working_review.layers`.
+
+- [ ] Rework the provisioned template/schema for Compute disposition support. (AC: 3-5, 8-14)
+  - [ ] Update the schema template generator to include disposition fields on points, lines, polygons, and case index.
+  - [ ] Regenerate the default schema template artifact with the updated fields.
+  - [ ] Decide whether to keep `sidwell_enterprise_working_v1` with additive field validation or introduce a new schema version such as `sidwell_enterprise_working_v2`.
+  - [ ] Ensure live provisioning writes generated URLs only after the final FeatureServer children expose both geometry roles and disposition fields.
+  - [ ] Add regression coverage for old-schema rejection and new-schema success.
 
 ### Review Findings
 
@@ -174,16 +194,22 @@ Required shared fields across spatial working layers:
 | `task_id` | Text(64) | Innola task id |
 | `workflow_stage` | Text(64) | Current workflow stage |
 | `review_state` | Text(64) | Working review state |
-| `case_status` | Text(64) | active/review_pending/completed/failed |
+| `case_status` | Text(64) | active/review_pending/review_closed/failed |
 | `created_by` | Text(128) | Initial publisher |
 | `created_utc` | Date | Initial publish time |
 | `last_saved_by` | Text(128) | Last publisher |
 | `last_saved_utc` | Date | Last publish time |
 | `run_id` | Text(64) | Output run id |
+| `review_decision` | Text(32) | pending/approved/rejected/postponed |
+| `review_decision_by` | Text(128) | Examiner/operator who recorded the disposition |
+| `review_decision_utc` | Date | Disposition timestamp |
+| `review_comment` | Text(1024) | Reason/comment, required or strongly recommended for reject/postpone |
+| `official_comparison_status` | Text(64) | CADMAP/CADINDEX comparison status, for example not_checked/matches_reference/conflict_found/needs_research |
+| `official_reference_ids` | Text(512) | CADMAP/CADINDEX identifiers or compact reference notes |
 | `is_active` | Short | Active row flag |
 | `edit_generation` | Long | Republish generation |
 
-Role-specific fields are inherited from Story 7.7 and should not diverge unless that story is updated.
+Role-specific fields are inherited from Story 7.7 and should not diverge unless that story is updated. The case index must also include the disposition fields because it is the transaction-level lookup used for resume, review outcome, and closeout readiness.
 
 ## Recommended Settings Contract
 
@@ -262,7 +288,7 @@ Allowed cleanup scopes:
 - `transaction_number = 100000416`
 - specific test batch id if implemented
 - inactive rows older than a specified timestamp
-- rows with `case_status` in an explicit test/failed/cleanup-eligible state
+- rows with `case_status` in an explicit test/failed/review_closed/cleanup-eligible state
 
 Disallowed default:
 
@@ -288,6 +314,7 @@ Recommended safe default:
 - The current script has useful validation/cleanup scaffolding, JSON diagnostics, error-response guarding, and post-provision child-layer verification; preserve those pieces.
 - The current live provisioning strategy is not sufficient for the tested Enterprise server because the created service shell has no physical child layers/tables.
 - The next implementation should either replace `_provision_live_layers_rest` or route it to a schema-backed publish implementation while preserving the existing CLI contract used by Settings.
+- Story 7.7 now requires Compute disposition fields. Existing live `working_review` services/templates created before this amendment may validate structurally but still be incomplete for approve/reject/postpone closeout; validation must detect this and report a schema upgrade requirement.
 
 ## Suggested Areas
 
@@ -309,6 +336,8 @@ Minimum verification:
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`
 - Python unit tests for provisioning argument construction and JSON diagnostics in test/offline mode.
+- Python/admin schema tests proving the generated template includes the Compute disposition fields.
+- Settings validation tests proving older schemas without disposition fields are blocked in `enterprise_working_layers` mode.
 
 Live portal smoke testing is separate and requires admin credentials at runtime.
 
@@ -341,6 +370,13 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 - Created the schema template generator and checked-in default FileGDB zip template at `src/ProcessingTools/admin/templates/sidwell_enterprise_working_v1.zip`.
 - Updated provisioning URL writeback to map FeatureServer child URLs by published child name instead of assuming fixed numeric IDs, so `working_case_index` remains correct if Enterprise assigns table IDs after feature layers.
 - Verified the generated FileGDB contains `working_points`, `working_lines`, `working_polygons`, `working_issues`, and `working_case_index` with the expected shared and role-specific fields.
+- 2026-07-01 live Enterprise testing found Portal accepts the FileGDB template upload but may publish it as an empty Feature Service in this environment. The live provisioning flow now creates/uses the target hosted Feature Service directly, requires service-level JAD2001 / Jamaica Metric Grid (EPSG:3448), and adds the five working children through `addToDefinition`.
+- The current live `working_review` Portal item was created earlier with Web Mercator (`102100/3857`). Provision now rejects it with a clear delete-and-recreate message; delete the test `working_review` service item, then run Provision again so the service can be created in EPSG:3448 before child layers are added.
+- Verified focused admin coverage with `python -m unittest tests.test_enterprise_working_admin` from `src\ProcessingTools` after the direct-service EPSG:3448 provisioning rework.
+- Follow-up live testing showed this Enterprise server also rejects post-create `addToDefinition` for the hosted Feature Service. Provisioning now includes `working_points`, `working_lines`, `working_polygons`, `working_issues`, and `working_case_index` in the initial `createService` request. Any existing empty service must be deleted before retrying Provision.
+- Final live provisioning route uses a transient Feature Collection schema item and publishes it to the hosted Feature Service. This is the Enterprise-supported path that created all five working children while preserving `latestWkid: 3448` on this server. The transient Feature Collection item is deleted after publish; the hosted `working_review` Feature Service remains.
+- Live verification created `working_review` with `working_points` `/0`, `working_lines` `/1`, `working_polygons` `/2`, `working_issues` `/3`, and `working_case_index` `/4`.
+- Story 7.7 was amended after this provisioning pass: the existing `sidwell_enterprise_working_v1` template/live service may need additive fields or a replacement schema version before approve/reject/postpone dispositions can be written.
 
 ### File List
 
@@ -368,3 +404,7 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 | 2026-06-30 | 1.1 | Reopened story based on live Enterprise findings: empty FeatureService shell was created but child layers/tables were not; next dev pass must implement schema-backed publish provisioning and strict no-writeback validation. | Mary / Codex |
 | 2026-06-30 | 1.2 | Implemented schema-backed template publish provisioning, empty-service rejection, failed-live no-writeback behavior, and regression tests. | Amelia / Codex |
 | 2026-06-30 | 1.3 | Added reproducible FileGDB schema template generator, default zipped schema template, and name-based FeatureServer child URL mapping for published layers/tables. | Amelia / Codex |
+| 2026-07-01 | 1.4 | Reworked live provisioning to create/use an EPSG:3448 hosted Feature Service directly, add full working layer/table definitions through Enterprise admin endpoints, reject wrong-SR existing services, and cover Portal duplicate-template/existing-service response shapes. | Amelia / Codex |
+| 2026-07-01 | 1.5 | Moved working layer/table creation into the initial `createService` payload after live Enterprise rejected post-create `addToDefinition`; existing empty services now fail with delete/recreate guidance. | Amelia / Codex |
+| 2026-07-01 | 1.6 | Switched live provisioning to publish a transient Feature Collection schema item after Enterprise rejected both post-create `addToDefinition` and layer-bearing `createService`; live `working_review` service provisioned successfully with all five children and EPSG:3448 metadata. | Amelia / Codex |
+| 2026-07-01 | 2.0 | Reopened story for Compute disposition schema support: provisioning and validation must include approve/reject/postpone decision fields across working layers and case index. | Mary / Codex |

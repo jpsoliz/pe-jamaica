@@ -5,13 +5,13 @@ course_correction_date: 2026-06-30
 
 # Story 7.7: Publish Validated Spatial Units Into Enterprise Generic Working Layers
 
-Status: done
+Status: ready-for-dev
 
 ## Story
 
 As a cadastral examiner working in a distributed environment,  
 I want validated parcel geometry published into shared Enterprise working layers,  
-so that points, lines, parcels, and transaction status can be reviewed in ArcGIS Enterprise without treating the working layer as the final authoritative cadastral system.
+so that points, lines, parcels, transaction status, and the examiner's Compute review decision can be reviewed in ArcGIS Enterprise without treating the working layer as the final authoritative cadastral system.
 
 ## Course Correction
 
@@ -25,6 +25,20 @@ This story was previously drafted around `enterprise_parcel_fabric`. The current
 
 Enterprise Parcel Fabric remains a future/deferred path. The active implementation target for this story is `review_workspace_mode = enterprise_working_layers`.
 
+## Latest Review Adjustment
+
+Compute is a document-geometry review stage, not final cadastral production.
+
+The goal of Compute is to review the submitted transaction documents (`.pdf`, `.csv`, `.txt`, `.dwg`, and related attachments), validate whether the derived geometry is correct, and publish a temporary transaction-scoped working parcel into Enterprise working layers for comparison against official reference data such as CADMAP and CADINDEX.
+
+After `Final Review`, the examiner must be able to record a Compute review disposition:
+
+- `approved`
+- `rejected`
+- `postponed`
+
+All dispositions must update the Enterprise working points, lines, polygons, and case index with the decision metadata. Approval means the submitted geometry passed Compute review; it does **not** mean the geometry has been promoted into the authoritative cadastre.
+
 ## Acceptance Criteria
 
 1. Given a transaction has completed `Validate Points` and `Create Spatial Units`, when `review_workspace_mode = enterprise_working_layers` and publish timing is satisfied, then the add-in publishes the validated spatial units into configured Enterprise working point, line, polygon, and case-index targets.
@@ -32,9 +46,11 @@ Enterprise Parcel Fabric remains a future/deferred path. The active implementati
 3. Given Innola transaction context is available, when working features are written, then every point, line, polygon, and case-index row includes transaction metadata needed to link the Enterprise geometry back to Innola.
 4. Given the case-index target is configured, when publish succeeds, then the add-in writes or updates one case-index row for the transaction with owner, status, stage, publish timestamp, output run id, and review readiness.
 5. Given reviewer usability depends on labels and traceability, when the working layer map context is loaded, then the add-in can load the Enterprise working layers and preserve point ids, bearing/distance line labels, parcel labels, and transaction-scoped filtering.
-6. Given Enterprise publish can fail because of service, auth, schema, or network issues, when failure occurs, then local artifacts remain intact, the workflow records a clear diagnostic artifact, and Finalize is not marked ready from a failed publish.
-7. Given Final Review is approved after Enterprise working-layer publication, when Finalize readiness is evaluated, then readiness can confirm the latest transaction-scoped working publish exists and is linked to the current output summary.
-8. Given authoritative promotion remains separate, when this story is complete, then the working layer is clearly described as temporary/review state, not the final authoritative cadastral layer.
+6. Given Enterprise publish can fail because of service, auth, schema, or network issues, when failure occurs, then local artifacts remain intact, the workflow records a clear diagnostic artifact, and Final Review disposition actions are not allowed to record a successful Enterprise decision from a failed publish.
+7. Given the examiner completes `Final Review`, when they choose `Approve`, `Reject`, or `Postpone`, then the add-in records the selected Compute review disposition in the Enterprise working layers and case index with operator, timestamp, comment/reason when supplied, and current output/publish references.
+8. Given Final Review disposition is recorded, when completion/readiness is evaluated, then readiness confirms the latest transaction-scoped working publish exists, is linked to the current output summary, and carries the current review disposition.
+9. Given the examiner rejects or postpones the transaction, when the decision is recorded, then the temporary geometry remains available in Enterprise working layers for traceability, comparison, and follow-up rather than being deleted or treated as a successful cadastral result.
+10. Given authoritative promotion remains separate, when this story is complete, then the working layer is clearly described as temporary/review state, not the final authoritative cadastral layer.
 
 ## Tasks / Subtasks
 
@@ -72,6 +88,19 @@ Enterprise Parcel Fabric remains a future/deferred path. The active implementati
   - [x] Block Finalize when Enterprise working publish failed, is stale, or is missing for Enterprise working-layer mode.
   - [x] Keep authoritative promotion out of this story.
 
+- [ ] Add Final Review disposition recording for Compute. (AC: 7-10)
+  - [ ] Replace the single final completion assumption with explicit `Approve`, `Reject`, and `Postpone` disposition paths.
+  - [ ] Require current Enterprise working publish evidence before any disposition is written.
+  - [ ] Record disposition metadata to points, lines, polygons, and case index.
+  - [ ] Preserve the temporary working geometry for rejected and postponed cases.
+  - [ ] Keep authoritative CADMAP/CADINDEX edits and cadastral promotion out of this story.
+
+- [ ] Update transaction completion/readiness behavior for Compute decisions. (AC: 7-10)
+  - [ ] Treat `approved`, `rejected`, and `postponed` as valid Compute outcomes, each with its own status text and audit trail.
+  - [ ] Allow Innola/task closeout behavior to be driven by the recorded Compute disposition rather than assuming every Final Review action is an approval.
+  - [ ] Block completion when Enterprise disposition writeback fails, is stale, or is missing.
+  - [ ] Ensure the UI copy clearly says Compute approval is a document-geometry review outcome, not authoritative cadastral promotion.
+
 - [x] Add tests and diagnostics. (AC: 1-8)
   - [x] Test required target validation for points, lines, polygons, and case index.
   - [x] Test transaction-scoped replace semantics.
@@ -99,8 +128,8 @@ Required fields:
 | `transaction_id` | Text(64) | System identifier from Innola/case manifest |
 | `task_id` | Text(64) | Innola task id when available |
 | `workflow_stage` | Text(64) | Example: `spatial_units_created`, `final_review_pending` |
-| `review_state` | Text(64) | Example: `published_to_working`, `final_review_approved` |
-| `case_status` | Text(64) | Example: `active`, `review_pending`, `completed` |
+| `review_state` | Text(64) | Example: `published_to_working`, `final_review_decided` |
+| `case_status` | Text(64) | Example: `active`, `review_pending`, `review_closed` |
 | `created_by` | Text(128) | Initial publisher/operator |
 | `created_utc` | Date | First publish timestamp |
 | `last_saved_by` | Text(128) | Last publisher/operator |
@@ -115,6 +144,17 @@ Required fields:
 | `row_id` | Text(64) | Link to review row when available |
 | `is_active` | Short | Active transaction row flag |
 | `edit_generation` | Long | Incremented on republish |
+
+Shared final-review disposition fields required across working points, lines, polygons, and case index after this amendment:
+
+| Field | Type | Notes |
+|---|---|---|
+| `review_decision` | Text(32) | `pending`, `approved`, `rejected`, or `postponed` |
+| `review_decision_by` | Text(128) | Examiner/operator who recorded the disposition |
+| `review_decision_utc` | Date | Disposition timestamp |
+| `review_comment` | Text(1024) | Required or strongly recommended for reject/postpone |
+| `official_comparison_status` | Text(64) | Optional comparison state against CADMAP/CADINDEX, for example `not_checked`, `matches_reference`, `conflict_found`, `needs_research` |
+| `official_reference_ids` | Text(512) | Optional CADMAP/CADINDEX identifiers or compact reference notes |
 
 ### 2. Working Lines
 
@@ -158,7 +198,7 @@ Required fields:
 
 ### 4. Working Case Index
 
-Purpose: one transaction row for quick lookup, resume, Finalize readiness, and audit.
+Purpose: one transaction row for quick lookup, resume, Compute closeout readiness, and audit.
 
 Required fields:
 
@@ -170,8 +210,14 @@ Required fields:
 | `task_id` | Text(64) | Innola task id |
 | `workflow_name` | Text(64) | Example: `parcel_workflow_compute` |
 | `workflow_stage` | Text(64) | Current stage |
-| `case_status` | Text(64) | active/review_pending/completed/failed |
-| `review_state` | Text(64) | working publish state |
+| `case_status` | Text(64) | active/review_pending/review_closed/failed |
+| `review_state` | Text(64) | working publish/review state |
+| `review_decision` | Text(32) | pending/approved/rejected/postponed |
+| `review_decision_by` | Text(128) | Examiner/operator who recorded the decision |
+| `review_decision_utc` | Date | Decision timestamp |
+| `review_comment` | Text(1024) | Decision reason/comment |
+| `official_comparison_status` | Text(64) | CADMAP/CADINDEX comparison status when available |
+| `official_reference_ids` | Text(512) | CADMAP/CADINDEX identifiers or compact reference notes |
 | `assigned_user` | Text(128) | Innola assigned user |
 | `assigned_group` | Text(128) | Innola assigned group |
 | `created_by` | Text(128) | Initial publisher/operator |
@@ -229,8 +275,11 @@ This branch belongs at:
    - load Enterprise working layers into ArcGIS Pro
 5. `Final Review`
    - examiner reviews the Enterprise working layer state
+   - examiner compares temporary transaction geometry against submitted documents and official reference layers such as CADMAP/CADINDEX
+   - examiner records a Compute disposition: approve, reject, or postpone
 6. `Finalize`
-   - completion is allowed only if Enterprise working publish evidence is current
+   - closeout is allowed only if Enterprise working publish evidence is current and the chosen Compute disposition was written to the working layers/case index
+   - closeout does not promote the geometry into CADMAP, CADINDEX, or any authoritative cadastral store
 
 ## Source Of Truth
 
@@ -248,6 +297,7 @@ The Enterprise working layers are:
 - collaborative review state
 - temporary / transaction-scoped
 - replaceable on reprocess
+- the Compute review disposition record for approved, rejected, and postponed transaction geometry
 - not the authoritative cadastral layer
 
 ## Current Code Notes
@@ -255,6 +305,7 @@ The Enterprise working layers are:
 - Story 7.2 introduced `JsonEnterpriseWorkingLayerPublishService`, but its name and behavior must be reviewed before production use. If it is still file/JSON-backed, this story should introduce or wrap a live Enterprise feature-layer writer.
 - The existing `enterprise_working_review.layers.case_index` setting exists in the configuration contract, but this story makes it required for Finalize readiness.
 - The deduped output rows from the spatial output adapter should be used for Enterprise working geometry so shared parcel edges and duplicate shared points do not produce duplicate labels.
+- The current `DefaultTransactionCompletionReadinessService` blocks completion by default. This story amendment requires replacing that placeholder with readiness logic that checks current Enterprise publish evidence and successful disposition writeback for the active transaction.
 
 ## Failure Handling
 
@@ -270,7 +321,8 @@ Failures must not:
 
 - silently fall back to local-only mode
 - mark Enterprise working publish as successful
-- unlock Finalize readiness
+- unlock Finalize/closeout readiness
+- record an approved/rejected/postponed disposition without Enterprise writeback evidence
 - write secrets, tokens, raw service responses, or signed URLs into artifacts
 
 ## Dependencies / Sequencing
@@ -285,6 +337,7 @@ Depends on:
 Precedes:
 
 - Story 7.4: promote working review geometry to sync-ready authoritative package
+- Follow-up story: record and route Compute Final Review dispositions in the UI and Innola lifecycle, if split from this amendment
 - any future Enterprise Parcel Fabric authoritative or working-fabric path
 
 ## Suggested Areas
@@ -335,3 +388,4 @@ Precedes:
 | 2026-06-23 | 1.0 | Implemented the enterprise Parcel Fabric publish branch, runtime settings seam, map-load target selection, and regression coverage for output-stage and final-review publication flows. | Codex |
 | 2026-06-30 | 2.0 | Course-corrected Story 7.7 to target Enterprise generic working layers with points, lines, polygons, and case index as the active review workspace path. | Mary / Codex |
 | 2026-06-30 | 3.0 | Implemented generic Enterprise working-layer publish, case-index publish, metadata enrichment, URL-aware ArcGIS REST publish branch, and map-load target selection. | Amelia / Codex |
+| 2026-07-01 | 4.0 | Reframed Final Review/Finalize for Compute as a temporary document-geometry review disposition flow with approved, rejected, and postponed outcomes written back to Enterprise working layers. | Mary / Codex |

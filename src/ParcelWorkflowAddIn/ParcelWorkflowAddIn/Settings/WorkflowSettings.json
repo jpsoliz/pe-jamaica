@@ -9,20 +9,20 @@
   "innola_process_step": "parcel_workflow",
   "review_workspace_mode": "parcel_fabric_local",
   "enterprise_working_review": {
-    "enabled": false,
-    "service_root": "",
-    "workspace_name": "sidwell_working_review",
+    "enabled": true,
+    "service_root": "https://jm-gis.innola-solutions.com/server/rest",
+    "workspace_name": "working_review",
     "publish_behavior": "replace_transaction_scope",
     "publish_timing": "on_complete",
     "restore_behavior": "prefer_local_then_enterprise",
     "allow_cross_machine_restore": true,
     "transaction_scope_field": "transaction_number",
     "layers": {
-      "points": "",
-      "lines": "",
-      "polygons": "",
-      "issues": "",
-      "case_index": ""
+      "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/0",
+      "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
+      "polygons": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
+      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3",
+      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4"
     }
   },
   "enterprise_working_admin": {

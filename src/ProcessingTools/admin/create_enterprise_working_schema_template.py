@@ -162,7 +162,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output-zip",
         default=str(Path(__file__).resolve().parent / "templates" / "sidwell_enterprise_working_v1.zip"),
     )
-    parser.add_argument("--epsg", type=int, default=3857)
+    parser.add_argument("--epsg", type=int, default=3448)
     return parser.parse_args(argv)
 
 

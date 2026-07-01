@@ -12,6 +12,7 @@ import datetime as _dt
 import getpass
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -36,6 +37,94 @@ SHARED_FIELDS = (
     "is_active",
     "edit_generation",
 )
+FIELD_SPECS = {
+    "transaction_number": ("esriFieldTypeString", 64),
+    "transaction_id": ("esriFieldTypeString", 64),
+    "task_id": ("esriFieldTypeString", 64),
+    "workflow_stage": ("esriFieldTypeString", 64),
+    "review_state": ("esriFieldTypeString", 64),
+    "case_status": ("esriFieldTypeString", 64),
+    "created_by": ("esriFieldTypeString", 128),
+    "created_utc": ("esriFieldTypeDate", None),
+    "last_saved_by": ("esriFieldTypeString", 128),
+    "last_saved_utc": ("esriFieldTypeDate", None),
+    "run_id": ("esriFieldTypeString", 64),
+    "is_active": ("esriFieldTypeInteger", None),
+    "edit_generation": ("esriFieldTypeInteger", None),
+    "point_id": ("esriFieldTypeString", 64),
+    "parcel_group_id": ("esriFieldTypeString", 64),
+    "parcel_name": ("esriFieldTypeString", 128),
+    "point_role": ("esriFieldTypeString", 64),
+    "status_txt": ("esriFieldTypeString", 64),
+    "source_txt": ("esriFieldTypeString", 1024),
+    "row_id": ("esriFieldTypeString", 64),
+    "line_id": ("esriFieldTypeString", 64),
+    "start_pt": ("esriFieldTypeString", 64),
+    "end_pt": ("esriFieldTypeString", 64),
+    "bearing_txt": ("esriFieldTypeString", 64),
+    "distance_txt": ("esriFieldTypeString", 64),
+    "length_txt": ("esriFieldTypeString", 128),
+    "line_type": ("esriFieldTypeString", 32),
+    "seg_index": ("esriFieldTypeInteger", None),
+    "parcel_type": ("esriFieldTypeString", 64),
+    "validation_status": ("esriFieldTypeString", 64),
+    "closure_status": ("esriFieldTypeString", 64),
+    "area_sq_m": ("esriFieldTypeDouble", None),
+    "perimeter_m": ("esriFieldTypeDouble", None),
+    "review_note": ("esriFieldTypeString", 512),
+    "case_id": ("esriFieldTypeString", 64),
+    "workflow_name": ("esriFieldTypeString", 64),
+    "assigned_user": ("esriFieldTypeString", 128),
+    "assigned_group": ("esriFieldTypeString", 128),
+    "output_summary_ref": ("esriFieldTypeString", 256),
+    "working_publish_ref": ("esriFieldTypeString", 256),
+    "recoverability_state": ("esriFieldTypeString", 64),
+    "issue_type": ("esriFieldTypeString", 64),
+    "issue_text": ("esriFieldTypeString", 1024),
+}
+POINT_FIELDS = (
+    "point_id",
+    "parcel_group_id",
+    "parcel_name",
+    "point_role",
+    "status_txt",
+    "source_txt",
+    "row_id",
+)
+LINE_FIELDS = (
+    "line_id",
+    "parcel_group_id",
+    "parcel_name",
+    "start_pt",
+    "end_pt",
+    "bearing_txt",
+    "distance_txt",
+    "length_txt",
+    "line_type",
+    "seg_index",
+    "source_txt",
+)
+POLYGON_FIELDS = (
+    "parcel_group_id",
+    "parcel_name",
+    "parcel_type",
+    "validation_status",
+    "closure_status",
+    "area_sq_m",
+    "perimeter_m",
+    "review_note",
+    "source_txt",
+)
+CASE_INDEX_FIELDS = (
+    "case_id",
+    "workflow_name",
+    "assigned_user",
+    "assigned_group",
+    "output_summary_ref",
+    "working_publish_ref",
+    "recoverability_state",
+)
+ISSUE_FIELDS = ("issue_type", "issue_text")
 
 
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -324,8 +413,117 @@ def _provision_live_layers(
 def _provision_live_layers_rest(args: argparse.Namespace) -> dict[str, str]:
     portal_url = args.portal_url.strip().rstrip("/")
     username = _read_portal_username(portal_url, args.token_env_var)
-    service_url = _publish_schema_template(portal_url, username, args)
+    service_url = _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+    existing_metadata = _fetch_service_metadata_or_none(service_url, args.token_env_var)
+    if existing_metadata is None:
+        service_url = _publish_working_feature_collection(portal_url, username, args)
+    else:
+        _assert_working_service_spatial_reference(existing_metadata)
+
     return _verified_layer_urls(service_url, args.token_env_var)
+
+
+def _fetch_service_metadata_or_none(service_url: str, token_env_var: str) -> dict[str, Any] | None:
+    try:
+        metadata = _fetch_layer_metadata(service_url, token_env_var)
+    except Exception:  # noqa: BLE001 - absence or inaccessible target is handled by createService.
+        return None
+
+    if isinstance(metadata.get("error"), dict):
+        return None
+
+    return metadata
+
+
+def _create_working_service(portal_url: str, username: str, args: argparse.Namespace) -> str:
+    create_parameters = {
+        "name": args.target_service_name.strip(),
+        "serviceDescription": "Sidwell Enterprise working review layers",
+        "description": "Temporary transaction-scoped Enterprise working layers for parcel workflow review.",
+        "hasStaticData": False,
+        "maxRecordCount": 2000,
+        "supportedQueryFormats": "JSON",
+        "capabilities": "Query,Create,Update,Delete,Editing,Uploads",
+        "allowGeometryUpdates": True,
+        "spatialReference": {"wkid": 3448, "latestWkid": 3448},
+        "initialExtent": _jamaica_working_extent(),
+        "fullExtent": _jamaica_working_extent(),
+    }
+    create_parameters.update(_feature_service_definition(args))
+    result = _post_form(
+        f"{portal_url}/sharing/rest/content/users/{username}/createService",
+        {
+            "createParameters": json.dumps(create_parameters),
+            "outputType": "featureService",
+        },
+        args.token_env_var,
+    )
+    return _read_service_url(result, args)
+
+
+def _publish_working_feature_collection(portal_url: str, username: str, args: argparse.Namespace) -> str:
+    item_title = f"{args.target_service_name.strip()} feature collection schema"
+    add_result = _post_form(
+        f"{portal_url}/sharing/rest/content/users/{username}/addItem",
+        {
+            "title": item_title,
+            "type": "Feature Collection",
+            "typeKeywords": "Feature Collection,Data,Feature Access",
+            "tags": "sidwell,parcel-workflow,enterprise-working-review,schema-template",
+            "text": json.dumps(_feature_collection_schema(args)),
+            "extent": "550000,550000,900000,800000",
+        },
+        args.token_env_var,
+    )
+    item_id = str(add_result.get("id") or add_result.get("itemId") or "").strip()
+    if not item_id:
+        raise RuntimeError("Feature Collection schema item was not created.")
+
+    service_item_id = ""
+    try:
+        publish_result = _post_form(
+            f"{portal_url}/sharing/rest/content/users/{username}/publish",
+            {
+                "itemid": item_id,
+                "fileType": "featureCollection",
+                "outputType": "featureService",
+                "publishParameters": json.dumps(
+                    {
+                        "name": args.target_service_name.strip(),
+                        "serviceName": args.target_service_name.strip(),
+                        "targetSR": _jad2001_spatial_reference(),
+                        "sourceSR": _jad2001_spatial_reference(),
+                        "spatialReference": _jad2001_spatial_reference(),
+                        "extent": _jamaica_working_extent(),
+                    }
+                ),
+            },
+            args.token_env_var,
+        )
+        service_url = _read_published_service_url(publish_result, args, portal_url, username)
+        services = publish_result.get("services")
+        if isinstance(services, list):
+            for service in services:
+                if isinstance(service, dict):
+                    service_item_id = str(service.get("serviceItemId") or service.get("itemId") or "")
+                    job_id = str(service.get("jobId") or "")
+                    if service_item_id and job_id:
+                        _poll_publish_status(
+                            f"{portal_url}/sharing/rest/content/users/{username}/items/{service_item_id}/status",
+                            job_id,
+                            args.token_env_var,
+                        )
+                        break
+
+        return service_url
+    finally:
+        # The source Feature Collection is only a transient schema carrier.
+        _post_form(
+            f"{portal_url}/sharing/rest/content/users/{username}/items/{item_id}/delete",
+            {},
+            args.token_env_var,
+            raise_on_error=False,
+        )
 
 
 def _publish_schema_template(portal_url: str, username: str, args: argparse.Namespace) -> str:
@@ -343,28 +541,45 @@ def _publish_schema_template(portal_url: str, username: str, args: argparse.Name
             ) from exc
 
     item_type, file_type = _schema_template_item_types(template_path)
-    add_item_url = f"{portal_url}/sharing/rest/content/users/{username}/addItem"
-    add_result = _post_multipart_file(
-        add_item_url,
-        {
-            "title": f"{args.target_service_name.strip()} schema template",
-            "type": item_type,
-            "tags": "sidwell,parcel-workflow,enterprise-working-review,schema-template",
-            "overwrite": "false",
-        },
-        "file",
-        template_path,
-        args.token_env_var,
-    )
-    item_id = str(add_result.get("id") or add_result.get("itemId") or "").strip()
+    item_title = f"{args.target_service_name.strip()} schema template"
+    item_id = _find_schema_template_item_id(portal_url, username, item_title, item_type, args.token_env_var)
+    if item_id:
+        update_result = _post_multipart_file(
+            f"{portal_url}/sharing/rest/content/users/{username}/items/{item_id}/update",
+            {
+                "title": item_title,
+                "tags": "sidwell,parcel-workflow,enterprise-working-review,schema-template",
+            },
+            "file",
+            template_path,
+            args.token_env_var,
+        )
+        if update_result.get("success") is False:
+            raise RuntimeError("Existing schema template item could not be updated.")
+    else:
+        add_item_url = f"{portal_url}/sharing/rest/content/users/{username}/addItem"
+        add_result = _post_multipart_file(
+            add_item_url,
+            {
+                "title": item_title,
+                "type": item_type,
+                "tags": "sidwell,parcel-workflow,enterprise-working-review,schema-template",
+            },
+            "file",
+            template_path,
+            args.token_env_var,
+        )
+        item_id = str(add_result.get("id") or add_result.get("itemId") or "").strip()
     if not item_id:
         raise RuntimeError("Schema template upload succeeded but no portal item id was returned.")
 
-    publish_url = f"{portal_url}/sharing/rest/content/users/{username}/items/{item_id}/publish"
+    publish_url = f"{portal_url}/sharing/rest/content/users/{username}/publish"
     publish_result = _post_form(
         publish_url,
         {
-            "filetype": file_type,
+            "itemid": item_id,
+            "fileType": file_type,
+            "outputType": "featureService",
             "publishParameters": json.dumps(
                 {
                     "name": args.target_service_name.strip(),
@@ -376,7 +591,7 @@ def _publish_schema_template(portal_url: str, username: str, args: argparse.Name
         },
         args.token_env_var,
     )
-    return _read_published_service_url(publish_result, args)
+    return _read_published_service_url(publish_result, args, portal_url, username)
 
 
 def _resolve_schema_template_path(args: argparse.Namespace) -> Path | None:
@@ -409,7 +624,43 @@ def _schema_template_item_types(path: Path) -> tuple[str, str]:
     raise RuntimeError(f"Unsupported schema template extension '{path.suffix}'. Use .zip or .sd.")
 
 
-def _read_published_service_url(publish_result: dict[str, Any], args: argparse.Namespace) -> str:
+def _find_schema_template_item_id(
+    portal_url: str,
+    username: str,
+    title: str,
+    item_type: str,
+    token_env_var: str,
+) -> str:
+    queries = [
+        f'owner:{username} title:"{title}" type:"{item_type}"',
+        f'owner:{username} "{title}"',
+    ]
+    for query in queries:
+        result = _post_form(
+            f"{portal_url}/sharing/rest/search",
+            {"q": query, "num": 10, "sortField": "modified", "sortOrder": "desc"},
+            token_env_var,
+        )
+        for item in result.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+
+            if str(item.get("type") or "").lower() != item_type.lower():
+                continue
+
+            item_title = str(item.get("title") or "")
+            if item_title.lower() == title.lower():
+                return str(item.get("id") or "")
+
+    return ""
+
+
+def _read_published_service_url(
+    publish_result: dict[str, Any],
+    args: argparse.Namespace,
+    portal_url: str,
+    username: str,
+) -> str:
     service_url = (
         publish_result.get("serviceurl")
         or publish_result.get("serviceUrl")
@@ -423,15 +674,62 @@ def _read_published_service_url(publish_result: dict[str, Any], args: argparse.N
     if isinstance(services, list):
         for service in services:
             if isinstance(service, dict):
+                if service.get("success") is False and service.get("error"):
+                    error_message = _format_arcgis_error(service["error"])
+                    if "already exists" in error_message.lower() and args.target_service_name.strip() in error_message:
+                        return _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+
+                    raise RuntimeError(error_message)
+
                 service_url = service.get("serviceurl") or service.get("serviceUrl") or service.get("serviceURL") or service.get("url")
                 if service_url:
                     return str(service_url).rstrip("/")
 
+                service_item_id = service.get("serviceItemId") or service.get("itemId") or service.get("itemid") or service.get("id")
+                job_id = service.get("jobId")
+                if service_item_id and job_id:
+                    status_url = f"{portal_url}/sharing/rest/content/users/{username}/items/{service_item_id}/status"
+                    _poll_publish_status(status_url, str(job_id), args.token_env_var)
+                if service_item_id:
+                    return _read_portal_item_url(portal_url, str(service_item_id), args.token_env_var)
+
+    service_item_id = publish_result.get("serviceItemId")
+    job_id = publish_result.get("jobId")
+    if service_item_id and job_id:
+        status_url = str(publish_result.get("statusUrl") or f"{portal_url}/sharing/rest/content/users/{username}/items/{service_item_id}/status")
+        _poll_publish_status(status_url, str(job_id), args.token_env_var)
+    if service_item_id:
+        return _read_portal_item_url(portal_url, str(service_item_id), args.token_env_var)
+
     item_id = publish_result.get("itemId") or publish_result.get("itemid") or publish_result.get("id")
     if item_id:
-        return _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
+        return _read_portal_item_url(portal_url, str(item_id), args.token_env_var)
 
     raise RuntimeError("Schema template publish did not return a FeatureServer URL.")
+
+
+def _poll_publish_status(status_url: str, job_id: str, token_env_var: str) -> dict[str, Any]:
+    last_status: dict[str, Any] = {}
+    for _ in range(30):
+        last_status = _post_form(status_url, {"jobId": job_id}, token_env_var)
+        status = str(last_status.get("status") or "").lower()
+        if status in {"completed", "complete", "success", "succeeded"}:
+            return last_status
+        if status in {"failed", "failure", "error"}:
+            messages = last_status.get("statusMessage") or last_status.get("messages") or []
+            raise RuntimeError(f"Schema template publish job failed. {messages}")
+        time.sleep(2)
+
+    raise RuntimeError(f"Schema template publish job did not complete in time. Last status: {last_status.get('status')}")
+
+
+def _read_portal_item_url(portal_url: str, item_id: str, token_env_var: str) -> str:
+    item = _post_form(f"{portal_url.rstrip('/')}/sharing/rest/content/items/{item_id}", {}, token_env_var)
+    item_url = item.get("url")
+    if item_url:
+        return str(item_url).rstrip("/")
+
+    raise RuntimeError(f"Published service item {item_id} did not expose a FeatureServer URL.")
 
 
 def _read_portal_username(portal_url: str, token_env_var: str) -> str:
@@ -480,6 +778,21 @@ def _service_has_expected_children(service_url: str, token_env_var: str) -> bool
     return len(metadata.get("layers") or []) >= 4 and len(metadata.get("tables") or []) >= 1
 
 
+def _assert_working_service_spatial_reference(metadata: dict[str, Any]) -> None:
+    spatial_reference = metadata.get("spatialReference") or {}
+    wkids = {
+        str(spatial_reference.get("wkid") or ""),
+        str(spatial_reference.get("latestWkid") or ""),
+    }
+    if "3448" in wkids:
+        return
+
+    raise RuntimeError(
+        "Existing working_review Feature Service is not in JAD2001 / Jamaica Metric Grid (EPSG:3448). "
+        "Delete the existing service and run Provision again so it can be recreated with the correct coordinate system."
+    )
+
+
 def _verify_service_children_or_raise(service_url: str, token_env_var: str) -> None:
     metadata = _fetch_layer_metadata(service_url, token_env_var)
     _layer_urls_from_metadata(service_url, metadata)
@@ -496,7 +809,8 @@ def _layer_urls_from_metadata(service_url: str, metadata: dict[str, Any]) -> dic
     tables = metadata.get("tables") or []
     if not layers and not tables:
         raise RuntimeError(
-            "Target service is an empty hosted Feature Service. Delete or replace it before provisioning working layers."
+            "Target service is an empty hosted Feature Service. Delete it and run Provision again so the working "
+            "layers and tables can be created in the initial Enterprise createService request."
         )
 
     children = {}
@@ -566,10 +880,10 @@ def _add_to_definition_urls(service_url: str) -> list[str]:
 def _feature_service_definition(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "layers": [
-            _layer_definition(0, "working_points", "esriGeometryPoint", _field_definitions(SHARED_FIELDS)),
-            _layer_definition(1, "working_lines", "esriGeometryPolyline", _field_definitions(SHARED_FIELDS)),
-            _layer_definition(2, "working_polygons", "esriGeometryPolygon", _field_definitions(SHARED_FIELDS)),
-            _layer_definition(4, "working_issues", "esriGeometryPoint", _field_definitions(SHARED_FIELDS + ("issue_type", "issue_text"))),
+            _layer_definition(0, "working_points", "esriGeometryPoint", _field_definitions([*SHARED_FIELDS, *POINT_FIELDS])),
+            _layer_definition(1, "working_lines", "esriGeometryPolyline", _field_definitions([*SHARED_FIELDS, *LINE_FIELDS])),
+            _layer_definition(2, "working_polygons", "esriGeometryPolygon", _field_definitions([*SHARED_FIELDS, *POLYGON_FIELDS])),
+            _layer_definition(4, "working_issues", "esriGeometryPoint", _field_definitions([*SHARED_FIELDS, *ISSUE_FIELDS])),
         ],
         "tables": [
             {
@@ -577,20 +891,98 @@ def _feature_service_definition(args: argparse.Namespace) -> dict[str, Any]:
                 "name": "working_case_index",
                 "type": "Table",
                 "capabilities": "Query,Create,Update,Delete,Editing",
-                "fields": _field_definitions(SHARED_FIELDS + ("case_id", "workflow_name", "assigned_user", "assigned_group", "output_summary_ref", "working_publish_ref")),
+                "objectIdField": "OBJECTID",
+                "fields": _field_definitions([*SHARED_FIELDS, *CASE_INDEX_FIELDS]),
             }
         ],
     }
 
 
+def _feature_collection_schema(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "layers": [
+            _feature_collection_child(
+                _layer_definition(0, "working_points", "esriGeometryPoint", _field_definitions([*SHARED_FIELDS, *POINT_FIELDS]))
+            ),
+            _feature_collection_child(
+                _layer_definition(1, "working_lines", "esriGeometryPolyline", _field_definitions([*SHARED_FIELDS, *LINE_FIELDS]))
+            ),
+            _feature_collection_child(
+                _layer_definition(2, "working_polygons", "esriGeometryPolygon", _field_definitions([*SHARED_FIELDS, *POLYGON_FIELDS]))
+            ),
+            _feature_collection_child(
+                _layer_definition(4, "working_issues", "esriGeometryPoint", _field_definitions([*SHARED_FIELDS, *ISSUE_FIELDS]))
+            ),
+            _feature_collection_child(
+                {
+                    "id": 3,
+                    "name": "working_case_index",
+                    "type": "Table",
+                    "capabilities": "Query,Create,Update,Delete,Editing",
+                    "objectIdField": "OBJECTID",
+                    "fields": _field_definitions([*SHARED_FIELDS, *CASE_INDEX_FIELDS]),
+                }
+            ),
+        ],
+        "spatialReference": _jad2001_spatial_reference(),
+        "showLegend": True,
+    }
+
+
+def _feature_collection_child(layer_definition: dict[str, Any]) -> dict[str, Any]:
+    geometry_type = layer_definition.get("geometryType")
+    feature_set: dict[str, Any] = {"features": []}
+    if geometry_type:
+        feature_set["geometryType"] = geometry_type
+        feature_set["spatialReference"] = _jad2001_spatial_reference()
+
+    return {
+        "id": layer_definition["id"],
+        "layerDefinition": layer_definition,
+        "featureSet": feature_set,
+    }
+
+
+def _jamaica_working_extent() -> dict[str, Any]:
+    return {
+        "xmin": 550000,
+        "ymin": 550000,
+        "xmax": 900000,
+        "ymax": 800000,
+        "spatialReference": _jad2001_spatial_reference(),
+    }
+
+
+def _jad2001_spatial_reference() -> dict[str, int]:
+    return {"wkid": 3448, "latestWkid": 3448}
+
+
 def _layer_definition(layer_id: int, name: str, geometry_type: str, fields: list[dict[str, Any]]) -> dict[str, Any]:
+    drawing_tool = {
+        "esriGeometryPoint": "esriFeatureEditToolPoint",
+        "esriGeometryPolyline": "esriFeatureEditToolLine",
+        "esriGeometryPolygon": "esriFeatureEditToolPolygon",
+    }[geometry_type]
     return {
         "id": layer_id,
         "name": name,
         "type": "Feature Layer",
         "geometryType": geometry_type,
         "capabilities": "Query,Create,Update,Delete,Editing",
+        "objectIdField": "OBJECTID",
+        "hasZ": False,
+        "hasM": False,
+        "spatialReference": _jad2001_spatial_reference(),
+        "extent": _jamaica_working_extent(),
         "fields": fields,
+        "templates": [
+            {
+                "name": "New Feature",
+                "description": "",
+                "drawingTool": drawing_tool,
+                "prototype": {"attributes": {}},
+            }
+        ],
     }
 
 
@@ -604,12 +996,7 @@ def _field_definitions(field_names: tuple[str, ...] | list[str]) -> list[dict[st
             continue
 
         seen.add(name.lower())
-        if name in {"is_active", "edit_generation"}:
-            field_type = "esriFieldTypeInteger"
-            length = None
-        else:
-            field_type = "esriFieldTypeString"
-            length = 1024 if name.endswith("_ref") or name.endswith("_text") else 255
+        field_type, length = FIELD_SPECS.get(name, ("esriFieldTypeString", 255))
 
         definition = {"name": name, "type": field_type, "alias": name, "nullable": True, "editable": True}
         if length is not None:
