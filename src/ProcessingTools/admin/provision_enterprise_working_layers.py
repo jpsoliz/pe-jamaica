@@ -325,15 +325,7 @@ def _provision_live_layers_rest(args: argparse.Namespace) -> dict[str, str]:
     portal_url = args.portal_url.strip().rstrip("/")
     username = _read_portal_username(portal_url, args.token_env_var)
     service_url = _publish_schema_template(portal_url, username, args)
-    _verify_service_children_or_raise(service_url, args.token_env_var)
-
-    return {
-        "points": f"{service_url}/0",
-        "lines": f"{service_url}/1",
-        "polygons": f"{service_url}/2",
-        "case_index": f"{service_url}/3",
-        "issues": f"{service_url}/4",
-    }
+    return _verified_layer_urls(service_url, args.token_env_var)
 
 
 def _publish_schema_template(portal_url: str, username: str, args: argparse.Namespace) -> str:
@@ -490,18 +482,50 @@ def _service_has_expected_children(service_url: str, token_env_var: str) -> bool
 
 def _verify_service_children_or_raise(service_url: str, token_env_var: str) -> None:
     metadata = _fetch_layer_metadata(service_url, token_env_var)
+    _layer_urls_from_metadata(service_url, metadata)
+
+
+def _verified_layer_urls(service_url: str, token_env_var: str) -> dict[str, str]:
+    metadata = _fetch_layer_metadata(service_url, token_env_var)
+    return _layer_urls_from_metadata(service_url, metadata)
+
+
+def _layer_urls_from_metadata(service_url: str, metadata: dict[str, Any]) -> dict[str, str]:
+    service_url = service_url.rstrip("/")
     layers = metadata.get("layers") or []
     tables = metadata.get("tables") or []
-    if len(layers) >= 4 and len(tables) >= 1:
-        return
-
     if not layers and not tables:
         raise RuntimeError(
             "Target service is an empty hosted Feature Service. Delete or replace it before provisioning working layers."
         )
 
+    children = {}
+    for child in [*layers, *tables]:
+        if not isinstance(child, dict):
+            continue
+
+        name = str(child.get("name") or "").strip().lower()
+        child_id = child.get("id")
+        if child_id is None:
+            continue
+
+        children[name] = f"{service_url}/{child_id}"
+
+    role_names = {
+        "points": "working_points",
+        "lines": "working_lines",
+        "polygons": "working_polygons",
+        "case_index": "working_case_index",
+        "issues": "working_issues",
+    }
+    role_urls = {role: children.get(name, "") for role, name in role_names.items()}
+    missing_required = [role for role in REQUIRED_LAYER_ROLES if not role_urls[role]]
+    if not missing_required:
+        return role_urls
+
     raise RuntimeError(
-        f"Target service does not expose the expected working children. Found layers={len(layers)}, tables={len(tables)}."
+        "Target service does not expose the expected working children. "
+        f"Missing roles: {', '.join(missing_required)}. Found layers={len(layers)}, tables={len(tables)}."
     )
 
 

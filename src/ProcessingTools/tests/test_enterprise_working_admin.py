@@ -293,6 +293,29 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         self.assertTrue(any(url.endswith("/addItem") for url, _ in calls))
         self.assertTrue(any(url.endswith("/publish") for url, _ in calls))
 
+    def test_verified_layer_urls_are_mapped_by_child_name_not_fixed_position(self):
+        original_fetch = admin_script._fetch_layer_metadata
+        try:
+            admin_script._fetch_layer_metadata = lambda url, token_env_var: {
+                "layers": [
+                    {"id": 7, "name": "working_polygons"},
+                    {"id": 2, "name": "working_points"},
+                    {"id": 9, "name": "working_issues"},
+                    {"id": 4, "name": "working_lines"},
+                ],
+                "tables": [{"id": 12, "name": "working_case_index"}],
+            }
+
+            layers = admin_script._verified_layer_urls("https://enterprise.local/FeatureServer", "")
+        finally:
+            admin_script._fetch_layer_metadata = original_fetch
+
+        self.assertEqual("https://enterprise.local/FeatureServer/2", layers["points"])
+        self.assertEqual("https://enterprise.local/FeatureServer/4", layers["lines"])
+        self.assertEqual("https://enterprise.local/FeatureServer/7", layers["polygons"])
+        self.assertEqual("https://enterprise.local/FeatureServer/12", layers["case_index"])
+        self.assertEqual("https://enterprise.local/FeatureServer/9", layers["issues"])
+
     def test_cleanup_writes_scoped_audit(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             audit_json = Path(temp_dir) / "enterprise_working_admin_audit.json"

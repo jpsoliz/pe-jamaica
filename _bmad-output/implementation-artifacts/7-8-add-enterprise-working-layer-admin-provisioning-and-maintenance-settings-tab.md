@@ -338,6 +338,9 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 - Failed live provisioning now returns no generated layer URLs/settings, preventing accidental writeback of fake `/FeatureServer/0` style targets.
 - Added verification that rejects empty hosted Feature Services with a clear delete/replace remediation message before any URL writeback.
 - Verified with `python -m unittest tests.test_enterprise_working_admin`, `python -m unittest discover -s tests` from `src\ProcessingTools`, `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`, and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`.
+- Created the schema template generator and checked-in default FileGDB zip template at `src/ProcessingTools/admin/templates/sidwell_enterprise_working_v1.zip`.
+- Updated provisioning URL writeback to map FeatureServer child URLs by published child name instead of assuming fixed numeric IDs, so `working_case_index` remains correct if Enterprise assigns table IDs after feature layers.
+- Verified the generated FileGDB contains `working_points`, `working_lines`, `working_polygons`, `working_issues`, and `working_case_index` with the expected shared and role-specific fields.
 
 ### File List
 
@@ -351,7 +354,9 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Settings/SettingsWorkspaceServiceTests.cs`
 - `src/ProcessingTools/admin/__init__.py`
+- `src/ProcessingTools/admin/create_enterprise_working_schema_template.py`
 - `src/ProcessingTools/admin/provision_enterprise_working_layers.py`
+- `src/ProcessingTools/admin/templates/sidwell_enterprise_working_v1.zip`
 - `src/ProcessingTools/tests/test_enterprise_working_admin.py`
 
 ## Change Log
@@ -362,3 +367,4 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 | 2026-06-30 | 1.0 | Implemented Settings Enterprise Admin tab, admin settings contract, provisioning/validation/cleanup script, scoped cleanup audit, and automated coverage. | Amelia / Codex |
 | 2026-06-30 | 1.1 | Reopened story based on live Enterprise findings: empty FeatureService shell was created but child layers/tables were not; next dev pass must implement schema-backed publish provisioning and strict no-writeback validation. | Mary / Codex |
 | 2026-06-30 | 1.2 | Implemented schema-backed template publish provisioning, empty-service rejection, failed-live no-writeback behavior, and regression tests. | Amelia / Codex |
+| 2026-06-30 | 1.3 | Added reproducible FileGDB schema template generator, default zipped schema template, and name-based FeatureServer child URL mapping for published layers/tables. | Amelia / Codex |
