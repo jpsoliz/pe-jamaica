@@ -92,7 +92,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.True(iniText.Contains("matched_active_extractor_id = openai_table_pdf", StringComparison.Ordinal), "Generated ini should include active extractor id.");
     }
 
-    public static void ExtractionAdapterPrefersStructuredPointsSourceOverPdfParsing()
+    public static void ExtractionAdapterKeepsComputationSheetPrimaryWhenStructuredPointsImportIsEnabled()
     {
         using var tempRoot = new TempDirectory();
         var layout = CreateLayout(tempRoot.Path, "100000207");
@@ -152,21 +152,20 @@ internal static class CreateParcelDraftExtractionAdapterTests
 
         var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
 
-        TestAssert.True(result.Success, "Structured points route should succeed.");
+        TestAssert.True(result.Success, "Computation sheet route should succeed.");
         var reviewArtifactPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
         using var reviewDocument = JsonDocument.Parse(File.ReadAllText(reviewArtifactPath));
         var root = reviewDocument.RootElement;
-        TestAssert.Equal("STRUCTURED_POINTS_TEXT_V1", root.GetProperty("doc_type_id").GetString(), "Structured points doc type should win routing.");
-        TestAssert.Equal("structured_csv_points", root.GetProperty("active_extractor_id").GetString(), "Structured extractor should be active.");
-        TestAssert.Equal("points_computation", root.GetProperty("primary_source_role").GetString(), "Structured file should become the primary source.");
-        TestAssert.Equal("points.csv", root.GetProperty("primary_source_file").GetString(), "Structured source file should be persisted.");
-        TestAssert.True(!root.GetProperty("ai_requested").GetBoolean(), "Structured source should not request AI extraction.");
-        TestAssert.Equal("structured_csv_points", root.GetProperty("provider_used").GetString(), "Structured extractor should be recorded as provider used.");
+        TestAssert.Equal("computation_sheet", root.GetProperty("doc_type_family").GetString(), "Computation sheet family should win routing.");
+        TestAssert.Equal("computation_source", root.GetProperty("primary_source_role").GetString(), "Computation sheet should become the primary source.");
+        TestAssert.Equal("GenericComputationSheet.pdf", root.GetProperty("primary_source_file").GetString(), "Computation source file should be persisted.");
+        TestAssert.True(root.GetProperty("secondary_source_files").EnumerateArray().Any(source =>
+            source.GetString() == "points.csv"), "Structured points should remain visible as a secondary copied source.");
 
         var iniPath = Path.Combine(layout.WorkingDirectory, "CreateParcelFromFile_case.ini");
         var iniText = File.ReadAllText(iniPath);
-        TestAssert.True(iniText.Contains("case1_extraction_mode = structured_points", StringComparison.Ordinal), "Structured sources should switch extraction mode.");
-        TestAssert.True(iniText.Contains("points_file = points.csv", StringComparison.Ordinal), "Structured source should feed points_file.");
+        TestAssert.True(!iniText.Contains("case1_extraction_mode = structured_points", StringComparison.Ordinal), "Structured points should not drive extraction mode when a computation sheet is present.");
+        TestAssert.True(iniText.Contains("points_file = GenericComputationSheet.pdf", StringComparison.Ordinal), "Computation sheet should feed points_file.");
     }
 
     public static void ExtractionAdapterDoesNotPromoteStructuredPointsWhenImportIsDisabled()
@@ -766,6 +765,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
             false,
             false,
             "source_then_computed",
+            string.Empty,
             null,
             null,
             "validation_adapter.py",

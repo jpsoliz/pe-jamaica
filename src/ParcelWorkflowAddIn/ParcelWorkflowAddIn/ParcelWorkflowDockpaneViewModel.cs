@@ -72,8 +72,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand suspendTransactionCommand;
     private readonly RelayCommand cancelProcessCommand;
-    private readonly RelayCommand rejectComputeReviewCommand;
-    private readonly RelayCommand postponeComputeReviewCommand;
     private readonly RelayCommand completeTransactionCommand;
     private readonly IOutputMapIntegrationService outputMapIntegrationService = new ArcGisOutputMapIntegrationService();
     private string? outputLocation;
@@ -151,8 +149,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
         cancelProcessCommand = new RelayCommand(async () => await CancelProcessAsync(), () => ShellState.Session.CanCancelActiveProcess);
-        rejectComputeReviewCommand = new RelayCommand(ShowRejectNotImplemented, () => CanRejectComputeReview);
-        postponeComputeReviewCommand = new RelayCommand(ShowPostponeNotImplemented, () => CanPostponeComputeReview);
         completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
@@ -392,10 +388,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanCompleteTransaction => ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
 
-    public bool CanRejectComputeReview => false;
-
-    public bool CanPostponeComputeReview => false;
-
     public ICommand CreateCaseCommand => createCaseCommand;
 
     public ICommand BrowseOutputLocationCommand => browseOutputLocationCommand;
@@ -471,10 +463,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand SuspendTransactionCommand => suspendTransactionCommand;
 
     public ICommand CancelProcessCommand => cancelProcessCommand;
-
-    public ICommand RejectComputeReviewCommand => rejectComputeReviewCommand;
-
-    public ICommand PostponeComputeReviewCommand => postponeComputeReviewCommand;
 
     public ICommand CompleteTransactionCommand => completeTransactionCommand;
 
@@ -563,7 +551,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string IntakeDetailText =>
         IntakeIssues.Count == 0
-            ? "Supporting documents are copied into the case folder, matched to their expected document roles, and kept as source context for Structure Check, Georeference Check, and Validate Points."
+            ? "Supporting documents are copied into the case folder, matched to their expected document roles, and kept as source context for Structure Check, Dimension Check, and Validate Points."
             : string.Join(Environment.NewLine, IntakeIssues);
 
     public bool IntakeSummaryExpanded
@@ -606,7 +594,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public string GeoreferenceCollapsedHint => BuildGroupedHint(GeoreferenceResults, "Georeference readiness has not produced findings yet.");
+    public string GeoreferenceCollapsedHint => BuildGroupedHint(GeoreferenceResults, "Dimension readiness has not produced findings yet.");
 
     public bool PreflightSummaryExpanded
     {
@@ -658,8 +646,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
             WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point review in Points Validation Tool, then approve the review before Create Spatial Units and Final Review.",
             WorkflowState.PreflightPassed => "Generate the extracted point package from the selected transaction attachments, then continue in Points Validation Tool to inspect and correct the parcel points.",
-            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Supporting Document Check, Structure Check, and Georeference Check blockers are resolved.",
-            _ => "Validate Points is enabled after Structure Check and Georeference Check complete."
+            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Supporting Document Check, Structure Check, and Dimension Check blockers are resolved.",
+            _ => "Validate Points is enabled after Structure Check and Dimension Check complete."
         };
 
     public bool ShowExtractionDecisionGate => workflowSession.ExtractionResultRequiresDecision;
@@ -1104,12 +1092,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReadyToCompleteSummaryText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Final Review is complete. Approve records that the submitted geometry passed Compute review; Reject and Postpone require reason capture before they can be used."
+            ? "Final Review is complete. Finalize records that the submitted geometry passed Compute review and closes the Innola task."
             : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
         workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Use the ArcGIS Pro map for a final visual check, compare the temporary geometry with official reference layers, then select Approve to record the Compute disposition and close the Innola task. Select Suspend to save this state and come back later."
+            ? "Use the ArcGIS Pro map for a final visual check, compare the temporary geometry with official reference layers, then select Finalize to record the Compute disposition and close the Innola task. Select Suspend to save this state and come back later."
             : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks Compute closeout.";
 
     public string ValidationBadge =>
@@ -2202,8 +2190,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public async Task CompleteTransactionAsync()
     {
         if (MessageBox.Show(
-                "Approve this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
-                "Approve Compute Review",
+                "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
+                "Finalize Compute Review",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
@@ -2241,18 +2229,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
-        RefreshWorkflowProperties();
-    }
-
-    private void ShowRejectNotImplemented()
-    {
-        workflowSession.SetValidationFailure("Reject will require a review reason before it can record a Compute disposition.");
-        RefreshWorkflowProperties();
-    }
-
-    private void ShowPostponeNotImplemented()
-    {
-        workflowSession.SetValidationFailure("Postpone will require a review reason before it can record a Compute disposition.");
         RefreshWorkflowProperties();
     }
 
@@ -2616,7 +2592,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             new WorkflowLifecycleStep("Supporting Document Check", supportingDocumentState, GetLifecycleStepIcon(supportingDocumentState)),
             new WorkflowLifecycleStep("Structure Check", structureCheckState, GetLifecycleStepIcon(structureCheckState)),
-            new WorkflowLifecycleStep("Georeference Check", georeferenceState, GetLifecycleStepIcon(georeferenceState)),
+            new WorkflowLifecycleStep("Dimension Check", georeferenceState, GetLifecycleStepIcon(georeferenceState)),
             new WorkflowLifecycleStep("Validate Points", extractionState, GetLifecycleStepIcon(extractionState)),
             new WorkflowLifecycleStep("Create Spatial Units", spatialUnitsState, GetLifecycleStepIcon(spatialUnitsState)),
             new WorkflowLifecycleStep("Final Review", finalReviewState, GetLifecycleStepIcon(finalReviewState)),
@@ -2686,7 +2662,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         if (HasBlockingGroup(GeoreferenceResults))
         {
-            return "Georeference Check";
+            return "Dimension Check";
         }
 
         return "Structure Check";
@@ -2811,8 +2787,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanLoadSpatialReviewLayers));
         NotifyPropertyChanged(nameof(CanApproveSpatialReview));
         NotifyPropertyChanged(nameof(CanCompleteTransaction));
-        NotifyPropertyChanged(nameof(CanRejectComputeReview));
-        NotifyPropertyChanged(nameof(CanPostponeComputeReview));
         NotifyPropertyChanged(nameof(WorkflowSteps));
         NotifyPropertyChanged(nameof(DetectedProfileLabel));
         NotifyPropertyChanged(nameof(IntakeIssues));
@@ -2937,8 +2911,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         suspendTransactionCommand.RaiseCanExecuteChanged();
         cancelProcessCommand.RaiseCanExecuteChanged();
-        rejectComputeReviewCommand.RaiseCanExecuteChanged();
-        postponeComputeReviewCommand.RaiseCanExecuteChanged();
         completeTransactionCommand.RaiseCanExecuteChanged();
     }
 

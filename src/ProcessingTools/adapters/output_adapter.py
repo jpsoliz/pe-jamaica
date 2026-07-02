@@ -1020,6 +1020,26 @@ def _first_matching_field(arcpy, dataset: str, candidates: list[str]) -> str | N
     return None
 
 
+def _parse_allowed_cad_layers(value: str | None) -> set[str]:
+    if not value:
+        return set()
+
+    allowed: set[str] = set()
+    for token in str(value).replace(";", ",").replace("|", ",").split(","):
+        normalized = token.strip().lower()
+        if normalized:
+            allowed.add(normalized)
+    return allowed
+
+
+def _is_allowed_cad_layer(layer_name: Any, allowed_layers: set[str]) -> bool:
+    if not allowed_layers:
+        return True
+
+    normalized = str(layer_name or "").strip().lower()
+    return normalized in allowed_layers
+
+
 def _record_name(transaction_number: str) -> str:
     return f"{PARCEL_FABRIC_RECORD_PREFIX}-{transaction_number}"
 
@@ -1229,6 +1249,7 @@ def _import_dwg_reference_with_arcpy(
     dataset_name: str,
     dwg_source_path: Path | None,
     spatial_reference,
+    allowed_layers: set[str],
     warnings: list[str],
 ) -> str | None:
     if dwg_source_path is None or not dwg_source_path.exists():
@@ -1248,10 +1269,45 @@ def _import_dwg_reference_with_arcpy(
             spatial_reference,
         )
 
+        if arcpy.Exists(str(target_dataset)):
+            _filter_cad_reference_layers(arcpy, target_dataset, allowed_layers, warnings)
         return str(target_dataset) if arcpy.Exists(str(target_dataset)) else None
     except Exception as exc:
         warnings.append(f"autocad survey source import requested, but DWG import failed: {exc}")
         return None
+
+
+def _filter_cad_reference_layers(arcpy, target_dataset: Path, allowed_layers: set[str], warnings: list[str]) -> None:
+    if not allowed_layers:
+        return
+
+    previous_workspace = arcpy.env.workspace
+    deleted_rows = 0
+    scanned_feature_classes = 0
+    try:
+        arcpy.env.workspace = str(target_dataset)
+        for feature_class in arcpy.ListFeatureClasses() or []:
+            feature_class_path = str(target_dataset / feature_class)
+            layer_field = _first_matching_field(arcpy, feature_class_path, ["Layer", "LayerName", "cad_layer"])
+            if layer_field is None:
+                warnings.append(f"DWG reference layer filter skipped {feature_class}: no CAD layer name field was available.")
+                continue
+
+            scanned_feature_classes += 1
+            with arcpy.da.UpdateCursor(feature_class_path, [layer_field]) as cursor:
+                for row in cursor:
+                    if not _is_allowed_cad_layer(row[0], allowed_layers):
+                        cursor.deleteRow()
+                        deleted_rows += 1
+    finally:
+        arcpy.env.workspace = previous_workspace
+
+    warnings.append(
+        "DWG reference layer filter applied: "
+        f"allowed_layers={','.join(sorted(allowed_layers))}; "
+        f"feature_classes_scanned={scanned_feature_classes}; "
+        f"rows_removed={deleted_rows}."
+    )
 
 
 def _create_outputs_with_arcpy(
@@ -1269,6 +1325,7 @@ def _create_outputs_with_arcpy(
     import_dwg_reference: bool,
     normalized_points_path: Path | None,
     dwg_source_path: Path | None,
+    dwg_allowed_layers: set[str],
 ) -> tuple[dict[str, str | None], dict[str, str | None], list[str]]:
     output_dir = target_gdb.parent
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1579,6 +1636,7 @@ def _create_outputs_with_arcpy(
             cad_reference_name,
             dwg_source_path,
             spatial_reference,
+            dwg_allowed_layers,
             warnings,
         )
         root_paths["cad_reference_path"] = cad_reference_path
@@ -1877,6 +1935,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--import-dwg-reference", default="false")
     parser.add_argument("--normalized-points", default="")
     parser.add_argument("--dwg-source", default="")
+    parser.add_argument("--dwg-allowed-layers", default="")
     parser.add_argument("--review-source-route", default=REVIEW_RESULT_OWNER_APPROVED)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output-summary", required=True)
@@ -1896,6 +1955,7 @@ def main(argv: list[str] | None = None) -> int:
     import_dwg_reference = _normalize_bool_flag(args.import_dwg_reference, False)
     normalized_points_path = Path(args.normalized_points) if args.normalized_points else None
     dwg_source_path = Path(args.dwg_source) if args.dwg_source else None
+    dwg_allowed_layers = _parse_allowed_cad_layers(args.dwg_allowed_layers)
     review_result_owner = _normalize_review_result_owner(args.review_source_route)
     output_root = Path(args.output_root)
     output_summary_path = Path(args.output_summary)
@@ -1961,6 +2021,7 @@ def main(argv: list[str] | None = None) -> int:
             import_dwg_reference,
             normalized_points_path,
             dwg_source_path,
+            dwg_allowed_layers,
         )
     elif os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", "").strip() == "1":
         layer_paths, review_paths, warnings = _create_outputs_filesystem_fallback(

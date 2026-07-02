@@ -85,7 +85,8 @@ internal static class WorkflowExecutionSettingsTests
             {
               "spatial_output_add_cogo_attributes": true,
               "spatial_output_add_cogo_labels": true,
-              "spatial_output_cogo_source_mode": "prefer_computed"
+              "spatial_output_cogo_source_mode": "prefer_computed",
+              "spatial_output_dwg_allowed_layers": "BOUNDARY|PARCEL"
             }
             """);
 
@@ -94,6 +95,7 @@ internal static class WorkflowExecutionSettingsTests
         TestAssert.True(settings.SpatialOutputAddCogoAttributes, "Optional COGO attributes flag should load from configuration.");
         TestAssert.True(settings.SpatialOutputAddCogoLabels, "Optional COGO labels flag should load from configuration.");
         TestAssert.Equal("prefer_computed", settings.SpatialOutputCogoSourceMode, "Optional COGO source mode should load from configuration.");
+        TestAssert.Equal("BOUNDARY|PARCEL", settings.SpatialOutputDwgAllowedLayers, "Optional DWG layer allowlist should load from configuration.");
     }
 
     private static TempFile WriteSettingsFile(string json)

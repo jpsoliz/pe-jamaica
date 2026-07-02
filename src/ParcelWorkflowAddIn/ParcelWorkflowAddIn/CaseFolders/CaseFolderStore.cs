@@ -410,7 +410,7 @@ public sealed partial class CaseFolderStore
             issues.Add(new RecoverabilityIssue(
                 "interrupted_preflight",
                 "warning",
-                "Case was reopened from interrupted Structure Check / Georeference Check. Run the early compute checks again.",
+                "Case was reopened from interrupted Structure Check / Dimension Check. Run the early compute checks again.",
                 null,
                 false));
             return WorkflowState.Intake;

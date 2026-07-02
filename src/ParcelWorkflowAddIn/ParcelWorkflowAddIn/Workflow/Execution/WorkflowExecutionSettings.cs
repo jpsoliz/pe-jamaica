@@ -14,6 +14,7 @@ public sealed record WorkflowExecutionSettings(
     bool SpatialOutputAddCogoAttributes,
     bool SpatialOutputAddCogoLabels,
     string SpatialOutputCogoSourceMode,
+    string SpatialOutputDwgAllowedLayers,
     string? OutputTemplateProjectPath,
     string? OutputTemplateGdbPath,
     string ValidationAdapterScriptPath,
@@ -35,6 +36,7 @@ public sealed record WorkflowExecutionSettings(
         false,
         false,
         "source_then_computed",
+        string.Empty,
         null,
         null,
         DefaultValidationAdapterPath ?? @"src\ProcessingTools\adapters\validation_adapter.py",
@@ -69,6 +71,8 @@ public sealed record WorkflowExecutionSettings(
                 ?? Default.SpatialOutputAddCogoLabels;
             var spatialOutputCogoSourceMode = NormalizeCogoSourceMode(ReadString(root, "spatial_output_cogo_source_mode"))
                 ?? Default.SpatialOutputCogoSourceMode;
+            var spatialOutputDwgAllowedLayers = ReadString(root, "spatial_output_dwg_allowed_layers")
+                ?? Default.SpatialOutputDwgAllowedLayers;
             var outputTemplateProjectPath = ExpandPath(ReadString(root, "output_template_project_path"));
             var outputTemplateGdbPath = ExpandPath(ReadString(root, "output_template_gdb_path"));
             var validationAdapterPath = ExpandPath(ReadString(root, "validation_adapter_script_path")
@@ -85,6 +89,7 @@ public sealed record WorkflowExecutionSettings(
                 spatialOutputAddCogoAttributes,
                 spatialOutputAddCogoLabels,
                 spatialOutputCogoSourceMode,
+                spatialOutputDwgAllowedLayers,
                 outputTemplateProjectPath,
                 outputTemplateGdbPath,
                 validationAdapterPath,

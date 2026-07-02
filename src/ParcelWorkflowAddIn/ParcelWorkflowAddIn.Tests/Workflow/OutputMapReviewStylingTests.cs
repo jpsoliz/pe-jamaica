@@ -129,6 +129,29 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal("TR 100000236 - Review", groupName, "Transaction review layers should be grouped under the transaction number.");
     }
 
+    public static void SupportingLayerPathsRouteToSupportingSourcesAndHideByDefault()
+    {
+        var pointPath = @"C:\case\output\case.gdb\survey_point_layer";
+        var cadPath = @"C:\case\output\case.gdb\survey_cad_reference";
+        var primaryPath = @"C:\case\output\case.gdb\parcel_lines";
+
+        TestAssert.True(OutputMapReviewStyling.IsSupportingLayerPath(pointPath), "Structured survey point imports should be treated as supporting context.");
+        TestAssert.True(OutputMapReviewStyling.IsSupportingLayerPath(cadPath), "DWG reference imports should be treated as supporting context.");
+        TestAssert.False(OutputMapReviewStyling.IsSupportingLayerPath(primaryPath), "Primary parcel layers should remain computed review outputs.");
+
+        TestAssert.Equal("Supporting Sources", OutputMapReviewStyling.GetLayerGroupName(pointPath), "Survey point imports should route under the supporting subgroup.");
+        TestAssert.Equal("Supporting Sources", OutputMapReviewStyling.GetLayerGroupName(cadPath), "DWG imports should route under the supporting subgroup.");
+        TestAssert.Equal("Computed Parcel Review", OutputMapReviewStyling.GetLayerGroupName(primaryPath), "Primary parcel layers should route under the computed subgroup.");
+
+        TestAssert.True(OutputMapReviewStyling.ShouldHideLayerByDefault(pointPath), "Supporting survey point imports should be hidden initially.");
+        TestAssert.True(OutputMapReviewStyling.ShouldHideLayerByDefault(cadPath), "Supporting DWG imports should be hidden initially.");
+        TestAssert.False(OutputMapReviewStyling.ShouldHideLayerByDefault(primaryPath), "Primary computed review layers should stay visible.");
+
+        TestAssert.False(OutputMapReviewStyling.ShouldIncludeLayerInInitialZoom(pointPath), "Hidden supporting survey point imports should not drive the initial map extent.");
+        TestAssert.False(OutputMapReviewStyling.ShouldIncludeLayerInInitialZoom(cadPath), "Hidden supporting DWG imports should not drive the initial map extent.");
+        TestAssert.True(OutputMapReviewStyling.ShouldIncludeLayerInInitialZoom(primaryPath), "Primary computed review layers should drive the initial map extent.");
+    }
+
     public static void BuildSuccessMessagePrefersRootFeatureClassDiagnosticsWhenAvailable()
     {
         var rootDiagnostic = new OutputFeatureClassDiagnostic(
@@ -264,6 +287,67 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[1], "Polygon overlay should come from the root review outputs.");
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[2], "Line overlay should come from the root review outputs.");
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[3], "Point overlay should come from the root review outputs.");
+    }
+
+    public static void ParcelFabricModePreservesSupportingSurveyAndCadLayers()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000379",
+            "run-supporting",
+            "2026-07-02T00:00:00Z",
+            "tester",
+            "hash-supporting",
+            new OutputSummaryPayload(
+                "created",
+                "parcel_fabric",
+                @"C:\case\output\case.gdb",
+                Array.Empty<string>(),
+                new[]
+                {
+                    @"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric",
+                    @"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric_Points",
+                    @"C:\case\output\case.gdb\parcel_fabric_dataset\compute_review_Lines",
+                    @"C:\case\output\case.gdb\parcel_fabric_dataset\compute_review",
+                    @"C:\case\output\case.gdb\survey_point_layer",
+                    @"C:\case\output\case.gdb\survey_cad_reference"
+                },
+                @"C:\case\output\case.gdb\parcel_points",
+                @"C:\case\output\case.gdb\parcel_lines",
+                @"C:\case\output\case.gdb\parcel_polygons",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric_Points",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset\compute_review_Lines",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset\compute_review",
+                "true",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset",
+                @"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric",
+                "record-1",
+                null,
+                "compute_review",
+                10,
+                55,
+                46,
+                46,
+                55,
+                10,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var service = new OutputSummaryPersistenceService();
+        var paths = service.GetMapLayerPaths(summary);
+
+        TestAssert.Equal(6, paths.Count, "Parcel Fabric review mode should keep checked supporting sources loadable.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_fabric_dataset\local_parcel_fabric", paths[0], "Fabric layer should remain the base layer.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[1], "Polygon overlay should come from the root review outputs.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[2], "Line overlay should come from the root review outputs.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[3], "Point overlay should come from the root review outputs.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\survey_point_layer", paths[4], "Checked structured survey points should remain loadable as supporting context.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\survey_cad_reference", paths[5], "Checked DWG reference should remain loadable as supporting context.");
     }
 
     public static void EnterpriseParcelFabricModeReturnsPublishedFabricTargetsPlusOverlays()

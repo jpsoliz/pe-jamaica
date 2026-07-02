@@ -654,7 +654,7 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = "Structure Check and Georeference Check are running: validating transaction attachments and extraction readiness.";
+        StatusText = "Structure Check and Dimension Check are running: validating transaction attachments and extraction readiness.";
         preflightRunActive = true;
 
         try
@@ -674,7 +674,7 @@ public sealed class WorkflowSession
 
             StatusText = finalState == WorkflowState.PreflightBlocked
                 ? $"Early compute checks blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
-                : "Structure Check and Georeference Check passed: attached files are ready for point extraction.";
+                : "Structure Check and Dimension Check passed: attached files are ready for point extraction.";
 
             return summary;
         }
@@ -1199,9 +1199,22 @@ public sealed class WorkflowSession
                 ? "Enterprise Parcel Fabric publish completed. The validated review is now ready for shared final review."
                 : "Enterprise working-layer publish completed. The completed review is now ready for shared visibility."
             : GetEnterprisePublishMode() == Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric
-                ? $"Enterprise Parcel Fabric publish failed. Local outputs remain available. {publishResult.Message}"
-                : $"Enterprise working-layer publish failed. Local outputs remain available. {publishResult.Message}";
+                ? BuildEnterprisePublishFailureStatus("Enterprise Parcel Fabric publish failed. Local outputs remain available.", publishResult)
+                : BuildEnterprisePublishFailureStatus("Enterprise working-layer publish failed. Local outputs remain available.", publishResult);
         return publishResult;
+    }
+
+    private static string BuildEnterprisePublishFailureStatus(string prefix, EnterpriseWorkingLayerPublishResult publishResult)
+    {
+        var detail = publishResult.Summary?.Errors.FirstOrDefault(error => !string.IsNullOrWhiteSpace(error))
+            ?? publishResult.Message;
+        if (string.IsNullOrWhiteSpace(detail)
+            || string.Equals(detail.Trim().TrimEnd('.'), prefix.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+        {
+            return prefix;
+        }
+
+        return $"{prefix} {detail}";
     }
 
     public async Task<ComputeReviewDispositionResult> RecordComputeDispositionAsync(
@@ -1504,7 +1517,7 @@ public sealed class WorkflowSession
 
         if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Run Structure Check and Georeference Check successfully before starting Validate Points.";
+            StatusText = "Run Structure Check and Dimension Check successfully before starting Validate Points.";
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 

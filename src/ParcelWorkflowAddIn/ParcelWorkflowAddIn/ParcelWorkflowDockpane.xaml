@@ -263,17 +263,7 @@
         </StackPanel>
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal">
-          <Button Content="Reject"
-                  Command="{Binding RejectComputeReviewCommand}"
-                  IsEnabled="{Binding CanRejectComputeReview}"
-                  Style="{StaticResource CompactButtonStyle}"
-                  Margin="0,0,6,0" />
-          <Button Content="Postpone"
-                  Command="{Binding PostponeComputeReviewCommand}"
-                  IsEnabled="{Binding CanPostponeComputeReview}"
-                  Style="{StaticResource CompactButtonStyle}"
-                  Margin="0,0,6,0" />
-          <Button Content="Approve"
+          <Button Content="Finalize"
                   Command="{Binding CompleteTransactionCommand}"
                   Style="{StaticResource CompactButtonStyle}"
                   Background="#1F6B75"
@@ -441,15 +431,15 @@
                   </ItemsControl>
                 </StackPanel>
                 <StackPanel Margin="0,10,0,0">
-                  <TextBlock Text="Optional imports for Create Spatial Units"
+                  <TextBlock Text="Optional supporting layers for Create Spatial Units"
                              Style="{StaticResource CaptionTextStyle}"
                              FontWeight="SemiBold" />
                   <CheckBox Margin="0,6,0,0"
-                            Content="Load Structured survey points into Survey_point_layer"
+                            Content="Load structured survey points as a supporting layer"
                             IsChecked="{Binding ImportStructuredSurveyPoints, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                             Visibility="{Binding HasStructuredSurveyPointsSource, Converter={StaticResource BooleanToVisibilityConverter}}" />
                   <CheckBox Margin="0,6,0,0"
-                            Content="Load AutoCAD survey source into the geodatabase"
+                            Content="Load AutoCAD survey source as a supporting layer"
                             IsChecked="{Binding ImportAutoCadSurveySource, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                             Visibility="{Binding HasAutoCadSurveySource, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </StackPanel>
@@ -576,7 +566,7 @@
                         Padding="10">
                   <StackPanel>
                     <DockPanel LastChildFill="False">
-                      <TextBlock Text="Georeference Check"
+                      <TextBlock Text="Dimension Check"
                                  FontSize="12"
                                  FontWeight="SemiBold"
                                  Foreground="#1F2933"
@@ -692,23 +682,18 @@
                     BorderThickness="0,1,0,0"
                     Padding="10">
               <StackPanel>
-                <Grid Background="#F3F6F7"
-                      MinHeight="30">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                  </Grid.ColumnDefinitions>
+                <StackPanel Background="#F3F6F7"
+                            MinHeight="30">
                   <TextBlock Text="{Binding ExtractionReviewHelpText}"
                              FontSize="12"
                              Foreground="#52616B"
                              TextWrapping="Wrap"
                              VerticalAlignment="Center"
-                             Margin="6,0,8,0" />
-                  <WrapPanel Grid.Column="1"
-                             Orientation="Horizontal"
+                             Margin="6,6,6,2" />
+                  <WrapPanel Orientation="Horizontal"
                              HorizontalAlignment="Right"
                              VerticalAlignment="Top"
-                             Margin="0,3,0,3">
+                             Margin="6,4,6,6">
                     <Button Content="{Binding ExtractionReviewActionLabel}"
                             Command="{Binding RunExtractionReviewCommand}"
                             IsEnabled="{Binding CanRunExtractionReview}"
@@ -736,7 +721,7 @@
                             VerticalAlignment="Top"
                             Visibility="{Binding ShowManualCogoFallbackAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
                   </WrapPanel>
-                </Grid>
+                </StackPanel>
 
                 <Border Margin="0,10,0,0"
                         Padding="8"
@@ -1480,15 +1465,15 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <StackPanel Margin="0,10,0,0">
-                <TextBlock Text="Optional imports for Create Spatial Units"
+                <TextBlock Text="Optional supporting layers for Create Spatial Units"
                            Style="{StaticResource CaptionTextStyle}"
                            FontWeight="SemiBold" />
                 <CheckBox Margin="0,6,0,0"
-                          Content="Load Structured survey points into Survey_point_layer"
+                          Content="Load structured survey points as a supporting layer"
                           IsChecked="{Binding ImportStructuredSurveyPoints, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                           Visibility="{Binding HasStructuredSurveyPointsSource, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 <CheckBox Margin="0,6,0,0"
-                          Content="Load AutoCAD survey source into the geodatabase"
+                          Content="Load AutoCAD survey source as a supporting layer"
                           IsChecked="{Binding ImportAutoCadSurveySource, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                           Visibility="{Binding HasAutoCadSurveySource, Converter={StaticResource BooleanToVisibilityConverter}}" />
               </StackPanel>
@@ -1532,7 +1517,7 @@
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Georeference Check"
+                <TextBlock Text="Dimension Check"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"

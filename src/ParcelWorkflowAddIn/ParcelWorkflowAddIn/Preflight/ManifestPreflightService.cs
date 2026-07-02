@@ -243,7 +243,7 @@ public sealed class ManifestPreflightService
                     georeferenceSourceRule,
                     blockers,
                     warnings,
-                    "No source with usable coordinate context is present for Georeference Check.",
+                    "No source with usable coordinate context is present for Dimension Check.",
                     layout.ManifestPath,
                     null,
                     "Add a computation sheet, tabular coordinate source, or map reference with usable coordinate context.");
@@ -253,7 +253,7 @@ public sealed class ManifestPreflightService
                 passed.Add(PreflightCheck.PassedForCategory(
                     georeferenceSourceRule.Category,
                     georeferenceSourceRule.RuleId,
-                    $"Passed: {RoleDisplayName(georeferenceSource.SourceRole ?? string.Empty)} is available for Georeference Check.",
+                    $"Passed: {RoleDisplayName(georeferenceSource.SourceRole ?? string.Empty)} is available for Dimension Check.",
                     georeferenceSource.CopiedPath,
                     georeferenceSource.SourceRole));
             }
@@ -293,7 +293,7 @@ public sealed class ManifestPreflightService
                 passed.Add(PreflightCheck.PassedForCategory(
                     tabularRule.Category,
                     tabularRule.RuleId,
-                    $"Passed: {Path.GetFileName(source.CopiedPath)} exposes tabular coordinate columns for Georeference Check.",
+                    $"Passed: {Path.GetFileName(source.CopiedPath)} exposes tabular coordinate columns for Dimension Check.",
                     source.CopiedPath,
                     source.SourceRole));
 
@@ -312,7 +312,7 @@ public sealed class ManifestPreflightService
                         $"Jamaica coordinate bounds could not be sampled from {Path.GetFileName(source.CopiedPath)}.",
                         source.CopiedPath,
                         source.SourceRole,
-                        "Add at least one numeric Easting/Northing row before rerunning Georeference Check.");
+                        "Add at least one numeric Easting/Northing row before rerunning Dimension Check.");
                     continue;
                 }
 
@@ -329,7 +329,7 @@ public sealed class ManifestPreflightService
                         $"Sample coordinates from {Path.GetFileName(source.CopiedPath)} fall outside the configured Jamaica working bounds.",
                         source.CopiedPath,
                         source.SourceRole,
-                        "Check the coordinate system, units, and source file values before rerunning Georeference Check.");
+                        "Check the coordinate system, units, and source file values before rerunning Dimension Check.");
                     continue;
                 }
 

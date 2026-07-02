@@ -618,7 +618,7 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Structure Check and Georeference Check passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
+        TestAssert.Equal("Structure Check and Dimension Check passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
@@ -733,7 +733,7 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
-        TestAssert.Equal("Run Structure Check and Georeference Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
+        TestAssert.Equal("Run Structure Check and Dimension Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
     }
 
     public static void WorkflowSessionWeakExtractionTriggersDecisionGate()

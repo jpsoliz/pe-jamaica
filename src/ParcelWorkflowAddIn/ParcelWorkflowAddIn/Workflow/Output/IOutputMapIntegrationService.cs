@@ -50,19 +50,74 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         }
 
         var loadedLayers = new List<Layer>();
+        var zoomLayers = new List<Layer>();
         var stylingWarnings = new List<string>();
         var groupLayerName = OutputMapReviewStyling.BuildTransactionGroupLayerName(summary);
         await QueuedTask.Run(() =>
         {
             var reviewGroup = EnsureTransactionReviewGroup(mapView.Map, groupLayerName);
+            var hasSupportingLayers = layerPaths.Any(OutputMapReviewStyling.IsSupportingLayerPath);
+            GroupLayer? computedReviewGroup = null;
+            GroupLayer? supportingSourcesGroup = null;
+            if (hasSupportingLayers)
+            {
+                try
+                {
+                    computedReviewGroup = EnsureTransactionReviewSubgroup(reviewGroup, OutputMapReviewStyling.ComputedParcelReviewGroupName);
+                }
+                catch (Exception ex)
+                {
+                    stylingWarnings.Add($"Computed parcel review subgroup could not be created; primary layers will load under '{reviewGroup.Name}': {ex.Message}");
+                }
+
+                try
+                {
+                    supportingSourcesGroup = EnsureTransactionReviewSubgroup(reviewGroup, OutputMapReviewStyling.SupportingSourcesGroupName);
+                }
+                catch (Exception ex)
+                {
+                    stylingWarnings.Add($"Supporting sources subgroup could not be created; supporting layers will load under '{reviewGroup.Name}' hidden by default: {ex.Message}");
+                }
+            }
+
             var styledLayerKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var layerPath in layerPaths)
             {
                 RemoveExistingReviewLayers(mapView.Map, layerPath);
-                var created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), reviewGroup);
+                var parentGroup = hasSupportingLayers
+                    ? OutputMapReviewStyling.IsSupportingLayerPath(layerPath)
+                        ? supportingSourcesGroup
+                        : computedReviewGroup
+                    : reviewGroup;
+                Layer? created = null;
+                try
+                {
+                    created = LayerFactory.Instance.CreateLayer(new Uri(layerPath), parentGroup ?? reviewGroup);
+                }
+                catch (Exception ex) when (OutputMapReviewStyling.IsSupportingLayerPath(layerPath))
+                {
+                    stylingWarnings.Add($"Supporting source layer '{Path.GetFileName(layerPath)}' could not be added to the map and was skipped: {ex.Message}");
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    stylingWarnings.Add($"Computed parcel layer '{Path.GetFileName(layerPath)}' could not be added to the map and was skipped: {ex.Message}");
+                    continue;
+                }
+
                 if (created is not null)
                 {
                     TryConfigureReviewLayer(created, summary.Payload, stylingWarnings, styledLayerKeys);
+                    var hideByDefault = OutputMapReviewStyling.ShouldHideLayerByDefault(layerPath);
+                    if (hideByDefault)
+                    {
+                        created.SetVisibility(false);
+                    }
+                    if (OutputMapReviewStyling.ShouldIncludeLayerInInitialZoom(layerPath))
+                    {
+                        zoomLayers.Add(created);
+                    }
+
                     loadedLayers.Add(created);
                 }
             }
@@ -75,7 +130,7 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
         try
         {
-            await mapView.ZoomToAsync(loadedLayers).ConfigureAwait(false);
+            await mapView.ZoomToAsync(zoomLayers.Count > 0 ? zoomLayers : loadedLayers).ConfigureAwait(false);
         }
         catch (Exception)
         {
@@ -103,6 +158,18 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         }
 
         return LayerFactory.Instance.CreateGroupLayer(map, 0, groupLayerName);
+    }
+
+    private static GroupLayer EnsureTransactionReviewSubgroup(GroupLayer parentGroup, string groupLayerName)
+    {
+        var existingGroup = parentGroup.Layers.OfType<GroupLayer>()
+            .FirstOrDefault(layer => string.Equals(layer.Name, groupLayerName, StringComparison.OrdinalIgnoreCase));
+        if (existingGroup is not null)
+        {
+            return existingGroup;
+        }
+
+        return LayerFactory.Instance.CreateGroupLayer(parentGroup, 0, groupLayerName);
     }
 
     private static void RemoveExistingReviewLayers(Map map, string layerPath)
@@ -217,10 +284,14 @@ internal static class OutputMapReviewStyling
     private const string ParcelPointsLayer = "parcel_points";
     private const string ParcelLinesLayer = "parcel_lines";
     private const string ParcelPolygonsLayer = "parcel_polygons";
+    private const string SurveyPointLayer = "survey_point_layer";
+    private const string SurveyCadReferenceLayer = "survey_cad_reference";
     private const string ParcelFabricLayer = "local_parcel_fabric";
     private const string FabricPointsLayer = "Points";
     private const string FabricConnectionLinesLayer = "Connection Lines";
     private const string FabricParcelTypeSuffix = "_Lines";
+    public const string ComputedParcelReviewGroupName = "Computed Parcel Review";
+    public const string SupportingSourcesGroupName = "Supporting Sources";
 
     public static IReadOnlyList<string> OrderLayerPaths(IEnumerable<string> layerPaths)
     {
@@ -255,6 +326,36 @@ internal static class OutputMapReviewStyling
     {
         var transactionNumber = string.IsNullOrWhiteSpace(summary.TransactionId) ? "Unknown" : summary.TransactionId.Trim();
         return $"TR {transactionNumber} - Review";
+    }
+
+    public static string GetLayerGroupName(string path)
+    {
+        return IsSupportingLayerPath(path)
+            ? SupportingSourcesGroupName
+            : ComputedParcelReviewGroupName;
+    }
+
+    public static bool ShouldHideLayerByDefault(string path)
+    {
+        return IsSupportingLayerPath(path);
+    }
+
+    public static bool ShouldIncludeLayerInInitialZoom(string path)
+    {
+        return !IsSupportingLayerPath(path);
+    }
+
+    public static bool IsSupportingLayerPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var layerName = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return string.Equals(layerName, SurveyPointLayer, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(layerName, SurveyCadReferenceLayer, StringComparison.OrdinalIgnoreCase)
+            || layerName.StartsWith(SurveyCadReferenceLayer + "_", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildCogoDiagnosticSuffix(OutputSummaryPayload payload)

@@ -77,13 +77,13 @@ public sealed class OutputSummaryPersistenceService
         if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeParcelFabricLegacy, StringComparison.OrdinalIgnoreCase)
             && string.Equals(summary.Payload.ParcelFabricMode, "true", StringComparison.OrdinalIgnoreCase))
         {
-            paths = new string?[]
+            paths = AppendSupportingLayerPaths(summary.Payload, new string?[]
             {
                 summary.Payload.ReviewLayerPath,
                 summary.Payload.PolygonFeatureClassPath,
                 summary.Payload.LineFeatureClassPath,
                 summary.Payload.PointFeatureClassPath
-            };
+            });
         }
         else if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))
         {
@@ -93,14 +93,14 @@ public sealed class OutputSummaryPersistenceService
             var parcelLayer = publishedLayers.FirstOrDefault(layer =>
                 string.Equals(layer.LayerRole, "parcels", StringComparison.OrdinalIgnoreCase))?.Target;
 
-            paths = new string?[]
+            paths = AppendSupportingLayerPaths(summary.Payload, new string?[]
             {
                 fabricLayer,
                 parcelLayer,
                 summary.Payload.PolygonFeatureClassPath,
                 summary.Payload.LineFeatureClassPath,
                 summary.Payload.PointFeatureClassPath
-            };
+            });
         }
         else if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
         {
@@ -143,6 +143,12 @@ public sealed class OutputSummaryPersistenceService
             payload.LineFeatureClassPath,
             payload.PointFeatureClassPath
         };
+    }
+
+    private static IEnumerable<string?> AppendSupportingLayerPaths(OutputSummaryPayload payload, IEnumerable<string?> primaryPaths)
+    {
+        return primaryPaths.Concat(payload.MapLayerPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path) && OutputMapReviewStyling.IsSupportingLayerPath(path)));
     }
 
     public bool IsCreated(OutputSummaryDocument? document)

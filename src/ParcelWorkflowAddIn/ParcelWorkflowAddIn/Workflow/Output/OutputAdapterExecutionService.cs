@@ -14,6 +14,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
     private const string ImportDwgReferenceArgument = "--import-dwg-reference";
     private const string NormalizedPointsArgument = "--normalized-points";
     private const string DwgSourceArgument = "--dwg-source";
+    private const string DwgAllowedLayersArgument = "--dwg-allowed-layers";
     private readonly IProcessRunner processRunner;
     private readonly Func<WorkflowExecutionSettings> getExecutionSettings;
     private readonly OutputSummaryPersistenceService persistenceService;
@@ -99,6 +100,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             ImportDwgReferenceArgument, Quote(supportingDocumentOptions.ImportAutoCadSurveySource ? "true" : "false"),
             NormalizedPointsArgument, Quote(normalizedPointsPath),
             DwgSourceArgument, Quote(dwgSourcePath ?? string.Empty),
+            DwgAllowedLayersArgument, Quote(executionSettings.SpatialOutputDwgAllowedLayers),
             ReviewSourceRouteArgument, Quote(reviewResultOwner),
             "--output-root", Quote(layout.OutputDirectory),
             "--output-summary", Quote(outputSummaryPath),

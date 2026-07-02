@@ -444,7 +444,21 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         JsonObject payload,
         CancellationToken cancellationToken)
     {
-        var token = Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN");
+        var token = GetPortalToken();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("ArcGIS Enterprise publish requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the current user or ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
+        }
+
+        var referer = GetArcGisReferer(targetUrl);
+        var metadataForm = new Dictionary<string, string>
+        {
+            ["f"] = "json"
+        };
+        AddToken(metadataForm, token);
+        var metadataResponse = await PostFormAsync(targetUrl.TrimEnd('/'), metadataForm, cancellationToken, referer).ConfigureAwait(false);
+        EnsureArcGisSuccess(metadataResponse, "token validation", layerRole);
+
         var where = $"{transactionScopeField} = '{EscapeSqlLiteral(transactionScopeValue)}'";
         var deleteForm = new Dictionary<string, string>
         {
@@ -452,7 +466,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             ["where"] = where
         };
         AddToken(deleteForm, token);
-        var deleteResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/deleteFeatures", deleteForm, cancellationToken).ConfigureAwait(false);
+        var deleteResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/deleteFeatures", deleteForm, cancellationToken, referer).ConfigureAwait(false);
         EnsureArcGisSuccess(deleteResponse, "deleteFeatures", layerRole);
 
         var features = BuildArcGisFeatures(payload, layerRole);
@@ -462,16 +476,56 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             ["features"] = features.ToJsonString(JsonOptions)
         };
         AddToken(addForm, token);
-        var addResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/addFeatures", addForm, cancellationToken).ConfigureAwait(false);
+        var addResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/addFeatures", addForm, cancellationToken, referer).ConfigureAwait(false);
         EnsureArcGisSuccess(addResponse, "addFeatures", layerRole);
 
         return new EnterpriseWorkingPublishedLayer(layerRole, targetUrl, ExtractPayloadCount(payload), true);
     }
 
-    private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken)
+    private static Uri? GetArcGisReferer(string targetUrl)
+    {
+        if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        return new Uri(uri.GetLeftPart(UriPartial.Authority));
+    }
+
+    private static string? GetPortalToken()
+    {
+        return FirstNonBlank(
+            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Process),
+            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.User),
+            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Machine));
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken, Uri? referer = null)
     {
         using var content = new FormUrlEncodedContent(form);
-        using var response = await HttpClient.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = content
+        };
+        if (referer is not null)
+        {
+            request.Headers.Referrer = referer;
+        }
+
+        using var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return JsonNode.Parse(text)?.AsObject() ?? [];
@@ -621,7 +675,16 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         if (response.TryGetPropertyValue("error", out var errorNode) && errorNode is JsonObject error)
         {
             var message = ReadJsonString(error, "message") ?? "ArcGIS Enterprise returned an error.";
-            throw new InvalidOperationException($"{operation} failed for {layerRole}: {message}");
+            var details = ReadJsonStringArray(error, "details");
+            if (IsArcGisTokenError(error, message, details))
+            {
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: ArcGIS token is invalid or expired. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
+            }
+
+            var detailSuffix = details.Count == 0
+                ? string.Empty
+                : $" Details: {string.Join("; ", details)}";
+            throw new InvalidOperationException($"{operation} failed for {layerRole}: {message}{detailSuffix}");
         }
 
         if (response.TryGetPropertyValue("addResults", out var addResultsNode) && addResultsNode is JsonArray addResults)
@@ -653,6 +716,45 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         {
             form["token"] = token;
         }
+    }
+
+    private static bool IsArcGisTokenError(JsonObject error, string message, IReadOnlyList<string> details)
+    {
+        var code = TryReadJsonInt(error, "code");
+        return code is 498 or 499
+            || message.Contains("token", StringComparison.OrdinalIgnoreCase)
+            || details.Any(detail => detail.Contains("token", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int? TryReadJsonInt(JsonObject raw, string propertyName)
+    {
+        if (!raw.TryGetPropertyValue(propertyName, out var node) || node is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return node.GetValue<int>();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<string> ReadJsonStringArray(JsonObject raw, string propertyName)
+    {
+        if (!raw.TryGetPropertyValue(propertyName, out var node) || node is not JsonArray array)
+        {
+            return Array.Empty<string>();
+        }
+
+        return array
+            .Select(item => item?.GetValue<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .ToArray();
     }
 
     private static string EscapeSqlLiteral(string value)

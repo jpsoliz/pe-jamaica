@@ -507,8 +507,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             .ThenByDescending(candidate => candidate.Match.Definition.Priority)
             .FirstOrDefault();
 
-        var selected = structuredCandidate
-            ?? computationCandidate
+        var selected = computationCandidate
+            ?? structuredCandidate
             ?? candidates
                 .OrderBy(candidate => GetSourcePriority(candidate.Source, context.Step.InputRoles))
                 .ThenByDescending(candidate => candidate.Match.MatchScore)

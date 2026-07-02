@@ -9,43 +9,39 @@ Status: in-progress
 ## Story
 
 As a cadastral examiner completing Compute review,  
-I want to record whether the submitted document geometry is approved, rejected, or postponed,  
+I want to finalize the submitted document geometry after Final Review has passed,  
 so that the temporary Enterprise working layers preserve the transaction review outcome without promoting the geometry into CADMAP, CADINDEX, or any authoritative cadastral store.
 
 ## Business Context
 
 Compute is the document-geometry review stage. Its job is to inspect the geometry derived from submitted transaction documents (`.pdf`, `.csv`, `.txt`, `.dwg`, and related attachments), compare the temporary parcel geometry against official reference layers such as CADMAP and CADINDEX, and record the examiner's review outcome.
 
-The current UI and lifecycle code still assume a single final `Approve` action that uploads a completed package and marks the task complete. That is too narrow. Final Review must support three Compute dispositions:
+The general workflow now keeps rejection/postponement outside this Compute closeout action. The Finalize stage should expose one closeout action named `Finalize`, which records that the submitted geometry passed Compute review and then completes the Innola task through the normal workflow lifecycle.
 
-- `approved`: submitted geometry passed Compute review.
-- `rejected`: submitted geometry failed Compute review and should be routed/closed with a reason.
-- `postponed`: submitted geometry needs follow-up or cannot be decided yet.
+The approved/finalized disposition must write back to the Enterprise working points, lines, polygons, and case index when `review_workspace_mode = enterprise_working_layers`. This disposition does not perform authoritative cadastral promotion.
 
-All three dispositions must write back to the Enterprise working points, lines, polygons, and case index when `review_workspace_mode = enterprise_working_layers`. None of these dispositions performs authoritative cadastral promotion.
+The Compute closeout must also create or update the Spatial Unit record expected by the Innola framework. The Spatial Unit must be created through the Innola API, linked to the active transaction, and reference the temporary reviewed geometry/workflow artifacts. The zipped working package must also be attached to the transaction for the Finalize closeout, following the same recoverable package pattern used by Suspend/Save and Close.
 
-The Compute closeout must also create or update the Spatial Unit record expected by the Innola framework. The Spatial Unit must be created through the Innola API, linked to the active transaction, and reference the temporary reviewed geometry/workflow artifacts. The zipped working package must also be attached to the transaction for all Compute dispositions, following the same recoverable package pattern used by Suspend/Save and Close.
-
-The Finalize action area should make the operator intent obvious: `Cancel` and `Suspend` are session/lifecycle controls and should sit together on the left; Compute decision controls should sit on the right, with `Reject` and `Approve` visible as the primary decision buttons. `Reject` can be delivered as a disabled/clear placeholder only in an interim build, but this story is not complete until the reject path records a real disposition with reason/comment handling.
+The Finalize action area should make the operator intent obvious: `Cancel` and `Suspend` are session/lifecycle controls and should sit together on the left; the single Compute closeout control should sit on the right as `Finalize`. Do not show disabled `Reject` or `Postpone` placeholders in this workflow.
 
 ## Acceptance Criteria
 
-1. Given a transaction is in `SpatialReviewApproved` / Finalize-ready state, when the examiner opens the Finalize area, then the UI presents explicit Compute closeout actions for `Approve`, `Reject`, and `Postpone` instead of implying that every closeout is final approval.
-2. Given the examiner selects `Approve`, when current Enterprise working publish evidence is available and current, then the add-in records `review_decision = approved` on the transaction-scoped working points, lines, polygons, and case-index row.
-3. Given the examiner selects `Reject`, when they provide a rejection reason/comment, then the add-in records `review_decision = rejected` and preserves the temporary working geometry for traceability and follow-up.
-4. Given the examiner selects `Postpone`, when they provide a reason/comment, then the add-in records `review_decision = postponed` and preserves the temporary working geometry for later review.
+1. Given a transaction is in `SpatialReviewApproved` / Finalize-ready state, when the examiner opens the Finalize area, then the UI presents a single Compute closeout action named `Finalize`; it does not show `Reject` or `Postpone` controls.
+2. Given the examiner selects `Finalize`, when current Enterprise working publish evidence is available and current, then the add-in records `review_decision = approved` on the transaction-scoped working points, lines, polygons, and case-index row.
+3. Given the general workflow determines a transaction should be rejected or postponed, when that path is needed, then it is handled outside this Finalize closeout UI and this story does not expose disabled placeholder buttons for those actions.
+4. Given Finalize records an approved Compute result, when the Enterprise working rows are updated, then the temporary working geometry remains available for traceability and does not imply authoritative cadastral promotion.
 5. Given Enterprise disposition writeback fails because of schema, auth, service, or network issues, when the examiner attempts closeout, then no successful Compute disposition is recorded locally or in Innola, the local case artifacts remain intact, and the UI shows a clear non-secret error.
 6. Given `review_workspace_mode = enterprise_working_layers`, when closeout readiness is evaluated, then readiness requires current `enterprise_working_publish.json` / `output_summary.json` evidence and successful disposition writeback for the current transaction.
-7. Given the transaction is closed after any valid Compute disposition, when the completed/resume package is uploaded to Innola, then the package and manifest include the disposition, operator, timestamp, comment, and Enterprise publish references.
-8. Given any valid Compute disposition is being closed out, when the Innola Spatial Unit API contract is available, then the add-in creates or updates the transaction-linked Spatial Unit record through the API and stores the returned Spatial Unit identifier in local artifacts and working-layer/case-index metadata.
+7. Given the transaction is closed after Finalize, when the completed/resume package is uploaded to Innola, then the package and manifest include the disposition, operator, timestamp, comment if supplied, and Enterprise publish references.
+8. Given Finalize is being closed out, when the Innola Spatial Unit API contract is available, then the add-in creates or updates the transaction-linked Spatial Unit record through the API and stores the returned Spatial Unit identifier in local artifacts and working-layer/case-index metadata.
 9. Given the Spatial Unit API call fails or the required endpoint/configuration is unavailable, when the examiner attempts closeout, then the transaction is not marked successfully closed, the working package is not falsely treated as final, and a clear diagnostic explains that Innola Spatial Unit creation is blocked.
-10. Given the Compute disposition is approved, rejected, or postponed, when closeout succeeds, then a zipped working package containing the local case working information is attached to the Innola transaction using the same recoverable package pattern as Suspend/Save and Close.
-11. Given the examiner rejects or postpones a transaction, when the transaction returns to the list, then the add-in refreshes the list without suppressing unrelated transactions and does not present the case as an authoritative cadastral success.
+10. Given Finalize succeeds, then a zipped working package containing the local case working information is attached to the Innola transaction using the same recoverable package pattern as Suspend/Save and Close.
+11. Given Finalize succeeds and the transaction returns to the list, then the add-in refreshes the list without suppressing unrelated transactions except the completed transaction and does not present the case as an authoritative cadastral promotion.
 12. Given the workflow restores a previously decided transaction from local or Enterprise state, when the case is reopened, then the UI can display the existing Compute disposition, package attachment state, and Spatial Unit reference without requiring another decision unless geometry/output evidence changed.
 13. Given Story 7.4 remains deferred, when this story is complete, then no code writes to CADMAP, CADINDEX, Enterprise Parcel Fabric authoritative targets, or any sync-ready promotion package.
-14. Given the Finalize action bar is displayed, when session and decision controls are rendered, then `Cancel` and `Suspend` are grouped on the left and `Reject` and `Approve` are grouped on the right so Suspend is not visually treated as a Compute decision.
-15. Given the examiner selects `Approve`, when closeout succeeds, then the operation sequence is: ensure/copy current reviewed geometry to Enterprise working layers, record `review_decision = approved`, create/update Innola Spatial Unit records linked to the transaction, zip the produced/working files, attach that zip to the transaction, and only then complete/close the Innola task.
-16. Given any step in the Approve closeout sequence fails, when failure is detected, then later steps are not executed, the transaction is not marked complete, and diagnostics identify which step blocked closeout without losing the local produced files.
+14. Given the Finalize action bar is displayed, when session and closeout controls are rendered, then `Cancel` and `Suspend` are grouped on the left and `Finalize` is grouped on the right so Suspend is not visually treated as the Compute closeout action.
+15. Given the examiner selects `Finalize`, when closeout succeeds, then the operation sequence is: ensure/copy current reviewed geometry to Enterprise working layers, record `review_decision = approved`, create/update Innola Spatial Unit records linked to the transaction, zip the produced/working files, attach that zip to the transaction, and only then complete/close the Innola task.
+16. Given any step in the Finalize closeout sequence fails, when failure is detected, then later steps are not executed, the transaction is not marked complete, and diagnostics identify which step blocked closeout without losing the local produced files.
 
 ## Tasks / Subtasks
 
@@ -72,13 +68,12 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [ ] Treat ArcGIS REST top-level errors, `success: false`, failed update results, auth failures, and schema-missing responses as blockers.
   - [ ] Do not log portal tokens, signed URLs, raw credential material, or full sensitive service responses.
 
-- [ ] Replace single final approval UI with Compute disposition actions. (AC: 1, 3-5, 11, 14)
-  - [x] Update `ParcelWorkflowDockpane.xaml` bottom action area and/or Finalize card to expose `Approve`, `Reject`, and `Postpone`.
+- [ ] Replace single final approval UI with Finalize closeout action. (AC: 1, 3-5, 11, 14)
+  - [x] Update `ParcelWorkflowDockpane.xaml` bottom action area and/or Finalize card to expose `Finalize` as the single closeout action.
   - [x] Move `Suspend` beside `Cancel` on the left side of the bottom action area.
-  - [x] Place `Reject` and `Approve` together on the right side of the bottom action area as the primary Compute decision controls.
-  - [x] If `Reject` is surfaced before the full reject workflow is complete, keep it disabled with clear non-secret status/help text; do not allow a fake reject success path.
-  - [ ] Require a comment/reason for `Reject` and `Postpone`; approval comment can be optional.
-  - [x] Update confirmation copy so `Approve` means "submitted geometry passed Compute review", not authoritative cadastral promotion.
+  - [x] Place `Finalize` on the right side of the bottom action area as the primary Compute closeout control.
+  - [x] Remove disabled `Reject` and `Postpone` placeholders from this workflow.
+  - [x] Update confirmation copy so `Finalize` means "submitted geometry passed Compute review", not authoritative cadastral promotion.
   - [x] Update badge/help text currently saying "Complete", "Approve Transaction", and "final transaction completion" to use Compute closeout language.
   - [x] Keep `Suspend` behavior unchanged.
 
@@ -86,7 +81,7 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [x] Add workflow-session methods for recording each disposition after spatial review approval.
   - [ ] Replace or wrap `CompleteTransactionAsync` so it accepts a disposition and comment.
   - [x] Ensure Enterprise final-stage publish still runs when `publish_timing = on_complete`, then disposition writeback occurs only after publish success.
-  - [x] For `Approve`, enforce the closeout order: current Enterprise geometry publish/evidence -> approved disposition writeback -> Innola Spatial Unit create/update -> working package zip/upload -> Innola task complete/close.
+  - [x] For `Finalize`, enforce the closeout order: current Enterprise geometry publish/evidence -> approved disposition writeback -> Innola Spatial Unit create/update -> working package zip/upload -> Innola task complete/close.
   - [x] Ensure no later closeout step runs when an earlier step fails; for example, do not create/attach the package or complete Innola if Spatial Unit creation fails.
   - [x] Block closeout if spatial review approval is stale, output summary is missing, Enterprise publish evidence is missing/stale, or disposition writeback fails.
   - [ ] Invalidate the disposition if Create Spatial Units is regenerated after the decision.
@@ -96,7 +91,7 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [x] Preserve existing owner/session gating in `InnolaTransactionLifecycleCoordinator`.
   - [x] Upload the package after the disposition is successfully recorded.
   - [x] For approved closeout, run Innola task completion only after Enterprise disposition, Spatial Unit creation/update, and working package attachment have all succeeded.
-  - [ ] Decide and document whether rejected/postponed use the existing Innola `complete` transition or need a different lifecycle transition/source type; do not silently use approval wording for rejected/postponed outcomes.
+  - [x] Remove rejected/postponed closeout behavior from this story; those outcomes are handled by the general workflow process, not by the Finalize action.
   - [ ] Record clear audit actions such as `compute_review_approved`, `compute_review_rejected`, and `compute_review_postponed`.
 
 - [ ] Create/update Innola Spatial Unit on Compute closeout. (AC: 8-9, 12)
@@ -117,7 +112,7 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
 
 - [ ] Attach zipped working package for every Compute disposition. (AC: 7, 10-12)
   - [x] Reuse `CaseResumePackageService` or extract a shared package builder so the closeout package includes the same recoverable working information as Suspend/Save and Close.
-  - [ ] Ensure approved, rejected, and postponed closeouts all attach a package to the active transaction.
+  - [x] Ensure Finalize closeout attaches a package to the active transaction.
   - [x] Use a clear attachment naming/source-type convention, for example extending `InnolaResumePackageConventions` with a Compute working package source type and file name builder.
   - [ ] Include `compute_review_disposition.json`, `enterprise_working_publish.json`, `output_summary.json`, manifest, logs, generated working outputs, and relevant local working artifacts in the zip.
   - [ ] Treat "produced files" as the full case working/outputs package needed to reconstruct the review, including the local generated GDB, extracted geometry/summary artifacts, disposition artifact, Enterprise publish summary, and manifest/audit files.
@@ -133,23 +128,23 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [ ] Unit-test disposition artifact serialization and stale-output invalidation.
   - [ ] Unit-test Enterprise disposition writeback success and failed ArcGIS update responses.
   - [ ] Unit-test closeout blocking when `enterprise_working_publish.json` is missing/stale.
-  - [ ] Unit-test approve/reject/postpone command enablement and comment requirements where feasible.
-  - [ ] Unit-test Finalize action layout intent where feasible: `Cancel`/`Suspend` are separate from decision controls and `Reject`/`Approve` are exposed as decision actions.
+  - [ ] Unit-test Finalize command enablement where feasible.
+  - [ ] Unit-test Finalize action layout intent where feasible: `Cancel`/`Suspend` are separate from the `Finalize` closeout control.
   - [x] Unit-test approved closeout ordering: Enterprise publish/evidence, disposition writeback, Spatial Unit API, package attachment, then Innola completion.
   - [x] Unit-test approved closeout stops before Innola completion when Spatial Unit creation or package upload fails.
   - [x] Unit-test lifecycle package upload after successful disposition and no upload after failed disposition.
   - [x] Unit-test Spatial Unit API success/failure behavior and returned id persistence.
-  - [ ] Unit-test working package attachment for approve/reject/postpone.
+  - [ ] Unit-test working package attachment for Finalize.
   - [ ] Unit-test restore of existing disposition state.
 
 ## Developer Context
 
 ### Current Code Notes
 
-- `ParcelWorkflowDockpane.xaml` currently has a bottom `Approve` button bound to `CompleteTransactionCommand`. This assumes a single approval path and should be split or reworded.
-- The current bottom action area renders `Cancel` on the left and `Suspend`/`Approve` together on the right. This should change to `Cancel`/`Suspend` left and `Reject`/`Approve` right, with `Postpone` available in the Finalize decision area or equivalent disposition control.
+- `ParcelWorkflowDockpane.xaml` previously had a bottom `Approve` button bound to `CompleteTransactionCommand`. This should be reworded to `Finalize`.
+- The bottom action area should render `Cancel`/`Suspend` together on the left and the single `Finalize` closeout action on the right.
 - `ParcelWorkflowDockpaneViewModel.CompleteTransactionAsync()` currently:
-  - confirms "Approve this transaction..."
+  - confirms "Finalize this Compute review..."
   - calls `workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName)`
   - calls `ShellState.LifecycleCoordinator.CompleteAsync()`
   - returns to the transaction list on success.
@@ -198,9 +193,8 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
 
 - Do not update CADMAP, CADINDEX, Enterprise Parcel Fabric, or authoritative cadastral data.
 - Do not create a sync-ready authoritative package; that remains Story 7.4.
-- Do not silently treat rejected or postponed decisions as approvals.
+- Do not expose Reject/Postpone controls in this Finalize UI; those outcomes belong to the general workflow process.
 - Do not mark Innola Spatial Unit creation as successful without an API-confirmed result or an explicitly designed deferred retry artifact.
-- Do not skip the working package attachment for rejected/postponed outcomes.
 - Do not store portal credentials or tokens in settings, logs, diagnostics, or artifacts.
 - Do not delete working geometry after rejection/postponement.
 
@@ -217,9 +211,8 @@ Manual/live smoke testing:
 
 - Requires a configured Enterprise working service with Story 7.8 disposition fields.
 - Use a non-production transaction/test scope.
-- Confirm `approved`, `rejected`, and `postponed` each update case index and geometry rows.
-- Confirm rejected/postponed records remain visible in the working layers.
-- Confirm the Innola transaction receives the zipped working package attachment for approved, rejected, and postponed closeouts.
+- Confirm Finalize updates case index and geometry rows with the approved Compute disposition.
+- Confirm the Innola transaction receives the zipped working package attachment for Finalize closeout.
 - Confirm the Innola Spatial Unit reference is created/updated and linked to the transaction, or closeout blocks with clear diagnostics if the API is unavailable.
 - Confirm the Spatial Unit service first initializes default `SpatialUnitExt` rows, then saves populated rows linked to the transaction using the selected live route.
 
@@ -249,18 +242,18 @@ TBD
 
 ### Completion Notes
 
-Story created from the July 1 review that clarified Compute as a temporary document-geometry review stage with approve/reject/postpone outcomes.
+Story created from the July 1 review that clarified Compute as a temporary document-geometry review stage with a controlled Enterprise working-layer closeout.
 - Implemented the first approved Compute disposition slice: `ComputeReviewDecision`, `compute_review_disposition.json` persistence, and `WorkflowSession.RecordComputeDispositionAsync(...)`.
 - Added Enterprise working-layer disposition writeback for transaction-scoped local JSON working stores, updating points, lines, polygons, and case index with `review_decision`, decision operator/time/comment, `review_state = final_review_decided`, and closeout `case_status`.
-- Updated the Finalize action bar layout so `Cancel` and `Suspend` are grouped on the left, and `Reject`, `Postpone`, and `Approve` are grouped on the right. Reject/Postpone are visible but disabled placeholders until reason capture and real closeout paths are implemented.
-- Updated Approve wording and Finalize help text to describe Compute review closeout, not authoritative cadastral promotion.
+- Updated the Finalize action bar layout so `Cancel` and `Suspend` are grouped on the left, and `Finalize` is the only closeout action on the right. Reject/Postpone placeholders were removed based on the general workflow process.
+- Updated Finalize wording and help text to describe Compute review closeout, not authoritative cadastral promotion.
 - Updated approved closeout command order to run Enterprise publish, then approved disposition writeback, then Innola lifecycle completion/package upload.
 - Updated Enterprise working-layer readiness so Innola completion can proceed only after `enterprise_working_publish.json` and `working/compute_review_disposition.json` exist.
 - Added Innola Spatial Unit API adapter using the supplied Postman-style flow: create default `SpatialUnitExt` objects, preserve generated ids/address/link scaffolding, populate Compute review metadata, save through the transaction-linked `spatialunit` route, and return the saved Spatial Unit id.
 - Wired approved Compute closeout so Spatial Unit creation runs after disposition writeback/readiness and before package upload and Innola task completion. Spatial Unit failure now blocks package upload and task completion.
 - Persisted successful Spatial Unit API status/id back to `working/compute_review_disposition.json` and lifecycle audit.
 - Finished the approved closeout order through package upload and Innola task completion. The coordinator now records working package filename/source/upload status in `compute_review_disposition.json`, includes pending package metadata before zipping, records uploaded/failed status after the upload attempt, audits package upload success/failure, and blocks Innola task completion when package upload fails.
-- Remaining 7.9 work: real Reject/Postpone reason dialogs and writeback paths, ArcGIS REST `updateFeatures` disposition writeback, Enterprise case-index Spatial Unit id writeback, restore of decided state, and full reject/postpone closeout tests.
+- Remaining 7.9 work: ArcGIS REST `updateFeatures` disposition writeback, Enterprise case-index Spatial Unit id writeback, restore of decided state, and Finalize closeout tests.
 
 ### File List
 
@@ -296,3 +289,4 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 | 2026-07-01 | 0.5 | Implemented approved Compute disposition artifact/writeback slice, Finalize action layout update, and Enterprise readiness gate for publish + disposition evidence. | Amelia / Codex |
 | 2026-07-01 | 0.6 | Implemented Spatial Unit API adapter and lifecycle closeout gate so approved closeout creates/saves Spatial Units before package upload and Innola task completion. | Amelia / Codex |
 | 2026-07-01 | 0.7 | Finished approved closeout package upload ordering and metadata persistence: pending before zip, uploaded/failed after upload, and no Innola complete on package failure. | Amelia / Codex |
+| 2026-07-02 | 0.8 | Removed Reject/Postpone controls from the Finalize UI contract and renamed the closeout action from Approve to Finalize to align with the general workflow process. | Mary / Amelia / Codex |

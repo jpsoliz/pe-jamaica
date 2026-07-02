@@ -8,6 +8,15 @@ from adapters import output_adapter
 
 
 class OutputAdapterTests(unittest.TestCase):
+    def test_output_adapter_parses_and_matches_dwg_layer_allowlist(self):
+        allowed = output_adapter._parse_allowed_cad_layers("Boundary|Parcel Lines; CONTROL,")
+
+        self.assertEqual({"boundary", "parcel lines", "control"}, allowed)
+        self.assertTrue(output_adapter._is_allowed_cad_layer("BOUNDARY", allowed))
+        self.assertTrue(output_adapter._is_allowed_cad_layer(" Parcel Lines ", allowed))
+        self.assertFalse(output_adapter._is_allowed_cad_layer("Road Centerline", allowed))
+        self.assertTrue(output_adapter._is_allowed_cad_layer("Road Centerline", set()))
+
     def test_output_adapter_writes_output_summary_and_geojson(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
