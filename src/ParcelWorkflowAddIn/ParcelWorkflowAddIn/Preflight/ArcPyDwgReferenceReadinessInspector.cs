@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Preflight;
 
@@ -64,7 +65,12 @@ public sealed class ArcPyDwgReferenceReadinessInspector : IDwgReferenceReadiness
 
         if (ContainsMarker(result.StandardOutput, "dwg_probe_result:ok"))
         {
-            return new DwgReferenceReadinessProbeResult(ProbeExecuted: true, Success: true, null, null);
+            return new DwgReferenceReadinessProbeResult(
+                ProbeExecuted: true,
+                Success: true,
+                null,
+                null,
+                ReadMarkerJsonArray(result.StandardOutput, "dwg_probe_layers:"));
         }
 
         if (ContainsMarker(result.StandardOutput, "dwg_probe_result:no_sublayers"))
@@ -124,18 +130,49 @@ public sealed class ArcPyDwgReferenceReadinessInspector : IDwgReferenceReadiness
         return lines.Length > 0 ? lines[^1] : "Unknown probe error.";
     }
 
+    private static IReadOnlyList<string> ReadMarkerJsonArray(string output, string marker)
+    {
+        var line = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(item => item.StartsWith(marker, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var json = line.Substring(marker.Length);
+            return JsonSerializer.Deserialize<string[]>(json) ?? Array.Empty<string>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
     private static string BuildProbeScript(string path)
     {
         return $"""
 import arcpy
+import json
 
 path = r'{EscapeForPythonSingleQuotedString(path)}'
 children = []
+layer_names = []
 try:
     desc = arcpy.Describe(path)
     raw_children = getattr(desc, "children", None)
     if raw_children:
         children = list(raw_children)
+    for child in children:
+        name = getattr(child, "name", None) or getattr(child, "baseName", None) or getattr(child, "datasetName", None)
+        if name:
+            layer_names.append(str(name))
+        shape_type = getattr(child, "shapeType", None)
+        if shape_type:
+            layer_names.append(str(shape_type))
+    layer_names = sorted(set([item.strip() for item in layer_names if item and item.strip()]))
+    print("dwg_probe_layers:" + json.dumps(layer_names))
     print("dwg_probe_result:ok" if len(children) > 0 else "dwg_probe_result:no_sublayers")
 except Exception as ex:
     print("dwg_probe_result:error:" + str(ex).replace('\\n', ' ').replace('\\r', ' '))

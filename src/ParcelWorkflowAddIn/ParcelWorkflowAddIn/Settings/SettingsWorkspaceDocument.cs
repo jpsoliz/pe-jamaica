@@ -9,7 +9,7 @@ public sealed class SettingsWorkspaceDocument
         "General",
         "AI Toolset",
         "Innola Integration",
-        "Preflight Rules",
+        "Structure Rules",
         "Spatial Workspace",
         "Enterprise Admin"
     };
@@ -135,6 +135,9 @@ public sealed class EditablePreflightRule
     public string Category { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
+    public string SectionName { get; init; } = string.Empty;
+    public string RequiredCadLayerSummary { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, IReadOnlyList<string>>? RequiredCadLayers { get; init; }
     public bool Enabled { get; set; }
     public string Severity { get; set; } = string.Empty;
     public bool Locked { get; init; }
@@ -148,10 +151,25 @@ public sealed class EditablePreflightRule
             Category = definition.Category,
             DisplayName = definition.DisplayName,
             Description = definition.Description,
+            SectionName = string.Equals(definition.Group, "system", StringComparison.OrdinalIgnoreCase) ? "System Checks" : "Structure Rules",
+            RequiredCadLayerSummary = FormatRequiredCadLayerSummary(definition.RequiredCadLayers),
+            RequiredCadLayers = definition.RequiredCadLayers,
             Enabled = definition.Enabled,
             Severity = definition.Severity,
             Locked = definition.Locked
         };
+    }
+
+    private static string FormatRequiredCadLayerSummary(IReadOnlyDictionary<string, IReadOnlyList<string>>? requiredCadLayers)
+    {
+        if (requiredCadLayers is null || requiredCadLayers.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join("; ", requiredCadLayers
+            .OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(item => $"{item.Key}: {string.Join(", ", item.Value)}"));
     }
 }
 

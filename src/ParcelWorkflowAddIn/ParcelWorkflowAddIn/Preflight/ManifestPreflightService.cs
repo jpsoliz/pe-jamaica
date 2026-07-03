@@ -90,6 +90,31 @@ public sealed class ManifestPreflightService
 
     public async Task<PreflightSummaryDocument> RunAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
     {
+        return await RunStageAsync(layout, createdBy, PreflightCheckStage.Combined, cancellationToken).ConfigureAwait(false);
+    }
+
+    public PreflightSummaryDocument RunStructureCheck(CaseFolderLayout layout, string? createdBy)
+    {
+        return RunStructureCheckAsync(layout, createdBy).GetAwaiter().GetResult();
+    }
+
+    public Task<PreflightSummaryDocument> RunStructureCheckAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
+    {
+        return RunStageAsync(layout, createdBy, PreflightCheckStage.StructureCheck, cancellationToken);
+    }
+
+    public PreflightSummaryDocument RunDimensionCheck(CaseFolderLayout layout, string? createdBy)
+    {
+        return RunDimensionCheckAsync(layout, createdBy).GetAwaiter().GetResult();
+    }
+
+    public Task<PreflightSummaryDocument> RunDimensionCheckAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
+    {
+        return RunStageAsync(layout, createdBy, PreflightCheckStage.DimensionCheck, cancellationToken);
+    }
+
+    private async Task<PreflightSummaryDocument> RunStageAsync(CaseFolderLayout layout, string? createdBy, PreflightCheckStage stage, CancellationToken cancellationToken)
+    {
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         var manifestHash = ComputeSourceManifestHash(manifest);
         var blockers = new List<PreflightCheck>();
@@ -107,22 +132,35 @@ public sealed class ManifestPreflightService
         }
         else
         {
-            await EvaluateProfile(manifest, layout, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
+            {
+                await EvaluateProfile(manifest, layout, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            }
         }
 
-        EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed);
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck)
+        {
+            EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed);
+        }
 
-        EvaluateScriptPlan(manifest, layout, blockers, passed);
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
+        {
+            EvaluateScriptPlan(manifest, layout, blockers, passed);
+        }
 
-        var environmentResult = await environmentPreflightService.RunAsync(layout, cancellationToken).ConfigureAwait(false);
-        blockers.AddRange(environmentResult.Blockers);
-        warnings.AddRange(environmentResult.Warnings);
-        passed.AddRange(environmentResult.PassedChecks);
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
+        {
+            var environmentResult = await environmentPreflightService.RunAsync(layout, cancellationToken).ConfigureAwait(false);
+            blockers.AddRange(environmentResult.Blockers);
+            warnings.AddRange(environmentResult.Warnings);
+            passed.AddRange(environmentResult.PassedChecks);
+        }
 
         var status = blockers.Count > 0 ? "blocked" : "passed";
         var summary = new PreflightSummaryDocument(
             "1.0.0",
             manifest.TransactionId,
+            stage.ToStageId(),
             createRunId(),
             getUtcNow().UtcDateTime.ToString("O"),
             createdBy,
@@ -131,9 +169,17 @@ public sealed class ManifestPreflightService
             warnings.Select(warning => warning.Message).ToArray(),
             blockers.Select(blocker => blocker.Message).ToArray());
 
-        PreflightSummarySerializer.Write(layout.PreflightSummaryPath, summary);
+        PreflightSummarySerializer.Write(ResolveSummaryPath(layout, stage), summary);
         return summary;
     }
+
+    private static string ResolveSummaryPath(CaseFolderLayout layout, PreflightCheckStage stage) =>
+        stage switch
+        {
+            PreflightCheckStage.StructureCheck => layout.StructureCheckSummaryPath,
+            PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
+            _ => layout.PreflightSummaryPath
+        };
 
     private async Task EvaluateProfile(
         ManifestDocument manifest,
@@ -569,9 +615,9 @@ public sealed class ManifestPreflightService
             warnings.Add(PreflightCheck.DisabledForCategory(
                 rule.Category,
                 rule.RuleId,
-                $"Skipped: {rule.DisplayName} is disabled in PreflightRules.json.",
+                $"Skipped: {rule.DisplayName} is disabled in StructureRules.json.",
                 ruleCatalog.SourcePath,
-                source.SourceRole));
+                source.SourceRole).WithOutcome("skipped"));
             return;
         }
 
@@ -613,6 +659,131 @@ public sealed class ManifestPreflightService
             "Passed: DWG source contains readable CAD sub-layers.",
             copiedPath,
             source.SourceRole));
+
+        ValidateRequiredDwgCadLayers(source, copiedPath, probeResult, blockers, warnings, passed);
+    }
+
+    private void ValidateRequiredDwgCadLayers(
+        ManifestSourceFile source,
+        string copiedPath,
+        DwgReferenceReadinessProbeResult probeResult,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        List<PreflightCheck> passed)
+    {
+        var rule = ruleCatalog.TryGetRule("dwg_required_cad_layers");
+        if (rule is null || !RuleAppliesToSource(rule, source))
+        {
+            return;
+        }
+
+        if (!rule.Enabled)
+        {
+            warnings.Add(PreflightCheck.DisabledForCategory(
+                rule.Category,
+                rule.RuleId,
+                $"Skipped: {rule.DisplayName} is disabled in StructureRules.json.",
+                copiedPath,
+                source.SourceRole).WithOutcome("skipped"));
+            return;
+        }
+
+        if (rule.RequiredCadLayers is null || rule.RequiredCadLayers.Count == 0)
+        {
+            warnings.Add(PreflightCheck.WarningForCategory(
+                rule.Category,
+                rule.RuleId,
+                "Skipped: no required DWG CAD layer categories are configured.",
+                copiedPath,
+                source.SourceRole,
+                "Configure required_cad_layers in StructureRules.json.").WithOutcome("skipped"));
+            return;
+        }
+
+        var discovered = (probeResult.DiscoveredLayerNames ?? Array.Empty<string>())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+            .Take(100)
+            .ToArray();
+
+        foreach (var category in rule.RequiredCadLayers.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var aliases = category.Value
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (aliases.Length == 0)
+            {
+                continue;
+            }
+
+            var matches = discovered
+                .Where(layer => aliases.Any(alias => LayerNameMatches(layer, alias)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var checkId = $"dwg_required_cad_layer_{NormalizeCheckIdSegment(category.Key)}";
+            var evidence = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["category"] = new[] { category.Key },
+                ["aliases"] = aliases,
+                ["matched_layers"] = matches,
+                ["discovered_layers"] = discovered
+            };
+
+            if (matches.Length > 0)
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    rule.Category,
+                    checkId,
+                    $"Passed: DWG contains required {category.Key} CAD layer evidence ({string.Join(", ", matches)}).",
+                    copiedPath,
+                    source.SourceRole).WithOutcome("passed", evidence));
+                continue;
+            }
+
+            var message = $"DWG is missing required {category.Key} CAD layer evidence.";
+            var correction = $"Add or rename a DWG CAD layer/category to match one of: {string.Join(", ", aliases)}.";
+            var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "blocker");
+            if (severity == "warning")
+            {
+                warnings.Add(PreflightCheck.WarningForCategory(
+                    rule.Category,
+                    checkId,
+                    message,
+                    copiedPath,
+                    source.SourceRole,
+                    correction).WithOutcome("warning", evidence));
+            }
+            else
+            {
+                blockers.Add(PreflightCheck.BlockerForCategory(
+                    rule.Category,
+                    checkId,
+                    message,
+                    copiedPath,
+                    source.SourceRole,
+                    correction).WithOutcome("failed", evidence));
+            }
+        }
+    }
+
+    private static bool LayerNameMatches(string layerName, string alias)
+    {
+        return string.Equals(layerName, alias, StringComparison.OrdinalIgnoreCase)
+            || layerName.Contains(alias, StringComparison.OrdinalIgnoreCase)
+            || alias.Contains(layerName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeCheckIdSegment(string value)
+    {
+        var chars = value.Trim().ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')
+            .ToArray();
+        return new string(chars).Trim('_');
     }
 
     private static bool IsLikelyDwgFile(string copiedPath)

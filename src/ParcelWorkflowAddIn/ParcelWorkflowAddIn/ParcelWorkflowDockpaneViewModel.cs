@@ -43,6 +43,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealSourceFileCommand;
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
+    private readonly RelayCommand runDimensionCheckCommand;
     private readonly RelayCommand runExtractionReviewCommand;
     private readonly RelayCommand reprocessExtractionReviewCommand;
     private readonly RelayCommand useManualCogoFallbackCommand;
@@ -120,6 +121,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Reveal), CanExecuteSourceFileAction);
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
         runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
+        runDimensionCheckCommand = new RelayCommand(async () => await RunDimensionCheckAsync(), () => CanRunDimensionCheck);
         runExtractionReviewCommand = new RelayCommand(async () => await RunOrOpenExtractionReviewAsync(), () => CanRunExtractionReview);
         reprocessExtractionReviewCommand = new RelayCommand(async () => await ReprocessExtractionReviewAsync(), () => CanReprocessExtractionReview);
         useManualCogoFallbackCommand = new RelayCommand(async () => await UseManualCogoFallbackAsync(), () => CanUseManualCogoFallback);
@@ -366,7 +368,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanUseWorkflowActions => ShellState.Session.CanOpenParcelWorkflow;
 
-    public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunPreflight && !workflowSession.IsPreflightRunning;
+    public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunStructureCheck;
+
+    public bool CanRunDimensionCheck => CanUseWorkflowActions && workflowSession.CanRunDimensionCheck;
 
     public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
 
@@ -405,6 +409,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RouteSourceFileToMapCommand => routeSourceFileToMapCommand;
 
     public ICommand RunPreflightCommand => runPreflightCommand;
+
+    public ICommand RunDimensionCheckCommand => runDimensionCheckCommand;
 
     public ICommand RunExtractionReviewCommand => runExtractionReviewCommand;
 
@@ -569,9 +575,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 return "No structure-check results yet.";
             }
 
-            var blockers = StructureCheckResults.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
-            var warnings = StructureCheckResults.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
-            var passed = StructureCheckResults.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+            var blockers = StructureCheckResults.Count(IsBlockingResult);
+            var warnings = StructureCheckResults.Count(IsWarningResult);
+            var passed = StructureCheckResults.Count(IsPassedResult);
             return $"{blockers} blocker(s), {warnings} warning(s), {passed} passed.";
         }
     }
@@ -587,9 +593,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 return "No georeference-check results yet.";
             }
 
-            var blockers = GeoreferenceResults.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
-            var warnings = GeoreferenceResults.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
-            var passed = GeoreferenceResults.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+            var blockers = GeoreferenceResults.Count(IsBlockingResult);
+            var warnings = GeoreferenceResults.Count(IsWarningResult);
+            var passed = GeoreferenceResults.Count(IsPassedResult);
             return $"{blockers} blocker(s), {warnings} warning(s), {passed} passed.";
         }
     }
@@ -1208,7 +1214,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public async Task RunPreflightAsync()
     {
-        var running = workflowSession.RunManifestPreflightAsync(Environment.UserName);
+        var running = workflowSession.RunStructureCheckAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        await running;
+        RefreshWorkflowProperties();
+    }
+
+    public async Task RunDimensionCheckAsync()
+    {
+        var running = workflowSession.RunDimensionCheckAsync(Environment.UserName);
         RefreshWorkflowProperties();
         await running;
         RefreshWorkflowProperties();
@@ -2374,19 +2388,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return emptyLabel;
         }
 
-        var blockers = results.Count(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+        var blockers = results.Count(IsBlockingResult);
         if (blockers > 0)
         {
             return $"{blockers} blocker(s)";
         }
 
-        var warnings = results.Count(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+        var warnings = results.Count(IsWarningResult);
         if (warnings > 0)
         {
             return $"{warnings} warning(s)";
         }
 
-        var passed = results.Count(result => string.Equals(result.Result, "Pass", StringComparison.OrdinalIgnoreCase));
+        var passed = results.Count(IsPassedResult);
         return passed > 0 ? "Passed" : emptyLabel;
     }
 
@@ -2397,13 +2411,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return emptyLabel;
         }
 
-        var blocker = results.FirstOrDefault(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+        var blocker = results.FirstOrDefault(IsBlockingResult);
         if (blocker is not null)
         {
             return blocker.Details;
         }
 
-        var warning = results.FirstOrDefault(result => string.Equals(result.Result, "Warn", StringComparison.OrdinalIgnoreCase));
+        var warning = results.FirstOrDefault(IsWarningResult);
         if (warning is not null)
         {
             return warning.Details;
@@ -2414,8 +2428,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private static bool HasBlockingGroup(IReadOnlyList<PreflightResultListItem> results)
     {
-        return results.Any(result => string.Equals(result.Result, "Block", StringComparison.OrdinalIgnoreCase));
+        return results.Any(IsBlockingResult);
     }
+
+    private static bool IsBlockingResult(PreflightResultListItem result) =>
+        string.Equals(result.State, "block", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWarningResult(PreflightResultListItem result) =>
+        string.Equals(result.State, "warn", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPassedResult(PreflightResultListItem result) =>
+        string.Equals(result.State, "pass", StringComparison.OrdinalIgnoreCase);
 
     private static string GetStepStateForStructureCheck(WorkflowState state, bool intakeReadyForPreflight, IReadOnlyList<PreflightResultListItem> structureCheckResults)
     {
@@ -2779,6 +2802,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewDetailsToggleText));
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
+        NotifyPropertyChanged(nameof(CanRunDimensionCheck));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
         NotifyPropertyChanged(nameof(CanReprocessExtractionReview));
         NotifyPropertyChanged(nameof(CanOpenExperimentalReviewWorkspace));
@@ -2883,6 +2907,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand.RaiseCanExecuteChanged();
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
+        runDimensionCheckCommand.RaiseCanExecuteChanged();
         runExtractionReviewCommand.RaiseCanExecuteChanged();
         reprocessExtractionReviewCommand.RaiseCanExecuteChanged();
         useManualCogoFallbackCommand.RaiseCanExecuteChanged();
@@ -3454,13 +3479,38 @@ internal sealed record SupportingDocumentStatusItem(
 
 internal sealed record WorkflowLifecycleStep(string Name, string State, string Icon);
 
-internal sealed record PreflightResultListItem(string Result, PreflightCheck Check)
+internal sealed record PreflightResultListItem(string Severity, PreflightCheck Check)
 {
+    public string Result => NormalizeOutcome(Check.Outcome, Severity);
+
     public string CheckName => Humanize(Check.CheckId);
 
     public string Details => Check.Message;
 
-    public string State => Result.ToLowerInvariant();
+    public string State =>
+        Result switch
+        {
+            "blocked" or "failed" => "block",
+            "warning" or "skipped" or "disabled" or "not_applicable" => "warn",
+            "passed" => "pass",
+            _ => Severity.ToLowerInvariant()
+        };
+
+    private static string NormalizeOutcome(string? outcome, string severity)
+    {
+        if (!string.IsNullOrWhiteSpace(outcome))
+        {
+            return outcome.Trim().ToLowerInvariant();
+        }
+
+        return severity.Trim().ToLowerInvariant() switch
+        {
+            "block" => "failed",
+            "warn" => "warning",
+            "pass" => "passed",
+            _ => severity.Trim().ToLowerInvariant()
+        };
+    }
 
     private static string Humanize(string value)
     {

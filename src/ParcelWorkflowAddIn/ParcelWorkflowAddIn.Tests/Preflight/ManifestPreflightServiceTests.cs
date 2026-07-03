@@ -52,7 +52,12 @@ internal static class ManifestPreflightServiceTests
             () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
             () => "preflight-run",
             new NoOpProcessingEnvironmentPreflightService(),
-            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(true, true, "probe-ok", null)))
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(
+                true,
+                true,
+                "probe-ok",
+                null,
+                new[] { "Point", "Polyline", "Annotation" })))
             .Run(layout, "tester");
 
         TestAssert.Equal("passed", summary.Payload.Status, "Scenario B manifest preflight should pass.");
@@ -60,6 +65,66 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "dwg"), "DWG readiness checks should be included.");
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_source_signature"), "Scenario B should pass DWG signature check.");
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_source_sublayers"), "Scenario B should pass DWG sub-layer probe.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_required_cad_layer_points" && check.Outcome == "passed"), "Scenario B should pass DWG point layer rule.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "dwg_required_cad_layer_lines" && check.Evidence?["matched_layers"].Any() == true), "Scenario B should preserve matched line evidence.");
+    }
+
+    public static void StructureCheckExcludesDimensionRules()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var service = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "structure-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(true, true, "probe-ok", null, new[] { "Point", "Polyline", "Annotation" })));
+
+        var summary = service.RunStructureCheck(layout, "tester");
+
+        TestAssert.Equal("structure_check", summary.StageId, "Structure Check summary should expose its stage id.");
+        TestAssert.True(File.Exists(layout.StructureCheckSummaryPath), "Structure Check summary should be written independently.");
+        TestAssert.True(!File.Exists(layout.DimensionCheckSummaryPath), "Structure Check must not write Dimension Check summary.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "dwg"), "Structure Check should include DWG rules.");
+        TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "georeference"), "Structure Check must not evaluate Dimension Check rules.");
+        AssertNoDownstreamArtifacts(layout);
+    }
+
+    public static void DimensionCheckExcludesStructureRules()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "dimension-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(true, true, "probe-ok", null, new[] { "Point", "Polyline", "Annotation" })))
+            .RunDimensionCheck(layout, "tester");
+
+        TestAssert.Equal("dimension_check", summary.StageId, "Dimension Check summary should expose its stage id.");
+        TestAssert.True(File.Exists(layout.DimensionCheckSummaryPath), "Dimension Check summary should be written independently.");
+        TestAssert.True(!File.Exists(layout.StructureCheckSummaryPath), "Dimension Check must not write Structure Check summary.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "georeference") || summary.Payload.Warnings.Any(check => check.Category == "georeference"), "Dimension Check should include georeference/dimension rules.");
+        TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "dwg" || check.Category == "workflow_rule"), "Dimension Check must not evaluate Structure Check rules.");
+        AssertNoDownstreamArtifacts(layout);
     }
 
     public static void ManifestPreflightBlocksEmptyDwg()
@@ -180,6 +245,97 @@ internal static class ManifestPreflightServiceTests
         TestAssert.Equal("passed", summary.Payload.Status, "Disabled DWG readiness probe should not block preflight.");
         TestAssert.True(summary.Payload.Warnings.Any(check => check.CheckId == "dwg_readiness_probe" && check.Status == "disabled"), "Disabled DWG readiness probe should be recorded.");
         TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "dwg_source_sublayers"), "Disabled DWG readiness probe should skip sub-layer blocker.");
+    }
+
+    public static void ManifestPreflightBlocksMissingRequiredDwgCadLayer()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[2].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(
+                true,
+                true,
+                "probe-ok",
+                null,
+                new[] { "Point", "Polyline" })))
+            .Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "Missing required DWG annotation layer should block.");
+        var blocker = summary.Payload.Blockers.Single(check => check.CheckId == "dwg_required_cad_layer_annotation");
+        TestAssert.Equal("failed", blocker.Outcome, "Missing required DWG layer should use failed outcome.");
+        TestAssert.True(blocker.Correction?.Contains("TEXT", StringComparison.OrdinalIgnoreCase) == true, "Missing DWG layer blocker should include correction aliases.");
+        TestAssert.True(blocker.Evidence?["discovered_layers"].Contains("Point") == true, "Missing DWG layer blocker should include discovered evidence.");
+    }
+
+    public static void ManifestPreflightDisabledDwgLayerRuleRecordsSkipped()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        File.WriteAllBytes(sources[2].CopiedPath, Encoding.UTF8.GetBytes("AC1018DWG"));
+        var catalog = new PreflightRuleCatalog(
+            Path.Combine(tempRoot.Path, "StructureRules.json"),
+            UsingSafeDefaults: false,
+            LoadWarning: null,
+            new[]
+            {
+                new PreflightRuleDefinition("arcgis_unknown_version_behavior", "arcgis_pro", "Unknown ArcGIS Pro version handling", string.Empty, true, "warning", false),
+                new PreflightRuleDefinition("python_package_probe", "python", "Python package probe", string.Empty, true, "configured", false),
+                new PreflightRuleDefinition("dwg_readiness_probe", "dwg", "DWG readiness probe", string.Empty, true, "blocker", false),
+                new PreflightRuleDefinition(
+                    "dwg_required_cad_layers",
+                    "structure",
+                    "dwg",
+                    "Required DWG CAD layers",
+                    string.Empty,
+                    false,
+                    "blocker",
+                    false,
+                    RequiredCadLayers: new Dictionary<string, IReadOnlyList<string>>
+                    {
+                        ["points"] = new[] { "POINT" }
+                    })
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(
+                true,
+                true,
+                "probe-ok",
+                null,
+                Array.Empty<string>())),
+            catalog)
+            .Run(layout, "tester");
+
+        TestAssert.Equal("passed", summary.Payload.Status, "Disabled required DWG layer rule should not block.");
+        TestAssert.True(summary.Payload.Warnings.Any(check => check.CheckId == "dwg_required_cad_layers" && check.Outcome == "skipped"), "Disabled required DWG layer rule should record skipped.");
     }
 
     public static void ManifestPreflightBlocksMissingDetectedProfile()

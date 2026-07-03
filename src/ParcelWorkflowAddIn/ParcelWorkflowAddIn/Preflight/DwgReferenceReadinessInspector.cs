@@ -11,7 +11,8 @@ public sealed record DwgReferenceReadinessProbeResult(
     bool ProbeExecuted,
     bool Success,
     string? Message = null,
-    string? Correction = null);
+    string? Correction = null,
+    IReadOnlyList<string>? DiscoveredLayerNames = null);
 
 public sealed class NoOpDwgReferenceReadinessInspector : IDwgReferenceReadinessInspector
 {

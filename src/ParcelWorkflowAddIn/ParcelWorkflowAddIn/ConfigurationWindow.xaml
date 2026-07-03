@@ -460,7 +460,7 @@
         </ScrollViewer>
       </TabItem>
 
-      <TabItem Header="Preflight Rules">
+      <TabItem Header="Structure Rules">
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -468,7 +468,7 @@
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
-          <TextBlock Text="Operational preflight rules are loaded from the external rule catalog. Locked safety rules remain visible but cannot be edited here."
+          <TextBlock Text="Structure Check rules are loaded from the external rule catalog. System checks stay visible separately, and locked safety rules cannot be edited here."
                      Foreground="#53636A"
                      TextWrapping="Wrap"
                      Margin="0,0,0,12" />

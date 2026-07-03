@@ -44,6 +44,12 @@ public sealed class WorkflowSession
     private readonly List<PreflightCheck> preflightBlockers = [];
     private readonly List<PreflightCheck> preflightWarnings = [];
     private readonly List<PreflightCheck> preflightPassedChecks = [];
+    private readonly List<PreflightCheck> structureCheckBlockers = [];
+    private readonly List<PreflightCheck> structureCheckWarnings = [];
+    private readonly List<PreflightCheck> structureCheckPassedChecks = [];
+    private readonly List<PreflightCheck> dimensionCheckBlockers = [];
+    private readonly List<PreflightCheck> dimensionCheckWarnings = [];
+    private readonly List<PreflightCheck> dimensionCheckPassedChecks = [];
     private bool preflightRunActive;
     private bool extractionRunActive;
     private bool validationRunActive;
@@ -346,6 +352,18 @@ public sealed class WorkflowSession
 
     public IReadOnlyList<PreflightCheck> PreflightPassedChecks => preflightPassedChecks;
 
+    public IReadOnlyList<PreflightCheck> StructureCheckBlockers => structureCheckBlockers;
+
+    public IReadOnlyList<PreflightCheck> StructureCheckWarnings => structureCheckWarnings;
+
+    public IReadOnlyList<PreflightCheck> StructureCheckPassedChecks => structureCheckPassedChecks;
+
+    public IReadOnlyList<PreflightCheck> DimensionCheckBlockers => dimensionCheckBlockers;
+
+    public IReadOnlyList<PreflightCheck> DimensionCheckWarnings => dimensionCheckWarnings;
+
+    public IReadOnlyList<PreflightCheck> DimensionCheckPassedChecks => dimensionCheckPassedChecks;
+
     public bool IsPreflightRunning => preflightRunActive;
 
     public bool IsExtractionRunning => extractionRunActive;
@@ -357,6 +375,10 @@ public sealed class WorkflowSession
     public bool HasPreflightResult => CurrentState is WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed or WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewManualPending or WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed or WorkflowState.OutputRunning or WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved;
 
     public bool CanRunPreflight => CanRunPreflightState(CurrentState);
+
+    public bool CanRunStructureCheck => !preflightRunActive && CanRunPreflightState(CurrentState);
+
+    public bool CanRunDimensionCheck => !preflightRunActive && CanRunPreflightState(CurrentState) && IsStructureCheckPassed();
 
     public bool CanRunExtractionReview => !extractionRunActive && CanRunExtractionReviewState(CurrentState);
 
@@ -602,6 +624,16 @@ public sealed class WorkflowSession
         return RunManifestPreflightAsync(operatorId).GetAwaiter().GetResult();
     }
 
+    public PreflightSummaryDocument RunStructureCheck(string? operatorId)
+    {
+        return RunStructureCheckAsync(operatorId).GetAwaiter().GetResult();
+    }
+
+    public PreflightSummaryDocument RunDimensionCheck(string? operatorId)
+    {
+        return RunDimensionCheckAsync(operatorId).GetAwaiter().GetResult();
+    }
+
     public Task<WorkflowScriptExecutionResult> RunDraftExtractionAsync(CancellationToken cancellationToken = default)
     {
         return RunDraftExtractionInternalAsync(forceReprocess: false, cancellationToken);
@@ -614,12 +646,68 @@ public sealed class WorkflowSession
 
     public async Task<PreflightSummaryDocument> RunManifestPreflightAsync(string? operatorId, CancellationToken cancellationToken = default)
     {
+        var structureSummary = await RunStructureCheckAsync(operatorId, cancellationToken).ConfigureAwait(false);
+        if (string.Equals(structureSummary.RunId, "not-run", StringComparison.OrdinalIgnoreCase))
+        {
+            return structureSummary;
+        }
+
+        if (structureSummary.Payload.Blockers.Count > 0)
+        {
+            WriteLegacyPreflightSummaryIfPossible();
+            return structureSummary;
+        }
+
+        var dimensionSummary = await RunDimensionCheckAsync(operatorId, cancellationToken).ConfigureAwait(false);
+        WriteLegacyPreflightSummaryIfPossible();
+        return dimensionSummary;
+    }
+
+    public async Task<PreflightSummaryDocument> RunStructureCheckAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        return await RunEarlyCheckStageAsync(
+            PreflightCheckStage.StructureCheck,
+            operatorId,
+            () => manifestPreflightService.RunStructureCheckAsync(CaseFolderLayout.FromRootDirectory(CaseFolderPath!), operatorId, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PreflightSummaryDocument> RunDimensionCheckAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (!IsStructureCheckPassed())
+        {
+            StatusText = "Run Structure Check successfully before running Dimension Check.";
+            var summary = BuildNotRunSummary(
+                PreflightCheckStage.DimensionCheck,
+                operatorId,
+                "structure_check_required",
+                StatusText,
+                "Resolve Structure Check blockers first.");
+            SetDimensionCheckResults(summary);
+            RebuildPreflightResults();
+            return summary;
+        }
+
+        return await RunEarlyCheckStageAsync(
+            PreflightCheckStage.DimensionCheck,
+            operatorId,
+            () => manifestPreflightService.RunDimensionCheckAsync(CaseFolderLayout.FromRootDirectory(CaseFolderPath!), operatorId, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PreflightSummaryDocument> RunEarlyCheckStageAsync(
+        PreflightCheckStage stage,
+        string? operatorId,
+        Func<Task<PreflightSummaryDocument>> runStage,
+        CancellationToken cancellationToken)
+    {
         if (preflightRunActive)
         {
-            StatusText = "Structure Check is already running.";
+            StatusText = $"{GetStageDisplayName(stage)} is already running.";
             return new PreflightSummaryDocument(
                 "1.0.0",
                 TransactionId ?? string.Empty,
+                stage.ToStageId(),
                 "not-run",
                 DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
                 operatorId,
@@ -631,56 +719,64 @@ public sealed class WorkflowSession
 
         if (!CanRunPreflightStateInternal() || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Create or reopen a Case Folder before running Structure Check.";
-            var failedCheck = PreflightCheck.Blocker(
+            StatusText = $"Create or reopen a Case Folder before running {GetStageDisplayName(stage)}.";
+            var failedSummary = BuildNotRunSummary(
+                stage,
+                operatorId,
                 "active_case_required",
                 StatusText,
-                null,
-                null,
                 "Create or reopen a Case Folder.");
-            ClearPreflightResults();
-            preflightBlockers.Add(failedCheck);
-            return new PreflightSummaryDocument(
-                "1.0.0",
-                TransactionId ?? string.Empty,
-                "not-run",
-                DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
-                operatorId,
-                string.Empty,
-                new PreflightSummaryPayload("blocked", preflightBlockers.ToArray(), Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>()),
-                Array.Empty<string>(),
-                new[] { StatusText });
+            SetStageResults(stage, failedSummary);
+            RebuildPreflightResults();
+            return failedSummary;
         }
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = "Structure Check and Dimension Check are running: validating transaction attachments and extraction readiness.";
+        StatusText = stage == PreflightCheckStage.StructureCheck
+            ? "Structure Check is running: validating transaction attachments, source structure, DWG readiness, and processing prerequisites."
+            : "Dimension Check is running: validating coordinate and dimension readiness.";
         preflightRunActive = true;
 
         try
         {
             SetWorkflowState(layout, WorkflowState.PreflightRunning);
-            var summary = await manifestPreflightService.RunAsync(layout, operatorId, cancellationToken).ConfigureAwait(false);
-            ClearPreflightResults();
-            preflightBlockers.AddRange(summary.Payload.Blockers);
-            preflightWarnings.AddRange(summary.Payload.Warnings);
-            preflightPassedChecks.AddRange(summary.Payload.PassedChecks);
+            var summary = await runStage().ConfigureAwait(false);
+            SetStageResults(stage, summary);
+            if (stage == PreflightCheckStage.StructureCheck)
+            {
+                ClearDimensionCheckResults(layout);
+            }
 
-            var finalState = summary.Payload.Blockers.Count > 0
-                ? WorkflowState.PreflightBlocked
-                : WorkflowState.PreflightPassed;
+            RebuildPreflightResults();
+
+            var finalState = IsStructureCheckPassed() && IsDimensionCheckPassed()
+                ? WorkflowState.PreflightPassed
+                : WorkflowState.PreflightBlocked;
             SetWorkflowState(layout, finalState);
-            UpsertAvailableArtifact(new AvailableArtifact("preflight_summary.json", layout.PreflightSummaryPath));
+            UpsertAvailableArtifact(new AvailableArtifact(stage.ToArtifactFileName(), ResolveStageSummaryPath(layout, stage)));
+            WriteLegacyPreflightSummaryIfPossible();
 
-            StatusText = finalState == WorkflowState.PreflightBlocked
-                ? $"Early compute checks blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}"
-                : "Structure Check and Dimension Check passed: attached files are ready for point extraction.";
+            if (summary.Payload.Blockers.Count > 0)
+            {
+                StatusText = $"{GetStageDisplayName(stage)} blocked: {summary.Payload.Blockers[0].Message.ToLowerInvariant()}";
+            }
+            else if (finalState == WorkflowState.PreflightPassed)
+            {
+                StatusText = "Structure Check and Dimension Check passed: attached files are ready for Validate Points.";
+            }
+            else
+            {
+                StatusText = stage == PreflightCheckStage.StructureCheck
+                    ? "Structure Check passed. Run Dimension Check before starting Validate Points."
+                    : "Dimension Check completed, but Structure Check must pass before Validate Points.";
+            }
 
             return summary;
         }
         catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
         {
-            return BlockManifestPreflightFailure(layout, operatorId, exception);
+            return BlockManifestPreflightFailure(layout, stage, operatorId, exception);
         }
         finally
         {
@@ -1488,19 +1584,30 @@ public sealed class WorkflowSession
     private void InvalidatePreflight(CaseFolderLayout layout)
     {
         ClearPreflightResults();
-        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.PreflightSummaryPath, StringComparison.OrdinalIgnoreCase));
+        var preflightArtifactPaths = new[]
+        {
+            layout.PreflightSummaryPath,
+            layout.StructureCheckSummaryPath,
+            layout.DimensionCheckSummaryPath
+        };
+        availableArtifacts.RemoveAll(artifact => preflightArtifactPaths.Any(path => string.Equals(artifact.Path, path, StringComparison.OrdinalIgnoreCase)));
         RemoveExtractionArtifacts(layout);
         RemoveValidationArtifacts(layout);
         RemoveOutputArtifacts(layout);
-        if (File.Exists(layout.PreflightSummaryPath))
+        foreach (var summaryPath in preflightArtifactPaths)
         {
+            if (!File.Exists(summaryPath))
+            {
+                continue;
+            }
+
             try
             {
-                File.Delete(layout.PreflightSummaryPath);
+                File.Delete(summaryPath);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                intakeIssues.Add($"Preflight summary could not be cleared: {exception.Message}");
+                intakeIssues.Add($"Early-check summary could not be cleared: {exception.Message}");
             }
         }
 
@@ -1517,7 +1624,11 @@ public sealed class WorkflowSession
 
         if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
         {
-            StatusText = "Run Structure Check and Dimension Check successfully before starting Validate Points.";
+            StatusText = !IsStructureCheckPassed()
+                ? "Run Structure Check successfully before starting Validate Points."
+                : !IsDimensionCheckPassed()
+                    ? "Run Dimension Check successfully before starting Validate Points."
+                    : "Run Structure Check and Dimension Check successfully before starting Validate Points.";
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
@@ -1681,7 +1792,7 @@ public sealed class WorkflowSession
             : $"{step.Adapter}:{step.StepName}";
     }
 
-    private PreflightSummaryDocument BlockManifestPreflightFailure(CaseFolderLayout layout, string? operatorId, Exception exception)
+    private PreflightSummaryDocument BlockManifestPreflightFailure(CaseFolderLayout layout, PreflightCheckStage stage, string? operatorId, Exception exception)
     {
         var message = "Manifest could not be read.";
         var blocker = PreflightCheck.Blocker(
@@ -1690,33 +1801,152 @@ public sealed class WorkflowSession
             layout.ManifestPath,
             null,
             "Repair or recreate the Case Folder manifest.");
-        ClearPreflightResults();
-        preflightBlockers.Add(blocker);
-        CurrentState = WorkflowState.PreflightBlocked;
-        StatusText = $"Early compute checks blocked: {message.ToLowerInvariant()}";
-
         var summary = new PreflightSummaryDocument(
             "1.0.0",
             TransactionId ?? string.Empty,
+            stage.ToStageId(),
             $"preflight-{Guid.NewGuid():N}",
             DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
             operatorId,
             string.Empty,
-            new PreflightSummaryPayload("blocked", preflightBlockers.ToArray(), Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>()),
+            new PreflightSummaryPayload("blocked", new[] { blocker }, Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>()),
             Array.Empty<string>(),
             new[] { exception.Message });
+
+        SetStageResults(stage, summary);
+        RebuildPreflightResults();
+        CurrentState = WorkflowState.PreflightBlocked;
+        StatusText = $"{GetStageDisplayName(stage)} blocked: {message.ToLowerInvariant()}";
+
+        try
+        {
+            var summaryPath = ResolveStageSummaryPath(layout, stage);
+            PreflightSummarySerializer.Write(summaryPath, summary);
+            UpsertAvailableArtifact(new AvailableArtifact(stage.ToArtifactFileName(), summaryPath));
+            WriteLegacyPreflightSummaryIfPossible();
+        }
+        catch (Exception writeException) when (IsExpectedPreflightIoFailure(writeException))
+        {
+            intakeIssues.Add($"Early-check summary could not be written: {writeException.Message}");
+        }
+
+        return summary;
+    }
+
+    private PreflightSummaryDocument BuildNotRunSummary(
+        PreflightCheckStage stage,
+        string? operatorId,
+        string checkId,
+        string message,
+        string correction)
+    {
+        var blocker = PreflightCheck.Blocker(checkId, message, null, null, correction);
+        return new PreflightSummaryDocument(
+            "1.0.0",
+            TransactionId ?? string.Empty,
+            stage.ToStageId(),
+            "not-run",
+            DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+            operatorId,
+            string.Empty,
+            new PreflightSummaryPayload("blocked", new[] { blocker }, Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>()),
+            Array.Empty<string>(),
+            new[] { message });
+    }
+
+    private void SetStageResults(PreflightCheckStage stage, PreflightSummaryDocument summary)
+    {
+        if (stage == PreflightCheckStage.DimensionCheck)
+        {
+            SetDimensionCheckResults(summary);
+            return;
+        }
+
+        structureCheckBlockers.Clear();
+        structureCheckWarnings.Clear();
+        structureCheckPassedChecks.Clear();
+        structureCheckBlockers.AddRange(summary.Payload.Blockers);
+        structureCheckWarnings.AddRange(summary.Payload.Warnings);
+        structureCheckPassedChecks.AddRange(summary.Payload.PassedChecks);
+    }
+
+    private void SetDimensionCheckResults(PreflightSummaryDocument summary)
+    {
+        dimensionCheckBlockers.Clear();
+        dimensionCheckWarnings.Clear();
+        dimensionCheckPassedChecks.Clear();
+        dimensionCheckBlockers.AddRange(summary.Payload.Blockers);
+        dimensionCheckWarnings.AddRange(summary.Payload.Warnings);
+        dimensionCheckPassedChecks.AddRange(summary.Payload.PassedChecks);
+    }
+
+    private void ClearDimensionCheckResults(CaseFolderLayout layout)
+    {
+        dimensionCheckBlockers.Clear();
+        dimensionCheckWarnings.Clear();
+        dimensionCheckPassedChecks.Clear();
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.DimensionCheckSummaryPath, StringComparison.OrdinalIgnoreCase));
+        if (!File.Exists(layout.DimensionCheckSummaryPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(layout.DimensionCheckSummaryPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Dimension Check summary could not be cleared: {exception.Message}");
+        }
+    }
+
+    private static string ResolveStageSummaryPath(CaseFolderLayout layout, PreflightCheckStage stage) =>
+        stage switch
+        {
+            PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
+            PreflightCheckStage.StructureCheck => layout.StructureCheckSummaryPath,
+            _ => layout.PreflightSummaryPath
+        };
+
+    private static string GetStageDisplayName(PreflightCheckStage stage) =>
+        stage switch
+        {
+            PreflightCheckStage.DimensionCheck => "Dimension Check",
+            PreflightCheckStage.StructureCheck => "Structure Check",
+            _ => "Early compute checks"
+        };
+
+    private void WriteLegacyPreflightSummaryIfPossible()
+    {
+        if (string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        {
+            return;
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+        var status = preflightBlockers.Count > 0 ? "blocked" : IsStructureCheckPassed() && IsDimensionCheckPassed() ? "passed" : "blocked";
+        var summary = new PreflightSummaryDocument(
+            "1.0.0",
+            TransactionId,
+            PreflightCheckStage.Combined.ToStageId(),
+            $"preflight-{Guid.NewGuid():N}",
+            DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+            null,
+            string.Empty,
+            new PreflightSummaryPayload(status, preflightBlockers.ToArray(), preflightWarnings.ToArray(), preflightPassedChecks.ToArray()),
+            preflightWarnings.Select(warning => warning.Message).ToArray(),
+            preflightBlockers.Select(blocker => blocker.Message).ToArray());
 
         try
         {
             PreflightSummarySerializer.Write(layout.PreflightSummaryPath, summary);
             UpsertAvailableArtifact(new AvailableArtifact("preflight_summary.json", layout.PreflightSummaryPath));
         }
-        catch (Exception writeException) when (IsExpectedPreflightIoFailure(writeException))
+        catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
         {
-            intakeIssues.Add($"Preflight summary could not be written: {writeException.Message}");
+            intakeIssues.Add($"Legacy preflight summary could not be written: {exception.Message}");
         }
-
-        return summary;
     }
 
     private static bool IsExpectedPreflightIoFailure(Exception exception)
@@ -1732,6 +1962,15 @@ public sealed class WorkflowSession
     private void LoadPreflightResults(CaseFolderLayout layout)
     {
         ClearPreflightResults();
+        var loadedSplitSummary = false;
+        loadedSplitSummary |= TryLoadStageSummary(layout.StructureCheckSummaryPath, PreflightCheckStage.StructureCheck);
+        loadedSplitSummary |= TryLoadStageSummary(layout.DimensionCheckSummaryPath, PreflightCheckStage.DimensionCheck);
+        if (loadedSplitSummary)
+        {
+            RebuildPreflightResults();
+            return;
+        }
+
         if (!File.Exists(layout.PreflightSummaryPath))
         {
             return;
@@ -1746,9 +1985,13 @@ public sealed class WorkflowSession
                 return;
             }
 
-            preflightBlockers.AddRange(summary.Payload.Blockers);
-            preflightWarnings.AddRange(summary.Payload.Warnings);
-            preflightPassedChecks.AddRange(summary.Payload.PassedChecks);
+            structureCheckBlockers.AddRange(summary.Payload.Blockers.Where(check => !IsDimensionCheck(check)));
+            structureCheckWarnings.AddRange(summary.Payload.Warnings.Where(check => !IsDimensionCheck(check)));
+            structureCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(check => !IsDimensionCheck(check)));
+            dimensionCheckBlockers.AddRange(summary.Payload.Blockers.Where(IsDimensionCheck));
+            dimensionCheckWarnings.AddRange(summary.Payload.Warnings.Where(IsDimensionCheck));
+            dimensionCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(IsDimensionCheck));
+            RebuildPreflightResults();
         }
         catch (Exception exception) when (exception is System.Text.Json.JsonException
             or IOException
@@ -1759,6 +2002,39 @@ public sealed class WorkflowSession
             intakeIssues.Add($"Preflight summary could not be read: {exception.Message}");
         }
     }
+
+    private bool TryLoadStageSummary(string path, PreflightCheckStage stage)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var summary = PreflightSummarySerializer.Read(path);
+            if (summary.Payload is null)
+            {
+                intakeIssues.Add($"{GetStageDisplayName(stage)} summary could not be read: payload is missing.");
+                return false;
+            }
+
+            SetStageResults(stage, summary);
+            return true;
+        }
+        catch (Exception exception) when (exception is System.Text.Json.JsonException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or NotSupportedException)
+        {
+            intakeIssues.Add($"{GetStageDisplayName(stage)} summary could not be read: {exception.Message}");
+            return false;
+        }
+    }
+
+    private static bool IsDimensionCheck(PreflightCheck check) =>
+        string.Equals(check.Category, "georeference", StringComparison.OrdinalIgnoreCase);
 
     private void UpsertAvailableArtifact(AvailableArtifact artifact)
     {
@@ -2030,5 +2306,30 @@ public sealed class WorkflowSession
         preflightBlockers.Clear();
         preflightWarnings.Clear();
         preflightPassedChecks.Clear();
+        structureCheckBlockers.Clear();
+        structureCheckWarnings.Clear();
+        structureCheckPassedChecks.Clear();
+        dimensionCheckBlockers.Clear();
+        dimensionCheckWarnings.Clear();
+        dimensionCheckPassedChecks.Clear();
     }
+
+    private void RebuildPreflightResults()
+    {
+        preflightBlockers.Clear();
+        preflightWarnings.Clear();
+        preflightPassedChecks.Clear();
+        preflightBlockers.AddRange(structureCheckBlockers);
+        preflightBlockers.AddRange(dimensionCheckBlockers);
+        preflightWarnings.AddRange(structureCheckWarnings);
+        preflightWarnings.AddRange(dimensionCheckWarnings);
+        preflightPassedChecks.AddRange(structureCheckPassedChecks);
+        preflightPassedChecks.AddRange(dimensionCheckPassedChecks);
+    }
+
+    private bool IsStructureCheckPassed() =>
+        structureCheckPassedChecks.Count > 0 && structureCheckBlockers.Count == 0;
+
+    private bool IsDimensionCheckPassed() =>
+        dimensionCheckPassedChecks.Count > 0 && dimensionCheckBlockers.Count == 0;
 }

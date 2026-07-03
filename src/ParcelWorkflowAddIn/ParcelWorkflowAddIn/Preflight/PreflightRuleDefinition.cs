@@ -22,7 +22,8 @@ public sealed record PreflightRuleDefinition(
     [property: JsonPropertyName("tabular_coordinates_required")] bool? TabularCoordinatesRequired = null,
     [property: JsonPropertyName("minimum_coordinate_pairs")] int? MinimumCoordinatePairs = null,
     [property: JsonPropertyName("require_jamaica_bounds")] bool? RequireJamaicaBounds = null,
-    [property: JsonPropertyName("allow_tabular_georeference")] bool? AllowTabularGeoreference = null)
+    [property: JsonPropertyName("allow_tabular_georeference")] bool? AllowTabularGeoreference = null,
+    [property: JsonPropertyName("required_cad_layers")] IReadOnlyDictionary<string, IReadOnlyList<string>>? RequiredCadLayers = null)
 {
     public PreflightRuleDefinition(
         string ruleId,

@@ -593,9 +593,9 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blockers should move workflow to preflight blocked.");
-        TestAssert.Equal("Early compute checks blocked: survey plan / map reference: missing.", session.StatusText, "Blocked data extraction status mismatch.");
+        TestAssert.Equal("Structure Check blocked: survey plan / map reference: missing.", session.StatusText, "Blocked data extraction status mismatch.");
         TestAssert.Equal(1, session.PreflightBlockers.Count, "Session should expose preflight blockers.");
-        TestAssert.Equal(1, session.PreflightWarnings.Count, "Session should expose preflight warnings.");
+        TestAssert.Equal(0, session.PreflightWarnings.Count, "Structure blockers should prevent Dimension Check warnings from being added.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Session should expose passed checks.");
         TestAssert.Equal("blocked", summary.Payload.Status, "Workflow preflight summary should be blocked.");
         TestAssert.Equal("preflight_blocked", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight blocked.");
@@ -618,11 +618,133 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Structure Check and Dimension Check passed: attached files are ready for point extraction.", session.StatusText, "Passed data extraction status mismatch.");
+        TestAssert.Equal("Structure Check and Dimension Check passed: attached files are ready for Validate Points.", session.StatusText, "Passed data extraction status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
         TestAssert.Equal("preflight_passed", ManifestSerializer.Read(layout.ManifestPath).Payload.WorkflowState, "Manifest workflow state should persist preflight passed.");
+    }
+
+    public static void WorkflowSessionStructureCheckPassesBeforeDimensionCheck()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var summary = session.RunStructureCheck("tester");
+
+        TestAssert.Equal("structure_check", summary.StageId, "Structure Check should return a stage-specific summary.");
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Structure-only pass should keep workflow blocked until Dimension Check passes.");
+        TestAssert.True(session.StructureCheckPassedChecks.Count > 0, "Structure Check passed checks should be exposed independently.");
+        TestAssert.Equal(0, session.DimensionCheckPassedChecks.Count, "Dimension Check should remain not started.");
+        TestAssert.True(File.Exists(layout.StructureCheckSummaryPath), "Structure Check summary should persist independently.");
+        TestAssert.True(!File.Exists(layout.DimensionCheckSummaryPath), "Dimension Check summary should not exist before it runs.");
+        TestAssert.Equal("Structure Check passed. Run Dimension Check before starting Validate Points.", session.StatusText, "Structure-only status should point to Dimension Check.");
+    }
+
+    public static void WorkflowSessionDimensionCheckRequiresStructurePass()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var summary = session.RunDimensionCheck("tester");
+
+        TestAssert.Equal("dimension_check", summary.StageId, "Dimension Check should return a stage-specific summary.");
+        TestAssert.Equal("blocked", summary.Payload.Status, "Dimension Check should block until Structure Check passes.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "structure_check_required"), "Dimension Check should expose the missing Structure Check blocker.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Rejected Dimension Check should not advance workflow state.");
+        TestAssert.Equal("Run Structure Check successfully before running Dimension Check.", session.StatusText, "Dimension Check gate status mismatch.");
+    }
+
+    public static void WorkflowSessionValidatePointsRequiresBothSplitChecks()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => throw new InvalidOperationException("Should not be called.")));
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunStructureCheck("tester");
+
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(!result.Success, "Validate Points should be blocked until Dimension Check passes.");
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blocked Validate Points should keep early-check state.");
+        TestAssert.Equal("Run Dimension Check successfully before starting Validate Points.", session.StatusText, "Validate Points gate should name Dimension Check.");
+    }
+
+    public static void WorkflowSessionSplitSummariesReopenIndependently()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunStructureCheck("tester");
+        session.RunDimensionCheck("tester");
+
+        var reopened = CreateManifestOnlySession();
+        reopened.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.Equal(WorkflowState.PreflightPassed, reopened.CurrentState, "Reopened case should preserve split-check passed state.");
+        TestAssert.True(reopened.StructureCheckPassedChecks.Count > 0, "Reopen should restore Structure Check passed rows.");
+        TestAssert.True(reopened.DimensionCheckPassedChecks.Count > 0, "Reopen should restore Dimension Check passed rows.");
+        TestAssert.True(reopened.PreflightPassedChecks.Count >= reopened.StructureCheckPassedChecks.Count + reopened.DimensionCheckPassedChecks.Count, "Aggregate preflight results should include both split stages.");
+    }
+
+    public static void WorkflowSessionLegacyPreflightSummaryReopensSafely()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "legacy-run").Run(layout, "tester");
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            ManifestSerializer.Read(layout.ManifestPath) with
+            {
+                Payload = ManifestSerializer.Read(layout.ManifestPath).Payload with { WorkflowState = WorkflowState.PreflightPassed.ToContractValue() }
+            });
+
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.Equal("preflight", summary.StageId, "Legacy combined summary should retain combined stage id when freshly written.");
+        TestAssert.True(session.StructureCheckPassedChecks.Count > 0, "Legacy summary should map non-dimension rows to Structure Check.");
+        TestAssert.True(session.DimensionCheckPassedChecks.Count > 0, "Legacy summary should map georeference rows to Dimension Check.");
+        TestAssert.Equal(0, session.PreflightBlockers.Count, "Legacy passed summary should not create false blockers.");
     }
 
     public static void WorkflowSessionDraftExtractionCreatesReviewArtifact()
@@ -733,7 +855,7 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
-        TestAssert.Equal("Run Structure Check and Dimension Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
+        TestAssert.Equal("Run Structure Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
     }
 
     public static void WorkflowSessionWeakExtractionTriggersDecisionGate()
@@ -930,7 +1052,7 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("blocked", summary.Payload.Status, "Corrupt manifest should return a blocked summary.");
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "manifest_readable"), "Corrupt manifest blocker should be present.");
         TestAssert.True(session.PreflightBlockers.Any(check => check.CheckId == "manifest_readable"), "Session should expose corrupt manifest blocker.");
-        TestAssert.Equal("Early compute checks blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
+        TestAssert.Equal("Structure Check blocked: manifest could not be read.", session.StatusText, "Corrupt manifest should produce a non-crashing status.");
     }
 
     public static void WorkflowSessionReopensPreflightArtifactWithoutDownstreamCommands()

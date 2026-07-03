@@ -20,6 +20,7 @@
     <None Remove="Images\Ribbon\*.png" />
     <None Remove="Images\TaskList\*.png" />
     <None Remove="Settings\PreflightRules.json" />
+    <None Remove="Settings\StructureRules.json" />
     <None Remove="Settings\WorkflowSettings.json" />
     <None Remove="Settings\WorkflowRules.json" />
     <Content Include="Config.daml" CopyToOutputDirectory="Never" />
@@ -27,6 +28,7 @@
     <Resource Include="Images\Ribbon\*.png" />
     <Resource Include="Images\TaskList\*.png" />
     <Content Include="Settings\PreflightRules.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Settings\StructureRules.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Settings\WorkflowSettings.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Settings\WorkflowRules.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

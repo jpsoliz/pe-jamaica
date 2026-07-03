@@ -12,6 +12,8 @@ public sealed class CaseFolderLayout
         SourceDirectory = Path.Combine(rootDirectory, "source");
         WorkingDirectory = Path.Combine(rootDirectory, "working");
         PreflightSummaryPath = Path.Combine(WorkingDirectory, "preflight_summary.json");
+        StructureCheckSummaryPath = Path.Combine(WorkingDirectory, "structure_check_summary.json");
+        DimensionCheckSummaryPath = Path.Combine(WorkingDirectory, "dimension_check_summary.json");
         OutputDirectory = Path.Combine(rootDirectory, "output");
         ReportsDirectory = Path.Combine(OutputDirectory, "reports");
         LogsDirectory = Path.Combine(OutputDirectory, "logs");
@@ -28,6 +30,10 @@ public sealed class CaseFolderLayout
     public string WorkingDirectory { get; }
 
     public string PreflightSummaryPath { get; }
+
+    public string StructureCheckSummaryPath { get; }
+
+    public string DimensionCheckSummaryPath { get; }
 
     public string OutputDirectory { get; }
 

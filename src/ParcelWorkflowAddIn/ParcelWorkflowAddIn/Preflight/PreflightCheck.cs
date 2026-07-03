@@ -10,7 +10,11 @@ public sealed record PreflightCheck(
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("affected_path")] string? AffectedPath,
     [property: JsonPropertyName("source_role")] string? SourceRole,
-    [property: JsonPropertyName("correction")] string? Correction)
+    [property: JsonPropertyName("correction")] string? Correction,
+    [property: JsonPropertyName("outcome")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Outcome = null,
+    [property: JsonPropertyName("evidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<string>>? Evidence = null)
 {
     public static PreflightCheck BlockerForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null, string? correction = null)
     {
@@ -40,5 +44,10 @@ public sealed record PreflightCheck(
     public static PreflightCheck Passed(string checkId, string message, string? affectedPath = null, string? sourceRole = null)
     {
         return PassedForCategory("manifest", checkId, message, affectedPath, sourceRole);
+    }
+
+    public PreflightCheck WithOutcome(string outcome, IReadOnlyDictionary<string, IReadOnlyList<string>>? evidence = null)
+    {
+        return this with { Outcome = outcome, Evidence = evidence };
     }
 }

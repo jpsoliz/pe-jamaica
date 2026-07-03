@@ -395,7 +395,7 @@ public sealed class SettingsWorkspaceService
             var normalizedSeverity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, string.Empty);
             if (string.IsNullOrWhiteSpace(normalizedSeverity))
             {
-                messages.Add(new("Preflight Rules", rule.DisplayName, $"Rule severity '{rule.Severity}' is not supported."));
+                messages.Add(new("Structure Rules", rule.DisplayName, $"Rule severity '{rule.Severity}' is not supported."));
             }
         }
 
@@ -570,7 +570,7 @@ public sealed class SettingsWorkspaceService
                 continue;
             }
 
-            updatedRules.Add(new JsonObject
+            var addedRule = new JsonObject
             {
                 ["rule_id"] = rule.RuleId,
                 ["group"] = rule.Group,
@@ -580,13 +580,31 @@ public sealed class SettingsWorkspaceService
                 ["enabled"] = rule.Enabled,
                 ["severity"] = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "warning"),
                 ["locked"] = rule.Locked
-            });
+            };
+
+            if (rule.RequiredCadLayers is { Count: > 0 } requiredCadLayers)
+            {
+                addedRule["required_cad_layers"] = CreateStringArrayMap(requiredCadLayers);
+            }
+
+            updatedRules.Add(addedRule);
         }
 
         root["rules"] = updatedRules;
 
         Directory.CreateDirectory(Path.GetDirectoryName(rulesPath) ?? AppContext.BaseDirectory);
         File.WriteAllText(rulesPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static JsonObject CreateStringArrayMap(IReadOnlyDictionary<string, IReadOnlyList<string>> values)
+    {
+        var node = new JsonObject();
+        foreach (var item in values.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            node[item.Key] = CreateStringArray(item.Value);
+        }
+
+        return node;
     }
 
     private static string BuildClosureToleranceOverridesJson(SettingsWorkspaceDocument document)

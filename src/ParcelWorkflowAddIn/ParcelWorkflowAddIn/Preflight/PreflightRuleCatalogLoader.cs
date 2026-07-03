@@ -5,7 +5,9 @@ namespace ParcelWorkflowAddIn.Preflight;
 
 public sealed class PreflightRuleCatalogLoader
 {
-    private const string DefaultRulesFileName = "PreflightRules.json";
+    private const string PreferredRulesFileName = "StructureRules.json";
+    private const string LegacyRulesFileName = "PreflightRules.json";
+    private const string RequiredCadLayersRuleId = "dwg_required_cad_layers";
     private const string SupportedSchemaVersion = "1.0.0";
     private readonly string? rulesPathOverride;
     private readonly string? settingsPathOverride;
@@ -24,6 +26,24 @@ public sealed class PreflightRuleCatalogLoader
         new PreflightRuleDefinition("python_package_probe", "system", "python", "Python package probe", "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.", true, "configured", false),
         new PreflightRuleDefinition("dwg_signature_check", "structure", "dwg", "DWG file signature", "DWG reference files must be non-empty and contain a recognizable DWG signature.", true, "blocker", true, SourceRoles: new[] { "dwg_source" }, FileTypes: new[] { ".dwg" }, DwgReadinessRequired: true),
         new PreflightRuleDefinition("dwg_readiness_probe", "structure", "dwg", "DWG readiness probe", "Optional CAD sub-layer readiness probe for copied DWG references.", true, "blocker", false, SourceRoles: new[] { "dwg_source" }, FileTypes: new[] { ".dwg" }, DwgReadinessRequired: true),
+        new PreflightRuleDefinition(
+            RequiredCadLayersRuleId,
+            "structure",
+            "dwg",
+            "Required DWG CAD layers",
+            "Validates that DWG sources include expected CAD layer categories for points, lines, and annotation.",
+            true,
+            "blocker",
+            false,
+            SourceRoles: new[] { "dwg_source" },
+            FileTypes: new[] { ".dwg" },
+            DwgReadinessRequired: true,
+            RequiredCadLayers: new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["points"] = new[] { "POINTS", "SURVEY_POINTS", "PNT", "POINT" },
+                ["lines"] = new[] { "LINES", "BOUNDARY", "LINEWORK", "POLYLINE", "POLYLINES" },
+                ["annotation"] = new[] { "TEXT", "ANNOTATION", "ANNO" }
+            }),
         new PreflightRuleDefinition("georeference_source_presence", "georeference", "georeference", "Dimension source presence", "At least one source with usable coordinate context must be present before Validate Points can begin.", true, "blocker", true, SourceRoles: new[] { "computation_sheet", "coordinate_text_source", "plan_map_reference" }, AllowTabularGeoreference: true),
         new PreflightRuleDefinition("tabular_coordinate_columns", "georeference", "georeference", "Tabular coordinate columns", "TXT/CSV coordinate sources should expose Easting/Northing-style columns when they are used for georeference support.", true, "warning", false, SourceRoles: new[] { "coordinate_text_source" }, FileTypes: new[] { ".txt", ".csv" }, TabularCoordinatesRequired: true),
         new PreflightRuleDefinition("jamaica_coordinate_bounds", "georeference", "georeference", "Jamaica coordinate bounds", "When tabular coordinates are available, the sample coordinate pairs should fall within Jamaica working bounds.", true, "warning", false, SourceRoles: new[] { "coordinate_text_source" }, FileTypes: new[] { ".txt", ".csv" }, MinimumCoordinatePairs: 1, RequireJamaicaBounds: true, AllowTabularGeoreference: true)
@@ -47,7 +67,7 @@ public sealed class PreflightRuleCatalogLoader
             return new PreflightRuleCatalog(
                 catalogPath,
                 UsingSafeDefaults: true,
-                LoadWarning: $"Preflight rules file was not found. Safe defaults are active from {DefaultRulesFileName}.",
+                LoadWarning: $"Structure rules file was not found. Safe defaults are active from {PreferredRulesFileName}.",
                 DefaultRules);
         }
 
@@ -77,7 +97,7 @@ public sealed class PreflightRuleCatalogLoader
             return new PreflightRuleCatalog(
                 catalogPath,
                 UsingSafeDefaults: true,
-                LoadWarning: $"Preflight rules could not be loaded ({exception.GetType().Name}). Safe defaults are active.",
+                LoadWarning: $"Structure rules could not be loaded ({exception.GetType().Name}). Safe defaults are active.",
                 DefaultRules);
         }
     }
@@ -99,7 +119,14 @@ public sealed class PreflightRuleCatalogLoader
                 : Path.GetFullPath(Path.Combine(settingsDirectory, Environment.ExpandEnvironmentVariables(configuredPath)));
         }
 
-        return Path.Combine(settingsDirectory, DefaultRulesFileName);
+        var preferredPath = Path.Combine(settingsDirectory, PreferredRulesFileName);
+        if (File.Exists(preferredPath))
+        {
+            return preferredPath;
+        }
+
+        var legacyPath = Path.Combine(settingsDirectory, LegacyRulesFileName);
+        return File.Exists(legacyPath) ? legacyPath : preferredPath;
     }
 
     private static IReadOnlyList<PreflightRuleDefinition> ReadAuthoritativeRules(JsonElement root, List<string> validationIssues)
@@ -110,7 +137,7 @@ public sealed class PreflightRuleCatalogLoader
             validationIssues.Add($"schema_version must be {SupportedSchemaVersion}.");
         }
 
-        var parsedRules = ReadRuleDefinitions(root, validationIssues);
+        var parsedRules = ReadRuleDefinitions(root, validationIssues).ToList();
         var byRuleId = new Dictionary<string, PreflightRuleDefinition>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in parsedRules)
         {
@@ -124,6 +151,13 @@ public sealed class PreflightRuleCatalogLoader
         {
             if (!byRuleId.TryGetValue(defaultRule.RuleId, out var configuredRule))
             {
+                if (string.Equals(defaultRule.RuleId, RequiredCadLayersRuleId, StringComparison.OrdinalIgnoreCase))
+                {
+                    parsedRules.Add(defaultRule);
+                    byRuleId[defaultRule.RuleId] = defaultRule;
+                    continue;
+                }
+
                 validationIssues.Add($"Missing required rule '{defaultRule.RuleId}'.");
                 continue;
             }
@@ -214,7 +248,8 @@ public sealed class PreflightRuleCatalogLoader
                 ReadOptionalBool(item, "tabular_coordinates_required"),
                 ReadOptionalInt(item, "minimum_coordinate_pairs"),
                 ReadOptionalBool(item, "require_jamaica_bounds"),
-                ReadOptionalBool(item, "allow_tabular_georeference")));
+                ReadOptionalBool(item, "allow_tabular_georeference"),
+                ReadStringArrayMap(item, "required_cad_layers")));
         }
 
         return parsed;
@@ -230,7 +265,8 @@ public sealed class PreflightRuleCatalogLoader
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
-            return ReadString(document.RootElement, "preflight_rules_path");
+            return ReadString(document.RootElement, "structure_rules_path")
+                ?? ReadString(document.RootElement, "preflight_rules_path");
         }
         catch (Exception exception) when (exception is JsonException
             or IOException
@@ -283,6 +319,37 @@ public sealed class PreflightRuleCatalogLoader
             .Select(item => item!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>>? ReadStringArrayMap(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var map = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in value.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.Array || string.IsNullOrWhiteSpace(property.Name))
+            {
+                continue;
+            }
+
+            var aliases = property.Value.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (aliases.Length > 0)
+            {
+                map[property.Name.Trim()] = aliases;
+            }
+        }
+
+        return map.Count == 0 ? null : map;
     }
 
     private static string? RequiredString(JsonElement element, string name, List<string> validationIssues, int index)
@@ -349,6 +416,6 @@ public sealed class PreflightRuleCatalogLoader
 
     private static string BuildFallbackWarning(IReadOnlyList<string> validationIssues)
     {
-        return $"Preflight rules file is partially invalid. Safe defaults are active. {string.Join(" ", validationIssues)}";
+        return $"Structure rules file is partially invalid. Safe defaults are active. {string.Join(" ", validationIssues)}";
     }
 }

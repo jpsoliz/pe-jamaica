@@ -48,7 +48,7 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
                 ruleCatalog.LoadWarning!,
                 ruleCatalog.SourcePath,
                 null,
-                "Review PreflightRules.json and restart ArcGIS Pro after correcting it."));
+                "Review StructureRules.json and restart ArcGIS Pro after correcting it."));
         }
 
         return new ProcessingEnvironmentPreflightResult(blockers, warnings, passed);
@@ -100,7 +100,7 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
                 warnings.Add(PreflightCheck.DisabledForCategory(
                     rule.Category,
                     rule.RuleId,
-                    $"Skipped: {rule.DisplayName} is disabled in PreflightRules.json.",
+                    $"Skipped: {rule.DisplayName} is disabled in StructureRules.json.",
                     ruleCatalog.SourcePath,
                     null));
             }
@@ -241,7 +241,7 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
             warnings.Add(PreflightCheck.DisabledForCategory(
                 packageProbeRule.Category,
                 packageProbeRule.RuleId,
-                $"Skipped: {packageProbeRule.DisplayName} is disabled in PreflightRules.json.",
+                $"Skipped: {packageProbeRule.DisplayName} is disabled in StructureRules.json.",
                 ruleCatalog.SourcePath,
                 null));
             return;

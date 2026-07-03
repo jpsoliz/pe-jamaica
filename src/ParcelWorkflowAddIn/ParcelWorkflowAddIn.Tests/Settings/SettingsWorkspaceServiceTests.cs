@@ -176,6 +176,7 @@ internal static class SettingsWorkspaceServiceTests
 
         TestAssert.Equal(6, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
         TestAssert.Equal("General", SettingsWorkspaceDocument.TabNames[0], "First tab mismatch.");
+        TestAssert.Equal("Structure Rules", SettingsWorkspaceDocument.TabNames[3], "Rules tab should use Structure Rules language.");
         TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[5], "Last tab mismatch.");
         TestAssert.Equal("https://example.local/", document.InnolaServerUrl, "Innola server mismatch.");
         TestAssert.Equal("openai", document.OcrEngine, "OCR engine mismatch.");
@@ -195,7 +196,9 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
-        TestAssert.Equal(15, document.PreflightRules.Count, "Preflight rules count mismatch.");
+        TestAssert.Equal(16, document.PreflightRules.Count, "Structure rules count mismatch.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Rules"), "Required DWG CAD layer rule should appear under Structure Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "python_package_probe" && rule.SectionName == "System Checks"), "Python package probe should appear under System Checks.");
     }
 
     public static void SettingsWorkspaceSaveRoundTripPersistsWorkflowAndRuleEdits()

@@ -134,6 +134,7 @@
   "openai_model": "gpt-4.1-mini",
   "openai_api_key_environment_variable": "OPENAI_API_KEY",
   "pdf_viewer_mode": "embedded_browser",
+  "structure_rules_path": "StructureRules.json",
   "preflight_rules_path": "PreflightRules.json",
   "output_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\output_adapter.py",
   "output_template_project_path": "",

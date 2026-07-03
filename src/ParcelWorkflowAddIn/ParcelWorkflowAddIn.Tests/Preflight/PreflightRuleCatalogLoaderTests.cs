@@ -147,6 +147,21 @@ internal static class PreflightRuleCatalogLoaderTests
                   "locked": false
                 },
                 {
+                  "rule_id": "dwg_required_cad_layers",
+                  "group": "structure",
+                  "category": "dwg",
+                  "display_name": "Required DWG CAD Layers",
+                  "description": "Custom required CAD layer text.",
+                  "enabled": true,
+                  "severity": "blocker",
+                  "locked": false,
+                  "required_cad_layers": {
+                    "points": ["POINTS"],
+                    "lines": ["LINES"],
+                    "annotation": ["TEXT"]
+                  }
+                },
+                {
                   "rule_id": "georeference_source_presence",
                   "group": "georeference",
                   "category": "georeference",
@@ -187,6 +202,37 @@ internal static class PreflightRuleCatalogLoaderTests
         TestAssert.Equal("Package Probe", packageProbe.DisplayName, "Display metadata should come from the external catalog.");
         TestAssert.Equal("Custom package probe text.", packageProbe.Description, "Description should come from the external catalog.");
         TestAssert.True(!packageProbe.Enabled, "Enabled state should come from the external catalog.");
+        var cadLayersRule = catalog.GetRule("dwg_required_cad_layers");
+        TestAssert.True(cadLayersRule.RequiredCadLayers?.ContainsKey("points") == true, "Configured required CAD layer aliases should load.");
+    }
+
+    public static void PreferredStructureRulesPathWinsWhenPresent()
+    {
+        using var tempRoot = new TempDirectory();
+        var settingsPath = Path.Combine(tempRoot.Path, "WorkflowSettings.json");
+        var preferredPath = Path.Combine(tempRoot.Path, "StructureRules.json");
+        var legacyPath = Path.Combine(tempRoot.Path, "PreflightRules.json");
+        File.WriteAllText(settingsPath, "{}");
+        File.WriteAllText(preferredPath, "{}");
+        File.WriteAllText(legacyPath, "{}");
+
+        var catalog = new PreflightRuleCatalogLoader(rulesPathOverride: null, settingsPathOverride: settingsPath).Load();
+
+        TestAssert.Equal(preferredPath, catalog.SourcePath, "StructureRules.json should be preferred when both rule catalogs exist.");
+        TestAssert.True(catalog.UsingSafeDefaults, "Invalid preferred file should still fall back safely.");
+    }
+
+    public static void LegacyPreflightRulesPathLoadsWhenStructureRulesMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var settingsPath = Path.Combine(tempRoot.Path, "WorkflowSettings.json");
+        var legacyPath = Path.Combine(tempRoot.Path, "PreflightRules.json");
+        File.WriteAllText(settingsPath, "{}");
+        File.WriteAllText(legacyPath, "{}");
+
+        var catalog = new PreflightRuleCatalogLoader(rulesPathOverride: null, settingsPathOverride: settingsPath).Load();
+
+        TestAssert.Equal(legacyPath, catalog.SourcePath, "PreflightRules.json should remain the fallback when StructureRules.json is absent.");
     }
 
     public static void PartiallyInvalidCatalogFallsBackWithWarning()

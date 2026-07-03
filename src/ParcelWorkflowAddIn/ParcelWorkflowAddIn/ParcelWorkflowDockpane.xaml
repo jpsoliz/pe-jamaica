@@ -571,14 +571,21 @@
                                  FontWeight="SemiBold"
                                  Foreground="#1F2933"
                                  VerticalAlignment="Center" />
-                      <Border DockPanel.Dock="Right"
-                              Style="{StaticResource SmallPillBorderStyle}"
-                              Background="#F6E6BF"
-                              BorderBrush="#B7791F">
-                        <TextBlock Text="{Binding GeoreferenceBadge}"
-                                   FontSize="11"
-                                   Foreground="#1F2933" />
-                      </Border>
+                      <StackPanel DockPanel.Dock="Right"
+                                  Orientation="Horizontal">
+                        <Border Style="{StaticResource SmallPillBorderStyle}"
+                                Background="#F6E6BF"
+                                BorderBrush="#B7791F">
+                          <TextBlock Text="{Binding GeoreferenceBadge}"
+                                     FontSize="11"
+                                     Foreground="#1F2933" />
+                        </Border>
+                        <Button Content="Process"
+                                Command="{Binding RunDimensionCheckCommand}"
+                                IsEnabled="{Binding CanRunDimensionCheck}"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Margin="6,0,0,0" />
+                      </StackPanel>
                     </DockPanel>
                     <TextBlock Margin="0,6,0,0"
                                Text="{Binding GeoreferenceSummaryText}"

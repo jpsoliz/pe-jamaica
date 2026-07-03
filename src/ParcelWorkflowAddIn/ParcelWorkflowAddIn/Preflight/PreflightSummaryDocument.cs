@@ -5,6 +5,7 @@ namespace ParcelWorkflowAddIn.Preflight;
 public sealed record PreflightSummaryDocument(
     [property: JsonPropertyName("schema_version")] string SchemaVersion,
     [property: JsonPropertyName("transaction_id")] string TransactionId,
+    [property: JsonPropertyName("stage_id")] string? StageId,
     [property: JsonPropertyName("run_id")] string RunId,
     [property: JsonPropertyName("created_at")] string CreatedAt,
     [property: JsonPropertyName("created_by")] string? CreatedBy,

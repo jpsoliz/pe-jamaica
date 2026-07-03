@@ -370,7 +370,7 @@ public partial class ConfigurationWindow : ProWindow
     private void PopulateUi(SettingsWorkspaceDocument document)
     {
         SettingsPathTextBox.Text = document.SettingsPath;
-        SettingsSummaryText.Text = $"Edit local parcel workflow settings using the tabs below. Active rules file: {document.PreflightRulesPath}";
+        SettingsSummaryText.Text = $"Edit local parcel workflow settings using the tabs below. Active structure rules file: {document.PreflightRulesPath}";
 
         CaseFolderRootTextBox.Text = document.CaseFolderOutputRoot;
         PythonExecutableTextBox.Text = document.ArcGisPythonExecutable;
@@ -650,7 +650,7 @@ public partial class ConfigurationWindow : ProWindow
         PreflightRulesEditorPanel.Children.Clear();
         preflightRuleEditors.Clear();
 
-        foreach (var rule in rules.OrderBy(rule => rule.Locked).ThenBy(rule => rule.Group).ThenBy(rule => rule.Category).ThenBy(rule => rule.DisplayName))
+        foreach (var rule in rules.OrderBy(rule => rule.SectionName).ThenBy(rule => rule.Locked).ThenBy(rule => rule.Group).ThenBy(rule => rule.Category).ThenBy(rule => rule.DisplayName))
         {
             var border = new Border
             {
@@ -716,7 +716,9 @@ public partial class ConfigurationWindow : ProWindow
 
             var descriptionBlock = new TextBlock
             {
-                Text = rule.Description,
+                Text = string.IsNullOrWhiteSpace(rule.RequiredCadLayerSummary)
+                    ? rule.Description
+                    : $"{rule.Description}{Environment.NewLine}CAD aliases: {rule.RequiredCadLayerSummary}",
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -902,7 +904,7 @@ public partial class ConfigurationWindow : ProWindow
 
         if (!string.IsNullOrWhiteSpace(document.PreflightRulesWarning))
         {
-            warnings.Add(new SettingsWorkspaceValidationMessage("Preflight Rules", "Rule Catalog", document.PreflightRulesWarning));
+            warnings.Add(new SettingsWorkspaceValidationMessage("Structure Rules", "Rule Catalog", document.PreflightRulesWarning));
         }
 
         if (warnings.Count == 0)
