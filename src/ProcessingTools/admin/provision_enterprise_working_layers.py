@@ -522,6 +522,7 @@ def _publish_working_feature_collection(portal_url: str, username: str, args: ar
             args.token_env_var,
         )
         service_url = _read_published_service_url(publish_result, args, portal_url, username)
+        _rename_published_service_item(portal_url, username, publish_result, args)
         services = publish_result.get("services")
         if isinstance(services, list):
             for service in services:
@@ -612,7 +613,9 @@ def _publish_schema_template(portal_url: str, username: str, args: argparse.Name
         },
         args.token_env_var,
     )
-    return _read_published_service_url(publish_result, args, portal_url, username)
+    service_url = _read_published_service_url(publish_result, args, portal_url, username)
+    _rename_published_service_item(portal_url, username, publish_result, args)
+    return service_url
 
 
 def _resolve_schema_template_path(args: argparse.Namespace) -> Path | None:
@@ -727,6 +730,47 @@ def _read_published_service_url(
         return _read_portal_item_url(portal_url, str(item_id), args.token_env_var)
 
     raise RuntimeError("Schema template publish did not return a FeatureServer URL.")
+
+
+def _rename_published_service_item(
+    portal_url: str,
+    username: str,
+    publish_result: dict[str, Any],
+    args: argparse.Namespace,
+) -> None:
+    item_id = _read_published_service_item_id(publish_result)
+    if not item_id:
+        return
+
+    _post_form(
+        f"{portal_url}/sharing/rest/content/users/{username}/items/{item_id}/update",
+        {
+            "title": args.target_service_name.strip(),
+            "name": args.target_service_name.strip(),
+        },
+        args.token_env_var,
+        raise_on_error=False,
+    )
+
+
+def _read_published_service_item_id(publish_result: dict[str, Any]) -> str:
+    for key in ("serviceItemId", "serviceItemID"):
+        value = str(publish_result.get(key) or "").strip()
+        if value:
+            return value
+
+    services = publish_result.get("services")
+    if isinstance(services, list):
+        for service in services:
+            if not isinstance(service, dict):
+                continue
+
+            for key in ("serviceItemId", "serviceItemID", "itemId", "itemid", "id"):
+                value = str(service.get(key) or "").strip()
+                if value:
+                    return value
+
+    return ""
 
 
 def _poll_publish_status(status_url: str, job_id: str, token_env_var: str) -> dict[str, Any]:
@@ -1178,6 +1222,9 @@ def _validate_review_decision_domain(role: str, fields: list[dict[str, Any]], er
         return
 
     domain = review_decision_field.get("domain")
+    if not isinstance(domain, dict):
+        return
+
     coded_values = domain.get("codedValues") if isinstance(domain, dict) else None
     values = {
         str(value.get("code") or "").lower()

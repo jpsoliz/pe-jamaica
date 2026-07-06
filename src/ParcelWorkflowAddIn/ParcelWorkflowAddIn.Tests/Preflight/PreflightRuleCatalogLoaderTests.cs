@@ -190,6 +190,36 @@ internal static class PreflightRuleCatalogLoaderTests
                   "enabled": true,
                   "severity": "warning",
                   "locked": false
+                },
+                {
+                  "rule_id": "georeference_spatial_validation_readiness",
+                  "group": "georeference",
+                  "category": "georeference",
+                  "display_name": "Concrete Georeference Validation",
+                  "description": "Custom georeference validator readiness text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false
+                },
+                {
+                  "rule_id": "dimension_source_presence",
+                  "group": "dimension",
+                  "category": "dimension",
+                  "display_name": "Dimension Source",
+                  "description": "Custom dimension source text.",
+                  "enabled": true,
+                  "severity": "blocker",
+                  "locked": true
+                },
+                {
+                  "rule_id": "dimension_geometry_construction_readiness",
+                  "group": "dimension",
+                  "category": "dimension",
+                  "display_name": "Dimension Geometry Construction Readiness",
+                  "description": "Custom dimension geometry readiness text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false
                 }
               ]
             }

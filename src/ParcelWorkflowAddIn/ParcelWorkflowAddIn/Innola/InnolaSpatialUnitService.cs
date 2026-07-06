@@ -61,7 +61,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             }
 
             var populated = defaults
-                .Select(item => PopulateSpatialUnit(item, transaction, disposition, outputSummary))
+                .Select(item => PopulateSpatialUnit(item, transaction, layout, disposition, outputSummary))
                 .ToArray();
 
             var saved = await SaveSpatialUnitsAsync(
@@ -148,6 +148,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
     private static JsonObject PopulateSpatialUnit(
         JsonObject source,
         SelectedInnolaTransaction transaction,
+        CaseFolderLayout layout,
         ComputeReviewDispositionDocument disposition,
         OutputSummaryDocument? outputSummary)
     {
@@ -163,9 +164,13 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         spatialUnit["reviewDecisionUtc"] = disposition.DecidedAtUtc;
         spatialUnit["reviewDecisionBy"] = disposition.OperatorId;
         spatialUnit["reviewComment"] = disposition.Comment;
-        spatialUnit["enterprisePublishRef"] = disposition.EnterprisePublishRef;
-        spatialUnit["outputSummaryRef"] = disposition.OutputSummaryRef;
+        spatialUnit["enterprisePublishRef"] = ToCaseRelativePath(layout, disposition.EnterprisePublishRef);
+        spatialUnit["outputSummaryRef"] = ToCaseRelativePath(layout, disposition.OutputSummaryRef);
         spatialUnit["publishRunId"] = disposition.PublishRunId;
+        spatialUnit["workingPackageFileName"] = disposition.WorkingPackageFileName;
+        spatialUnit["workingPackageSourceType"] = disposition.WorkingPackageSourceType;
+        spatialUnit["workingPackageUploadStatus"] = disposition.WorkingPackageUploadStatus;
+        spatialUnit["computeExaminationReportRef"] = ToCaseRelativePath(layout, disposition.ComputeExaminationReportRef);
 
         if (outputSummary is not null)
         {
@@ -176,6 +181,15 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             spatialUnit["computedPolygonCount"] = outputSummary.Payload.PolygonCount;
             spatialUnit["computedLineCount"] = outputSummary.Payload.LineCount;
             spatialUnit["computedPointCount"] = outputSummary.Payload.PointCount;
+            spatialUnit["workingLayerReferences"] = new JsonArray(
+                (outputSummary.Payload.EnterpriseWorkingPublish?.PublishedLayers ?? Array.Empty<EnterpriseWorkingPublishedLayer>())
+                .Select(layer => new JsonObject
+                {
+                    ["layerRole"] = layer.LayerRole,
+                    ["target"] = layer.Target,
+                    ["recordCount"] = layer.RecordCount
+                })
+                .ToArray<JsonNode?>());
 
             if (string.IsNullOrWhiteSpace(ReadString(spatialUnit, "lot")) && !string.IsNullOrWhiteSpace(outputSummary.Payload.ParcelRecordName))
             {
@@ -184,6 +198,29 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         }
 
         return spatialUnit;
+    }
+
+    private static string? ToCaseRelativePath(CaseFolderLayout layout, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        if (!Path.IsPathFullyQualified(path))
+        {
+            return path.Replace('\\', '/');
+        }
+
+        var root = Path.GetFullPath(layout.RootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(path);
+        if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFileName(path);
+        }
+
+        return Path.GetRelativePath(layout.RootDirectory, fullPath).Replace('\\', '/');
     }
 
     private static IReadOnlyList<JsonNode> ResolveArray(JsonNode? root)

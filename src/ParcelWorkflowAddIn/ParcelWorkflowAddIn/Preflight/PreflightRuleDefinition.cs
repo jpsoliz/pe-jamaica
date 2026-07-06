@@ -78,6 +78,7 @@ public sealed record PreflightRuleDefinition(
             "supporting_document" => "supporting_document",
             "structure" => "structure",
             "georeference" => "georeference",
+            "dimension" => "dimension",
             "system" => "system",
             _ => fallback
         };
@@ -138,6 +139,7 @@ public sealed record PreflightRuleDefinition(
             "workflow_rule" => "structure",
             "dwg" => "structure",
             "georeference" => "georeference",
+            "dimension" => "dimension",
             "arcgis_pro" => "system",
             "write_access" => "system",
             "python" => "system",

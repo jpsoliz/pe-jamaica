@@ -13,6 +13,7 @@ public sealed class CaseFolderLayout
         WorkingDirectory = Path.Combine(rootDirectory, "working");
         PreflightSummaryPath = Path.Combine(WorkingDirectory, "preflight_summary.json");
         StructureCheckSummaryPath = Path.Combine(WorkingDirectory, "structure_check_summary.json");
+        GeoreferenceCheckSummaryPath = Path.Combine(WorkingDirectory, "georeference_check_summary.json");
         DimensionCheckSummaryPath = Path.Combine(WorkingDirectory, "dimension_check_summary.json");
         OutputDirectory = Path.Combine(rootDirectory, "output");
         ReportsDirectory = Path.Combine(OutputDirectory, "reports");
@@ -32,6 +33,8 @@ public sealed class CaseFolderLayout
     public string PreflightSummaryPath { get; }
 
     public string StructureCheckSummaryPath { get; }
+
+    public string GeoreferenceCheckSummaryPath { get; }
 
     public string DimensionCheckSummaryPath { get; }
 

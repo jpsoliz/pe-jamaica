@@ -196,8 +196,12 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
-        TestAssert.Equal(16, document.PreflightRules.Count, "Structure rules count mismatch.");
-        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Rules"), "Required DWG CAD layer rule should appear under Structure Rules.");
+        TestAssert.Equal(19, document.PreflightRules.Count, "Structure rules count mismatch.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Check Rules"), "Required DWG CAD layer rule should appear under Structure Check Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_source_presence" && rule.SectionName == "Georeference Check Rules"), "Georeference rule should appear under Georeference Check Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_spatial_validation_readiness" && rule.SectionName == "Georeference Check Rules"), "Concrete georeference validation readiness rule should appear under Georeference Check Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dimension_source_presence" && rule.SectionName == "Dimension Check Rules"), "Dimension rule should appear under Dimension Check Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dimension_geometry_construction_readiness" && rule.SectionName == "Dimension Check Rules"), "Dimension geometry readiness rule should appear under Dimension Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "python_package_probe" && rule.SectionName == "System Checks"), "Python package probe should appear under System Checks.");
     }
 

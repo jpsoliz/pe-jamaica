@@ -47,6 +47,9 @@ public sealed class WorkflowSession
     private readonly List<PreflightCheck> structureCheckBlockers = [];
     private readonly List<PreflightCheck> structureCheckWarnings = [];
     private readonly List<PreflightCheck> structureCheckPassedChecks = [];
+    private readonly List<PreflightCheck> georeferenceCheckBlockers = [];
+    private readonly List<PreflightCheck> georeferenceCheckWarnings = [];
+    private readonly List<PreflightCheck> georeferenceCheckPassedChecks = [];
     private readonly List<PreflightCheck> dimensionCheckBlockers = [];
     private readonly List<PreflightCheck> dimensionCheckWarnings = [];
     private readonly List<PreflightCheck> dimensionCheckPassedChecks = [];
@@ -358,6 +361,12 @@ public sealed class WorkflowSession
 
     public IReadOnlyList<PreflightCheck> StructureCheckPassedChecks => structureCheckPassedChecks;
 
+    public IReadOnlyList<PreflightCheck> GeoreferenceCheckBlockers => georeferenceCheckBlockers;
+
+    public IReadOnlyList<PreflightCheck> GeoreferenceCheckWarnings => georeferenceCheckWarnings;
+
+    public IReadOnlyList<PreflightCheck> GeoreferenceCheckPassedChecks => georeferenceCheckPassedChecks;
+
     public IReadOnlyList<PreflightCheck> DimensionCheckBlockers => dimensionCheckBlockers;
 
     public IReadOnlyList<PreflightCheck> DimensionCheckWarnings => dimensionCheckWarnings;
@@ -378,9 +387,15 @@ public sealed class WorkflowSession
 
     public bool CanRunStructureCheck => !preflightRunActive && CanRunPreflightState(CurrentState);
 
-    public bool CanRunDimensionCheck => !preflightRunActive && CanRunPreflightState(CurrentState) && IsStructureCheckPassed();
+    public bool CanRunGeoreferenceCheck => !preflightRunActive && CanRunPreflightState(CurrentState) && IsStructureCheckPassed();
 
-    public bool CanRunExtractionReview => !extractionRunActive && CanRunExtractionReviewState(CurrentState);
+    public bool CanRunDimensionCheck => !preflightRunActive && CanRunPreflightState(CurrentState) && IsStructureCheckPassed() && IsGeoreferenceCheckPassed();
+
+    public bool CanRunExtractionReview => !extractionRunActive
+        && CanRunExtractionReviewState(CurrentState)
+        && IsStructureCheckPassed()
+        && IsGeoreferenceCheckPassed()
+        && IsDimensionCheckPassed();
 
     public bool CanChooseManualCogoReview => !extractionRunActive && CanChooseManualCogoReviewState(CurrentState) && HasExtractionReviewArtifactForCurrentCase();
 
@@ -595,6 +610,7 @@ public sealed class WorkflowSession
         }
 
         RestoreSpatialReviewState(result.Layout, result.ResolvedState);
+        RestoreComputeCloseoutState(result.Layout, currentOutputSummary);
         StatusText = result.RecoverabilityIssues.Count == 0 && enterpriseRestore.RecoverabilityIssues.Count == 0
             ? enterpriseRestore.StatusMessage
             : enterpriseRestore.EnterpriseStateFound
@@ -602,6 +618,44 @@ public sealed class WorkflowSession
                 : "Case reopened. Some saved artifacts could not be restored - please review results.";
 
         return result;
+    }
+
+    private void RestoreComputeCloseoutState(CaseFolderLayout layout, OutputSummaryDocument? outputSummary)
+    {
+        var disposition = computeReviewDispositionPersistenceService.Load(layout);
+        if (disposition is null)
+        {
+            return;
+        }
+
+        UpsertAvailableArtifact(new AvailableArtifact(
+            ComputeReviewDispositionPersistenceService.DispositionArtifactFileName,
+            computeReviewDispositionPersistenceService.GetDispositionPath(layout)));
+        UpsertCloseoutArtifact(layout, disposition.EnterpriseDispositionRef);
+        UpsertCloseoutArtifact(layout, disposition.ComputeExaminationReportRef);
+
+        if (outputSummary is not null
+            && !string.IsNullOrWhiteSpace(disposition.PublishRunId)
+            && !string.Equals(outputSummary.RunId, disposition.PublishRunId, StringComparison.OrdinalIgnoreCase))
+        {
+            intakeIssues.Add("Compute disposition was restored, but the current output summary run id differs from the decided Enterprise publish run. Review closeout evidence before Finalize.");
+        }
+    }
+
+    private void UpsertCloseoutArtifact(CaseFolderLayout layout, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        var resolvedPath = Path.IsPathFullyQualified(path)
+            ? path
+            : Path.Combine(layout.RootDirectory, path.Replace('/', Path.DirectorySeparatorChar));
+        if (File.Exists(resolvedPath))
+        {
+            UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(resolvedPath), resolvedPath));
+        }
     }
 
     public SourceFileActionResult ExecuteSourceFileAction(SourceFileCopyResult sourceFile, SourceFileAction action, string? operatorId)
@@ -634,6 +688,11 @@ public sealed class WorkflowSession
         return RunDimensionCheckAsync(operatorId).GetAwaiter().GetResult();
     }
 
+    public PreflightSummaryDocument RunGeoreferenceCheck(string? operatorId)
+    {
+        return RunGeoreferenceCheckAsync(operatorId).GetAwaiter().GetResult();
+    }
+
     public Task<WorkflowScriptExecutionResult> RunDraftExtractionAsync(CancellationToken cancellationToken = default)
     {
         return RunDraftExtractionInternalAsync(forceReprocess: false, cancellationToken);
@@ -656,6 +715,13 @@ public sealed class WorkflowSession
         {
             WriteLegacyPreflightSummaryIfPossible();
             return structureSummary;
+        }
+
+        var georeferenceSummary = await RunGeoreferenceCheckAsync(operatorId, cancellationToken).ConfigureAwait(false);
+        if (georeferenceSummary.Payload.Blockers.Count > 0)
+        {
+            WriteLegacyPreflightSummaryIfPossible();
+            return georeferenceSummary;
         }
 
         var dimensionSummary = await RunDimensionCheckAsync(operatorId, cancellationToken).ConfigureAwait(false);
@@ -688,10 +754,47 @@ public sealed class WorkflowSession
             return summary;
         }
 
+        if (!IsGeoreferenceCheckPassed())
+        {
+            StatusText = "Run Georeference Check successfully before running Dimension Check.";
+            var summary = BuildNotRunSummary(
+                PreflightCheckStage.DimensionCheck,
+                operatorId,
+                "georeference_check_required",
+                StatusText,
+                "Resolve Georeference Check blockers first.");
+            SetDimensionCheckResults(summary);
+            RebuildPreflightResults();
+            return summary;
+        }
+
         return await RunEarlyCheckStageAsync(
             PreflightCheckStage.DimensionCheck,
             operatorId,
             () => manifestPreflightService.RunDimensionCheckAsync(CaseFolderLayout.FromRootDirectory(CaseFolderPath!), operatorId, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PreflightSummaryDocument> RunGeoreferenceCheckAsync(string? operatorId, CancellationToken cancellationToken = default)
+    {
+        if (!IsStructureCheckPassed())
+        {
+            StatusText = "Run Structure Check successfully before running Georeference Check.";
+            var summary = BuildNotRunSummary(
+                PreflightCheckStage.GeoreferenceCheck,
+                operatorId,
+                "structure_check_required",
+                StatusText,
+                "Resolve Structure Check blockers first.");
+            SetGeoreferenceCheckResults(summary);
+            RebuildPreflightResults();
+            return summary;
+        }
+
+        return await RunEarlyCheckStageAsync(
+            PreflightCheckStage.GeoreferenceCheck,
+            operatorId,
+            () => manifestPreflightService.RunGeoreferenceCheckAsync(CaseFolderLayout.FromRootDirectory(CaseFolderPath!), operatorId, cancellationToken),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -733,9 +836,13 @@ public sealed class WorkflowSession
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
         CurrentState = WorkflowState.PreflightRunning;
-        StatusText = stage == PreflightCheckStage.StructureCheck
-            ? "Structure Check is running: validating transaction attachments, source structure, DWG readiness, and processing prerequisites."
-            : "Dimension Check is running: validating coordinate and dimension readiness.";
+        StatusText = stage switch
+        {
+            PreflightCheckStage.StructureCheck => "Structure Check is running: validating transaction attachments, source structure, DWG readiness, and processing prerequisites.",
+            PreflightCheckStage.GeoreferenceCheck => "Georeference Check is running: validating coordinate source, JAD2001 readiness, and location bounds.",
+            PreflightCheckStage.DimensionCheck => "Dimension Check is running: validating dimension and geometry-construction readiness.",
+            _ => "Early compute checks are running."
+        };
         preflightRunActive = true;
 
         try
@@ -745,12 +852,17 @@ public sealed class WorkflowSession
             SetStageResults(stage, summary);
             if (stage == PreflightCheckStage.StructureCheck)
             {
+                ClearGeoreferenceCheckResults(layout);
+                ClearDimensionCheckResults(layout);
+            }
+            else if (stage == PreflightCheckStage.GeoreferenceCheck)
+            {
                 ClearDimensionCheckResults(layout);
             }
 
             RebuildPreflightResults();
 
-            var finalState = IsStructureCheckPassed() && IsDimensionCheckPassed()
+            var finalState = IsStructureCheckPassed() && IsGeoreferenceCheckPassed() && IsDimensionCheckPassed()
                 ? WorkflowState.PreflightPassed
                 : WorkflowState.PreflightBlocked;
             SetWorkflowState(layout, finalState);
@@ -763,13 +875,16 @@ public sealed class WorkflowSession
             }
             else if (finalState == WorkflowState.PreflightPassed)
             {
-                StatusText = "Structure Check and Dimension Check passed: attached files are ready for Validate Points.";
+                StatusText = "Structure Check, Georeference Check, and Dimension Check passed: attached files are ready for Validate Points and Lines.";
             }
             else
             {
-                StatusText = stage == PreflightCheckStage.StructureCheck
-                    ? "Structure Check passed. Run Dimension Check before starting Validate Points."
-                    : "Dimension Check completed, but Structure Check must pass before Validate Points.";
+                StatusText = stage switch
+                {
+                    PreflightCheckStage.StructureCheck => "Structure Check passed. Run Georeference Check before Dimension Check.",
+                    PreflightCheckStage.GeoreferenceCheck => "Georeference Check passed. Run Dimension Check before starting Validate Points and Lines.",
+                    _ => "Dimension Check completed, but all early checks must pass before Validate Points and Lines."
+                };
             }
 
             return summary;
@@ -1403,6 +1518,16 @@ public sealed class WorkflowSession
             null);
         var artifactPath = computeReviewDispositionPersistenceService.Save(layout, document);
         UpsertAvailableArtifact(new AvailableArtifact(ComputeReviewDispositionPersistenceService.DispositionArtifactFileName, artifactPath));
+        workflowLifecycleAuditService.Record(
+            layout,
+            TransactionId ?? manifest.TransactionId,
+            $"compute_review_{decision.ToContractValue()}",
+            "succeeded",
+            operatorId,
+            $"Compute review {decision.ToContractValue()} disposition recorded.",
+            transaction?.TaskId,
+            transaction?.TransactionNumber ?? manifest.TransactionId,
+            enterpriseResult.EvidencePath);
         if (!string.IsNullOrWhiteSpace(enterpriseResult.EvidencePath) && File.Exists(enterpriseResult.EvidencePath))
         {
             UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(enterpriseResult.EvidencePath), enterpriseResult.EvidencePath));
@@ -1588,6 +1713,7 @@ public sealed class WorkflowSession
         {
             layout.PreflightSummaryPath,
             layout.StructureCheckSummaryPath,
+            layout.GeoreferenceCheckSummaryPath,
             layout.DimensionCheckSummaryPath
         };
         availableArtifacts.RemoveAll(artifact => preflightArtifactPaths.Any(path => string.Equals(artifact.Path, path, StringComparison.OrdinalIgnoreCase)));
@@ -1622,13 +1748,20 @@ public sealed class WorkflowSession
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
-        if (!CanRunExtractionReviewState(CurrentState) || string.IsNullOrWhiteSpace(CaseFolderPath) || string.IsNullOrWhiteSpace(TransactionId))
+        if (!CanRunExtractionReviewState(CurrentState)
+            || !IsStructureCheckPassed()
+            || !IsGeoreferenceCheckPassed()
+            || !IsDimensionCheckPassed()
+            || string.IsNullOrWhiteSpace(CaseFolderPath)
+            || string.IsNullOrWhiteSpace(TransactionId))
         {
             StatusText = !IsStructureCheckPassed()
-                ? "Run Structure Check successfully before starting Validate Points."
-                : !IsDimensionCheckPassed()
-                    ? "Run Dimension Check successfully before starting Validate Points."
-                    : "Run Structure Check and Dimension Check successfully before starting Validate Points.";
+                ? "Run Structure Check successfully before starting Validate Points and Lines."
+                : !IsGeoreferenceCheckPassed()
+                    ? "Run Georeference Check successfully before starting Validate Points and Lines."
+                    : !IsDimensionCheckPassed()
+                        ? "Run Dimension Check successfully before starting Validate Points and Lines."
+                        : "Run Structure Check, Georeference Check, and Dimension Check successfully before starting Validate Points and Lines.";
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
@@ -1646,7 +1779,7 @@ public sealed class WorkflowSession
 
             StatusText = extractionDecisionGateResult.RequiresDecision
                 ? extractionDecisionGateResult.GuidanceText
-                : "Validate Points is ready in Points Validation Tool.";
+                : "Validate Points and Lines is ready in Points and Lines Validation Tool.";
             return new WorkflowScriptExecutionResult(true, null, existingArtifact.Path, new[] { existingArtifact });
         }
 
@@ -1663,7 +1796,7 @@ public sealed class WorkflowSession
 
         extractionRunActive = true;
         CurrentState = WorkflowState.ExtractionRunning;
-        StatusText = "Validate Points preparation is running: generating draft parcel-point review data.";
+        StatusText = "Validate Points and Lines preparation is running: generating draft parcel review data.";
         var attemptStartedAt = DateTimeOffset.UtcNow;
         var attemptMethod = ResolveExtractionAttemptMethod(manifest);
         var nextAttemptCount = Math.Max(extractionDecisionGateState.AttemptCount + 1, 1);
@@ -1731,7 +1864,7 @@ public sealed class WorkflowSession
             SetWorkflowState(layout, WorkflowState.ReviewPending);
             StatusText = extractionDecisionGateResult.RequiresDecision
                 ? extractionDecisionGateResult.GuidanceText
-                : "Validate Points is ready in Points Validation Tool.";
+                : "Validate Points and Lines is ready in Points and Lines Validation Tool.";
             return executionResult;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
@@ -1862,6 +1995,12 @@ public sealed class WorkflowSession
             return;
         }
 
+        if (stage == PreflightCheckStage.GeoreferenceCheck)
+        {
+            SetGeoreferenceCheckResults(summary);
+            return;
+        }
+
         structureCheckBlockers.Clear();
         structureCheckWarnings.Clear();
         structureCheckPassedChecks.Clear();
@@ -1878,6 +2017,37 @@ public sealed class WorkflowSession
         dimensionCheckBlockers.AddRange(summary.Payload.Blockers);
         dimensionCheckWarnings.AddRange(summary.Payload.Warnings);
         dimensionCheckPassedChecks.AddRange(summary.Payload.PassedChecks);
+    }
+
+    private void SetGeoreferenceCheckResults(PreflightSummaryDocument summary)
+    {
+        georeferenceCheckBlockers.Clear();
+        georeferenceCheckWarnings.Clear();
+        georeferenceCheckPassedChecks.Clear();
+        georeferenceCheckBlockers.AddRange(summary.Payload.Blockers);
+        georeferenceCheckWarnings.AddRange(summary.Payload.Warnings);
+        georeferenceCheckPassedChecks.AddRange(summary.Payload.PassedChecks);
+    }
+
+    private void ClearGeoreferenceCheckResults(CaseFolderLayout layout)
+    {
+        georeferenceCheckBlockers.Clear();
+        georeferenceCheckWarnings.Clear();
+        georeferenceCheckPassedChecks.Clear();
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, layout.GeoreferenceCheckSummaryPath, StringComparison.OrdinalIgnoreCase));
+        if (!File.Exists(layout.GeoreferenceCheckSummaryPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(layout.GeoreferenceCheckSummaryPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            intakeIssues.Add($"Georeference Check summary could not be cleared: {exception.Message}");
+        }
     }
 
     private void ClearDimensionCheckResults(CaseFolderLayout layout)
@@ -1905,6 +2075,7 @@ public sealed class WorkflowSession
         stage switch
         {
             PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
+            PreflightCheckStage.GeoreferenceCheck => layout.GeoreferenceCheckSummaryPath,
             PreflightCheckStage.StructureCheck => layout.StructureCheckSummaryPath,
             _ => layout.PreflightSummaryPath
         };
@@ -1913,6 +2084,7 @@ public sealed class WorkflowSession
         stage switch
         {
             PreflightCheckStage.DimensionCheck => "Dimension Check",
+            PreflightCheckStage.GeoreferenceCheck => "Georeference Check",
             PreflightCheckStage.StructureCheck => "Structure Check",
             _ => "Early compute checks"
         };
@@ -1925,7 +2097,7 @@ public sealed class WorkflowSession
         }
 
         var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
-        var status = preflightBlockers.Count > 0 ? "blocked" : IsStructureCheckPassed() && IsDimensionCheckPassed() ? "passed" : "blocked";
+        var status = preflightBlockers.Count > 0 ? "blocked" : IsStructureCheckPassed() && IsGeoreferenceCheckPassed() && IsDimensionCheckPassed() ? "passed" : "blocked";
         var summary = new PreflightSummaryDocument(
             "1.0.0",
             TransactionId,
@@ -1964,6 +2136,7 @@ public sealed class WorkflowSession
         ClearPreflightResults();
         var loadedSplitSummary = false;
         loadedSplitSummary |= TryLoadStageSummary(layout.StructureCheckSummaryPath, PreflightCheckStage.StructureCheck);
+        loadedSplitSummary |= TryLoadStageSummary(layout.GeoreferenceCheckSummaryPath, PreflightCheckStage.GeoreferenceCheck);
         loadedSplitSummary |= TryLoadStageSummary(layout.DimensionCheckSummaryPath, PreflightCheckStage.DimensionCheck);
         if (loadedSplitSummary)
         {
@@ -1985,9 +2158,12 @@ public sealed class WorkflowSession
                 return;
             }
 
-            structureCheckBlockers.AddRange(summary.Payload.Blockers.Where(check => !IsDimensionCheck(check)));
-            structureCheckWarnings.AddRange(summary.Payload.Warnings.Where(check => !IsDimensionCheck(check)));
-            structureCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(check => !IsDimensionCheck(check)));
+            structureCheckBlockers.AddRange(summary.Payload.Blockers.Where(check => !IsGeoreferenceCheck(check) && !IsDimensionCheck(check)));
+            structureCheckWarnings.AddRange(summary.Payload.Warnings.Where(check => !IsGeoreferenceCheck(check) && !IsDimensionCheck(check)));
+            structureCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(check => !IsGeoreferenceCheck(check) && !IsDimensionCheck(check)));
+            georeferenceCheckBlockers.AddRange(summary.Payload.Blockers.Where(IsGeoreferenceCheck));
+            georeferenceCheckWarnings.AddRange(summary.Payload.Warnings.Where(IsGeoreferenceCheck));
+            georeferenceCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(IsGeoreferenceCheck));
             dimensionCheckBlockers.AddRange(summary.Payload.Blockers.Where(IsDimensionCheck));
             dimensionCheckWarnings.AddRange(summary.Payload.Warnings.Where(IsDimensionCheck));
             dimensionCheckPassedChecks.AddRange(summary.Payload.PassedChecks.Where(IsDimensionCheck));
@@ -2019,6 +2195,12 @@ public sealed class WorkflowSession
                 return false;
             }
 
+            if (stage == PreflightCheckStage.DimensionCheck && ContainsGeoreferenceResults(summary))
+            {
+                MigrateLegacyDimensionSummaryWithGeoreferenceRows(summary);
+                return true;
+            }
+
             SetStageResults(stage, summary);
             return true;
         }
@@ -2033,8 +2215,54 @@ public sealed class WorkflowSession
         }
     }
 
-    private static bool IsDimensionCheck(PreflightCheck check) =>
+    private static bool IsGeoreferenceCheck(PreflightCheck check) =>
         string.Equals(check.Category, "georeference", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDimensionCheck(PreflightCheck check) =>
+        string.Equals(check.Category, "dimension", StringComparison.OrdinalIgnoreCase);
+
+    private void MigrateLegacyDimensionSummaryWithGeoreferenceRows(PreflightSummaryDocument summary)
+    {
+        var georeferenceSummary = FilterStageSummary(summary, PreflightCheckStage.GeoreferenceCheck, IsGeoreferenceCheck);
+        if (HasAnyFindings(georeferenceSummary))
+        {
+            SetGeoreferenceCheckResults(georeferenceSummary);
+        }
+
+        var dimensionSummary = FilterStageSummary(summary, PreflightCheckStage.DimensionCheck, IsDimensionCheck);
+        SetDimensionCheckResults(dimensionSummary);
+        if (!HasAnyFindings(dimensionSummary))
+        {
+            intakeIssues.Add("Legacy Dimension Check summary contained georeference results. Rerun Dimension Check before Validate Points and Lines.");
+        }
+    }
+
+    private static bool ContainsGeoreferenceResults(PreflightSummaryDocument summary) =>
+        summary.Payload.Blockers.Any(IsGeoreferenceCheck)
+        || summary.Payload.Warnings.Any(IsGeoreferenceCheck)
+        || summary.Payload.PassedChecks.Any(IsGeoreferenceCheck);
+
+    private static bool HasAnyFindings(PreflightSummaryDocument summary) =>
+        summary.Payload.Blockers.Count > 0
+        || summary.Payload.Warnings.Count > 0
+        || summary.Payload.PassedChecks.Count > 0;
+
+    private static PreflightSummaryDocument FilterStageSummary(
+        PreflightSummaryDocument summary,
+        PreflightCheckStage stage,
+        Func<PreflightCheck, bool> predicate)
+    {
+        var blockers = summary.Payload.Blockers.Where(predicate).ToArray();
+        var warnings = summary.Payload.Warnings.Where(predicate).ToArray();
+        var passed = summary.Payload.PassedChecks.Where(predicate).ToArray();
+        var status = blockers.Length > 0 ? "blocked" : passed.Length > 0 ? "passed" : "not_started";
+
+        return summary with
+        {
+            StageId = stage.ToStageId(),
+            Payload = new PreflightSummaryPayload(status, blockers, warnings, passed)
+        };
+    }
 
     private void UpsertAvailableArtifact(AvailableArtifact artifact)
     {
@@ -2278,19 +2506,33 @@ public sealed class WorkflowSession
     private void RemoveSpatialReviewArtifacts(CaseFolderLayout layout)
     {
         var approvalPath = spatialReviewApprovalPersistenceService.GetApprovalPath(layout);
-        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, approvalPath, StringComparison.OrdinalIgnoreCase));
-        if (!File.Exists(approvalPath))
+        RemoveGeneratedArtifact(approvalPath, "Spatial review approval");
+        RemoveGeneratedArtifact(
+            computeReviewDispositionPersistenceService.GetDispositionPath(layout),
+            "Compute review disposition");
+        RemoveGeneratedArtifact(
+            Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json"),
+            "Enterprise working disposition");
+        RemoveGeneratedArtifact(
+            Path.Combine(layout.ReportsDirectory, "compute_examination_report.json"),
+            "Compute examination report");
+    }
+
+    private void RemoveGeneratedArtifact(string artifactPath, string displayName)
+    {
+        availableArtifacts.RemoveAll(artifact => string.Equals(artifact.Path, artifactPath, StringComparison.OrdinalIgnoreCase));
+        if (!File.Exists(artifactPath))
         {
             return;
         }
 
         try
         {
-            File.Delete(approvalPath);
+            File.Delete(artifactPath);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            intakeIssues.Add($"Spatial review approval artifact could not be cleared: {exception.Message}");
+            intakeIssues.Add($"{displayName} artifact could not be cleared: {exception.Message}");
         }
     }
 
@@ -2309,6 +2551,9 @@ public sealed class WorkflowSession
         structureCheckBlockers.Clear();
         structureCheckWarnings.Clear();
         structureCheckPassedChecks.Clear();
+        georeferenceCheckBlockers.Clear();
+        georeferenceCheckWarnings.Clear();
+        georeferenceCheckPassedChecks.Clear();
         dimensionCheckBlockers.Clear();
         dimensionCheckWarnings.Clear();
         dimensionCheckPassedChecks.Clear();
@@ -2320,16 +2565,30 @@ public sealed class WorkflowSession
         preflightWarnings.Clear();
         preflightPassedChecks.Clear();
         preflightBlockers.AddRange(structureCheckBlockers);
+        preflightBlockers.AddRange(georeferenceCheckBlockers);
         preflightBlockers.AddRange(dimensionCheckBlockers);
         preflightWarnings.AddRange(structureCheckWarnings);
+        preflightWarnings.AddRange(georeferenceCheckWarnings);
         preflightWarnings.AddRange(dimensionCheckWarnings);
         preflightPassedChecks.AddRange(structureCheckPassedChecks);
+        preflightPassedChecks.AddRange(georeferenceCheckPassedChecks);
         preflightPassedChecks.AddRange(dimensionCheckPassedChecks);
     }
 
     private bool IsStructureCheckPassed() =>
-        structureCheckPassedChecks.Count > 0 && structureCheckBlockers.Count == 0;
+        HasRealPassedCheck(structureCheckPassedChecks) && structureCheckBlockers.Count == 0;
+
+    private bool IsGeoreferenceCheckPassed() =>
+        HasRealPassedCheck(georeferenceCheckPassedChecks) && georeferenceCheckBlockers.Count == 0;
 
     private bool IsDimensionCheckPassed() =>
-        dimensionCheckPassedChecks.Count > 0 && dimensionCheckBlockers.Count == 0;
+        HasRealPassedCheck(dimensionCheckPassedChecks) && dimensionCheckBlockers.Count == 0;
+
+    private static bool HasRealPassedCheck(IEnumerable<PreflightCheck> checks)
+    {
+        return checks.Any(check =>
+            string.Equals(check.Status, "passed", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(check.Outcome ?? "passed", "passed", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(check.Severity, "disabled", StringComparison.OrdinalIgnoreCase));
+    }
 }

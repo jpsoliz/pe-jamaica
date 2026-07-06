@@ -17,13 +17,13 @@ so that mandatory document structure and DWG contents can be validated consisten
 1. Given the workflow UI and Settings workspace currently expose `Preflight Rules`, when this story is complete, then user-facing labels must use `Structure Rules` or `Structure Check Rules` for document/source structure validation.
 2. Given existing installations may still contain `PreflightRules.json`, when the add-in loads structure rules, then it must preserve backward compatibility by loading the existing file as an alias/fallback while introducing `StructureRules.json` as the preferred rules file.
 3. Given the Settings workspace is opened, when the user reviews rule configuration, then structure/document rules must be organized separately from system/environment checks.
-4. Given a DWG source is present and DWG layer validation rules are enabled, when Structure Check runs, then the add-in must inspect the DWG and report whether required point, line/polyline, and annotation/text CAD layer categories are present.
+4. Given a DWG or supported spatial source is present and CAD/spatial-file layer validation rules are enabled, when Structure Check runs, then the add-in must inspect the source and report whether the configured structural layer categories are present, including at minimum point, line/polyline, polygon, annotation/text, north arrow, registered adjoining parcel ownership detail, non-registered adjoining parcel occupier detail, street, and water body categories where required by the transaction profile.
 5. Given required DWG CAD layer names are configured, when the DWG probe discovers CAD layers, then matching must be configurable by rule rather than hardcoded in C# or Python.
 6. Given an expected DWG layer category is missing, when Structure Check completes, then the outcome must be `failed`/blocker or warning according to rule severity and must include correction guidance.
 7. Given an expected DWG layer category is found, when Structure Check completes, then the outcome must be recorded as `passed` with the matched layer evidence.
 8. Given no DWG is required for the workflow profile, when Structure Check runs, then DWG layer validation must report `not_applicable` or remain absent without blocking the transaction.
 9. Given a configurable structure rule is disabled, when Structure Check runs, then the result must record `skipped`/disabled rather than silently pretending the rule passed.
-10. Given rule outcomes are produced, when summaries and UI are rendered, then results must be available for reporting using stable rule IDs, display names, severity, outcome, message, source role/path, and discovered evidence.
+10. Given rule outcomes are produced, when summaries and UI are rendered, then results must be available for reporting using stable rule IDs, display names, severity, outcome, message, source role/path, discovered evidence, and later Story 4.9 reportable-finding fields where available.
 11. Given this story is complete, then existing Structure Check behavior must remain compatible: source integrity, required role validation, workflow rule resolution, DWG signature validation, DWG readability probe, and safe fallback behavior must not regress.
 
 ## Tasks / Subtasks
@@ -46,6 +46,13 @@ so that mandatory document structure and DWG contents can be validated consisten
     - [x] points
     - [x] lines / polylines
     - [x] annotation / text
+  - [ ] Expand configured CAD/spatial-file layer categories from the product workflow notes:
+    - [ ] north arrow
+    - [ ] registered adjoining parcel ownership details
+    - [ ] non-registered adjoining parcel occupier details
+    - [ ] parcel polygons
+    - [ ] streets
+    - [ ] water bodies
   - [x] Allow each category to define accepted layer name aliases.
   - [x] Allow category-level severity or rule-level severity, using existing severity behavior where possible.
   - [x] Keep file naming and JSON properties in lowercase `snake_case`.
@@ -161,7 +168,7 @@ Suggested rule entry:
   "group": "structure",
   "category": "dwg",
   "display_name": "Required DWG CAD layers",
-  "description": "Validates that DWG sources include expected CAD layer categories for points, lines, and annotation.",
+  "description": "Validates that DWG or supported spatial sources include expected structural layer categories for examination.",
   "enabled": true,
   "severity": "blocker",
   "locked": false,
@@ -170,12 +177,19 @@ Suggested rule entry:
   "required_cad_layers": {
     "points": ["POINTS", "SURVEY_POINTS", "PNT"],
     "lines": ["LINES", "BOUNDARY", "LINEWORK"],
-    "annotation": ["TEXT", "ANNOTATION", "ANNO"]
+    "polygons": ["POLYGONS", "PARCEL_POLYGONS", "PARCELS"],
+    "annotation": ["TEXT", "ANNOTATION", "ANNO"],
+    "north_arrow": ["NORTH_ARROW", "NORTH ARROW"],
+    "registered_adjoining_parcels": ["REGISTERED_ADJOINERS", "ADJOINING_OWNERS", "OWNERSHIP"],
+    "non_registered_adjoining_parcels": ["OCCUPIERS", "NON_REGISTERED_ADJOINERS", "ADJOINING_OCCUPIERS"],
+    "streets": ["STREETS", "ROADS", "ROAD"],
+    "water_bodies": ["WATER", "WATER_BODY", "RIVER", "STREAM"]
   }
 }
 ```
 
 The implementation may choose a more strongly typed JSON shape if easier, but must preserve the user intent: configurable accepted layer names by category.
+The expanded categories above come from `docs/project/compute-steps.docx`. They should be configurable by transaction/document profile; not every category must block every transaction unless the selected rule profile marks it required.
 
 ### Result / Reporting Contract
 
@@ -204,6 +218,8 @@ Each persisted result should be able to communicate:
   - discovered CAD layer names
   - matched layer names
   - missing categories
+
+Story 4.9 extends this into a shared reportable-finding model. Structure Check results produced here should be treated as examination findings later, not only pass/fail UI rows. Where this story is patched after 4.9, prefer preserving the existing `PreflightCheck` fields while adding report-friendly metadata in a backward-compatible way.
 
 Prefer extending existing `PreflightCheck` only in a backward-compatible way. If adding an `Outcome` or `Evidence` field is too disruptive, encode outcome through existing blocker/warning/passed helpers and add bounded evidence in message/correction. The long-term preferred shape is structured outcome/evidence.
 
@@ -291,6 +307,7 @@ GPT-5 Codex
 - Added per-category Structure Check results with stable check IDs, outcome values, correction guidance, and structured evidence.
 - Updated Settings labels to `Structure Rules` and exposed `System Checks` grouping plus CAD alias summaries.
 - Manual ArcGIS Pro smoke checks remain open because they require an interactive Pro session.
+- Product alignment patch added the fuller CAD/spatial-file structure checklist from `docs/project/compute-steps.docx`; implementation may need a follow-up patch if the current rule catalog only supports point/line/annotation categories.
 
 ### File List
 
@@ -322,3 +339,4 @@ GPT-5 Codex
 |---|---:|---|---|
 | 2026-07-02 | 0.1 | Created story for renaming Preflight Rules to Structure Rules and adding configurable DWG CAD layer validation. | Mary / Winston / Codex |
 | 2026-07-02 | 0.2 | Implemented Structure Rules catalog compatibility, configurable DWG CAD layer validation, Settings labeling/grouping, and automated tests. | Codex |
+| 2026-07-03 | 0.3 | Patched Structure Check scope with expanded CAD/spatial-file layer categories and reportable-finding alignment from compute workflow notes. | Mary / Codex |

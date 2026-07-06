@@ -151,12 +151,25 @@ public sealed class EditablePreflightRule
             Category = definition.Category,
             DisplayName = definition.DisplayName,
             Description = definition.Description,
-            SectionName = string.Equals(definition.Group, "system", StringComparison.OrdinalIgnoreCase) ? "System Checks" : "Structure Rules",
+            SectionName = ResolveSectionName(definition.Group),
             RequiredCadLayerSummary = FormatRequiredCadLayerSummary(definition.RequiredCadLayers),
             RequiredCadLayers = definition.RequiredCadLayers,
             Enabled = definition.Enabled,
             Severity = definition.Severity,
             Locked = definition.Locked
+        };
+    }
+
+    private static string ResolveSectionName(string group)
+    {
+        return group.Trim().ToLowerInvariant() switch
+        {
+            "supporting_document" => "Supporting Document Rules",
+            "structure" => "Structure Check Rules",
+            "georeference" => "Georeference Check Rules",
+            "dimension" => "Dimension Check Rules",
+            "system" => "System Checks",
+            _ => "Structure Check Rules"
         };
     }
 

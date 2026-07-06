@@ -104,4 +104,8 @@ public sealed record ManifestInnolaLifecycle(
     [property: JsonPropertyName("completion_ready_reason")] string? CompletionReadyReason,
     [property: JsonPropertyName("completed_by")] string? CompletedBy,
     [property: JsonPropertyName("completed_at")] string? CompletedAt,
-    [property: JsonPropertyName("last_error_category")] string? LastErrorCategory);
+    [property: JsonPropertyName("last_error_category")] string? LastErrorCategory,
+    [property: JsonPropertyName("spatial_unit_id")] string? SpatialUnitId = null,
+    [property: JsonPropertyName("spatial_unit_api_status")] string? SpatialUnitApiStatus = null,
+    [property: JsonPropertyName("working_package_file_name")] string? WorkingPackageFileName = null,
+    [property: JsonPropertyName("working_package_upload_status")] string? WorkingPackageUploadStatus = null);

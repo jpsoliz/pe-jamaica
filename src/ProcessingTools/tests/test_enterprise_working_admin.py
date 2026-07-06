@@ -627,6 +627,19 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         self.assertTrue(any("schema upgrade required" in error for error in errors))
         self.assertTrue(any("review_decision" in error for error in errors))
 
+    def test_validate_fields_allows_unrestricted_review_decision_text(self):
+        metadata = {
+            "fields": [
+                {"name": field_name, "length": 1024 if field_name == "review_comment" else 64}
+                for field_name in admin_script.SHARED_FIELDS
+            ]
+        }
+        errors = []
+
+        admin_script._validate_fields("points", metadata, errors)
+
+        self.assertFalse(errors)
+
     def test_verified_layer_urls_rejects_old_schema_before_writeback(self):
         service_url = "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer"
         parent_metadata = {

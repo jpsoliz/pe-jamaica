@@ -5,6 +5,7 @@
 - [AI_PROJECT_CONTEXT](project/AI_PROJECT_CONTEXT.md) — project purpose, stack, boundaries, and handoff context.
 - [ONBOARDING](project/ONBOARDING.md) — first-steps guide for humans and new AI models.
 - [PROCESSING_ALIGNMENT](project/PROCESSING_ALIGNMENT.md) — recommended extraction/review/build architecture and source-family handling.
+- [compute-steps.docx](project/compute-steps.docx) — product workflow stage notes for the compute review process.
 - [toolchain.md](toolchain.md) — environment, SDK lane, packaging scripts, and setup constraints.
 
 ## Project operations

@@ -3,7 +3,9 @@ using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Workflow.Disposition;
+using ParcelWorkflowAddIn.Workflow.Reports;
 using ParcelWorkflowAddIn.WorkflowRules;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -210,7 +212,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new FakeReadiness(true),
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
-            () => FixedNow());
+            () => FixedNow(),
+            new FakeReportService(success: true));
 
         await coordinator.StartOrClaimAsync();
         var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
@@ -246,7 +249,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new FakeReadiness(true),
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
-            () => FixedNow());
+            () => FixedNow(),
+            new FakeReportService(success: true));
 
         await coordinator.StartOrClaimAsync();
         var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
@@ -263,6 +267,102 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"), disposition?.WorkingPackageFileName, "Package file name should be persisted even when upload fails.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_working_package_upload_failed", StringComparison.OrdinalIgnoreCase), "Audit should record package upload failure.");
+    }
+
+    public static async Task CompleteGeneratesReportBeforePackageUploadAndIncludesReportInPackage()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var reportService = new FakeReportService(success: true);
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            reportService);
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+        Directory.CreateDirectory(Path.Combine(layout.OutputDirectory, "local_parcel_fabric.gdb"));
+        File.WriteAllText(Path.Combine(layout.OutputDirectory, "local_parcel_fabric.gdb", "a00000001.gdbtable"), "gdb");
+        File.WriteAllText(Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson"), "{}");
+        var selected = manager.SelectedTransaction!;
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(result.Success, "Complete should succeed when report generation succeeds.");
+        TestAssert.Equal(1, reportService.CallCount, "Report service should be called once.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.True(!string.IsNullOrWhiteSpace(disposition?.ComputeExaminationReportRef), "Disposition should persist report reference.");
+        var detail = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, selected);
+        var completedFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004");
+        var attachment = detail.Detail!.Attachments.FirstOrDefault(attachment =>
+            string.Equals(attachment.FileName, completedFileName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(attachment.Category, ShellState.CompletedAttachmentSourceType, StringComparison.OrdinalIgnoreCase));
+        TestAssert.True(attachment is not null, "Completed package attachment should be uploaded.");
+        var content = await detailService.GetAttachmentContentAsync(manager.CurrentSession!, detail.Detail, attachment!);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(content.Content), System.IO.Compression.ZipArchiveMode.Read);
+        var reportEntry = archive.GetEntry("output/reports/compute_examination_report.json");
+        TestAssert.True(reportEntry is not null, "Completed package should include the Compute examination report.");
+        TestAssert.True(archive.GetEntry("output/local_parcel_fabric.gdb/a00000001.gdbtable") is not null, "Completed package should include generated GDB contents.");
+        TestAssert.True(archive.GetEntry("output/extracted_geometry.geojson") is not null, "Completed package should include generated output artifacts.");
+        using (var reportStream = reportEntry!.Open())
+        using (var report = JsonDocument.Parse(reportStream))
+        {
+            var closeout = report.RootElement.GetProperty("closeout");
+            TestAssert.Equal(completedFileName, closeout.GetProperty("working_package_file_name").GetString(), "Packaged report should include planned package file name.");
+            TestAssert.Equal(ShellState.CompletedAttachmentSourceType, closeout.GetProperty("working_package_source_type").GetString(), "Packaged report should include package source type.");
+            TestAssert.Equal("pending", closeout.GetProperty("working_package_upload_status").GetString(), "Packaged report should record package status at report-generation time.");
+        }
+
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_examination_report_generated", StringComparison.OrdinalIgnoreCase), "Audit should record report generation.");
+    }
+
+    public static async Task CompleteStopsBeforePackageUploadWhenReportGenerationFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var reportService = new FakeReportService(success: false);
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            reportService);
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+        var before = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        var beforeCount = before.Detail!.Attachments.Count;
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should fail when report generation fails.");
+        TestAssert.Equal(1, reportService.CallCount, "Report service should be called once.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after report failure.");
+        var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        TestAssert.Equal(beforeCount, after.Detail!.Attachments.Count, "Completed package must not upload after report failure.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal(null, disposition?.ComputeExaminationReportRef, "Failed report generation must not be recorded as final report evidence.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_examination_report_failed", StringComparison.OrdinalIgnoreCase), "Audit should record report failure.");
     }
 
     public static async Task LifecycleFailuresPreserveStateAndRedactSecrets()
@@ -331,7 +431,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             readiness ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
-            () => FixedNow());
+            () => FixedNow(),
+            new FakeReportService(success: true));
     }
 
     private static void WriteDisposition(CaseFolderLayout layout)
@@ -350,6 +451,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             "run-output",
             "written",
             Path.Combine(layout.OutputDirectory, "enterprise_working_disposition.json"),
+            null,
             null,
             null,
             null,
@@ -459,6 +561,48 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         {
             CallCount++;
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class FakeReportService : IComputeExaminationReportService
+    {
+        private readonly bool success;
+
+        public FakeReportService(bool success)
+        {
+            this.success = success;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<ComputeExaminationReportResult> GenerateAsync(
+            CaseFolderLayout layout,
+            SelectedInnolaTransaction transaction,
+            ComputeReviewDispositionDocument disposition,
+            string? operatorId,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            if (!success)
+            {
+                return Task.FromResult(ComputeExaminationReportResult.Failed("Could not generate Compute examination report. Try again.", "report_failed"));
+            }
+
+            Directory.CreateDirectory(layout.ReportsDirectory);
+            var reportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.ReportFileName);
+            var report = new Dictionary<string, object?>
+            {
+                ["schema_version"] = "test",
+                ["status"] = "generated",
+                ["closeout"] = new Dictionary<string, object?>
+                {
+                    ["working_package_file_name"] = disposition.WorkingPackageFileName,
+                    ["working_package_source_type"] = disposition.WorkingPackageSourceType,
+                    ["working_package_upload_status"] = disposition.WorkingPackageUploadStatus
+                }
+            };
+            File.WriteAllText(reportPath, JsonSerializer.Serialize(report));
+            return Task.FromResult(ComputeExaminationReportResult.Succeeded(reportPath));
         }
     }
 

@@ -122,9 +122,37 @@ internal static class ManifestPreflightServiceTests
         TestAssert.Equal("dimension_check", summary.StageId, "Dimension Check summary should expose its stage id.");
         TestAssert.True(File.Exists(layout.DimensionCheckSummaryPath), "Dimension Check summary should be written independently.");
         TestAssert.True(!File.Exists(layout.StructureCheckSummaryPath), "Dimension Check must not write Structure Check summary.");
-        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "georeference") || summary.Payload.Warnings.Any(check => check.Category == "georeference"), "Dimension Check should include georeference/dimension rules.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.Category == "dimension"), "Dimension Check should include dimension rules.");
+        TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "georeference"), "Dimension Check must not include Georeference Check rules.");
         TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "dwg" || check.Category == "workflow_rule"), "Dimension Check must not evaluate Structure Check rules.");
         AssertNoDownstreamArtifacts(layout);
+    }
+
+    public static void GeoreferenceCheckPersistsIndependentSummary()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 6, 9, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.Equal("georeference_check", summary.StageId, "Georeference Check summary should expose its stage id.");
+        TestAssert.True(File.Exists(layout.GeoreferenceCheckSummaryPath), "Georeference Check summary should be written independently.");
+        TestAssert.True(!File.Exists(layout.DimensionCheckSummaryPath), "Georeference Check must not write Dimension Check summary.");
+        TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "georeference"), "Georeference Check should include georeference rules.");
+        TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "dimension"), "Georeference Check must not include Dimension Check rules.");
+        TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).All(check => !string.IsNullOrWhiteSpace(check.WorkflowEffect)), "Reportable findings should include workflow_effect.");
     }
 
     public static void ManifestPreflightBlocksEmptyDwg()

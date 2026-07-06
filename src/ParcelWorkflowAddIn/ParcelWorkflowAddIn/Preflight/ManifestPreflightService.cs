@@ -108,6 +108,16 @@ public sealed class ManifestPreflightService
         return RunDimensionCheckAsync(layout, createdBy).GetAwaiter().GetResult();
     }
 
+    public PreflightSummaryDocument RunGeoreferenceCheck(CaseFolderLayout layout, string? createdBy)
+    {
+        return RunGeoreferenceCheckAsync(layout, createdBy).GetAwaiter().GetResult();
+    }
+
+    public Task<PreflightSummaryDocument> RunGeoreferenceCheckAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
+    {
+        return RunStageAsync(layout, createdBy, PreflightCheckStage.GeoreferenceCheck, cancellationToken);
+    }
+
     public Task<PreflightSummaryDocument> RunDimensionCheckAsync(CaseFolderLayout layout, string? createdBy, CancellationToken cancellationToken = default)
     {
         return RunStageAsync(layout, createdBy, PreflightCheckStage.DimensionCheck, cancellationToken);
@@ -138,9 +148,14 @@ public sealed class ManifestPreflightService
             }
         }
 
-        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck)
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.GeoreferenceCheck)
         {
             EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed);
+        }
+
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck)
+        {
+            EvaluateDimensionReadiness(manifest, layout, blockers, warnings, passed);
         }
 
         if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
@@ -177,6 +192,7 @@ public sealed class ManifestPreflightService
         stage switch
         {
             PreflightCheckStage.StructureCheck => layout.StructureCheckSummaryPath,
+            PreflightCheckStage.GeoreferenceCheck => layout.GeoreferenceCheckSummaryPath,
             PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
             _ => layout.PreflightSummaryPath
         };
@@ -279,6 +295,7 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> passed)
     {
         var sources = manifest.Payload.SourceFiles;
+        var hasConcreteGeoreferenceValidation = false;
         var georeferenceSourceRule = ruleCatalog.TryGetRule("georeference_source_presence");
         if (georeferenceSourceRule is { Enabled: true })
         {
@@ -289,7 +306,7 @@ public sealed class ManifestPreflightService
                     georeferenceSourceRule,
                     blockers,
                     warnings,
-                    "No source with usable coordinate context is present for Dimension Check.",
+                    "No source with usable coordinate context is present for Georeference Check.",
                     layout.ManifestPath,
                     null,
                     "Add a computation sheet, tabular coordinate source, or map reference with usable coordinate context.");
@@ -299,9 +316,9 @@ public sealed class ManifestPreflightService
                 passed.Add(PreflightCheck.PassedForCategory(
                     georeferenceSourceRule.Category,
                     georeferenceSourceRule.RuleId,
-                    $"Passed: {RoleDisplayName(georeferenceSource.SourceRole ?? string.Empty)} is available for Dimension Check.",
+                    $"Passed: {RoleDisplayName(georeferenceSource.SourceRole ?? string.Empty)} is available for Georeference Check.",
                     georeferenceSource.CopiedPath,
-                    georeferenceSource.SourceRole));
+                    georeferenceSource.SourceRole).WithDisplayName(georeferenceSourceRule.DisplayName));
             }
         }
 
@@ -312,6 +329,7 @@ public sealed class ManifestPreflightService
             {
                 if (!TryReadTabularCoordinates(source.CopiedPath, out var result))
                 {
+                    hasConcreteGeoreferenceValidation = true;
                     AddRuleIssue(
                         tabularRule,
                         blockers,
@@ -325,6 +343,7 @@ public sealed class ManifestPreflightService
 
                 if (!result.HasCoordinateColumns)
                 {
+                    hasConcreteGeoreferenceValidation = true;
                     AddRuleIssue(
                         tabularRule,
                         blockers,
@@ -332,16 +351,17 @@ public sealed class ManifestPreflightService
                         $"TXT/CSV source {Path.GetFileName(source.CopiedPath)} is missing Easting/Northing-style columns.",
                         source.CopiedPath,
                         source.SourceRole,
-                        "Rename or add Easting/Northing columns before rerunning Structure Check.");
+                        "Rename or add Easting/Northing columns before rerunning Georeference Check.");
                     continue;
                 }
 
+                hasConcreteGeoreferenceValidation = true;
                 passed.Add(PreflightCheck.PassedForCategory(
                     tabularRule.Category,
                     tabularRule.RuleId,
-                    $"Passed: {Path.GetFileName(source.CopiedPath)} exposes tabular coordinate columns for Dimension Check.",
+                    $"Passed: {Path.GetFileName(source.CopiedPath)} exposes tabular coordinate columns for Georeference Check.",
                     source.CopiedPath,
-                    source.SourceRole));
+                    source.SourceRole).WithDisplayName(tabularRule.DisplayName));
 
                 var boundsRule = ruleCatalog.TryGetRule("jamaica_coordinate_bounds");
                 if (boundsRule is not { Enabled: true } || !RuleAppliesToSource(boundsRule, source))
@@ -351,6 +371,7 @@ public sealed class ManifestPreflightService
 
                 if (result.SampleCoordinate is null)
                 {
+                    hasConcreteGeoreferenceValidation = true;
                     AddRuleIssue(
                         boundsRule,
                         blockers,
@@ -358,7 +379,7 @@ public sealed class ManifestPreflightService
                         $"Jamaica coordinate bounds could not be sampled from {Path.GetFileName(source.CopiedPath)}.",
                         source.CopiedPath,
                         source.SourceRole,
-                        "Add at least one numeric Easting/Northing row before rerunning Dimension Check.");
+                        "Add at least one numeric Easting/Northing row before rerunning Georeference Check.");
                     continue;
                 }
 
@@ -368,6 +389,7 @@ public sealed class ManifestPreflightService
                     || sample.Northing < JamaicaMinimumNorthing
                     || sample.Northing > JamaicaMaximumNorthing)
                 {
+                    hasConcreteGeoreferenceValidation = true;
                     AddRuleIssue(
                         boundsRule,
                         blockers,
@@ -375,18 +397,115 @@ public sealed class ManifestPreflightService
                         $"Sample coordinates from {Path.GetFileName(source.CopiedPath)} fall outside the configured Jamaica working bounds.",
                         source.CopiedPath,
                         source.SourceRole,
-                        "Check the coordinate system, units, and source file values before rerunning Dimension Check.");
+                        "Check the coordinate system, units, and source file values before rerunning Georeference Check.");
                     continue;
                 }
 
+                hasConcreteGeoreferenceValidation = true;
                 passed.Add(PreflightCheck.PassedForCategory(
                     boundsRule.Category,
                     boundsRule.RuleId,
                     $"Passed: sample coordinates from {Path.GetFileName(source.CopiedPath)} fall within Jamaica working bounds.",
                     source.CopiedPath,
-                    source.SourceRole));
+                    source.SourceRole).WithDisplayName(boundsRule.DisplayName));
             }
         }
+
+        if (!hasConcreteGeoreferenceValidation)
+        {
+            var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
+            if (readinessRule is { Enabled: true })
+            {
+                AddRuleIssue(
+                    readinessRule,
+                    blockers,
+                    warnings,
+                    "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
+                    layout.ManifestPath,
+                    null,
+                    "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
+            }
+            else if (readinessRule is not null)
+            {
+                warnings.Add(PreflightCheck.DisabledForCategory(
+                    readinessRule.Category,
+                    readinessRule.RuleId,
+                    $"Skipped: {readinessRule.DisplayName} is disabled in StructureRules.json.",
+                    ruleCatalog.SourcePath,
+                    null).WithOutcome("disabled").WithDisplayName(readinessRule.DisplayName));
+            }
+        }
+    }
+
+    private void EvaluateDimensionReadiness(
+        ManifestDocument manifest,
+        CaseFolderLayout layout,
+        List<PreflightCheck> blockers,
+        List<PreflightCheck> warnings,
+        List<PreflightCheck> passed)
+    {
+        _ = warnings;
+        var rule = ruleCatalog.TryGetRule("dimension_source_presence");
+        if (rule is not { Enabled: true })
+        {
+            if (rule is not null)
+            {
+                warnings.Add(PreflightCheck.DisabledForCategory(
+                    rule.Category,
+                    rule.RuleId,
+                    $"Skipped: {rule.DisplayName} is disabled in StructureRules.json.",
+                    ruleCatalog.SourcePath,
+                    null).WithOutcome("disabled").WithDisplayName(rule.DisplayName));
+            }
+
+            return;
+        }
+
+        var source = manifest.Payload.SourceFiles.FirstOrDefault(item => RuleAppliesToSource(rule, item));
+        if (source is null)
+        {
+            AddRuleIssue(
+                rule,
+                blockers,
+                warnings,
+                "No computation sheet or configured dimension source is present for Dimension Check.",
+                layout.ManifestPath,
+                null,
+                "Add a computation sheet or configured spatial line source before rerunning Dimension Check.");
+            return;
+        }
+
+        passed.Add(PreflightCheck.PassedForCategory(
+            rule.Category,
+            rule.RuleId,
+            $"Passed: {RoleDisplayName(source.SourceRole ?? string.Empty)} is available for Dimension Check.",
+            source.CopiedPath,
+            source.SourceRole).WithDisplayName(rule.DisplayName));
+
+        var readinessRule = ruleCatalog.TryGetRule("dimension_geometry_construction_readiness");
+        if (readinessRule is not { Enabled: true })
+        {
+            if (readinessRule is not null)
+            {
+                warnings.Add(PreflightCheck.DisabledForCategory(
+                    readinessRule.Category,
+                    readinessRule.RuleId,
+                    $"Skipped: {readinessRule.DisplayName} is disabled in StructureRules.json.",
+                    ruleCatalog.SourcePath,
+                    null).WithOutcome("disabled").WithDisplayName(readinessRule.DisplayName));
+            }
+
+            return;
+        }
+
+        AddRuleIssue(
+            readinessRule,
+            blockers,
+            warnings,
+            "Dimension Check did not run a concrete bearing, distance, point-reference, closure, or geometry-construction validation.",
+            source.CopiedPath,
+            source.SourceRole,
+            "Add a configured dimension geometry validator or rerun after a dimension-readiness artifact is available.");
     }
 
     private async Task EvaluateRequiredRole(
@@ -933,11 +1052,11 @@ public sealed class ManifestPreflightService
         var severity = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "warning");
         if (severity == "blocker")
         {
-            blockers.Add(PreflightCheck.BlockerForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction));
+            blockers.Add(PreflightCheck.BlockerForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction).WithDisplayName(rule.DisplayName));
             return;
         }
 
-        warnings.Add(PreflightCheck.WarningForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction));
+        warnings.Add(PreflightCheck.WarningForCategory(rule.Category, rule.RuleId, message, affectedPath, sourceRole, correction).WithDisplayName(rule.DisplayName));
     }
 
     private static bool TryReadTabularCoordinates(string path, out TabularCoordinateParseResult result)

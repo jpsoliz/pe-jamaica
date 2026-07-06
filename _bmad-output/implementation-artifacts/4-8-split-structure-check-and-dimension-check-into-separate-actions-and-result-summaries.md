@@ -10,13 +10,13 @@ Status: in-progress
 
 As a cadastral compute reviewer,  
 I want Structure Check and Dimension Check to run as separate workflow actions with separate result summaries,  
-so that document/source structure issues can be reviewed independently from dimension/coordinate readiness before Validate Points begins.
+so that document/source structure issues can be reviewed independently from dimension readiness before Validate Points begins.
 
 ## Acceptance Criteria
 
 1. Given a transaction is ready for early compute checks, when the workflow panel is shown, then `Structure Check` and `Dimension Check` must each have their own action/run affordance instead of one combined run path.
 2. Given the user runs `Structure Check`, when it completes, then only document/source structure rules are evaluated and persisted, including mandatory source/document presence, source integrity, workflow rule/script plan resolution, DWG signature/readability, and configured DWG CAD layer rules.
-3. Given the user runs `Dimension Check`, when it completes, then dimension/coordinate readiness rules are evaluated separately, including coordinate-source presence, tabular coordinate columns, Jamaica bounds, and any future dimension-specific rules.
+3. Given the user runs `Dimension Check`, when it completes, then dimension/geometry-construction readiness rules are evaluated separately, including bearings, distances, point references, closure/tolerance, and any future dimension-specific rules. Coordinate-source presence, Jamaica/parish bounds, JAD2001, and parish/location mismatch checks are transitional 4.8 behavior and must move to `Georeference Check` under Story 4.9.
 4. Given Structure Check has blockers, when Dimension Check has not run or would otherwise be eligible, then downstream `Validate Points` must remain blocked and the UI must explain that Structure Check must pass first.
 5. Given Structure Check passes and Dimension Check has not run, when the user attempts to start `Validate Points`, then the workflow must block with a message requiring Dimension Check to pass.
 6. Given both Structure Check and Dimension Check pass, when the user starts `Validate Points`, then the existing downstream behavior remains eligible and no extraction/output geometry is produced by either check stage.
@@ -26,7 +26,7 @@ so that document/source structure issues can be reviewed independently from dime
 10. Given results are persisted, when a case is reopened, then Structure Check and Dimension Check summaries must reload independently and the workflow must preserve which stage passed, blocked, or has not started.
 11. Given existing cases may already have `preflight_summary.json`, when reopened after this change, then legacy combined summaries must remain readable and must map safely into the new split-stage model without data loss or false pass states.
 12. Given source files, source roles, detected profile, supporting document options, or structure/dimension rules change after either check passes, when those changes are saved, then stale Structure Check and Dimension Check artifacts must be invalidated according to the affected scope.
-13. Given the Settings workspace now exposes `Structure Rules`, when the rules are split by stage, then Settings must make clear which rules belong to Structure Check versus Dimension Check without reintroducing `Preflight Rules` user-facing wording.
+13. Given the Settings workspace now exposes `Structure Rules`, when the rules are split by stage, then Settings must make clear which rules belong to Structure Check versus Dimension Check without reintroducing `Preflight Rules` user-facing wording. Story 4.9 extends this grouping to include `Georeference Check`.
 14. Given tests run in the console harness, then automated tests must cover split execution, gating, persistence/reopen, disabled/skipped outcomes, legacy summary compatibility, and no downstream artifact creation during either check.
 
 ## Tasks / Subtasks
@@ -47,6 +47,7 @@ so that document/source structure issues can be reviewed independently from dime
 - [x] Split rule evaluation by stage. (AC: 2, 3, 7-9, 13)
   - [x] Route `supporting_document`, `structure`, `workflow_rule`, and `dwg` rules to Structure Check.
   - [x] Route `georeference`/dimension rules to Dimension Check.
+  - [ ] Story 4.9 follow-up: move `georeference` rules out of Dimension Check into a dedicated Georeference Check stage.
   - [x] Preserve `system` checks without confusing them with Structure Check business results; decide whether they remain prerequisites, a separate system group, or shared preconditions.
   - [x] Keep rules enabled/disabled and severity behavior consistent with Story 4.7.
 
@@ -87,14 +88,26 @@ so that document/source structure issues can be reviewed independently from dime
   - [ ] Manually smoke test a transaction through Structure Check only, then Dimension Check, then Validate Points.
   - [ ] Manually smoke test a reopened legacy case that only has `preflight_summary.json`.
 
+## Product Alignment Update - 2026-07-03
+
+This story remains the historical implementation split from one combined early-check path into two actions. After review of `docs/project/compute-steps.docx`, the product model now requires three early business checks:
+
+- `Structure Check`: submitted document/spatial-file structure.
+- `Georeference Check`: JAD2001, coordinate usability, Jamaica/parish location, and parish/location mismatch.
+- `Dimension Check`: bearings, distances, point references, closure/tolerance, and geometry-construction readiness.
+
+Story 4.9 owns the new Georeference Check stage and the shared reportable-finding model. Developers must not treat this Story 4.8 scope as the final home for parish/location/JAD2001 rules.
+
 ## Dev Notes
 
 ### Why This Story Exists
 
-The product language now treats `Structure Check` and `Dimension Check` as distinct reviewer concepts:
+The product language at the time of this story treated `Structure Check` and `Dimension Check` as distinct reviewer concepts:
 
 - Structure Check answers: are the submitted documents and source files structurally correct and complete?
-- Dimension Check answers: are the dimensions, coordinates, and coordinate-supporting sources usable for point validation?
+- Dimension Check answered: are the dimensions, coordinates, and coordinate-supporting sources usable for point validation?
+
+After the 2026-07-03 product workflow update, coordinate/parish/JAD2001 responsibilities move to Story 4.9 `Georeference Check`, while Dimension Check keeps dimension/geometry-construction readiness.
 
 The current code path still executes them together through `WorkflowSession.RunManifestPreflightAsync`, writes one `preflight_summary.json`, and moves the workflow directly to `PreflightPassed` when the combined summary has no blockers. That makes it hard for the operator to understand whether a document/DWG problem or a dimension/coordinate problem is blocking the workflow.
 
@@ -169,11 +182,18 @@ The exact field names can reuse `PreflightSummaryDocument` if that is less risky
   - `dwg`
   - source integrity/path/readability
   - required source roles/document completeness
-- Dimension Check:
+- Georeference Check (Story 4.9 follow-up):
   - `georeference`
   - coordinate-source presence
   - tabular coordinate columns
-  - Jamaica coordinate bounds
+  - JAD2001 expectation/readiness where data allows
+  - Jamaica/parish coordinate bounds and parish/location mismatch
+- Dimension Check:
+  - bearings
+  - distances
+  - point references
+  - closure/tolerance
+  - geometry-construction readiness
   - future dimension-specific rules
 - System Checks:
   - `system`, `python`, `arcgis_pro`, `write_access`
@@ -204,7 +224,8 @@ Avoid returning to the older generic `Preflight` wording in user-facing UI. Inte
 
 Downstream eligibility should be explicit:
 
-- `Validate Points` requires Structure Check passed and Dimension Check passed.
+- Story 4.8 gate: `Validate Points` requires Structure Check passed and Dimension Check passed.
+- Story 4.9 target gate: `Validate Points` requires Structure Check, Georeference Check, and Dimension Check according to configured workflow effects.
 - If Structure Check is blocked, Dimension Check may be disabled or allowed only as diagnostic; choose one behavior and test it.
 - Recommended first implementation: require Structure Check to pass before Dimension Check can run, because Dimension Check relies on validated source/document structure.
 - Any source intake/profile/rules edit after either check passes should invalidate both checks unless the implementation can confidently scope the invalidation.
@@ -216,6 +237,7 @@ Do not strand existing cases:
 - If only legacy `preflight_summary.json` exists and it is `passed`, the reopen path may treat both Structure Check and Dimension Check as passed with a legacy indicator, or require rerun with a clear message. Recommended: treat as legacy pass for continuity, but show that split summaries are not yet available.
 - If legacy summary is blocked, preserve the blockers and route the case back to early checks.
 - Never create a false Dimension Check pass from a corrupt or incomplete legacy file.
+- Story 4.9 must also handle Story 4.8 split summaries where georeference rows were stored inside `dimension_check_summary.json`; do not create a false Georeference Check pass from corrupt or incomplete legacy data.
 
 ### Related Stories
 
@@ -283,6 +305,7 @@ GPT-5 Codex
 - Updated workflow gating so Validate Points requires both Structure Check and Dimension Check to pass.
 - Added a separate Dimension Check command/button in the dock pane.
 - Manual ArcGIS Pro smoke checks remain open because they require interactive Pro verification.
+- Product alignment patch marks georeference-in-Dimension behavior as transitional. Story 4.9 owns extraction of Georeference Check and reportable findings.
 
 ### File List
 
@@ -303,3 +326,4 @@ GPT-5 Codex
 |---|---:|---|---|
 | 2026-07-02 | 0.1 | Created story for splitting Structure Check and Dimension Check into separate actions, summaries, and gates. | Mary / Codex |
 | 2026-07-02 | 0.2 | Implemented split Structure/Dimension check execution, persistence, UI command split, gating, and automated coverage. | Amelia / Codex |
+| 2026-07-03 | 0.3 | Patched story to align with new Georeference Check stage and mark georeference-in-Dimension behavior as transitional for Story 4.9. | Mary / Codex |

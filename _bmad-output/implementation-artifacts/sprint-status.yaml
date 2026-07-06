@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-02
+# last_updated: 2026-07-03
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-02
+last_updated: 2026-07-03
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -91,6 +91,7 @@ development_status:
   4-6-add-extraction-result-decision-gate-for-rerun-vs-manual-review: review
   4-7-rename-preflight-rules-to-structure-rules-and-add-configurable-dwg-cad-layer-validation: in-progress
   4-8-split-structure-check-and-dimension-check-into-separate-actions-and-result-summaries: in-progress
+  4-9-add-georeference-check-stage-and-reportable-stage-findings-model: in-progress
   epic-4-retrospective: optional
 
   epic-5: backlog
@@ -131,5 +132,5 @@ development_status:
   7-5-refactor-configuration-into-editable-settings-workspace-with-functional-tabs: review
   7-7-publish-validated-spatial-units-into-enterprise-working-parcel-fabric: ready-for-dev
   7-8-add-enterprise-working-layer-admin-provisioning-and-maintenance-settings-tab: review
-  7-9-record-compute-final-review-disposition-and-closeout-enterprise-working-layer: in-progress
+  7-9-record-compute-final-review-disposition-and-closeout-enterprise-working-layer: review
   epic-7-retrospective: optional

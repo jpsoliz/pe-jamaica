@@ -226,7 +226,7 @@ internal static class InnolaTransactionLoadServiceTests
 
         var second = await service.LoadSelectedTransactionAsync();
 
-        TestAssert.True(second.Success, "Load from resume package should succeed.");
+        TestAssert.True(second.Success, $"Load from resume package should succeed. Error: {second.ErrorMessage}");
         TestAssert.True(second.StatusMessage!.Contains("Restored from saved case", StringComparison.OrdinalIgnoreCase), "Status should indicate saved-case restore.");
         var reopenedSession = new global::ParcelWorkflowAddIn.Workflow.WorkflowSession(new CaseFolderStore());
         var reopen = reopenedSession.ReopenCaseFolder(second.Layout!.RootDirectory);

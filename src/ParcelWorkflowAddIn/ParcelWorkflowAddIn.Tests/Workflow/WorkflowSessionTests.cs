@@ -618,7 +618,7 @@ internal static class WorkflowSessionTests
         var summary = session.RunManifestPreflight("tester");
 
         TestAssert.Equal(WorkflowState.PreflightPassed, session.CurrentState, "No blockers should move workflow to preflight passed.");
-        TestAssert.Equal("Structure Check and Dimension Check passed: attached files are ready for Validate Points.", session.StatusText, "Passed data extraction status mismatch.");
+        TestAssert.Equal("Structure Check, Georeference Check, and Dimension Check passed: attached files are ready for Validate Points and Lines.", session.StatusText, "Passed data extraction status mismatch.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Passed preflight should expose no blockers.");
         TestAssert.True(session.PreflightPassedChecks.Count > 0, "Passed preflight should expose passed checks.");
         TestAssert.Equal("passed", summary.Payload.Status, "Workflow preflight summary should pass.");
@@ -644,10 +644,12 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("structure_check", summary.StageId, "Structure Check should return a stage-specific summary.");
         TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Structure-only pass should keep workflow blocked until Dimension Check passes.");
         TestAssert.True(session.StructureCheckPassedChecks.Count > 0, "Structure Check passed checks should be exposed independently.");
+        TestAssert.Equal(0, session.GeoreferenceCheckPassedChecks.Count, "Georeference Check should remain not started.");
         TestAssert.Equal(0, session.DimensionCheckPassedChecks.Count, "Dimension Check should remain not started.");
         TestAssert.True(File.Exists(layout.StructureCheckSummaryPath), "Structure Check summary should persist independently.");
+        TestAssert.True(!File.Exists(layout.GeoreferenceCheckSummaryPath), "Georeference Check summary should not exist before it runs.");
         TestAssert.True(!File.Exists(layout.DimensionCheckSummaryPath), "Dimension Check summary should not exist before it runs.");
-        TestAssert.Equal("Structure Check passed. Run Dimension Check before starting Validate Points.", session.StatusText, "Structure-only status should point to Dimension Check.");
+        TestAssert.Equal("Structure Check passed. Run Georeference Check before Dimension Check.", session.StatusText, "Structure-only status should point to Georeference Check.");
     }
 
     public static void WorkflowSessionDimensionCheckRequiresStructurePass()
@@ -673,6 +675,53 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("Run Structure Check successfully before running Dimension Check.", session.StatusText, "Dimension Check gate status mismatch.");
     }
 
+    public static void WorkflowSessionGeoreferenceCheckRequiresStructurePass()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+
+        var summary = session.RunGeoreferenceCheck("tester");
+
+        TestAssert.Equal("georeference_check", summary.StageId, "Georeference Check should return a stage-specific summary.");
+        TestAssert.Equal("blocked", summary.Payload.Status, "Georeference Check should block until Structure Check passes.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "structure_check_required"), "Georeference Check should expose the missing Structure Check blocker.");
+        TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Rejected Georeference Check should not advance workflow state.");
+        TestAssert.Equal("Run Structure Check successfully before running Georeference Check.", session.StatusText, "Georeference Check gate status mismatch.");
+    }
+
+    public static void WorkflowSessionDimensionCheckRequiresGeoreferencePass()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
+                ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var session = CreateManifestOnlySession();
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunStructureCheck("tester");
+
+        var summary = session.RunDimensionCheck("tester");
+
+        TestAssert.Equal("dimension_check", summary.StageId, "Dimension Check should return a stage-specific summary.");
+        TestAssert.Equal("blocked", summary.Payload.Status, "Dimension Check should block until Georeference Check passes.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "georeference_check_required"), "Dimension Check should expose the missing Georeference Check blocker.");
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Rejected Dimension Check should keep early-check state.");
+        TestAssert.Equal("Run Georeference Check successfully before running Dimension Check.", session.StatusText, "Dimension Check georeference gate status mismatch.");
+    }
+
     public static void WorkflowSessionValidatePointsRequiresBothSplitChecks()
     {
         using var tempRoot = new TempDirectory();
@@ -693,9 +742,9 @@ internal static class WorkflowSessionTests
 
         var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
-        TestAssert.True(!result.Success, "Validate Points should be blocked until Dimension Check passes.");
+        TestAssert.True(!result.Success, "Validate Points and Lines should be blocked until Georeference Check passes.");
         TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Blocked Validate Points should keep early-check state.");
-        TestAssert.Equal("Run Dimension Check successfully before starting Validate Points.", session.StatusText, "Validate Points gate should name Dimension Check.");
+        TestAssert.Equal("Run Georeference Check successfully before starting Validate Points and Lines.", session.StatusText, "Validate Points gate should name Georeference Check.");
     }
 
     public static void WorkflowSessionSplitSummariesReopenIndependently()
@@ -706,6 +755,7 @@ internal static class WorkflowSessionTests
         var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunStructureCheck("tester");
+        session.RunGeoreferenceCheck("tester");
         session.RunDimensionCheck("tester");
 
         var reopened = CreateManifestOnlySession();
@@ -713,8 +763,9 @@ internal static class WorkflowSessionTests
 
         TestAssert.Equal(WorkflowState.PreflightPassed, reopened.CurrentState, "Reopened case should preserve split-check passed state.");
         TestAssert.True(reopened.StructureCheckPassedChecks.Count > 0, "Reopen should restore Structure Check passed rows.");
+        TestAssert.True(reopened.GeoreferenceCheckPassedChecks.Count > 0, "Reopen should restore Georeference Check passed rows.");
         TestAssert.True(reopened.DimensionCheckPassedChecks.Count > 0, "Reopen should restore Dimension Check passed rows.");
-        TestAssert.True(reopened.PreflightPassedChecks.Count >= reopened.StructureCheckPassedChecks.Count + reopened.DimensionCheckPassedChecks.Count, "Aggregate preflight results should include both split stages.");
+        TestAssert.True(reopened.PreflightPassedChecks.Count >= reopened.StructureCheckPassedChecks.Count + reopened.GeoreferenceCheckPassedChecks.Count + reopened.DimensionCheckPassedChecks.Count, "Aggregate preflight results should include all split stages.");
     }
 
     public static void WorkflowSessionLegacyPreflightSummaryReopensSafely()
@@ -743,8 +794,89 @@ internal static class WorkflowSessionTests
 
         TestAssert.Equal("preflight", summary.StageId, "Legacy combined summary should retain combined stage id when freshly written.");
         TestAssert.True(session.StructureCheckPassedChecks.Count > 0, "Legacy summary should map non-dimension rows to Structure Check.");
-        TestAssert.True(session.DimensionCheckPassedChecks.Count > 0, "Legacy summary should map georeference rows to Dimension Check.");
+        TestAssert.True(session.GeoreferenceCheckPassedChecks.Count > 0, "Legacy summary should map georeference rows to Georeference Check.");
+        TestAssert.True(session.DimensionCheckPassedChecks.Count > 0, "Legacy summary should map dimension rows to Dimension Check.");
         TestAssert.Equal(0, session.PreflightBlockers.Count, "Legacy passed summary should not create false blockers.");
+    }
+
+    public static void WorkflowSessionLegacySplitDimensionSummaryMigratesGeoreferenceRowsSafely()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        var setupSession = CreateManifestOnlySession();
+        setupSession.ReopenCaseFolder(layout.RootDirectory);
+        setupSession.RunStructureCheck("tester");
+        var georeferenceSummary = setupSession.RunGeoreferenceCheck("tester") with
+        {
+            StageId = PreflightCheckStage.DimensionCheck.ToStageId()
+        };
+        File.Delete(layout.GeoreferenceCheckSummaryPath);
+        PreflightSummarySerializer.Write(layout.DimensionCheckSummaryPath, georeferenceSummary);
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.PreflightPassed.ToContractValue() } });
+        var reopened = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => throw new InvalidOperationException("Extraction should stay blocked.")));
+
+        reopened.ReopenCaseFolder(layout.RootDirectory);
+        var result = reopened.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(reopened.GeoreferenceCheckPassedChecks.Count > 0, "Legacy Dimension summary georeference rows should restore Georeference Check results.");
+        TestAssert.Equal(0, reopened.DimensionCheckPassedChecks.Count, "Legacy georeference rows must not create a false Dimension Check pass.");
+        TestAssert.True(!reopened.CanRunExtractionReview, "Validate Points and Lines should stay gated without real Dimension Check results.");
+        TestAssert.True(!result.Success, "Validate Points and Lines should remain blocked after safe legacy migration.");
+        TestAssert.Equal("Run Dimension Check successfully before starting Validate Points and Lines.", reopened.StatusText, "Gate should name missing Dimension Check.");
+    }
+
+    public static void DisabledPreflightResultIsNeutralNotWarning()
+    {
+        var item = new ParcelWorkflowAddIn.PreflightResultListItem(
+            "Warn",
+            PreflightCheck.DisabledForCategory("georeference", "tabular_coordinate_columns", "Rule is disabled."));
+
+        TestAssert.Equal("disabled", item.Result, "Disabled result should keep disabled outcome.");
+        TestAssert.Equal("neutral", item.State, "Disabled result should not be counted as warning or passed.");
+    }
+
+    public static void WorkflowSessionDisabledStageRowsDoNotUnlockValidatePoints()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        WriteStageSummary(layout, PreflightCheckStage.StructureCheck, PreflightCheck.DisabledForCategory("manifest", "source_file_integrity", "Disabled."));
+        WriteStageSummary(layout, PreflightCheckStage.GeoreferenceCheck, PreflightCheck.DisabledForCategory("georeference", "tabular_coordinate_columns", "Disabled."));
+        WriteStageSummary(layout, PreflightCheckStage.DimensionCheck, PreflightCheck.DisabledForCategory("dimension", "dimension_source_presence", "Disabled."));
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.PreflightPassed.ToContractValue() } });
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((_, _) => throw new InvalidOperationException("Extraction should stay gated.")));
+
+        session.ReopenCaseFolder(layout.RootDirectory);
+        var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(!session.CanRunExtractionReview, "Disabled stage rows must not satisfy Validate Points and Lines gates.");
+        TestAssert.True(!result.Success, "Validate Points and Lines must stay blocked when stages contain only disabled rows.");
+        TestAssert.Equal("Run Structure Check successfully before starting Validate Points and Lines.", session.StatusText, "Gate should name the first missing real pass.");
     }
 
     public static void WorkflowSessionDraftExtractionCreatesReviewArtifact()
@@ -804,7 +936,7 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Successful draft extraction should move to review pending.");
         TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Draft extraction should create extraction review artifact.");
         TestAssert.True(session.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "extraction_review_data.json"), "Review artifact should be registered.");
-        TestAssert.Equal("Validate Points is ready in Points Validation Tool.", session.StatusText, "Draft extraction success status mismatch.");
+        TestAssert.Equal("Validate Points and Lines is ready in Points and Lines Validation Tool.", session.StatusText, "Draft extraction success status mismatch.");
     }
 
     public static void WorkflowSessionDraftExtractionFailureStaysContained()
@@ -855,7 +987,7 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(!result.Success, "Draft extraction should be blocked before preflight passes.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Blocked extraction should not change workflow state.");
-        TestAssert.Equal("Run Structure Check successfully before starting Validate Points.", session.StatusText, "Blocked extraction status mismatch.");
+        TestAssert.Equal("Run Structure Check successfully before starting Validate Points and Lines.", session.StatusText, "Blocked extraction status mismatch.");
     }
 
     public static void WorkflowSessionWeakExtractionTriggersDecisionGate()
@@ -1263,6 +1395,141 @@ internal static class WorkflowSessionTests
         throw new InvalidOperationException("Delete results failure should throw.");
     }
 
+    public static void WorkflowSessionEnterpriseDispositionDetectsFailedUpdateResults()
+    {
+        var response = new JsonObject
+        {
+            ["updateResults"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["objectId"] = 1,
+                    ["success"] = false
+                }
+            }
+        };
+        var method = typeof(JsonEnterpriseWorkingDispositionService).GetMethod(
+            "EnsureArcGisDispositionSuccess",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { response, "updateFeatures", "points" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("one or more rows were rejected", StringComparison.OrdinalIgnoreCase), "Update failure should explain row rejection.");
+            return;
+        }
+
+        throw new InvalidOperationException("Update results failure should throw.");
+    }
+
+    public static void WorkflowSessionEnterpriseDispositionBlocksMissingSchemaFields()
+    {
+        var response = new JsonObject
+        {
+            ["objectIdField"] = "OBJECTID",
+            ["fields"] = new JsonArray
+            {
+                new JsonObject { ["name"] = "OBJECTID" },
+                new JsonObject { ["name"] = "review_decision" },
+                new JsonObject { ["name"] = "review_decision_by" }
+            }
+        };
+        var method = typeof(JsonEnterpriseWorkingDispositionService).GetMethod(
+            "EnsureRequiredFields",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            types: new[] { typeof(JsonObject), typeof(string) },
+            modifiers: null);
+
+        try
+        {
+            method?.Invoke(null, new object[] { response, "case_index" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("schema is missing required field", StringComparison.OrdinalIgnoreCase), "Missing schema fields should block disposition writeback.");
+            TestAssert.True(invalidOperation.Message.Contains("review_decision_utc", StringComparison.OrdinalIgnoreCase), "Failure should name a missing disposition field.");
+            return;
+        }
+
+        throw new InvalidOperationException("Missing schema fields should throw.");
+    }
+
+    public static void WorkflowSessionEnterpriseDispositionUsesArcGisDateForFeatureServiceUpdates()
+    {
+        var record = new JsonObject();
+        var request = new ComputeReviewDispositionRequest(
+            ComputeReviewDecision.Approved,
+            "Reviewed",
+            "js91482",
+            null!,
+            null!,
+            "output_summary.json",
+            "enterprise_working_publish.json");
+        var method = typeof(JsonEnterpriseWorkingDispositionService).GetMethod(
+            "ApplyDisposition",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            types:
+            [
+                typeof(JsonObject),
+                typeof(ComputeReviewDispositionRequest),
+                typeof(string),
+                typeof(bool)
+            ],
+            modifiers: null);
+
+        method?.Invoke(null, new object[] { record, request, "2026-07-04T01:30:09.3581345Z", true });
+
+        TestAssert.True(record["review_decision_utc"] is JsonValue, "Disposition date should be a JSON value.");
+        TestAssert.True(
+            record["review_decision_utc"]!.GetValue<long>() > 0,
+            "Enterprise Feature Service date fields should receive ArcGIS epoch milliseconds.");
+    }
+
+    public static async Task WorkflowSessionEnterpriseCaseIndexRecordsSpatialUnitReference()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var caseIndexPath = settings.EnterpriseWorkingReview.Layers.CaseIndex!;
+        Directory.CreateDirectory(Path.GetDirectoryName(caseIndexPath)!);
+        File.WriteAllText(caseIndexPath, """
+        {
+          "Records": [
+            {
+              "LayerRole": "case_index",
+              "SavedAt": "2026-06-12T00:00:00Z",
+              "Scope": { "transaction_number": "100000206" },
+              "Payload": {
+                "records": [
+                  {
+                    "transaction_number": "100000206",
+                    "case_status": "review_pending"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """);
+        var service = new JsonEnterpriseWorkingDispositionService(() => settings);
+
+        var result = await service.RecordSpatialUnitReferenceAsync(layout, manifest, "su-100000206", "saved");
+
+        TestAssert.True(result.Success, "Spatial Unit reference writeback should succeed.");
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(caseIndexPath));
+        var row = document.RootElement.GetProperty("Records")[0].GetProperty("Payload").GetProperty("records")[0];
+        TestAssert.Equal("su-100000206", row.GetProperty("spatial_unit_id").GetString(), "Case index should store returned Spatial Unit id.");
+        TestAssert.Equal("saved", row.GetProperty("spatial_unit_api_status").GetString(), "Case index should store Spatial Unit API status.");
+        TestAssert.True(File.Exists(result.EvidencePath!), "Spatial Unit reference evidence artifact should be written.");
+    }
+
     public static void WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema()
     {
         var payload = new JsonObject
@@ -1397,6 +1664,78 @@ internal static class WorkflowSessionTests
         TestAssert.Equal("tester", root.GetProperty("operator_id").GetString(), "Disposition operator mismatch.");
         TestAssert.Equal("output_summary.json", Path.GetFileName(root.GetProperty("output_summary_ref").GetString()), "Output summary ref mismatch.");
         TestAssert.Equal("enterprise_working_publish.json", Path.GetFileName(root.GetProperty("enterprise_publish_ref").GetString()), "Publish ref mismatch.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_review_approved", StringComparison.OrdinalIgnoreCase), "Disposition audit should record approved action.");
+    }
+
+    public static void WorkflowSessionReopenRestoresComputeDispositionArtifacts()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        var dispositionResult = session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Looks correct.", "tester").GetAwaiter().GetResult();
+        Directory.CreateDirectory(layout.ReportsDirectory);
+        var reportPath = Path.Combine(layout.ReportsDirectory, "compute_examination_report.json");
+        File.WriteAllText(reportPath, "{}");
+        new ComputeReviewDispositionPersistenceService().Save(layout, dispositionResult.Document! with
+        {
+            ComputeExaminationReportRef = reportPath
+        });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.SpatialReviewPending.ToContractValue() } });
+
+        var reopenSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        var reopen = reopenSession.ReopenCaseFolder(layout.RootDirectory);
+
+        TestAssert.True(reopen.Success, "Reopen should succeed.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "compute_review_disposition.json"), "Reopen should expose Compute disposition artifact.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "enterprise_working_disposition.json"), "Reopen should expose Enterprise disposition artifact.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "compute_examination_report.json"), "Reopen should expose Compute examination report artifact.");
+    }
+
+    public static void WorkflowSessionRegeneratingOutputsInvalidatesComputeDisposition()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var publisher = new JsonEnterpriseWorkingLayerPublishService(() => settings);
+        var session = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunValidationAsync("tester").GetAwaiter().GetResult();
+        session.RunOutputsAsync("tester").GetAwaiter().GetResult();
+        session.ApproveSpatialReview("tester");
+        session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
+        session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Looks correct.", "tester").GetAwaiter().GetResult();
+        Directory.CreateDirectory(layout.ReportsDirectory);
+        var reportPath = Path.Combine(layout.ReportsDirectory, "compute_examination_report.json");
+        File.WriteAllText(reportPath, "{}");
+
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json")), "Spatial review approval should exist before regeneration.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "compute_review_disposition.json")), "Compute disposition should exist before regeneration.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json")), "Enterprise disposition should exist before regeneration.");
+        TestAssert.True(File.Exists(reportPath), "Compute examination report should exist before regeneration.");
+
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ValidationPassed.ToContractValue() } });
+        var rerunSession = CreateOutputSession(store, new FakeOutputExecutionService(shouldFail: false), publisher, settingsLoader: () => settings);
+        rerunSession.ReopenCaseFolder(layout.RootDirectory);
+
+        var rerunResult = rerunSession.RunOutputsAsync("tester").GetAwaiter().GetResult();
+
+        TestAssert.True(rerunResult.Success, "Output regeneration should succeed.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json")), "Output regeneration should clear stale spatial approval.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "compute_review_disposition.json")), "Output regeneration should clear stale Compute disposition.");
+        TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json")), "Output regeneration should clear stale Enterprise disposition.");
+        TestAssert.True(!File.Exists(reportPath), "Output regeneration should clear stale Compute examination report.");
     }
 
     public static void WorkflowSessionDispositionWritebackUpdatesScopedEnterpriseRows()
@@ -2100,6 +2439,30 @@ internal static class WorkflowSessionTests
                 }
             });
         return layout;
+    }
+
+    private static void WriteStageSummary(CaseFolderLayout layout, PreflightCheckStage stage, PreflightCheck check)
+    {
+        var path = stage switch
+        {
+            PreflightCheckStage.StructureCheck => layout.StructureCheckSummaryPath,
+            PreflightCheckStage.GeoreferenceCheck => layout.GeoreferenceCheckSummaryPath,
+            PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
+            _ => layout.PreflightSummaryPath
+        };
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var summary = new PreflightSummaryDocument(
+            "1.0.0",
+            manifest.TransactionId,
+            stage.ToStageId(),
+            "disabled-only",
+            DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+            "tester",
+            string.Empty,
+            new PreflightSummaryPayload("passed", Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>(), new[] { check }),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+        PreflightSummarySerializer.Write(path, summary);
     }
 
     private static CaseFolderLayout CreateApprovedReviewCase(CaseFolderStore store, string outputRoot)

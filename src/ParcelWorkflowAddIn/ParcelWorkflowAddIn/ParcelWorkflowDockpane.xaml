@@ -523,9 +523,12 @@
                                       CornerRadius="2"
                                       Margin="0,0,6,0">
                                 <Border.Style>
-                                  <Style TargetType="Border">
-                                    <Setter Property="Background" Value="#2F7D4F" />
+                                      <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#8A97A3" />
                                     <Style.Triggers>
+                                      <DataTrigger Binding="{Binding State}" Value="pass">
+                                        <Setter Property="Background" Value="#2F7D4F" />
+                                      </DataTrigger>
                                       <DataTrigger Binding="{Binding State}" Value="warn">
                                         <Setter Property="Background" Value="#B7791F" />
                                       </DataTrigger>
@@ -566,7 +569,7 @@
                         Padding="10">
                   <StackPanel>
                     <DockPanel LastChildFill="False">
-                      <TextBlock Text="Dimension Check"
+                      <TextBlock Text="Georeference Check"
                                  FontSize="12"
                                  FontWeight="SemiBold"
                                  Foreground="#1F2933"
@@ -581,8 +584,8 @@
                                      Foreground="#1F2933" />
                         </Border>
                         <Button Content="Process"
-                                Command="{Binding RunDimensionCheckCommand}"
-                                IsEnabled="{Binding CanRunDimensionCheck}"
+                                Command="{Binding RunGeoreferenceCheckCommand}"
+                                IsEnabled="{Binding CanRunGeoreferenceCheck}"
                                 Style="{StaticResource SmallButtonStyle}"
                                 Margin="6,0,0,0" />
                       </StackPanel>
@@ -625,8 +628,117 @@
                                           Margin="0,0,6,0">
                                     <Border.Style>
                                       <Style TargetType="Border">
-                                        <Setter Property="Background" Value="#2F7D4F" />
+                                        <Setter Property="Background" Value="#8A97A3" />
                                         <Style.Triggers>
+                                          <DataTrigger Binding="{Binding State}" Value="pass">
+                                            <Setter Property="Background" Value="#2F7D4F" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding State}" Value="warn">
+                                            <Setter Property="Background" Value="#B7791F" />
+                                          </DataTrigger>
+                                          <DataTrigger Binding="{Binding State}" Value="block">
+                                            <Setter Property="Background" Value="#B42318" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </Border.Style>
+                                  </Border>
+                                  <TextBlock Text="{Binding Result}"
+                                             FontSize="12"
+                                             VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding CheckName}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="6,0,6,0" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding Details}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Foreground="#1F2933"
+                                           Margin="6,0,0,0" />
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </Border>
+                  </StackPanel>
+                </Border>
+
+                <Border Margin="0,10,0,0"
+                        Background="#F7F8FA"
+                        BorderBrush="#E1E8ED"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10">
+                  <StackPanel>
+                    <DockPanel LastChildFill="False">
+                      <TextBlock Text="Dimension Check"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 Foreground="#1F2933"
+                                 VerticalAlignment="Center" />
+                      <StackPanel DockPanel.Dock="Right"
+                                  Orientation="Horizontal">
+                        <Border Style="{StaticResource SmallPillBorderStyle}"
+                                Background="#F6E6BF"
+                                BorderBrush="#B7791F">
+                          <TextBlock Text="{Binding DimensionCheckBadge}"
+                                     FontSize="11"
+                                     Foreground="#1F2933" />
+                        </Border>
+                        <Button Content="Process"
+                                Command="{Binding RunDimensionCheckCommand}"
+                                IsEnabled="{Binding CanRunDimensionCheck}"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Margin="6,0,0,0" />
+                      </StackPanel>
+                    </DockPanel>
+                    <TextBlock Margin="0,6,0,0"
+                               Text="{Binding DimensionCheckSummaryText}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933"
+                               TextWrapping="Wrap" />
+                    <TextBlock Margin="0,6,0,0"
+                               Text="{Binding DimensionCheckCollapsedHint}"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                    <Border Margin="0,10,0,0"
+                            Background="#FFFFFF"
+                            BorderBrush="#E1E8ED"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8"
+                            Visibility="{Binding PreflightDetailsExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      <ItemsControl ItemsSource="{Binding DimensionCheckResults}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border BorderBrush="#EEF2F4"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="0,6">
+                              <Grid>
+                                <Grid.ColumnDefinitions>
+                                  <ColumnDefinition Width="74" />
+                                  <ColumnDefinition Width="150" />
+                                  <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                  <Border Width="12"
+                                          Height="12"
+                                          CornerRadius="2"
+                                          Margin="0,0,6,0">
+                                    <Border.Style>
+                                      <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#8A97A3" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding State}" Value="pass">
+                                            <Setter Property="Background" Value="#2F7D4F" />
+                                          </DataTrigger>
                                           <DataTrigger Binding="{Binding State}" Value="warn">
                                             <Setter Property="Background" Value="#B7791F" />
                                           </DataTrigger>
@@ -671,7 +783,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Validate Points"
+                <TextBlock Text="Validate Points and Lines"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <Border DockPanel.Dock="Right"
@@ -1073,7 +1185,7 @@
                                     BorderBrush="#C7D7F3"
                                     BorderThickness="1"
                                     CornerRadius="4">
-                              <TextBlock Text="This stage continues extracted parcel-point review in Points Validation Tool, where the source document and point edits stay together before Create Spatial Units and later Final Review."
+                              <TextBlock Text="This stage continues extracted parcel point and line review in Points and Lines Validation Tool, where the source document and edits stay together before Create Spatial Units and later Final Review."
                                          FontSize="11"
                                          Foreground="#1F2933"
                                          TextWrapping="Wrap" />
@@ -1524,7 +1636,7 @@
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Dimension Check"
+                <TextBlock Text="Georeference Check"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1551,11 +1663,42 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
+            <Expander.Header>
+              <DockPanel>
+                <TextBlock Text="Dimension Check"
+                           Style="{StaticResource SectionHeaderTextStyle}" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#F6E6BF"
+                        BorderBrush="#B7791F">
+                  <TextBlock Text="{Binding DimensionCheckBadge}"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Expander.Header>
+            <StackPanel Margin="8,6,8,0">
+              <TextBlock Text="{Binding DimensionCheckSummaryText}"
+                         FontSize="11"
+                         Foreground="#1F2933"
+                         TextWrapping="Wrap" />
+              <TextBlock Margin="0,6,0,0"
+                         Text="{Binding DimensionCheckCollapsedHint}"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
                 Visibility="{Binding ShowExtractionSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
           <Expander IsExpanded="{Binding ExtractionSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Validate Points"
+                <TextBlock Text="Validate Points and Lines"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"

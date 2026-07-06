@@ -26,7 +26,11 @@ public sealed class CaseResumePackageService
         this.getAddInVersion = getAddInVersion;
     }
 
-    public ResumePackageBuildResult Build(CaseFolderLayout layout, SelectedInnolaTransaction transaction, string? operatorId)
+    public ResumePackageBuildResult Build(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string? operatorId,
+        bool includeFullOutputArtifacts = false)
     {
         try
         {
@@ -66,12 +70,13 @@ public sealed class CaseResumePackageService
                     var relativePath = Path.GetRelativePath(layout.RootDirectory, fullFilePath);
                     if (string.IsNullOrWhiteSpace(relativePath)
                         || relativePath.Equals(ResumeManifestFileName, StringComparison.OrdinalIgnoreCase)
-                        || !ShouldIncludeInResumePackage(relativePath))
+                        || !ShouldIncludeInResumePackage(relativePath, includeFullOutputArtifacts))
                     {
                         continue;
                     }
 
-                    archive.CreateEntryFromFile(fullFilePath, relativePath, CompressionLevel.SmallestSize);
+                    var entryName = relativePath.Replace('\\', '/');
+                    archive.CreateEntryFromFile(fullFilePath, entryName, CompressionLevel.SmallestSize);
                 }
             }
 
@@ -141,14 +146,18 @@ public sealed class CaseResumePackageService
 
             foreach (var entry in archive.Entries)
             {
-                if (string.IsNullOrWhiteSpace(entry.FullName)
-                    || entry.FullName.EndsWith("/", StringComparison.Ordinal))
+                var entryName = entry.FullName.Replace('\\', '/').TrimStart('/');
+                if (string.IsNullOrWhiteSpace(entryName)
+                    || entryName.Equals(".", StringComparison.Ordinal)
+                    || entryName.EndsWith("/", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                var destinationPath = Path.GetFullPath(Path.Combine(extractRoot, entry.FullName));
-                if (!destinationPath.StartsWith(extractRoot, StringComparison.OrdinalIgnoreCase))
+                var destinationPath = Path.GetFullPath(Path.Combine(extractRoot, entryName));
+                var extractRootWithSeparator = Path.GetFullPath(extractRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (!destinationPath.StartsWith(extractRootWithSeparator, StringComparison.OrdinalIgnoreCase))
                 {
                     return ResumePackageRestoreResult.Failed("Saved resume package contains an unsafe path.");
                 }
@@ -207,7 +216,7 @@ public sealed class CaseResumePackageService
         return typeof(CaseResumePackageService).Assembly.GetName().Version?.ToString() ?? "dev";
     }
 
-    private static bool ShouldIncludeInResumePackage(string relativePath)
+    private static bool ShouldIncludeInResumePackage(string relativePath, bool includeFullOutputArtifacts)
     {
         var normalized = relativePath.Replace('\\', '/');
 
@@ -222,6 +231,11 @@ public sealed class CaseResumePackageService
         }
 
         if (normalized.StartsWith("working/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (includeFullOutputArtifacts && normalized.StartsWith("output/", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

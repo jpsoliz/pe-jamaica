@@ -13,12 +13,16 @@ public sealed record PreflightCheck(
     [property: JsonPropertyName("correction")] string? Correction,
     [property: JsonPropertyName("outcome")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Outcome = null,
+    [property: JsonPropertyName("workflow_effect")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WorkflowEffect = null,
+    [property: JsonPropertyName("display_name")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DisplayName = null,
     [property: JsonPropertyName("evidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<string>>? Evidence = null)
 {
     public static PreflightCheck BlockerForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null, string? correction = null)
     {
-        return new PreflightCheck(checkId, category, "blocker", "blocked", message, affectedPath, sourceRole, correction);
+        return new PreflightCheck(checkId, category, "blocker", "blocked", message, affectedPath, sourceRole, correction, "failed", "blocker");
     }
 
     public static PreflightCheck Blocker(string checkId, string message, string? affectedPath = null, string? sourceRole = null, string? correction = null)
@@ -28,17 +32,17 @@ public sealed record PreflightCheck(
 
     public static PreflightCheck WarningForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null, string? correction = null)
     {
-        return new PreflightCheck(checkId, category, "warning", "warning", message, affectedPath, sourceRole, correction);
+        return new PreflightCheck(checkId, category, "warning", "warning", message, affectedPath, sourceRole, correction, "warning", "report_only");
     }
 
     public static PreflightCheck DisabledForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null)
     {
-        return new PreflightCheck(checkId, category, "warning", "disabled", message, affectedPath, sourceRole, null);
+        return new PreflightCheck(checkId, category, "disabled", "disabled", message, affectedPath, sourceRole, null, "disabled", "info");
     }
 
     public static PreflightCheck PassedForCategory(string category, string checkId, string message, string? affectedPath = null, string? sourceRole = null)
     {
-        return new PreflightCheck(checkId, category, "passed", "passed", message, affectedPath, sourceRole, null);
+        return new PreflightCheck(checkId, category, "passed", "passed", message, affectedPath, sourceRole, null, "passed", "info");
     }
 
     public static PreflightCheck Passed(string checkId, string message, string? affectedPath = null, string? sourceRole = null)
@@ -49,5 +53,15 @@ public sealed record PreflightCheck(
     public PreflightCheck WithOutcome(string outcome, IReadOnlyDictionary<string, IReadOnlyList<string>>? evidence = null)
     {
         return this with { Outcome = outcome, Evidence = evidence };
+    }
+
+    public PreflightCheck WithWorkflowEffect(string workflowEffect)
+    {
+        return this with { WorkflowEffect = workflowEffect };
+    }
+
+    public PreflightCheck WithDisplayName(string displayName)
+    {
+        return this with { DisplayName = displayName };
     }
 }

@@ -180,8 +180,8 @@
       "rule_id": "georeference_source_presence",
       "group": "georeference",
       "category": "georeference",
-      "display_name": "Dimension source presence",
-      "description": "At least one source with usable coordinate context must be present before Validate Points can begin.",
+      "display_name": "Georeference source presence",
+      "description": "At least one source with usable coordinate context must be present before Validate Points and Lines can begin.",
       "enabled": true,
       "severity": "blocker",
       "locked": true,
@@ -229,6 +229,49 @@
       "minimum_coordinate_pairs": 1,
       "require_jamaica_bounds": true,
       "allow_tabular_georeference": true
+    },
+    {
+      "rule_id": "georeference_spatial_validation_readiness",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Concrete georeference validation",
+      "description": "Georeference Check should run a concrete coordinate, JAD2001, parish, or location validation; warning by default until parish/JAD2001 validators are configured.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source",
+        "plan_map_reference"
+      ]
+    },
+    {
+      "rule_id": "dimension_source_presence",
+      "group": "dimension",
+      "category": "dimension",
+      "display_name": "Dimension source presence",
+      "description": "At least one computation or coordinate source must be present before Dimension Check can confirm geometry construction readiness.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source"
+      ]
+    },
+    {
+      "rule_id": "dimension_geometry_construction_readiness",
+      "group": "dimension",
+      "category": "dimension",
+      "display_name": "Dimension geometry construction readiness",
+      "description": "Dimension Check should verify bearings, distances, point references, closure, or an equivalent geometry-construction readiness artifact; warning by default until the validator is configured.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source"
+      ]
     }
   ]
 }

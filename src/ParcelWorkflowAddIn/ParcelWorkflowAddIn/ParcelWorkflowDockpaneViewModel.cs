@@ -43,6 +43,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand revealSourceFileCommand;
     private readonly RelayCommand routeSourceFileToMapCommand;
     private readonly RelayCommand runPreflightCommand;
+    private readonly RelayCommand runGeoreferenceCheckCommand;
     private readonly RelayCommand runDimensionCheckCommand;
     private readonly RelayCommand runExtractionReviewCommand;
     private readonly RelayCommand reprocessExtractionReviewCommand;
@@ -121,6 +122,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.Reveal), CanExecuteSourceFileAction);
         routeSourceFileToMapCommand = new RelayCommand(parameter => ExecuteSourceFileAction(parameter, SourceFileAction.RouteToMap), CanExecuteSourceFileAction);
         runPreflightCommand = new RelayCommand(async () => await RunPreflightAsync(), () => CanRunPreflight);
+        runGeoreferenceCheckCommand = new RelayCommand(async () => await RunGeoreferenceCheckAsync(), () => CanRunGeoreferenceCheck);
         runDimensionCheckCommand = new RelayCommand(async () => await RunDimensionCheckAsync(), () => CanRunDimensionCheck);
         runExtractionReviewCommand = new RelayCommand(async () => await RunOrOpenExtractionReviewAsync(), () => CanRunExtractionReview);
         reprocessExtractionReviewCommand = new RelayCommand(async () => await ReprocessExtractionReviewAsync(), () => CanReprocessExtractionReview);
@@ -370,6 +372,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunStructureCheck;
 
+    public bool CanRunGeoreferenceCheck => CanUseWorkflowActions && workflowSession.CanRunGeoreferenceCheck;
+
     public bool CanRunDimensionCheck => CanUseWorkflowActions && workflowSession.CanRunDimensionCheck;
 
     public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
@@ -409,6 +413,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand RouteSourceFileToMapCommand => routeSourceFileToMapCommand;
 
     public ICommand RunPreflightCommand => runPreflightCommand;
+
+    public ICommand RunGeoreferenceCheckCommand => runGeoreferenceCheckCommand;
 
     public ICommand RunDimensionCheckCommand => runDimensionCheckCommand;
 
@@ -496,6 +502,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public IReadOnlyList<PreflightResultListItem> GeoreferenceResults => FilterPreflightResults("georeference");
 
+    public IReadOnlyList<PreflightResultListItem> DimensionCheckResults => FilterPreflightResults("dimension");
+
     public bool HasPreflightResults => PreflightResults.Count > 0;
 
     public bool HasSupportingDocumentResults => SupportingDocumentResults.Count > 0;
@@ -507,6 +515,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public bool HasStructureCheckResults => StructureCheckResults.Count > 0;
 
     public bool HasGeoreferenceResults => GeoreferenceResults.Count > 0;
+
+    public bool HasDimensionCheckResults => DimensionCheckResults.Count > 0;
 
     public bool PreflightDetailsExpanded => preflightDetailsExpanded;
 
@@ -544,6 +554,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string GeoreferenceBadge => BuildGroupedBadge(GeoreferenceResults, workflowSession.IsPreflightRunning ? "Pending" : "Not processed");
 
+    public string DimensionCheckBadge => BuildGroupedBadge(DimensionCheckResults, workflowSession.IsPreflightRunning ? "Pending" : "Not processed");
+
     public string SourceIntakeBadge => SourceFiles.Count > 0 && SourceFiles.All(item => item.SourceFile.Copied)
         ? "Copied"
         : "Pending";
@@ -557,7 +569,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string IntakeDetailText =>
         IntakeIssues.Count == 0
-            ? "Supporting documents are copied into the case folder, matched to their expected document roles, and kept as source context for Structure Check, Dimension Check, and Validate Points."
+            ? "Supporting documents are copied into the case folder, matched to their expected document roles, and kept as source context for Structure Check, Georeference Check, Dimension Check, and Validate Points and Lines."
             : string.Join(Environment.NewLine, IntakeIssues);
 
     public bool IntakeSummaryExpanded
@@ -600,7 +612,25 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public string GeoreferenceCollapsedHint => BuildGroupedHint(GeoreferenceResults, "Dimension readiness has not produced findings yet.");
+    public string GeoreferenceCollapsedHint => BuildGroupedHint(GeoreferenceResults, "Georeference readiness has not produced findings yet.");
+
+    public string DimensionCheckSummaryText
+    {
+        get
+        {
+            if (!HasDimensionCheckResults)
+            {
+                return "No dimension-check results yet.";
+            }
+
+            var blockers = DimensionCheckResults.Count(IsBlockingResult);
+            var warnings = DimensionCheckResults.Count(IsWarningResult);
+            var passed = DimensionCheckResults.Count(IsPassedResult);
+            return $"{blockers} blocker(s), {warnings} warning(s), {passed} passed.";
+        }
+    }
+
+    public string DimensionCheckCollapsedHint => BuildGroupedHint(DimensionCheckResults, "Dimension readiness has not produced findings yet.");
 
     public bool PreflightSummaryExpanded
     {
@@ -629,11 +659,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ExtractionReviewActionLabel =>
         HasLoadedReviewData
-            ? "Continue in Points Validation Tool"
+            ? "Continue in Points and Lines Validation Tool"
             : workflowSession.ExtractionResultRequiresDecision
                 ? "Re-process extraction"
                 : workflowSession.HasUsableExtractionReview
-                    ? "Continue in Points Validation Tool"
+                    ? "Continue in Points and Lines Validation Tool"
                     : HasExtractionReviewArtifact(workflowSession)
                         ? "Open review data"
                         : "Run";
@@ -644,16 +674,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             :
         workflowSession.CurrentState switch
         {
-            WorkflowState.ExtractionRunning => "Validate Points preparation is running from the current compute plan.",
-            WorkflowState.ExtractionFailed => "Validate Points preparation failed. Review the status line, then try again.",
+            WorkflowState.ExtractionRunning => "Validate Points and Lines preparation is running from the current compute plan.",
+            WorkflowState.ExtractionFailed => "Validate Points and Lines preparation failed. Review the status line, then try again.",
             WorkflowState.ReviewManualPending => "Manual review workspace is being prepared. The extracted review stays available as reference, but it is not treated as approved.",
-            WorkflowState.ReviewApproved => "Validate Points is approved. Points Validation Tool is now read-only for this saved case state.",
-            WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Validate Points is approved. Create Spatial Units now owns the next workflow gate and Points Validation Tool remains read-only.",
-            WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
-            WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point review in Points Validation Tool, then approve the review before Create Spatial Units and Final Review.",
-            WorkflowState.PreflightPassed => "Generate the extracted point package from the selected transaction attachments, then continue in Points Validation Tool to inspect and correct the parcel points.",
-            WorkflowState.PreflightBlocked => "Validate Points is unavailable until Supporting Document Check, Structure Check, and Dimension Check blockers are resolved.",
-            _ => "Validate Points is enabled after Structure Check and Dimension Check complete."
+            WorkflowState.ReviewApproved => "Validate Points and Lines is approved. Points and Lines Validation Tool is now read-only for this saved case state.",
+            WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Validate Points and Lines is approved. Create Spatial Units now owns the next workflow gate and the validation tool remains read-only.",
+            WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points and Lines is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
+            WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point and line review in Points and Lines Validation Tool, then approve the review before Create Spatial Units and Final Review.",
+            WorkflowState.PreflightPassed => "Generate the extracted point and line package from the selected transaction attachments, then continue in Points and Lines Validation Tool to inspect and correct the parcel data.",
+            WorkflowState.PreflightBlocked => "Validate Points and Lines is unavailable until Supporting Document Check, Structure Check, Georeference Check, and Dimension Check blockers are resolved.",
+            _ => "Validate Points and Lines is enabled after Structure Check, Georeference Check, and Dimension Check complete."
         };
 
     public bool ShowExtractionDecisionGate => workflowSession.ExtractionResultRequiresDecision;
@@ -1223,6 +1253,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public async Task RunDimensionCheckAsync()
     {
         var running = workflowSession.RunDimensionCheckAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        await running;
+        RefreshWorkflowProperties();
+    }
+
+    public async Task RunGeoreferenceCheckAsync()
+    {
+        var running = workflowSession.RunGeoreferenceCheckAsync(Environment.UserName);
         RefreshWorkflowProperties();
         await running;
         RefreshWorkflowProperties();
@@ -2201,7 +2239,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
-    public async Task CompleteTransactionAsync()
+    public async Task CompleteTransactionAsync(
+        ComputeReviewDecision decision = ComputeReviewDecision.Approved,
+        string? comment = null)
     {
         if (MessageBox.Show(
                 "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
@@ -2220,8 +2260,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
-            ComputeReviewDecision.Approved,
-            null,
+            decision,
+            comment,
             Environment.UserName);
         if (!dispositionResult.Success)
         {
@@ -2373,6 +2413,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             "workflow_rule" => "structure",
             "dwg" => "structure",
             "georeference" => "georeference",
+            "dimension" => "dimension",
             "arcgis_pro" => "system",
             "write_access" => "system",
             "python" => "system",
@@ -2500,6 +2541,36 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
     }
 
+    private static string GetStepStateForDimensionCheck(WorkflowState state, IReadOnlyList<PreflightResultListItem> georeferenceResults, IReadOnlyList<PreflightResultListItem> dimensionResults)
+    {
+        if (HasBlockingGroup(dimensionResults))
+        {
+            return "blocked";
+        }
+
+        return state switch
+        {
+            WorkflowState.NoCase or WorkflowState.Intake => "pending",
+            WorkflowState.PreflightRunning => georeferenceResults.Count > 0 ? "active" : "pending",
+            WorkflowState.PreflightBlocked => dimensionResults.Count > 0 ? "done" : "pending",
+            WorkflowState.PreflightPassed => "done",
+            WorkflowState.ExtractionRunning => "done",
+            WorkflowState.ExtractionFailed => "done",
+            WorkflowState.ReviewPending => "done",
+            WorkflowState.ReviewManualPending => "done",
+            WorkflowState.ReviewApproved => "done",
+            WorkflowState.ValidationRunning => "done",
+            WorkflowState.ValidationBlocked => "done",
+            WorkflowState.ValidationPassed => "done",
+            WorkflowState.OutputRunning => "done",
+            WorkflowState.OutputCreated => "done",
+            WorkflowState.SpatialReviewPending => "done",
+            WorkflowState.SpatialReviewApproved => "done",
+            _ => "pending"
+        };
+    }
+
+
     private static string GetStepStateForExtractionReview(WorkflowState state, bool hasReviewArtifact)
     {
         return state switch
@@ -2603,6 +2674,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var supportingDocumentState = GetStepStateForSupportingDocuments(currentState, IntakeReadyForPreflight, SupportingDocumentResults);
         var structureCheckState = GetStepStateForStructureCheck(currentState, IntakeReadyForPreflight, StructureCheckResults);
         var georeferenceState = GetStepStateForGeoreferenceCheck(currentState, StructureCheckResults, GeoreferenceResults);
+        var dimensionCheckState = GetStepStateForDimensionCheck(currentState, GeoreferenceResults, DimensionCheckResults);
         var extractionState = GetStepStateForExtractionReview(currentState, HasExtractionArtifact);
         var validationState = GetStepStateForValidation(currentState);
         var outputState = GetStepStateForOutputs(currentState);
@@ -2615,8 +2687,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             new WorkflowLifecycleStep("Supporting Document Check", supportingDocumentState, GetLifecycleStepIcon(supportingDocumentState)),
             new WorkflowLifecycleStep("Structure Check", structureCheckState, GetLifecycleStepIcon(structureCheckState)),
-            new WorkflowLifecycleStep("Dimension Check", georeferenceState, GetLifecycleStepIcon(georeferenceState)),
-            new WorkflowLifecycleStep("Validate Points", extractionState, GetLifecycleStepIcon(extractionState)),
+            new WorkflowLifecycleStep("Georeference Check", georeferenceState, GetLifecycleStepIcon(georeferenceState)),
+            new WorkflowLifecycleStep("Dimension Check", dimensionCheckState, GetLifecycleStepIcon(dimensionCheckState)),
+            new WorkflowLifecycleStep("Validate Points and Lines", extractionState, GetLifecycleStepIcon(extractionState)),
             new WorkflowLifecycleStep("Create Spatial Units", spatialUnitsState, GetLifecycleStepIcon(spatialUnitsState)),
             new WorkflowLifecycleStep("Final Review", finalReviewState, GetLifecycleStepIcon(finalReviewState)),
             new WorkflowLifecycleStep("Finalize", readyState, GetLifecycleStepIcon(readyState))
@@ -2663,7 +2736,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             WorkflowWorkspaceStage.Intake => "Supporting Document Check",
             WorkflowWorkspaceStage.Preflight => ResolveEarlyCheckWorkspaceLabel(state),
-            WorkflowWorkspaceStage.ExtractionReview => "Validate Points",
+            WorkflowWorkspaceStage.ExtractionReview => "Validate Points and Lines",
             WorkflowWorkspaceStage.Validation => "Create Spatial Units",
             WorkflowWorkspaceStage.Outputs => "Create Spatial Units",
             WorkflowWorkspaceStage.SpatialReview => "Final Review",
@@ -2685,10 +2758,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         if (HasBlockingGroup(GeoreferenceResults))
         {
+            return "Georeference Check";
+        }
+
+        if (HasBlockingGroup(DimensionCheckResults))
+        {
             return "Dimension Check";
         }
 
-        return "Structure Check";
+        return HasGeoreferenceResults ? "Dimension Check" : "Georeference Check";
     }
 
     private string? ResolveSelectedTransactionType()
@@ -2802,6 +2880,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewDetailsToggleText));
         NotifyPropertyChanged(nameof(CanUseWorkflowActions));
         NotifyPropertyChanged(nameof(CanRunPreflight));
+        NotifyPropertyChanged(nameof(CanRunGeoreferenceCheck));
         NotifyPropertyChanged(nameof(CanRunDimensionCheck));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
         NotifyPropertyChanged(nameof(CanReprocessExtractionReview));
@@ -2822,22 +2901,27 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(SupportingDocumentResults));
         NotifyPropertyChanged(nameof(StructureCheckResults));
         NotifyPropertyChanged(nameof(GeoreferenceResults));
+        NotifyPropertyChanged(nameof(DimensionCheckResults));
         NotifyPropertyChanged(nameof(HasPreflightResults));
         NotifyPropertyChanged(nameof(HasSupportingDocumentResults));
         NotifyPropertyChanged(nameof(HasSupportingDocumentInventory));
         NotifyPropertyChanged(nameof(HasSupportingDocumentDownloads));
         NotifyPropertyChanged(nameof(HasStructureCheckResults));
         NotifyPropertyChanged(nameof(HasGeoreferenceResults));
+        NotifyPropertyChanged(nameof(HasDimensionCheckResults));
         NotifyPropertyChanged(nameof(PreflightBadge));
         NotifyPropertyChanged(nameof(SupportingDocumentBadge));
         NotifyPropertyChanged(nameof(StructureCheckBadge));
         NotifyPropertyChanged(nameof(GeoreferenceBadge));
+        NotifyPropertyChanged(nameof(DimensionCheckBadge));
         NotifyPropertyChanged(nameof(PreflightDetailsExpanded));
         NotifyPropertyChanged(nameof(PreflightToggleText));
         NotifyPropertyChanged(nameof(PreflightSummaryText));
         NotifyPropertyChanged(nameof(PreflightCollapsedHint));
         NotifyPropertyChanged(nameof(GeoreferenceSummaryText));
         NotifyPropertyChanged(nameof(GeoreferenceCollapsedHint));
+        NotifyPropertyChanged(nameof(DimensionCheckSummaryText));
+        NotifyPropertyChanged(nameof(DimensionCheckCollapsedHint));
         NotifyPropertyChanged(nameof(PreflightSummaryExpanded));
         NotifyPropertyChanged(nameof(SelectedReviewRow));
         NotifyPropertyChanged(nameof(SelectedReviewSource));
@@ -2907,6 +2991,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         revealSourceFileCommand.RaiseCanExecuteChanged();
         routeSourceFileToMapCommand.RaiseCanExecuteChanged();
         runPreflightCommand.RaiseCanExecuteChanged();
+        runGeoreferenceCheckCommand.RaiseCanExecuteChanged();
         runDimensionCheckCommand.RaiseCanExecuteChanged();
         runExtractionReviewCommand.RaiseCanExecuteChanged();
         reprocessExtractionReviewCommand.RaiseCanExecuteChanged();
@@ -3491,7 +3576,8 @@ internal sealed record PreflightResultListItem(string Severity, PreflightCheck C
         Result switch
         {
             "blocked" or "failed" => "block",
-            "warning" or "skipped" or "disabled" or "not_applicable" => "warn",
+            "warning" => "warn",
+            "skipped" or "disabled" or "not_applicable" => "neutral",
             "passed" => "pass",
             _ => Severity.ToLowerInvariant()
         };
