@@ -261,6 +261,16 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     ShellState.CompletedAttachmentSourceType,
                     "pending");
 
+                UpdateManifestAndAudit(
+                    "compute_spatial_unit_save_started",
+                    "started",
+                    "Starting Innola Spatial Unit save.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready",
+                    spatialUnitApiStatus: "started");
+
                 var spatialUnitResult = await spatialUnitService.CreateOrUpdateAsync(
                     sessionManager.CurrentSession!,
                     sessionManager.SelectedTransaction!,
@@ -300,7 +310,8 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     spatialUnitId: spatialUnitResult.SpatialUnitId,
                     spatialUnitApiStatus: "saved");
 
-                var caseIndexReferenceResult = await new JsonEnterpriseWorkingDispositionService()
+                var enterpriseDispositionService = new JsonEnterpriseWorkingDispositionService();
+                var caseIndexReferenceResult = await enterpriseDispositionService
                     .RecordSpatialUnitReferenceAsync(
                         layout,
                         ManifestSerializer.Read(layout.ManifestPath),
@@ -316,6 +327,38 @@ public sealed class InnolaTransactionLifecycleCoordinator
                         ? caseIndexReferenceResult.Message
                         : string.Join("; ", caseIndexReferenceResult.Errors),
                     caseIndexReferenceResult.Success ? null : "enterprise_case_index_reference",
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready",
+                    spatialUnitId: spatialUnitResult.SpatialUnitId,
+                    spatialUnitApiStatus: "saved");
+
+                UpdateManifestAndAudit(
+                    "compute_spatial_unit_polygon_suid_reference_started",
+                    "started",
+                    "Starting Enterprise working_polygons SUID writeback using the SUID field.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready",
+                    spatialUnitId: spatialUnitResult.SpatialUnitId,
+                    spatialUnitApiStatus: "saved");
+
+                var polygonSuidReferenceResult = await enterpriseDispositionService
+                    .RecordPolygonSpatialUnitReferencesAsync(
+                        layout,
+                        ManifestSerializer.Read(layout.ManifestPath),
+                        spatialUnitResult.PolygonReferences,
+                        cancellationToken).ConfigureAwait(false);
+                UpdateManifestAndAudit(
+                    polygonSuidReferenceResult.Success
+                        ? "compute_spatial_unit_polygon_suid_reference_saved"
+                        : "compute_spatial_unit_polygon_suid_reference_failed",
+                    polygonSuidReferenceResult.Success ? "succeeded" : "warning",
+                    polygonSuidReferenceResult.Success
+                        ? polygonSuidReferenceResult.Message
+                        : string.Join("; ", polygonSuidReferenceResult.Errors),
+                    polygonSuidReferenceResult.Success ? null : "enterprise_polygon_suid_reference",
                     LifecycleStatusForManifest(),
                     completionReady: true,
                     completionReadyReason: "ready",
@@ -378,7 +421,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
             {
                 if (disposition is not null)
                 {
-                    SaveWorkingPackageState(
+                    disposition = SaveWorkingPackageState(
                         layout,
                         disposition,
                         packageUpload.FileName,
@@ -387,7 +430,6 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 }
 
                 var packageMessage = packageUpload.ErrorMessage ?? "Could not upload completed case package. Try again.";
-                sessionManager.MarkLifecycleError(packageMessage);
                 UpdateManifestAndAudit(
                     "compute_working_package_upload_failed",
                     "failed",
@@ -396,8 +438,13 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     "error",
                     completionReady: true,
                     completionReadyReason: "ready",
-                    lastErrorCategory: packageUpload.ErrorCategory);
-                return InnolaTransactionLoadResult.Failure(packageUpload.ErrorMessage ?? "Could not upload completed case package. Try again.");
+                    lastErrorCategory: packageUpload.ErrorCategory,
+                    spatialUnitId: disposition?.SpatialUnitId,
+                    spatialUnitApiStatus: disposition?.SpatialUnitApiStatus,
+                    workingPackageFileName: packageUpload.FileName,
+                    workingPackageUploadStatus: "failed");
+                sessionManager.MarkLifecycleError(packageMessage);
+                return InnolaTransactionLoadResult.Failure(packageMessage);
             }
 
             if (disposition is not null)

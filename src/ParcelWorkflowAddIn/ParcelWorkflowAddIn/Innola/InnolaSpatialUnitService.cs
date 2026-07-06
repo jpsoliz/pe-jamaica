@@ -14,6 +14,10 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 {
     private const string SpatialUnitClass = "SpatialUnitExt";
     private const string SpatialUnitTypeKey = "spatialunit";
+    private static readonly JsonSerializerOptions TraceJsonOptions = new()
+    {
+        WriteIndented = true
+    };
     private readonly HttpClient httpClient;
     private readonly OutputSummaryPersistenceService outputSummaryPersistenceService = new();
 
@@ -49,6 +53,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
             var outputSummary = outputSummaryPersistenceService.Load(layout);
             var spatialUnitCount = ResolveSpatialUnitCount(outputSummary);
+            WriteSpatialUnitApiRequest(layout, transaction, disposition, outputSummary, spatialUnitCount);
 
             var defaults = await CreateDefaultSpatialUnitsAsync(
                 session,
@@ -57,11 +62,19 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                 cancellationToken).ConfigureAwait(false);
             if (defaults.Count == 0)
             {
+                WriteSpatialUnitApiFailure(layout, transaction, "spatial_unit_defaults_empty", "Spatial Unit default creation did not return any objects.");
                 return InnolaSpatialUnitSaveResult.Failed("Spatial Unit default creation did not return any objects.", "spatial_unit_defaults_empty");
             }
 
+            var polygonAttributes = ResolveWorkingPolygonAttributes(layout, outputSummary);
             var populated = defaults
-                .Select(item => PopulateSpatialUnit(item, transaction, layout, disposition, outputSummary))
+                .Select((item, index) => PopulateSpatialUnit(
+                    item,
+                    transaction,
+                    layout,
+                    disposition,
+                    outputSummary,
+                    index < polygonAttributes.Count ? polygonAttributes[index] : null))
                 .ToArray();
 
             var saved = await SaveSpatialUnitsAsync(
@@ -70,10 +83,13 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                 populated,
                 cancellationToken).ConfigureAwait(false);
             var spatialUnitId = ResolveSpatialUnitId(saved) ?? ResolveSpatialUnitId(populated);
-            return InnolaSpatialUnitSaveResult.Succeeded(spatialUnitId);
+            var polygonReferences = ResolvePolygonReferences(saved, populated, polygonAttributes);
+            WriteSpatialUnitApiResponse(layout, transaction, spatialUnitCount, defaults.Count, populated.Length, saved, polygonReferences);
+            return InnolaSpatialUnitSaveResult.Succeeded(spatialUnitId, polygonReferences: polygonReferences);
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
+            TryWriteSpatialUnitApiFailure(caseFolderPath, transaction, exception);
             Debug.WriteLine($"Innola Spatial Unit save failed. TransactionId={transaction.TransactionId}; Error={exception.GetType().Name}.");
             return InnolaSpatialUnitSaveResult.Failed("Could not create Spatial Unit. Try again.", exception.GetType().Name);
         }
@@ -150,7 +166,8 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         SelectedInnolaTransaction transaction,
         CaseFolderLayout layout,
         ComputeReviewDispositionDocument disposition,
-        OutputSummaryDocument? outputSummary)
+        OutputSummaryDocument? outputSummary,
+        WorkingPolygonSpatialUnitAttributes? polygonAttributes)
     {
         var spatialUnit = source.DeepClone() as JsonObject ?? new JsonObject();
         spatialUnit["@c"] = ReadString(spatialUnit, "@c") ?? SpatialUnitClass;
@@ -174,10 +191,13 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
         if (outputSummary is not null)
         {
+            var parcelCount = ResolveSpatialUnitCount(outputSummary);
             spatialUnit["computeRunId"] = outputSummary.RunId;
             spatialUnit["parcelRecordName"] = outputSummary.Payload.ParcelRecordName;
             spatialUnit["parcelRecordId"] = outputSummary.Payload.ParcelRecordId;
             spatialUnit["parcelType"] = outputSummary.Payload.ParcelType;
+            spatialUnit["parcelCount"] = parcelCount;
+            spatialUnit["computedParcelCount"] = parcelCount;
             spatialUnit["computedPolygonCount"] = outputSummary.Payload.PolygonCount;
             spatialUnit["computedLineCount"] = outputSummary.Payload.LineCount;
             spatialUnit["computedPointCount"] = outputSummary.Payload.PointCount;
@@ -197,7 +217,99 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             }
         }
 
+        ApplyWorkingPolygonSpatialUnitFields(spatialUnit, polygonAttributes);
+
         return spatialUnit;
+    }
+
+    private static void ApplyWorkingPolygonSpatialUnitFields(JsonObject spatialUnit, WorkingPolygonSpatialUnitAttributes? polygonAttributes)
+    {
+        if (polygonAttributes is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(polygonAttributes.Pid))
+        {
+            spatialUnit["PID"] = polygonAttributes.Pid;
+            spatialUnit["lot"] = polygonAttributes.Pid;
+            spatialUnit["lotNo"] = polygonAttributes.Pid;
+            spatialUnit["lot No."] = polygonAttributes.Pid;
+        }
+
+        spatialUnit["Parish"] = polygonAttributes.Parish;
+
+        if (polygonAttributes.Area.HasValue)
+        {
+            spatialUnit["area"] = polygonAttributes.Area.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(polygonAttributes.Suid))
+        {
+            spatialUnit["SUID"] = polygonAttributes.Suid;
+        }
+    }
+
+    private static IReadOnlyList<WorkingPolygonSpatialUnitAttributes> ResolveWorkingPolygonAttributes(
+        CaseFolderLayout layout,
+        OutputSummaryDocument? outputSummary)
+    {
+        var geoJsonPath = ResolveGeoJsonArtifactPath(layout, outputSummary);
+        if (string.IsNullOrWhiteSpace(geoJsonPath) || !File.Exists(geoJsonPath))
+        {
+            return Array.Empty<WorkingPolygonSpatialUnitAttributes>();
+        }
+
+        var root = JsonNode.Parse(File.ReadAllText(geoJsonPath));
+        if (root?["features"] is not JsonArray features)
+        {
+            return Array.Empty<WorkingPolygonSpatialUnitAttributes>();
+        }
+
+        var polygons = new List<WorkingPolygonSpatialUnitAttributes>();
+        foreach (var feature in features.OfType<JsonObject>())
+        {
+            var geometryType = ReadString(feature["geometry"] as JsonObject, "type");
+            if (!string.Equals(geometryType, "Polygon", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(geometryType, "MultiPolygon", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var properties = feature["properties"] as JsonObject;
+            if (properties is null)
+            {
+                continue;
+            }
+
+            var pid = ReadString(properties, "parcel_name", "PID", "pid", "name", "parcel_id");
+            var suid = ReadString(properties, "SUID", "suid");
+            polygons.Add(new WorkingPolygonSpatialUnitAttributes(
+                pid,
+                null,
+                ReadDouble(properties, "area_sq_m", "area"),
+                suid));
+        }
+
+        return polygons;
+    }
+
+    private static string? ResolveGeoJsonArtifactPath(CaseFolderLayout layout, OutputSummaryDocument? outputSummary)
+    {
+        var artifactPath = outputSummary?.Payload.ArtifactPaths.FirstOrDefault(
+            path => path.EndsWith(".geojson", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(artifactPath))
+        {
+            return null;
+        }
+
+        if (Path.IsPathFullyQualified(artifactPath))
+        {
+            return artifactPath;
+        }
+
+        return Path.GetFullPath(Path.Combine(layout.RootDirectory, artifactPath));
     }
 
     private static string? ToCaseRelativePath(CaseFolderLayout layout, string? path)
@@ -246,6 +358,118 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         return Array.Empty<JsonNode>();
     }
 
+    private static void WriteSpatialUnitApiRequest(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        ComputeReviewDispositionDocument disposition,
+        OutputSummaryDocument? outputSummary,
+        int requestedSpatialUnitCount)
+    {
+        var evidence = new JsonObject
+        {
+            ["schema_version"] = "spatial_unit_api_request_debug_v1",
+            ["written_at_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["transaction_id"] = transaction.TransactionId,
+            ["transaction_number"] = transaction.TransactionNumber,
+            ["task_id"] = transaction.TaskId,
+            ["decision"] = disposition.Decision,
+            ["requested_spatial_unit_count"] = requestedSpatialUnitCount,
+            ["output_summary_ref"] = ToCaseRelativePath(layout, disposition.OutputSummaryRef),
+            ["output_polygon_count"] = outputSummary?.Payload.PolygonCount,
+            ["output_built_parcel_count"] = outputSummary?.Payload.BuiltParcelCount,
+            ["publish_run_id"] = disposition.PublishRunId
+        };
+        WriteWorkingEvidence(layout, "spatial_unit_api_request.json", evidence);
+    }
+
+    private static void WriteSpatialUnitApiResponse(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        int requestedSpatialUnitCount,
+        int defaultObjectCount,
+        int savedObjectCount,
+        IReadOnlyList<JsonObject> savedObjects,
+        IReadOnlyList<InnolaSpatialUnitPolygonReference> polygonReferences)
+    {
+        var evidence = new JsonObject
+        {
+            ["schema_version"] = "spatial_unit_api_response_debug_v1",
+            ["written_at_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["transaction_id"] = transaction.TransactionId,
+            ["transaction_number"] = transaction.TransactionNumber,
+            ["task_id"] = transaction.TaskId,
+            ["requested_spatial_unit_count"] = requestedSpatialUnitCount,
+            ["default_object_count"] = defaultObjectCount,
+            ["saved_object_count"] = savedObjectCount,
+            ["returned_ids"] = new JsonArray(savedObjects.Select(obj => JsonValue.Create(ResolveSpatialUnitId(new[] { obj }))).ToArray<JsonNode?>()),
+            ["returned_suids"] = new JsonArray(savedObjects.Select(obj => JsonValue.Create(
+                ReadString(obj, "suid", "SUID", "spatialUnitSuid", "spatial_unit_suid")
+                ?? ReadString(obj["spatialUnit"] as JsonObject, "suid", "SUID", "spatialUnitSuid", "spatial_unit_suid"))).ToArray<JsonNode?>()),
+            ["polygon_references"] = new JsonArray(polygonReferences.Select(reference => new JsonObject
+            {
+                ["parcel_name"] = reference.ParcelName,
+                ["spatial_unit_id"] = reference.SpatialUnitId,
+                ["spatial_unit_suid"] = reference.SpatialUnitSuid
+            }).ToArray<JsonNode?>())
+        };
+        WriteWorkingEvidence(layout, "spatial_unit_api_response.json", evidence);
+    }
+
+    private static void TryWriteSpatialUnitApiFailure(
+        string caseFolderPath,
+        SelectedInnolaTransaction transaction,
+        Exception exception)
+    {
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+            WriteSpatialUnitApiFailure(layout, transaction, exception.GetType().Name, exception.Message);
+        }
+        catch (Exception traceException) when (traceException is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            Debug.WriteLine($"Could not write Spatial Unit API failure trace. Error={traceException.GetType().Name}.");
+        }
+    }
+
+    private static void WriteSpatialUnitApiFailure(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string errorCategory,
+        string message)
+    {
+        var evidence = new JsonObject
+        {
+            ["schema_version"] = "spatial_unit_api_failure_debug_v1",
+            ["written_at_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["transaction_id"] = transaction.TransactionId,
+            ["transaction_number"] = transaction.TransactionNumber,
+            ["task_id"] = transaction.TaskId,
+            ["error_category"] = errorCategory,
+            ["message"] = RedactForTrace(message)
+        };
+        WriteWorkingEvidence(layout, "spatial_unit_api_failure.json", evidence);
+    }
+
+    private static void WriteWorkingEvidence(CaseFolderLayout layout, string fileName, JsonObject evidence)
+    {
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, fileName), evidence.ToJsonString(TraceJsonOptions));
+    }
+
+    private static string RedactForTrace(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var redacted = value
+            .Replace("access_token", "access_token_redacted", StringComparison.OrdinalIgnoreCase)
+            .Replace("password", "password_redacted", StringComparison.OrdinalIgnoreCase)
+            .Replace("token", "token_redacted", StringComparison.OrdinalIgnoreCase);
+        return redacted.Length > 1024 ? redacted[..1024] : redacted;
+    }
+
     private static int ResolveSpatialUnitCount(OutputSummaryDocument? summary)
     {
         if (summary is null)
@@ -271,6 +495,38 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<InnolaSpatialUnitPolygonReference> ResolvePolygonReferences(
+        IReadOnlyList<JsonObject> savedObjects,
+        IReadOnlyList<JsonObject> populatedObjects,
+        IReadOnlyList<WorkingPolygonSpatialUnitAttributes> polygonAttributes)
+    {
+        var count = Math.Max(savedObjects.Count, Math.Max(populatedObjects.Count, polygonAttributes.Count));
+        var references = new List<InnolaSpatialUnitPolygonReference>();
+        for (var index = 0; index < count; index++)
+        {
+            var saved = index < savedObjects.Count ? savedObjects[index] : null;
+            var populated = index < populatedObjects.Count ? populatedObjects[index] : null;
+            var polygon = index < polygonAttributes.Count ? polygonAttributes[index] : null;
+            var spatialUnitId = ResolveSpatialUnitId(new[] { saved, populated }.Where(item => item is not null).Cast<JsonObject>());
+            var spatialUnitSuid = ReadString(saved, "suid", "SUID", "spatialUnitSuid", "spatial_unit_suid")
+                ?? ReadString(saved?["spatialUnit"] as JsonObject, "suid", "SUID", "spatialUnitSuid", "spatial_unit_suid")
+                ?? ReadString(populated, "suid", "SUID", "spatialUnitSuid", "spatial_unit_suid");
+            var parcelName = polygon?.Pid
+                ?? ReadString(populated, "PID", "pid", "parcelName", "parcel_name", "lot", "lotNo", "lot No.");
+
+            if (string.IsNullOrWhiteSpace(spatialUnitId)
+                && string.IsNullOrWhiteSpace(spatialUnitSuid)
+                && string.IsNullOrWhiteSpace(parcelName))
+            {
+                continue;
+            }
+
+            references.Add(new InnolaSpatialUnitPolygonReference(parcelName, spatialUnitId, spatialUnitSuid));
+        }
+
+        return references;
     }
 
     private static string? ReadString(JsonObject? obj, params string[] names)
@@ -300,4 +556,42 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
         return null;
     }
+
+    private static double? ReadDouble(JsonObject? obj, params string[] names)
+    {
+        if (obj is null)
+        {
+            return null;
+        }
+
+        foreach (var name in names)
+        {
+            var node = obj[name];
+            if (node is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                return node.GetValue<double>();
+            }
+            catch (InvalidOperationException)
+            {
+                var value = ReadString(obj, name);
+                if (double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        return null;
+    }
 }
+
+internal sealed record WorkingPolygonSpatialUnitAttributes(
+    string? Pid,
+    string? Parish,
+    double? Area,
+    string? Suid);

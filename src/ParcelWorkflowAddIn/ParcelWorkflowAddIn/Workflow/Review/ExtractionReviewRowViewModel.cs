@@ -178,6 +178,11 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasMissingRequiredValues));
     }
 
+    public void RefreshSequenceInGroup()
+    {
+        OnPropertyChanged(nameof(SequenceInGroup));
+    }
+
     public void ApplyCommittedEdit(PointEditDraft draft)
     {
         pointIdentifier = draft.PointIdentifier;

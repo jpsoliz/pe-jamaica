@@ -4,6 +4,9 @@ internal enum WorkflowWorkspaceStage
 {
     Intake,
     Preflight,
+    StructureCheck,
+    GeoreferenceCheck,
+    DimensionCheck,
     ExtractionReview,
     Validation,
     Outputs,

@@ -651,7 +651,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 .Select(group => new JamaicaParcelGroupViewModel(
                     group.Key,
                     ResolveParcelDisplayName(group.Key, group.ToArray()),
-                    group.ToArray()))
+                    group.OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+                        .ThenBy(row => row.PointIdentifier, StringComparer.OrdinalIgnoreCase)
+                        .ToArray()))
                 .OrderBy(group => group.SortKey, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 

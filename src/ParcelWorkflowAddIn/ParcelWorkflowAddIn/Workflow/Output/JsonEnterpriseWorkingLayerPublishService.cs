@@ -48,7 +48,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         {
             ["points"] = BuildAllowlist("point_id", "parcel_group_id", "parcel_name", "point_role", "status_txt", "source_txt", "row_id"),
             ["lines"] = BuildAllowlist("line_id", "parcel_group_id", "parcel_name", "start_pt", "end_pt", "bearing_txt", "distance_txt", "length_txt", "line_type", "seg_index", "source_txt"),
-            ["polygons"] = BuildAllowlist("parcel_group_id", "parcel_name", "parcel_type", "validation_status", "closure_status", "area_sq_m", "perimeter_m", "review_note", "source_txt"),
+            ["polygons"] = BuildAllowlist("parcel_group_id", "parcel_name", "parcel_type", "validation_status", "closure_status", "area_sq_m", "perimeter_m", "review_note", "SUID", "source_txt"),
             ["issues"] = BuildAllowlist("issue_type", "issue_text"),
             ["case_index"] = BuildAllowlist("case_id", "workflow_name", "assigned_user", "assigned_group", "output_summary_ref", "working_publish_ref", "recoverability_state", "spatial_unit_id", "spatial_unit_api_status")
         };

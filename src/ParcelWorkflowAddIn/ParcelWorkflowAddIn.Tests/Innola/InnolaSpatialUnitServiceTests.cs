@@ -18,7 +18,7 @@ internal static class InnolaSpatialUnitServiceTests
         var handler = new RecordingHandler(new[]
         {
             "[{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-1\",\"uid\":\"draft-uid-1\",\"address\":{\"id\":\"addr-1\"},\"link\":{\"id\":\"link-1\"}},{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-2\",\"uid\":\"draft-uid-2\",\"address\":{\"id\":\"addr-2\"},\"link\":{\"id\":\"link-2\"}}]",
-            "[{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000004\",\"uid\":\"saved-uid\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000005\",\"uid\":\"saved-uid-2\"}]"
+            "[{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000004\",\"suid\":\"900001\",\"uid\":\"saved-uid\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000005\",\"suid\":\"900002\",\"uid\":\"saved-uid-2\"}]"
         });
         var service = new InnolaSpatialUnitService(new HttpClient(handler));
 
@@ -30,6 +30,10 @@ internal static class InnolaSpatialUnitServiceTests
 
         TestAssert.True(result.Success, "Spatial Unit save should succeed.");
         TestAssert.Equal("su-100000004", result.SpatialUnitId, "Returned Spatial Unit id mismatch.");
+        TestAssert.Equal(2, result.PolygonReferences?.Count ?? 0, "Spatial Unit result should retain one reference per working polygon.");
+        TestAssert.Equal("110900205", result.PolygonReferences![0].ParcelName, "Spatial Unit polygon reference should retain polygon parcel name.");
+        TestAssert.Equal("su-100000004", result.PolygonReferences[0].SpatialUnitId, "Spatial Unit polygon reference should retain object id.");
+        TestAssert.Equal("900001", result.PolygonReferences[0].SpatialUnitSuid, "Spatial Unit polygon reference should retain generated SUID.");
         TestAssert.Equal(2, handler.Requests.Count, "Spatial Unit service should make default and save calls.");
         TestAssert.True(handler.Requests[0].PathAndQuery!.Contains("/api/v4/rest/administrative/ladm-objects/create/multi", StringComparison.OrdinalIgnoreCase), "Create defaults route mismatch.");
         TestAssert.True(handler.Requests[0].PathAndQuery.Contains("transactionId=100000004", StringComparison.OrdinalIgnoreCase), "Create defaults transaction binding missing.");
@@ -50,11 +54,27 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("pending", savedObject.GetProperty("workingPackageUploadStatus").GetString(), "Working package upload state should be sent.");
         TestAssert.Equal("output/enterprise_working_publish.json", savedObject.GetProperty("enterprisePublishRef").GetString(), "Enterprise publish reference should be sent.");
         TestAssert.Equal("output/output_summary.json", savedObject.GetProperty("outputSummaryRef").GetString(), "Output summary reference should be sent.");
+        TestAssert.Equal(2, savedObject.GetProperty("parcelCount").GetInt32(), "Spatial Unit payload should include the computed parcel count.");
+        TestAssert.Equal(2, savedObject.GetProperty("computedParcelCount").GetInt32(), "Spatial Unit payload should include the computed parcel count alias.");
+        TestAssert.Equal("110900205", savedObject.GetProperty("PID").GetString(), "Spatial Unit PID should come from working polygon parcel_name.");
+        TestAssert.Equal("110900205", savedObject.GetProperty("lot").GetString(), "Spatial Unit lot should come from working polygon parcel_name.");
+        TestAssert.Equal("110900205", savedObject.GetProperty("lotNo").GetString(), "Spatial Unit lot number should come from working polygon parcel_name.");
+        TestAssert.Equal("110900205", savedObject.GetProperty("lot No.").GetString(), "Spatial Unit lot label should come from working polygon parcel_name.");
+        TestAssert.True(savedObject.GetProperty("Parish").ValueKind == JsonValueKind.Null, "Spatial Unit Parish should be null until a working polygon parish source exists.");
+        TestAssert.Equal(1234.56, savedObject.GetProperty("area").GetDouble(), "Spatial Unit area should come from working polygon area_sq_m.");
+        TestAssert.True(!savedObject.TryGetProperty("SUID", out _), "Spatial Unit create payload should not send a fallback SUID; the framework generates it.");
         var workingLayer = savedObject.GetProperty("workingLayerReferences")[0];
         TestAssert.Equal("polygons", workingLayer.GetProperty("layerRole").GetString(), "Working layer reference should include layer role.");
         TestAssert.Equal("https://example.test/server/rest/services/working_review/FeatureServer/2", workingLayer.GetProperty("target").GetString(), "Working layer reference should include target.");
         TestAssert.Equal("addr-1", savedObject.GetProperty("address").GetProperty("id").GetString(), "API generated address object should be preserved.");
         TestAssert.Equal("link-1", savedObject.GetProperty("link").GetProperty("id").GetString(), "API generated link object should be preserved.");
+        var requestEvidencePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_request.json");
+        var responseEvidencePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_response.json");
+        TestAssert.True(File.Exists(requestEvidencePath), "Spatial Unit request evidence should be written before API calls.");
+        TestAssert.True(File.Exists(responseEvidencePath), "Spatial Unit response evidence should be written after API save.");
+        using var responseEvidence = JsonDocument.Parse(File.ReadAllText(responseEvidencePath));
+        TestAssert.Equal(2, responseEvidence.RootElement.GetProperty("saved_object_count").GetInt32(), "Spatial Unit response evidence should include saved object count.");
+        TestAssert.Equal("900001", responseEvidence.RootElement.GetProperty("returned_suids")[0].GetString(), "Spatial Unit response evidence should include returned SUID.");
     }
 
     public static async Task ReturnsFailureForUnauthorizedSession()
@@ -140,10 +160,10 @@ internal static class InnolaSpatialUnitServiceTests
               "created_at": "2026-06-10T12:00:00.0000000Z",
               "created_by": "tester",
               "source_manifest_hash": "hash",
-              "payload": {
-                "status": "created",
-                "review_workspace_mode": "enterprise_working_layers",
-                "artifact_paths": [],
+                "payload": {
+                  "status": "created",
+                  "review_workspace_mode": "enterprise_working_layers",
+                "artifact_paths": ["output/review_geometry.geojson"],
                 "map_layer_paths": [],
                 "built_parcel_count": 2,
                 "built_line_count": 4,
@@ -185,6 +205,39 @@ internal static class InnolaSpatialUnitServiceTests
               },
               "warnings": [],
               "errors": []
+            }
+            """);
+        File.WriteAllText(
+            Path.Combine(layout.OutputDirectory, "review_geometry.geojson"),
+            """
+            {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-76.0, 18.0], [-76.0, 18.1], [-75.9, 18.1], [-76.0, 18.0]]]
+                  },
+                  "properties": {
+                    "parcel_id": "parcel-006",
+                    "parcel_name": "110900205",
+                    "area_sq_m": 1234.56
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-76.1, 18.0], [-76.1, 18.1], [-76.0, 18.1], [-76.1, 18.0]]]
+                  },
+                  "properties": {
+                    "parcel_id": "parcel-007",
+                    "parcel_name": "110900206",
+                    "area_sq_m": 789.12
+                  }
+                }
+              ]
             }
             """);
     }

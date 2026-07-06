@@ -16,9 +16,6 @@
         <tab id="ParcelWorkflow_Tab" caption="Sidwell Co">
           <group refID="ParcelWorkflow_Group" />
         </tab>
-        <tab id="ParcelWorkflow_MapReviewTab" caption="Map Review Tools">
-          <group refID="ParcelWorkflow_MapReviewWorkflowGroup" />
-        </tab>
       </tabs>
       <groups>
         <group id="ParcelWorkflow_Group" caption="Sidwell Co" appearsOnAddInTab="true">
@@ -28,12 +25,6 @@
           <separator />
           <button refID="ParcelWorkflow_ConfigurationButton" />
           <button refID="ParcelWorkflow_AboutButton" />
-        </group>
-        <group id="ParcelWorkflow_MapReviewWorkflowGroup" caption="Map Review" appearsOnAddInTab="true">
-          <button refID="ParcelWorkflow_OpenWorkflowPaneToolbarButton" />
-          <button refID="ParcelWorkflow_LoadReviewLayersToolbarButton" />
-          <button refID="ParcelWorkflow_OpenCogoReaderToolbarButton" />
-          <button refID="ParcelWorkflow_MarkMapReviewCompleteToolbarButton" />
         </group>
       </groups>
       <controls>
@@ -76,38 +67,6 @@
                 smallImage="Install\Images\Ribbon\About16.png"
                 largeImage="Install\Images\Ribbon\About32.png">
           <tooltip heading="About">About this add-in<disabledText /></tooltip>
-        </button>
-        <button id="ParcelWorkflow_OpenWorkflowPaneToolbarButton"
-                caption="Workflow Pane"
-                className="OpenWorkflowPaneToolbarButton"
-                loadOnClick="true"
-                smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
-                largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
-          <tooltip heading="Workflow Pane">Open the parcel workflow pane for map review guidance and status<disabledText /></tooltip>
-        </button>
-        <button id="ParcelWorkflow_LoadReviewLayersToolbarButton"
-                caption="Load Review Layers"
-                className="LoadReviewLayersToolbarButton"
-                loadOnClick="true"
-                smallImage="Install\Images\Ribbon\Tasks16.png"
-                largeImage="Install\Images\Ribbon\Tasks32.png">
-          <tooltip heading="Load Review Layers">Load or refresh the current review layers into the active map and zoom to the review extent<disabledText /></tooltip>
-        </button>
-        <button id="ParcelWorkflow_OpenCogoReaderToolbarButton"
-                caption="COGO Reader"
-                className="OpenCogoReaderToolbarButton"
-                loadOnClick="true"
-                smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
-                largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
-          <tooltip heading="COGO Reader">Experimental: ask ArcGIS Pro to open the built-in COGO Reader pane for manual assist<disabledText /></tooltip>
-        </button>
-        <button id="ParcelWorkflow_MarkMapReviewCompleteToolbarButton"
-                caption="Mark Reviewed"
-                className="MarkMapReviewCompleteToolbarButton"
-                loadOnClick="true"
-                smallImage="Install\Images\Ribbon\About16.png"
-                largeImage="Install\Images\Ribbon\About32.png">
-          <tooltip heading="Mark Reviewed">Confirm that map review is complete and unlock final transaction completion<disabledText /></tooltip>
         </button>
       </controls>
       <dockPanes>

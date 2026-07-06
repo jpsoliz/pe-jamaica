@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-03
+# last_updated: 2026-07-06
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-03
+last_updated: 2026-07-06
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -133,4 +133,5 @@ development_status:
   7-7-publish-validated-spatial-units-into-enterprise-working-parcel-fabric: ready-for-dev
   7-8-add-enterprise-working-layer-admin-provisioning-and-maintenance-settings-tab: review
   7-9-record-compute-final-review-disposition-and-closeout-enterprise-working-layer: review
+  7-10-add-enterprise-working-layer-default-visualization-labeling: review
   epic-7-retrospective: optional

@@ -21,8 +21,8 @@
       "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/0",
       "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
       "polygons": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
-      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3",
-      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4"
+      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4",
+      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3"
     }
   },
   "enterprise_working_admin": {

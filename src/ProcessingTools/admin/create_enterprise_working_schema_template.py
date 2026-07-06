@@ -69,6 +69,7 @@ POLYGON_FIELDS = (
     ("area_sq_m", "double", None),
     ("perimeter_m", "double", None),
     ("review_note", "string", 512),
+    ("SUID", "string", 64),
     ("source_txt", "string", 1024),
 )
 
@@ -80,6 +81,8 @@ CASE_INDEX_FIELDS = (
     ("output_summary_ref", "string", 256),
     ("working_publish_ref", "string", 256),
     ("recoverability_state", "string", 64),
+    ("spatial_unit_id", "string", 64),
+    ("spatial_unit_api_status", "string", 64),
 )
 
 ISSUE_FIELDS = (

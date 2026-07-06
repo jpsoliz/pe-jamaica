@@ -46,6 +46,7 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
 16. Given any step in the Finalize closeout sequence fails, when failure is detected, then later steps are not executed, the transaction is not marked complete, and diagnostics identify which step blocked closeout without losing the local produced files.
 17. Given reportable stage findings exist, when Finalize generates the Compute examination report, then the report includes stage-by-stage findings, outcomes, workflow effects, operator/timestamp metadata, source/artifact references, and any failed/warning/skipped/disabled/not-applicable results needed for examiner reporting.
 18. Given report generation fails or required stage findings are missing/corrupt, when the examiner attempts Finalize, then the transaction is not marked successfully closed, the working package is not uploaded as final, and the UI shows a clear non-secret diagnostic identifying report generation as the blocker.
+19. Given the Innola Spatial Unit API returns a saved Spatial Unit id, when Enterprise working-layer mode is active, then Finalize writes that id/status to the transaction-scoped `working_case_index` row using `spatial_unit_id` and `spatial_unit_api_status`; if those fields are missing from Enterprise, Finalize records a clear Enterprise case-index schema diagnostic and does not falsely report the case-index reference as saved.
 
 ## Tasks / Subtasks
 
@@ -71,6 +72,12 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [x] Use configured `transaction_scope_field` and active transaction number for scoped `updateFeatures`/offline store updates.
   - [x] Treat ArcGIS REST top-level errors, `success: false`, failed update results, auth failures, and schema-missing responses as blockers.
   - [x] Do not log portal tokens, signed URLs, raw credential material, or full sensitive service responses.
+
+- [x] Add Enterprise case-index Spatial Unit reference writeback. (AC: 8-9, 12, 15-16, 19)
+  - [x] After the Innola Spatial Unit API save succeeds, update the transaction-scoped `working_case_index` row with `spatial_unit_id` and `spatial_unit_api_status`.
+  - [x] Treat missing `spatial_unit_id` or `spatial_unit_api_status` fields as an Enterprise schema/remediation issue, not as a successful reference writeback.
+  - [x] Persist a local evidence artifact for successful case-index Spatial Unit reference writeback.
+  - [x] Record a warning/non-secret diagnostic when the Spatial Unit is saved through Innola but the Enterprise case-index reference writeback cannot be completed.
 
 - [x] Replace single final approval UI with Finalize closeout action. (AC: 1, 3-5, 11, 14)
   - [x] Update `ParcelWorkflowDockpane.xaml` bottom action area and/or Finalize card to expose `Finalize` as the single closeout action.
@@ -112,6 +119,7 @@ The Finalize action area should make the operator intent obvious: `Cancel` and `
   - [x] Preserve API-generated `id`, `uid`, nested `address`, and `link` objects from the create/default response when saving.
   - [x] Make route names configurable or isolated behind the service seam until the live Innola contract confirms whether this deployment should use `administrative/ladm-objects` or `data/objects`.
   - [x] Persist the returned Spatial Unit id/reference in the local disposition artifact, manifest lifecycle/audit, and Enterprise case index when available.
+  - [x] Require the Enterprise `working_case_index` schema to expose `spatial_unit_id` and `spatial_unit_api_status` before treating the case-index reference writeback as successful.
   - [x] Block successful closeout when the Spatial Unit API call fails, unless the product owner explicitly defines an offline/deferred retry mode.
   - [x] Add non-secret diagnostics for missing endpoint configuration, unauthorized responses, validation errors, and network failures.
 
@@ -240,15 +248,18 @@ Minimum verification:
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`
 - Focused tests for workflow/session, Enterprise working output, restore, and Innola lifecycle readiness.
 - Focused tests for approved closeout ordering and failure short-circuit behavior before Innola completion.
+- Focused tests proving successful Spatial Unit creation writes `spatial_unit_id` and `spatial_unit_api_status` to `working_case_index` when Enterprise working-layer mode is active.
+- Focused tests proving Enterprise case-index Spatial Unit reference writeback reports a clear schema/remediation diagnostic when those fields are missing.
 
 Manual/live smoke testing:
 
-- Requires a configured Enterprise working service with Story 7.8 disposition fields.
+- Requires a configured Enterprise working service with Story 7.8 disposition fields and `working_case_index` Spatial Unit reference fields.
 - Use a non-production transaction/test scope.
 - Confirm Finalize updates case index and geometry rows with the approved Compute disposition.
 - Confirm the Innola transaction receives the zipped working package attachment for Finalize closeout.
 - Confirm the generated Compute examination report is present in the case reports folder and included in the zipped working package.
 - Confirm the Innola Spatial Unit reference is created/updated and linked to the transaction, or closeout blocks with clear diagnostics if the API is unavailable.
+- Confirm the `working_case_index` row for the transaction receives `spatial_unit_id` and `spatial_unit_api_status` after the Spatial Unit API save succeeds.
 - Confirm the Spatial Unit service first initializes default `SpatialUnitExt` rows, then saves populated rows linked to the transaction using the selected live route.
 
 ## References
@@ -359,3 +370,4 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 | 2026-07-03 | 1.0 | Added Finalize disposition/comment seam and stale disposition invalidation when Create Spatial Units is regenerated. | Amelia / Codex |
 | 2026-07-03 | 1.1 | Patched review finding so Compute examination report receives planned working-package metadata before package zip/upload. | Amelia / Codex |
 | 2026-07-03 | 1.2 | Finished remaining 7.9 closeout: REST disposition guards, Spatial Unit refs in case index/manifest, full output package contents, stronger readiness, and disposition restore artifacts. | Amelia / Codex |
+| 2026-07-06 | 1.3 | Patched story to require explicit Enterprise `working_case_index` fields `spatial_unit_id` and `spatial_unit_api_status` for Spatial Unit closeout reference writeback. | Mary / Codex |

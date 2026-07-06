@@ -1530,6 +1530,59 @@ internal static class WorkflowSessionTests
         TestAssert.True(File.Exists(result.EvidencePath!), "Spatial Unit reference evidence artifact should be written.");
     }
 
+    public static async Task WorkflowSessionEnterprisePolygonsRecordSpatialUnitSuidInSuidField()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var layout = CreateApprovedReviewCase(store, tempRoot.Path);
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var settings = CreateEnterpriseWorkingSettings(tempRoot.Path);
+        var polygonsPath = settings.EnterpriseWorkingReview.Layers.Polygons!;
+        Directory.CreateDirectory(Path.GetDirectoryName(polygonsPath)!);
+        File.WriteAllText(polygonsPath, """
+        {
+          "Records": [
+            {
+              "LayerRole": "polygons",
+              "SavedAt": "2026-06-12T00:00:00Z",
+              "Scope": { "transaction_number": "100000206" },
+              "Payload": {
+                "records": [
+                  {
+                    "transaction_number": "100000206",
+                    "parcel_name": "110900205",
+                    "SUID": ""
+                  },
+                  {
+                    "transaction_number": "100000206",
+                    "parcel_name": "110900206",
+                    "SUID": ""
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """);
+        var service = new JsonEnterpriseWorkingDispositionService(() => settings);
+
+        var result = await service.RecordPolygonSpatialUnitReferencesAsync(
+            layout,
+            manifest,
+            new[]
+            {
+                new InnolaSpatialUnitPolygonReference("110900206", "su-2", "900002"),
+                new InnolaSpatialUnitPolygonReference("110900205", "su-1", "900001")
+            });
+
+        TestAssert.True(result.Success, "Polygon Spatial Unit SUID writeback should succeed.");
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(polygonsPath));
+        var rows = document.RootElement.GetProperty("Records")[0].GetProperty("Payload").GetProperty("records");
+        TestAssert.Equal("900001", rows[0].GetProperty("SUID").GetString(), "Polygon SUID should store matched generated SUID.");
+        TestAssert.Equal("900002", rows[1].GetProperty("SUID").GetString(), "Polygon SUID should store matched generated SUID.");
+        TestAssert.True(File.Exists(result.EvidencePath!), "Polygon Spatial Unit SUID evidence artifact should be written.");
+    }
+
     public static void WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema()
     {
         var payload = new JsonObject

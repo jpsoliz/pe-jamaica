@@ -93,6 +93,7 @@ FIELD_SPECS = {
     "area_sq_m": ("esriFieldTypeDouble", None),
     "perimeter_m": ("esriFieldTypeDouble", None),
     "review_note": ("esriFieldTypeString", 512),
+    "SUID": ("esriFieldTypeString", 64),
     "case_id": ("esriFieldTypeString", 64),
     "workflow_name": ("esriFieldTypeString", 64),
     "assigned_user": ("esriFieldTypeString", 128),
@@ -100,6 +101,8 @@ FIELD_SPECS = {
     "output_summary_ref": ("esriFieldTypeString", 256),
     "working_publish_ref": ("esriFieldTypeString", 256),
     "recoverability_state": ("esriFieldTypeString", 64),
+    "spatial_unit_id": ("esriFieldTypeString", 64),
+    "spatial_unit_api_status": ("esriFieldTypeString", 64),
     "issue_type": ("esriFieldTypeString", 64),
     "issue_text": ("esriFieldTypeString", 1024),
 }
@@ -134,6 +137,7 @@ POLYGON_FIELDS = (
     "area_sq_m",
     "perimeter_m",
     "review_note",
+    "SUID",
     "source_txt",
 )
 CASE_INDEX_FIELDS = (
@@ -144,8 +148,19 @@ CASE_INDEX_FIELDS = (
     "output_summary_ref",
     "working_publish_ref",
     "recoverability_state",
+    "spatial_unit_id",
+    "spatial_unit_api_status",
 )
 ISSUE_FIELDS = ("issue_type", "issue_text")
+WORKING_LINES_LABEL_CLASS_NAME = "COGO Segment"
+WORKING_LINES_LABEL_FIELDS = ("bearing_txt", "length_txt", "distance_txt")
+WORKING_LINES_LABEL_EXPRESSION = (
+    "var len = IIf(IsEmpty($feature.length_txt), $feature.distance_txt, $feature.length_txt); "
+    "When(IsEmpty($feature.bearing_txt) && IsEmpty(len), '', "
+    "IsEmpty($feature.bearing_txt), len, "
+    "IsEmpty(len), $feature.bearing_txt, "
+    "$feature.bearing_txt + TextFormatting.NewLine + len)"
+)
 
 
 def build_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -168,13 +183,16 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("cleanup_scope_value is required for cleanup.")
 
     live_metadata: dict[str, Any] = {}
+    visualization = _visualization_diagnostics("skipped" if args.dry_run else "not_checked")
     if args.mode == "validate" and args.dry_run is False and not errors:
-        live_metadata = _validate_live_layers(args, layers, errors, warnings)
+        live_metadata, visualization = _validate_live_layers(args, layers, errors, warnings)
 
     generated_layers = layers if any(layers.values()) else _generated_layer_urls(args)
     cleanup_counts = {role: 0 for role in LAYER_ROLES}
     if args.mode == "provision" and args.dry_run is False and not errors:
         generated_layers = _provision_live_layers(args, errors, warnings)
+        if not errors:
+            visualization = _apply_visualization_defaults(generated_layers, args.token_env_var, errors, warnings)
     elif args.mode == "cleanup" and args.dry_run is False and not errors:
         cleanup_counts = _cleanup_live_layers(args, layers, errors, warnings)
 
@@ -201,6 +219,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "shared_fields": list(SHARED_FIELDS),
         },
         "layers": generated_layers,
+        "visualization": visualization,
         "validation": {
             "errors": errors,
             "warnings": warnings,
@@ -283,8 +302,9 @@ def _validate_live_layers(
     layers: dict[str, str],
     errors: list[str],
     warnings: list[str],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     metadata: dict[str, Any] = {}
+    visualization = _visualization_diagnostics("not_checked")
     for role, url in layers.items():
         if not url:
             continue
@@ -299,8 +319,144 @@ def _validate_live_layers(
         _validate_capabilities(role, layer_metadata, errors)
         _validate_geometry(role, layer_metadata, errors, warnings)
         _validate_fields(role, layer_metadata, errors, warnings)
+        if role == "lines":
+            visualization = _validate_working_lines_visualization(layer_metadata, errors, warnings)
 
-    return metadata
+    return metadata, visualization
+
+
+def _visualization_diagnostics(status: str, message: str = "") -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {
+        "status": status,
+        "lines": {
+            "label_class": WORKING_LINES_LABEL_CLASS_NAME,
+            "label_expression": WORKING_LINES_LABEL_EXPRESSION,
+            "label_fields": list(WORKING_LINES_LABEL_FIELDS),
+        },
+    }
+    if message:
+        diagnostics["message"] = message
+
+    return diagnostics
+
+
+def _working_lines_labeling_info() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": WORKING_LINES_LABEL_CLASS_NAME,
+            "where": "1=1",
+            "labelExpressionInfo": {"expression": WORKING_LINES_LABEL_EXPRESSION},
+            "labelPlacement": "esriServerLinePlacementAboveAlong",
+            "useCodedValues": True,
+            "minScale": 0,
+            "maxScale": 0,
+            "symbol": {
+                "type": "esriTS",
+                "color": [255, 255, 255, 255],
+                "haloColor": [75, 75, 75, 255],
+                "haloSize": 1,
+                "font": {
+                    "family": "Arial",
+                    "size": 8,
+                    "style": "normal",
+                    "weight": "bold",
+                    "decoration": "none",
+                },
+            },
+        }
+    ]
+
+
+def _apply_visualization_defaults(
+    layers: dict[str, str],
+    token_env_var: str,
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    lines_layer = layers.get("lines", "")
+    if not lines_layer:
+        errors.append("Enterprise default visualization setup failed: lines layer URL was not available.")
+        return _visualization_diagnostics(
+            "failed",
+            "working_lines URL was not available; data publishing remains separate from visualization default setup.",
+        )
+
+    result = _apply_working_lines_visualization(lines_layer, token_env_var)
+    if result["status"] == "failed":
+        errors.append(f"Enterprise default visualization setup failed: {result['message']}")
+    elif result["status"] == "applied":
+        warnings.append("Enterprise working_lines default COGO labeling was applied.")
+
+    diagnostics = _visualization_diagnostics(result["status"], result.get("message", ""))
+    diagnostics["lines"]["service_layer_url"] = lines_layer
+    return diagnostics
+
+
+def _apply_working_lines_visualization(lines_layer_url: str, token_env_var: str) -> dict[str, str]:
+    errors: list[str] = []
+    form = {"updateDefinition": json.dumps({"drawingInfo": {"labelingInfo": _working_lines_labeling_info()}})}
+    for update_definition_url in _update_definition_urls(lines_layer_url):
+        try:
+            _post_form(update_definition_url, form, token_env_var)
+            return {
+                "status": "applied",
+                "message": "working_lines default COGO labeling was applied.",
+            }
+        except Exception as exc:  # noqa: BLE001 - try the next supported Enterprise URL shape.
+            errors.append(f"{update_definition_url}: {type(exc).__name__}: {exc}")
+
+    return {
+        "status": "failed",
+        "message": (
+            "Could not apply working_lines default COGO labeling. "
+            f"{' | '.join(errors)}. "
+            "data publishing remains separate from visualization default setup."
+        ),
+    }
+
+
+def _update_definition_urls(layer_url: str) -> list[str]:
+    layer_url = layer_url.rstrip("/")
+    urls = [f"{layer_url}/updateDefinition"]
+    marker = "/rest/services/"
+    if marker in layer_url:
+        root, service_path = layer_url.split(marker, 1)
+        parts = service_path.rsplit("/FeatureServer/", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            service_name, child_id = parts
+            urls.append(f"{root}/rest/admin/services/{service_name}.FeatureServer/{child_id}/updateDefinition")
+            urls.append(f"{root}/admin/services/{service_name}.FeatureServer/{child_id}/updateDefinition")
+            urls.append(f"{root}/rest/services/{service_name}/FeatureServer/{child_id}/admin/updateDefinition")
+
+    return list(dict.fromkeys(urls))
+
+
+def _validate_working_lines_visualization(
+    metadata: dict[str, Any],
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    labeling_info = (metadata.get("drawingInfo") or {}).get("labelingInfo")
+    if not isinstance(labeling_info, list) or not labeling_info:
+        warnings.append("working_lines default visualization labelingInfo is not configured.")
+        return _visualization_diagnostics("failed", "working_lines labelingInfo is not configured.")
+
+    expected_expression = _normalize_expression(WORKING_LINES_LABEL_EXPRESSION)
+    for label_class in labeling_info:
+        if not isinstance(label_class, dict):
+            continue
+
+        expression = (label_class.get("labelExpressionInfo") or {}).get("expression", "")
+        if _normalize_expression(str(expression)) == expected_expression:
+            return _visualization_diagnostics("already_current", "working_lines default COGO labeling is current.")
+
+    message = "working_lines default visualization labelingInfo does not match the expected COGO expression."
+    warnings.append(message)
+    return _visualization_diagnostics("failed", message)
+
+
+def _normalize_expression(expression: str) -> str:
+    return "".join(expression.split()).lower()
 
 
 def _fetch_layer_metadata(url: str, token_env_var: str) -> dict[str, Any]:
@@ -437,7 +593,10 @@ def _provision_live_layers_rest(args: argparse.Namespace) -> dict[str, str]:
     service_url = _default_feature_service_url(args.service_root.rstrip("/"), args.target_service_name.strip())
     existing_metadata = _fetch_service_metadata_or_none(service_url, args.token_env_var)
     if existing_metadata is None:
-        service_url = _publish_working_feature_collection(portal_url, username, args)
+        if _resolve_schema_template_path(args) is not None:
+            service_url = _publish_schema_template(portal_url, username, args)
+        else:
+            service_url = _publish_working_feature_collection(portal_url, username, args)
     else:
         _assert_working_service_spatial_reference(existing_metadata)
 
@@ -907,7 +1066,9 @@ def _layer_urls_from_metadata(service_url: str, metadata: dict[str, Any]) -> dic
 
     raise RuntimeError(
         "Target service does not expose the expected working children. "
-        f"Missing roles: {', '.join(missing_required)}. Found layers={len(layers)}, tables={len(tables)}."
+        f"Missing roles: {', '.join(missing_required)}. Found layers={len(layers)}, tables={len(tables)}. "
+        "Delete the partial working_review Feature Service and run Provision again so the schema template can recreate "
+        "working_points, working_lines, working_polygons, working_issues, and working_case_index together."
     )
 
 
@@ -1048,7 +1209,7 @@ def _layer_definition(layer_id: int, name: str, geometry_type: str, fields: list
         "esriGeometryPolyline": "esriFeatureEditToolLine",
         "esriGeometryPolygon": "esriFeatureEditToolPolygon",
     }[geometry_type]
-    return {
+    definition = {
         "id": layer_id,
         "name": name,
         "type": "Feature Layer",
@@ -1069,6 +1230,10 @@ def _layer_definition(layer_id: int, name: str, geometry_type: str, fields: list
             }
         ],
     }
+    if name == "working_lines":
+        definition["drawingInfo"] = {"labelingInfo": _working_lines_labeling_info()}
+
+    return definition
 
 
 def _field_definitions(field_names: tuple[str, ...] | list[str]) -> list[dict[str, Any]]:
@@ -1165,12 +1330,21 @@ def _escape_sql_literal(value: str) -> str:
 
 
 def _summarize_layer_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    return {
+    summary = {
         "type": metadata.get("type", ""),
         "geometryType": metadata.get("geometryType", ""),
         "capabilities": metadata.get("capabilities", ""),
         "field_names": [field.get("name", "") for field in metadata.get("fields", [])],
     }
+    labeling_info = (metadata.get("drawingInfo") or {}).get("labelingInfo")
+    if isinstance(labeling_info, list):
+        summary["label_class_names"] = [
+            str(label_class.get("name") or "")
+            for label_class in labeling_info
+            if isinstance(label_class, dict)
+        ]
+
+    return summary
 
 
 def _validate_capabilities(role: str, metadata: dict[str, Any], errors: list[str]) -> None:
@@ -1200,6 +1374,10 @@ def _validate_fields(role: str, metadata: dict[str, Any], errors: list[str], war
     fields = [field for field in metadata.get("fields", []) if isinstance(field, dict)]
     field_names = {str(field.get("name", "")).lower() for field in fields}
     required_fields = {"transaction_number", *DISPOSITION_FIELDS} if role == "case_index" else set(SHARED_FIELDS)
+    if role == "case_index":
+        required_fields.update({"spatial_unit_id", "spatial_unit_api_status"})
+    if role == "polygons":
+        required_fields.add("SUID")
     missing = sorted(field for field in required_fields if field.lower() not in field_names)
     if missing:
         message = (
@@ -1210,6 +1388,14 @@ def _validate_fields(role: str, metadata: dict[str, Any], errors: list[str], war
             warnings.append(message)
         else:
             errors.append(message)
+
+    if role == "lines":
+        missing_label_fields = sorted(field for field in WORKING_LINES_LABEL_FIELDS if field.lower() not in field_names)
+        if missing_label_fields:
+            errors.append(
+                "lines layer schema upgrade required for default visualization labeling: missing "
+                f"{', '.join(missing_label_fields)}."
+            )
 
     if role != "issues":
         _validate_review_decision_domain(role, fields, errors)

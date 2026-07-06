@@ -40,6 +40,8 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
 12. Given the portal/server rejects empty-service `addToDefinition` provisioning, when the admin script provisions working layers, then it must use a schema-backed publish/template path rather than reporting success for an empty hosted Feature Service shell.
 13. Given Story 7.7 now records Compute dispositions, when provisioning or validation runs, then the working points, lines, polygons, and case index must contain the required disposition fields for `review_decision`, `review_decision_by`, `review_decision_utc`, `review_comment`, `official_comparison_status`, and `official_reference_ids`.
 14. Given an existing Enterprise working service was provisioned with the older v1 schema, when Settings validation runs, then it must report a clear schema upgrade/remediation message instead of treating the service as ready for Compute approve/reject/postpone decisions.
+15. Given Create Spatial Units generates bearing and distance labels on parcel lines, when Enterprise provisioning or validation runs, then the `working_lines` schema must include `bearing_txt`, `distance_txt`, and `length_txt`, and validation must fail with a schema-upgrade/remediation message if those fields are missing.
+16. Given Story 7.9 writes the Innola Spatial Unit closeout reference back to Enterprise, when provisioning or validation runs, then `working_case_index` must include `spatial_unit_id` and `spatial_unit_api_status`, and validation must fail with a schema-upgrade/remediation message if either field is missing.
 
 ## Tasks / Subtasks
 
@@ -70,6 +72,7 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
   - [x] Validate layer/table URLs are reachable.
   - [x] Validate query/edit capabilities required by Story 7.7.
   - [x] Validate required shared fields and role-specific fields.
+  - [x] Validate `working_lines` preserves COGO label/source fields: `bearing_txt`, `distance_txt`, and `length_txt`. (AC: 15)
   - [x] Validate geometry type for points, lines, and polygons.
   - [x] Validate case index exists and supports one row per transaction scope.
   - [x] Show warnings for optional issues layer absence, not blockers.
@@ -80,6 +83,11 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
   - [x] Validate that rejected/postponed cases have capacity for a useful comment/reason.
   - [x] Return an explicit "schema upgrade required" diagnostic for live services missing these fields.
   - [x] Keep optional issues layer validation warning-only unless a later story makes issues required.
+
+- [x] Update schema validation for Spatial Unit closeout references. (AC: 9, 16)
+  - [x] Require `spatial_unit_id` and `spatial_unit_api_status` on `working_case_index`.
+  - [x] Return an explicit "schema upgrade required" diagnostic for live case-index tables missing these fields.
+  - [x] Ensure generated URLs/settings are not written back as ready when the case-index table lacks Spatial Unit closeout reference fields.
 
 - [x] Implement maintenance cleanup operations. (AC: 6-8)
   - [x] Support cleanup by `transaction_number`.
@@ -121,6 +129,8 @@ Compute is a temporary document-geometry review stage. The Enterprise working wo
 
 - [x] Rework the provisioned template/schema for Compute disposition support. (AC: 3-5, 8-14)
   - [x] Update the schema template generator to include disposition fields on points, lines, polygons, and case index.
+  - [x] Keep `working_lines` COGO fields (`bearing_txt`, `distance_txt`, `length_txt`) in the generated template and Feature Collection schema so Enterprise publish can copy bearing/distance values from local outputs. (AC: 15)
+  - [x] Add `spatial_unit_id` and `spatial_unit_api_status` to the generated `working_case_index` template/schema so Finalize can write the Innola Spatial Unit reference after the API save succeeds. (AC: 16)
   - [x] Regenerate the default schema template artifact with the updated fields.
   - [x] Decide whether to keep `sidwell_enterprise_working_v1` with additive field validation or introduce a new schema version such as `sidwell_enterprise_working_v2`.
   - [x] Ensure live provisioning writes generated URLs only after the final FeatureServer children expose both geometry roles and disposition fields.
@@ -210,7 +220,15 @@ Required shared fields across spatial working layers:
 | `is_active` | Short | Active row flag |
 | `edit_generation` | Long | Republish generation |
 
-Role-specific fields are inherited from Story 7.7 and should not diverge unless that story is updated. The case index must also include the disposition fields because it is the transaction-level lookup used for resume, review outcome, and closeout readiness.
+Role-specific fields are inherited from Story 7.7 and should not diverge unless that story is updated. The `lines` role must include the COGO label/source fields `bearing_txt`, `distance_txt`, and `length_txt` so bearing and distance values generated during Create Spatial Units are preserved in Enterprise, available for review labels, and not dropped by publish allowlists. The case index must also include the disposition fields because it is the transaction-level lookup used for resume, review outcome, and closeout readiness.
+
+Required role-specific COGO fields for `working_lines`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `bearing_txt` | Text(64) | Display/source bearing for line labeling and review |
+| `distance_txt` | Text(64) | Display/source distance for line labeling and review |
+| `length_txt` | Text(128) | Display/source length fallback where distance text differs |
 
 ## Recommended Settings Contract
 
@@ -338,6 +356,8 @@ Minimum verification:
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj`
 - Python unit tests for provisioning argument construction and JSON diagnostics in test/offline mode.
 - Python/admin schema tests proving the generated template includes the Compute disposition fields.
+- Python/admin schema tests proving `working_lines` includes `bearing_txt`, `distance_txt`, and `length_txt`, and validation rejects a live/template line layer missing those fields.
+- Python/admin schema tests proving `working_case_index` includes `spatial_unit_id` and `spatial_unit_api_status`, and validation rejects a live/template case-index table missing those fields.
 - Settings validation tests proving older schemas without disposition fields are blocked in `enterprise_working_layers` mode.
 
 Live portal smoke testing is separate and requires admin credentials at runtime.
@@ -421,3 +441,5 @@ Live portal smoke testing is separate and requires admin credentials at runtime.
 | 2026-07-01 | 2.0 | Reopened story for Compute disposition schema support: provisioning and validation must include approve/reject/postpone decision fields across working layers and case index. | Mary / Codex |
 | 2026-07-01 | 2.1 | Implemented additive Compute disposition schema fields, decision-domain validation, schema-upgrade diagnostics, regenerated v1 FileGDB template, and post-provision child field verification. | Amelia / Codex |
 | 2026-07-01 | 2.2 | Addressed review patch by requiring post-provision child capability and geometry validation before generated Enterprise URLs are written back. | Amelia / Codex |
+| 2026-07-06 | 2.3 | Patched story to explicitly require Enterprise `working_lines` COGO fields `bearing_txt`, `distance_txt`, and `length_txt` for bearing/distance publish and validation. | Mary / Codex |
+| 2026-07-06 | 2.4 | Patched story to require Enterprise `working_case_index` Spatial Unit reference fields `spatial_unit_id` and `spatial_unit_api_status` for Finalize closeout validation. | Mary / Codex |

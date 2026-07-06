@@ -1053,6 +1053,70 @@ def _append_features(arcpy, source: str, target: str) -> None:
     arcpy.management.Append([source], target, "NO_TEST")
 
 
+_FABRIC_LINE_COGO_FIELDS: tuple[tuple[str, str, int | None], ...] = (
+    ("bearing_txt", "TEXT", 64),
+    ("distance_txt", "TEXT", 64),
+    ("length_txt", "TEXT", 128),
+    ("distance_m", "DOUBLE", None),
+)
+
+
+def _dataset_field_names(arcpy, dataset: str) -> set[str]:
+    return {field.name.lower() for field in arcpy.ListFields(dataset)}
+
+
+def _ensure_fabric_line_cogo_fields(arcpy, target_line_fc: str) -> None:
+    existing = _dataset_field_names(arcpy, target_line_fc)
+    for field_name, field_type, field_length in _FABRIC_LINE_COGO_FIELDS:
+        if field_name.lower() in existing:
+            continue
+        if field_length is None:
+            arcpy.management.AddField(target_line_fc, field_name, field_type)
+        else:
+            arcpy.management.AddField(target_line_fc, field_name, field_type, field_length=field_length)
+
+
+def _copy_cogo_fields_to_fabric_lines(arcpy, source_line_fc: str | None, target_line_fc: str | None, warnings: list[str] | None = None) -> None:
+    if not source_line_fc or not target_line_fc:
+        return
+
+    required_source_fields = [field[0] for field in _FABRIC_LINE_COGO_FIELDS]
+    source_fields = _dataset_field_names(arcpy, source_line_fc)
+    missing_source_fields = [field_name for field_name in required_source_fields if field_name.lower() not in source_fields]
+    if missing_source_fields:
+        if warnings is not None:
+            warnings.append(
+                "Parcel Fabric line COGO enrichment skipped because source parcel_lines is missing "
+                + ", ".join(missing_source_fields)
+                + "."
+            )
+        return
+
+    _ensure_fabric_line_cogo_fields(arcpy, target_line_fc)
+
+    with arcpy.da.SearchCursor(source_line_fc, required_source_fields) as cursor:
+        values = [tuple(row) for row in cursor]
+    if not values:
+        return
+
+    copied_count = 0
+    with arcpy.da.UpdateCursor(target_line_fc, required_source_fields) as cursor:
+        for index, row in enumerate(cursor):
+            if index >= len(values):
+                break
+            updated = list(row)
+            for field_index, value in enumerate(values[index]):
+                updated[field_index] = value
+            cursor.updateRow(updated)
+            copied_count += 1
+
+    if warnings is not None and copied_count != len(values):
+        warnings.append(
+            "Parcel Fabric line COGO enrichment copied "
+            f"{copied_count} of {len(values)} source line row(s); source and fabric line counts differ."
+        )
+
+
 def _count_rows(arcpy, dataset_path: str | None) -> int:
     if not dataset_path:
         return 0
@@ -1068,6 +1132,7 @@ def _create_true_parcel_fabric_with_arcpy(
     target_gdb: Path,
     root_paths: dict[str, str | None],
     transaction_number: str,
+    warnings: list[str] | None = None,
 ) -> tuple[dict[str, str | None], dict[str, Any]]:
     fabric_dataset = target_gdb / PARCEL_FABRIC_DATASET_NAME
     if arcpy.Exists(str(fabric_dataset)):
@@ -1157,6 +1222,8 @@ def _create_true_parcel_fabric_with_arcpy(
 
     print("Parcel fabric step: validating parcel fabric.")
     arcpy.parcel.ValidateParcelFabric(fabric_path, None)
+
+    _copy_cogo_fields_to_fabric_lines(arcpy, root_paths.get("line_fc"), parcel_line_fc, warnings)
 
     return (
         {
@@ -1668,6 +1735,7 @@ def _create_outputs_with_arcpy(
             target_gdb,
             root_paths,
             transaction_number,
+            warnings,
         )
 
     return (root_paths, review_paths | review_metadata, warnings)

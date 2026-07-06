@@ -193,7 +193,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(ShellState.CompletedAttachmentSourceType, disposition?.WorkingPackageSourceType, "Disposition should persist completed package source type.");
         TestAssert.Equal("uploaded", disposition?.WorkingPackageUploadStatus, "Disposition should persist completed package upload status.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_save_started", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit save start.");
         TestAssert.True(audit.Contains("compute_spatial_unit_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit save.");
+        TestAssert.True(audit.Contains("compute_spatial_unit_polygon_suid_reference_started", StringComparison.OrdinalIgnoreCase), "Audit should record polygon SUID writeback start.");
         TestAssert.True(audit.Contains("compute_working_package_uploaded", StringComparison.OrdinalIgnoreCase), "Audit should record package upload.");
     }
 
@@ -231,6 +233,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
         TestAssert.Equal(null, disposition?.SpatialUnitApiStatus, "Failed Spatial Unit save must not be recorded as saved.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_save_started", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit save start before failure.");
         TestAssert.True(audit.Contains("compute_spatial_unit_save_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit failure.");
     }
 
@@ -265,6 +268,11 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal("saved", disposition?.SpatialUnitApiStatus, "Spatial Unit status should remain saved after later package failure.");
         TestAssert.Equal("failed", disposition?.WorkingPackageUploadStatus, "Disposition should persist package upload failure.");
         TestAssert.Equal(InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"), disposition?.WorkingPackageFileName, "Package file name should be persisted even when upload fails.");
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        TestAssert.Equal("su-100000004", manifest.Payload.InnolaLifecycle?.SpatialUnitId, "Manifest should retain Spatial Unit id after package upload failure.");
+        TestAssert.Equal("saved", manifest.Payload.InnolaLifecycle?.SpatialUnitApiStatus, "Manifest should retain Spatial Unit status after package upload failure.");
+        TestAssert.Equal(InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"), manifest.Payload.InnolaLifecycle?.WorkingPackageFileName, "Manifest should persist failed package file name.");
+        TestAssert.Equal("failed", manifest.Payload.InnolaLifecycle?.WorkingPackageUploadStatus, "Manifest should persist failed package upload status.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_working_package_upload_failed", StringComparison.OrdinalIgnoreCase), "Audit should record package upload failure.");
     }

@@ -17,6 +17,87 @@ class OutputAdapterTests(unittest.TestCase):
         self.assertFalse(output_adapter._is_allowed_cad_layer("Road Centerline", allowed))
         self.assertTrue(output_adapter._is_allowed_cad_layer("Road Centerline", set()))
 
+    def test_output_adapter_copies_cogo_fields_to_fabric_lines(self):
+        class FakeField:
+            def __init__(self, name):
+                self.name = name
+
+        class FakeCursor:
+            def __init__(self, rows, fields, update=False):
+                self.rows = rows
+                self.fields = fields
+                self.update = update
+                self.index = -1
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self.index += 1
+                if self.index >= len(self.rows):
+                    raise StopIteration
+                return [self.rows[self.index].get(field) for field in self.fields]
+
+            def updateRow(self, values):
+                for field, value in zip(self.fields, values):
+                    self.rows[self.index][field] = value
+
+        class FakeManagement:
+            def __init__(self, arcpy):
+                self.arcpy = arcpy
+
+            def AddField(self, dataset, field_name, field_type, field_length=None):
+                self.arcpy.datasets[dataset]["fields"].append(field_name)
+                for row in self.arcpy.datasets[dataset]["rows"]:
+                    row[field_name] = None
+
+        class FakeDa:
+            def __init__(self, arcpy):
+                self.arcpy = arcpy
+
+            def SearchCursor(self, dataset, fields):
+                return FakeCursor(self.arcpy.datasets[dataset]["rows"], fields)
+
+            def UpdateCursor(self, dataset, fields):
+                return FakeCursor(self.arcpy.datasets[dataset]["rows"], fields, update=True)
+
+        class FakeArcpy:
+            def __init__(self):
+                self.datasets = {
+                    "source": {
+                        "fields": ["bearing_txt", "distance_txt", "length_txt", "distance_m"],
+                        "rows": [
+                            {"bearing_txt": "N1", "distance_txt": "10.00", "length_txt": "10.00", "distance_m": 10.0},
+                            {"bearing_txt": "N2", "distance_txt": "20.00", "length_txt": "20.00", "distance_m": 20.0},
+                        ],
+                    },
+                    "target": {
+                        "fields": [],
+                        "rows": [{}, {}],
+                    },
+                }
+                self.management = FakeManagement(self)
+                self.da = FakeDa(self)
+
+            def ListFields(self, dataset):
+                return [FakeField(name) for name in self.datasets[dataset]["fields"]]
+
+        fake = FakeArcpy()
+        warnings = []
+
+        output_adapter._copy_cogo_fields_to_fabric_lines(fake, "source", "target", warnings)
+
+        self.assertEqual([], warnings)
+        self.assertEqual("N1", fake.datasets["target"]["rows"][0]["bearing_txt"])
+        self.assertEqual("20.00", fake.datasets["target"]["rows"][1]["length_txt"])
+        self.assertEqual(20.0, fake.datasets["target"]["rows"][1]["distance_m"])
+
     def test_output_adapter_writes_output_summary_and_geojson(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

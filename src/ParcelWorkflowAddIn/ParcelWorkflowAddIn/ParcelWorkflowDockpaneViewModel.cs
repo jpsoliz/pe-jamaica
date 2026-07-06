@@ -330,7 +330,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public IReadOnlyList<WorkflowLifecycleStep> WorkflowSteps => BuildWorkflowSteps();
 
-    public WorkflowWorkspaceStage ActiveWorkspaceStage => WorkflowWorkspacePlanner.ResolveActiveStage(CurrentWorkflowState, IntakeReadyForPreflight, HasExtractionArtifact);
+    public WorkflowWorkspaceStage ActiveWorkspaceStage => ResolveActiveWorkspaceStage();
 
     public bool HasActiveCase => !string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath);
 
@@ -343,7 +343,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool IsIntakeStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.Intake;
 
-    public bool IsPreflightStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.Preflight;
+    public bool IsPreflightStageActive =>
+        ActiveWorkspaceStage is WorkflowWorkspaceStage.Preflight
+            or WorkflowWorkspaceStage.StructureCheck
+            or WorkflowWorkspaceStage.GeoreferenceCheck
+            or WorkflowWorkspaceStage.DimensionCheck;
+
+    public bool IsStructureCheckStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.StructureCheck;
+
+    public bool IsGeoreferenceCheckStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.GeoreferenceCheck;
+
+    public bool IsDimensionCheckStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.DimensionCheck;
 
     public bool IsExtractionReviewStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.ExtractionReview;
 
@@ -1441,7 +1451,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var parcelGroupId = ResolveActiveReviewParcelGroupId();
         var parcelName = ResolveActiveReviewParcelName();
         var traverseId = ResolveActiveReviewTraverseId();
-        var manualRow = manualPointService.CreateManualRow(loadedReviewDocument, parcelGroupId, parcelName, traverseId);
+        var insertAfterRow = ResolveManualPointInsertAnchor(parcelGroupId);
+        var manualRow = manualPointService.CreateManualRow(
+            loadedReviewDocument,
+            parcelGroupId,
+            parcelName,
+            traverseId,
+            insertAfterRow?.SequenceInGroup,
+            insertAfterRow?.PointIdentifier);
         var draft = PointEditDraft.CreateForNew(manualRow);
         if (!TryEditReviewPoint(draft, out var committedDraft))
         {
@@ -1451,15 +1468,63 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         committedDraft.ApplyTo(manualRow);
-        loadedReviewDocument.Rows.Add(manualRow);
+        InsertManualReviewRow(loadedReviewDocument.Rows, manualRow, insertAfterRow?.Model);
         var reviewRow = new ExtractionReviewRowViewModel(manualRow, OnReviewRowChanged);
-        ReviewRows.Add(reviewRow);
+        InsertManualReviewRowViewModel(reviewRow, insertAfterRow);
+        RefreshReviewRowSequences(parcelGroupId);
+        SetReviewWorkspaceParcelContext(parcelGroupId, parcelName, traverseId, refreshProperties: false);
         SelectedReviewRow = reviewRow;
         reviewDirty = true;
         pendingManualRowId = null;
         reviewContentVersion++;
-        workflowSession.SetValidationFailure($"Point added to parcel {parcelGroupId}. Save review to persist the change.");
+        var sequenceText = manualRow.SequenceInGroup?.ToString(CultureInfo.InvariantCulture) ?? "next";
+        workflowSession.SetValidationFailure($"Point inserted at sequence {sequenceText} in parcel {parcelGroupId}. Save review to persist the change.");
         RefreshWorkflowProperties();
+    }
+
+    private ExtractionReviewRowViewModel? ResolveManualPointInsertAnchor(string parcelGroupId)
+    {
+        var normalizedParcelGroupId = NormalizeReviewParcelGroupId(parcelGroupId);
+        return SelectedReviewRow is { SequenceInGroup: > 0 } selectedRow
+            && string.Equals(NormalizeReviewParcelGroupId(selectedRow.ParcelGroupId), normalizedParcelGroupId, StringComparison.OrdinalIgnoreCase)
+            ? selectedRow
+            : ReviewRows
+                .Where(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), normalizedParcelGroupId, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+                .LastOrDefault();
+    }
+
+    private static void InsertManualReviewRow(IList<ExtractionReviewRow> rows, ExtractionReviewRow manualRow, ExtractionReviewRow? insertAfterRow)
+    {
+        var insertIndex = insertAfterRow is null ? -1 : rows.IndexOf(insertAfterRow);
+        if (insertIndex >= 0)
+        {
+            rows.Insert(insertIndex + 1, manualRow);
+            return;
+        }
+
+        rows.Add(manualRow);
+    }
+
+    private void InsertManualReviewRowViewModel(ExtractionReviewRowViewModel reviewRow, ExtractionReviewRowViewModel? insertAfterRow)
+    {
+        var insertIndex = insertAfterRow is null ? -1 : ReviewRows.IndexOf(insertAfterRow);
+        if (insertIndex >= 0)
+        {
+            ReviewRows.Insert(insertIndex + 1, reviewRow);
+            return;
+        }
+
+        ReviewRows.Add(reviewRow);
+    }
+
+    private void RefreshReviewRowSequences(string parcelGroupId)
+    {
+        var normalizedParcelGroupId = NormalizeReviewParcelGroupId(parcelGroupId);
+        foreach (var row in ReviewRows.Where(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), normalizedParcelGroupId, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.RefreshSequenceInGroup();
+        }
     }
 
     private void EditSelectedReviewPoint()
@@ -2731,11 +2796,49 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             _ => "—"
         };
 
+    private WorkflowWorkspaceStage ResolveActiveWorkspaceStage()
+    {
+        var stage = WorkflowWorkspacePlanner.ResolveActiveStage(CurrentWorkflowState, IntakeReadyForPreflight, HasExtractionArtifact);
+        return stage == WorkflowWorkspaceStage.Preflight
+            ? ResolveEarlyCheckWorkspaceStage()
+            : stage;
+    }
+
+    private WorkflowWorkspaceStage ResolveEarlyCheckWorkspaceStage()
+    {
+        if (HasBlockingGroup(SupportingDocumentResults))
+        {
+            return WorkflowWorkspaceStage.Intake;
+        }
+
+        if (HasBlockingGroup(StructureCheckResults) || !HasStructureCheckResults)
+        {
+            return WorkflowWorkspaceStage.StructureCheck;
+        }
+
+        if (HasBlockingGroup(GeoreferenceResults) || !HasGeoreferenceResults)
+        {
+            return WorkflowWorkspaceStage.GeoreferenceCheck;
+        }
+
+        if (HasBlockingGroup(DimensionCheckResults) || !HasDimensionCheckResults)
+        {
+            return WorkflowWorkspaceStage.DimensionCheck;
+        }
+
+        return CurrentWorkflowState == WorkflowState.PreflightBlocked
+            ? WorkflowWorkspaceStage.DimensionCheck
+            : WorkflowWorkspaceStage.GeoreferenceCheck;
+    }
+
     private string GetWorkspaceStageLabel(WorkflowWorkspaceStage stage, WorkflowState state) =>
         stage switch
         {
             WorkflowWorkspaceStage.Intake => "Supporting Document Check",
             WorkflowWorkspaceStage.Preflight => ResolveEarlyCheckWorkspaceLabel(state),
+            WorkflowWorkspaceStage.StructureCheck => "Structure Check",
+            WorkflowWorkspaceStage.GeoreferenceCheck => "Georeference Check",
+            WorkflowWorkspaceStage.DimensionCheck => "Dimension Check",
             WorkflowWorkspaceStage.ExtractionReview => "Validate Points and Lines",
             WorkflowWorkspaceStage.Validation => "Create Spatial Units",
             WorkflowWorkspaceStage.Outputs => "Create Spatial Units",
@@ -2833,6 +2936,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ActiveWorkspaceStage));
         NotifyPropertyChanged(nameof(IsIntakeStageActive));
         NotifyPropertyChanged(nameof(IsPreflightStageActive));
+        NotifyPropertyChanged(nameof(IsStructureCheckStageActive));
+        NotifyPropertyChanged(nameof(IsGeoreferenceCheckStageActive));
+        NotifyPropertyChanged(nameof(IsDimensionCheckStageActive));
         NotifyPropertyChanged(nameof(IsExtractionReviewStageActive));
         NotifyPropertyChanged(nameof(IsValidationStageActive));
         NotifyPropertyChanged(nameof(IsOutputsStageActive));

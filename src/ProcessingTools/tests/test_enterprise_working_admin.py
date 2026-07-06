@@ -470,7 +470,7 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             admin_script._post_form = original_post
             admin_script._fetch_layer_metadata = original_fetch
 
-    def test_live_provision_publishes_missing_service_from_feature_collection_schema(self):
+    def test_live_provision_publishes_missing_service_from_schema_template(self):
         args = admin_script.parse_args(
             [
                 "--mode",
@@ -486,21 +486,16 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         )
         fetch_count = {"value": 0}
         post_calls = []
+        multipart_calls = []
 
         def fake_post(url, form, token_env_var, *, raise_on_error=True):
             post_calls.append((url, dict(form)))
             if url.endswith("/community/self"):
                 return {"username": "admin"}
-            if url.endswith("/addItem"):
-                schema = json.loads(form["text"])
-                self.assertEqual({"wkid": 3448, "latestWkid": 3448}, schema["spatialReference"])
-                self.assertEqual(5, len(schema["layers"]))
-                field_names = {field["name"] for field in schema["layers"][1]["layerDefinition"]["fields"]}
-                self.assertIn("bearing_txt", field_names)
-                self.assertIn("distance_txt", field_names)
-                self.assertIn("review_decision", field_names)
-                return {"success": True, "id": "feature-collection-item"}
+            if url.endswith("/search"):
+                return {"results": []}
             if url.endswith("/publish"):
+                self.assertEqual("fileGeodatabase", form["fileType"])
                 return {
                     "services": [
                         {
@@ -515,6 +510,11 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             if url.endswith("/delete"):
                 return {"success": True}
             return {"success": True}
+
+        def fake_multipart(url, form, file_field, file_path, token_env_var):
+            multipart_calls.append((url, dict(form), file_field, str(file_path)))
+            self.assertTrue(str(file_path).endswith("sidwell_enterprise_working_v1.zip"))
+            return {"success": True, "id": "schema-template-item"}
 
         def fake_fetch(url, token_env_var):
             fetch_count["value"] += 1
@@ -544,22 +544,225 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             }
 
         original_post = admin_script._post_form
+        original_multipart = admin_script._post_multipart_file
         original_fetch = admin_script._fetch_layer_metadata
         try:
             admin_script._post_form = fake_post
+            admin_script._post_multipart_file = fake_multipart
             admin_script._fetch_layer_metadata = fake_fetch
 
             layers = admin_script._provision_live_layers_rest(args)
         finally:
             admin_script._post_form = original_post
+            admin_script._post_multipart_file = original_multipart
             admin_script._fetch_layer_metadata = original_fetch
 
         self.assertEqual(
             "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer/3",
             layers["case_index"],
         )
-        self.assertTrue(any(url.endswith("/addItem") for url, _ in post_calls))
+        self.assertTrue(any(call[0].endswith("/addItem") for call in multipart_calls))
         self.assertTrue(any(url.endswith("/publish") for url, _ in post_calls))
+
+    def test_working_lines_label_expression_uses_length_then_distance_fallback(self):
+        labeling_info = admin_script._working_lines_labeling_info()
+
+        self.assertEqual("COGO Segment", labeling_info[0]["name"])
+        expression = labeling_info[0]["labelExpressionInfo"]["expression"]
+        self.assertIn("$feature.length_txt", expression)
+        self.assertIn("$feature.distance_txt", expression)
+        self.assertIn("$feature.bearing_txt", expression)
+        self.assertIn("TextFormatting.NewLine", expression)
+        self.assertLess(expression.index("$feature.length_txt"), expression.index("$feature.distance_txt"))
+
+    def test_feature_collection_schema_includes_working_lines_labeling_info(self):
+        args = admin_script.parse_args(["--mode", "provision"])
+
+        schema = admin_script._feature_collection_schema(args)
+        lines_definition = next(
+            child["layerDefinition"]
+            for child in schema["layers"]
+            if child["layerDefinition"]["name"] == "working_lines"
+        )
+
+        labeling_info = lines_definition["drawingInfo"]["labelingInfo"]
+        self.assertEqual(admin_script._working_lines_labeling_info(), labeling_info)
+
+    def test_validate_fields_reports_missing_cogo_fields_for_lines_visualization(self):
+        metadata = _valid_child_metadata("lines")
+        metadata["fields"] = [
+            field for field in metadata["fields"] if field["name"] not in {"bearing_txt", "length_txt", "distance_txt"}
+        ]
+        errors = []
+
+        admin_script._validate_fields("lines", metadata, errors)
+
+        joined = "\n".join(errors)
+        self.assertIn("default visualization labeling", joined)
+        self.assertIn("bearing_txt", joined)
+        self.assertIn("length_txt", joined)
+        self.assertIn("distance_txt", joined)
+
+    def test_apply_working_lines_visualization_posts_update_definition_without_token_in_diagnostics(self):
+        calls = []
+
+        def fake_post(url, form, token_env_var, *, raise_on_error=True):
+            calls.append((url, dict(form), token_env_var))
+            return {"success": True}
+
+        original_post = admin_script._post_form
+        try:
+            admin_script._post_form = fake_post
+            result = admin_script._apply_working_lines_visualization(
+                "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer/1",
+                "ARCGIS_PORTAL_TOKEN",
+            )
+        finally:
+            admin_script._post_form = original_post
+
+        self.assertEqual("applied", result["status"])
+        self.assertEqual(
+            "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer/1/updateDefinition",
+            calls[0][0],
+        )
+        update_definition = json.loads(calls[0][1]["updateDefinition"])
+        self.assertEqual(admin_script._working_lines_labeling_info(), update_definition["drawingInfo"]["labelingInfo"])
+        self.assertNotIn("token", json.dumps(result).lower())
+
+    def test_update_definition_urls_include_public_and_admin_shapes(self):
+        urls = admin_script._update_definition_urls(
+            "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1"
+        )
+
+        self.assertIn(
+            "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1/updateDefinition",
+            urls,
+        )
+        self.assertIn(
+            "https://jm-gis.innola-solutions.com/server/rest/admin/services/Hosted/working_review.FeatureServer/1/updateDefinition",
+            urls,
+        )
+        self.assertIn(
+            "https://jm-gis.innola-solutions.com/server/admin/services/Hosted/working_review.FeatureServer/1/updateDefinition",
+            urls,
+        )
+        self.assertIn(
+            "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1/admin/updateDefinition",
+            urls,
+        )
+
+    def test_apply_working_lines_visualization_failure_is_token_safe(self):
+        def fake_post(url, form, token_env_var, *, raise_on_error=True):
+            raise RuntimeError("Invalid token")
+
+        original_post = admin_script._post_form
+        try:
+            admin_script._post_form = fake_post
+            result = admin_script._apply_working_lines_visualization(
+                "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer/1",
+                "ARCGIS_PORTAL_TOKEN",
+            )
+        finally:
+            admin_script._post_form = original_post
+
+        self.assertEqual("failed", result["status"])
+        self.assertIn("data publishing remains separate", result["message"])
+        self.assertNotIn("ARCGIS_PORTAL_TOKEN", json.dumps(result))
+
+    def test_dry_run_payload_includes_visualization_contract(self):
+        args = admin_script.parse_args(["--mode", "provision"])
+
+        payload = admin_script.build_payload(args)
+
+        self.assertEqual("skipped", payload["visualization"]["status"])
+        self.assertEqual("COGO Segment", payload["visualization"]["lines"]["label_class"])
+        self.assertIn("distance_txt", payload["visualization"]["lines"]["label_expression"])
+
+    def test_live_validate_reports_working_lines_visualization_already_current(self):
+        args = admin_script.parse_args(
+            [
+                "--mode",
+                "validate",
+                "--points-layer",
+                "https://enterprise.local/FeatureServer/0",
+                "--lines-layer",
+                "https://enterprise.local/FeatureServer/1",
+                "--polygons-layer",
+                "https://enterprise.local/FeatureServer/2",
+                "--case-index-layer",
+                "https://enterprise.local/FeatureServer/3",
+                "--no-dry-run",
+            ]
+        )
+
+        def fake_fetch(url, token_env_var):
+            role = {
+                "/0": "points",
+                "/1": "lines",
+                "/2": "polygons",
+                "/3": "case_index",
+            }[url[-2:]]
+            metadata = _valid_child_metadata(role)
+            if role == "lines":
+                metadata["drawingInfo"] = {"labelingInfo": admin_script._working_lines_labeling_info()}
+            return metadata
+
+        original_fetch = admin_script._fetch_layer_metadata
+        try:
+            admin_script._fetch_layer_metadata = fake_fetch
+            payload = admin_script.build_payload(args)
+        finally:
+            admin_script._fetch_layer_metadata = original_fetch
+
+        self.assertEqual("validated", payload["status"])
+        self.assertEqual("already_current", payload["visualization"]["status"])
+        self.assertEqual(["COGO Segment"], payload["validation"]["live_metadata"]["lines"]["label_class_names"])
+
+    def test_live_provision_fails_when_visualization_update_definition_fails(self):
+        previous = os.environ.get("ARCGIS_PORTAL_TOKEN")
+        os.environ["ARCGIS_PORTAL_TOKEN"] = "secret-token-value"
+        args = admin_script.parse_args(
+            [
+                "--mode",
+                "provision",
+                "--portal-url",
+                "https://enterprise.local/portal",
+                "--service-root",
+                "https://enterprise.local/server/rest",
+                "--target-service-name",
+                "working_review",
+                "--no-dry-run",
+            ]
+        )
+        layers = {
+            "points": "https://enterprise.local/FeatureServer/0",
+            "lines": "https://enterprise.local/FeatureServer/1",
+            "polygons": "https://enterprise.local/FeatureServer/2",
+            "case_index": "https://enterprise.local/FeatureServer/3",
+            "issues": "https://enterprise.local/FeatureServer/4",
+        }
+
+        def fake_post(url, form, token_env_var, *, raise_on_error=True):
+            raise RuntimeError("updateDefinition rejected")
+
+        original_provision = admin_script._provision_live_layers_rest
+        original_post = admin_script._post_form
+        try:
+            admin_script._provision_live_layers_rest = lambda parsed_args: layers
+            admin_script._post_form = fake_post
+            payload = admin_script.build_payload(args)
+        finally:
+            admin_script._provision_live_layers_rest = original_provision
+            admin_script._post_form = original_post
+            if previous is None:
+                os.environ.pop("ARCGIS_PORTAL_TOKEN", None)
+            else:
+                os.environ["ARCGIS_PORTAL_TOKEN"] = previous
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["visualization"]["status"])
+        self.assertIn("Enterprise default visualization setup failed", payload["validation"]["errors"][0])
+        self.assertNotIn("secret-token-value", json.dumps(payload))
 
     def test_feature_collection_schema_includes_compute_disposition_fields_and_domain(self):
         args = admin_script.parse_args(["--mode", "provision"])
@@ -598,6 +801,41 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         self.assertIn("review_comment", shared_fields)
         self.assertIn("official_comparison_status", shared_fields)
         self.assertIn("official_reference_ids", shared_fields)
+
+    def test_schema_includes_polygon_suid_field_for_generated_innola_id(self):
+        args = admin_script.parse_args(["--mode", "provision"])
+
+        schema = admin_script._feature_collection_schema(args)
+
+        polygons_definition = next(
+            child["layerDefinition"]
+            for child in schema["layers"]
+            if child["layerDefinition"]["name"] == "working_polygons"
+        )
+        fields = {field["name"]: field for field in polygons_definition["fields"]}
+        self.assertIn("SUID", fields)
+        self.assertGreaterEqual(fields["SUID"]["length"], 64)
+
+        template_polygon_fields = {field_name for field_name, _, _ in template_script.POLYGON_FIELDS}
+        self.assertIn("SUID", template_polygon_fields)
+
+    def test_schema_includes_case_index_spatial_unit_reference_fields(self):
+        args = admin_script.parse_args(["--mode", "provision"])
+
+        schema = admin_script._feature_collection_schema(args)
+
+        case_index_definition = next(
+            child["layerDefinition"]
+            for child in schema["layers"]
+            if child.get("layerDefinition", {}).get("name") == "working_case_index"
+        )
+        fields = {field["name"]: field for field in case_index_definition["fields"]}
+        self.assertIn("spatial_unit_id", fields)
+        self.assertIn("spatial_unit_api_status", fields)
+
+        template_case_index_fields = {field_name for field_name, _, _ in template_script.CASE_INDEX_FIELDS}
+        self.assertIn("spatial_unit_id", template_case_index_fields)
+        self.assertIn("spatial_unit_api_status", template_case_index_fields)
 
     def test_validate_fields_reports_schema_upgrade_for_missing_disposition_fields(self):
         metadata = {
@@ -639,6 +877,19 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         admin_script._validate_fields("points", metadata, errors)
 
         self.assertFalse(errors)
+
+    def test_validate_fields_requires_polygon_suid_field(self):
+        metadata = {
+            "fields": [
+                {"name": field_name, "length": 1024 if field_name == "review_comment" else 64}
+                for field_name in admin_script.SHARED_FIELDS
+            ]
+        }
+        errors = []
+
+        admin_script._validate_fields("polygons", metadata, errors)
+
+        self.assertTrue(any("SUID" in error for error in errors))
 
     def test_verified_layer_urls_rejects_old_schema_before_writeback(self):
         service_url = "https://enterprise.local/server/rest/services/Hosted/working_review/FeatureServer"

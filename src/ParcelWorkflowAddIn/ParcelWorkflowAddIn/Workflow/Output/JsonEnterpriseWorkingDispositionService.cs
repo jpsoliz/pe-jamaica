@@ -34,6 +34,11 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         "spatial_unit_id",
         "spatial_unit_api_status"
     ];
+    private static readonly string[] RequiredPolygonSpatialUnitReferenceFields =
+    [
+        "parcel_name",
+        "SUID"
+    ];
 
     private readonly Func<InnolaTransactionSettings> getSettings;
 
@@ -234,6 +239,95 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         }
     }
 
+    public async Task<EnterpriseWorkingDispositionResult> RecordPolygonSpatialUnitReferencesAsync(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        IReadOnlyList<InnolaSpatialUnitPolygonReference>? polygonReferences,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var references = (polygonReferences ?? Array.Empty<InnolaSpatialUnitPolygonReference>())
+            .Where(reference => !string.IsNullOrWhiteSpace(reference.SpatialUnitSuid) || !string.IsNullOrWhiteSpace(reference.SpatialUnitId))
+            .ToArray();
+        if (references.Length == 0)
+        {
+            return EnterpriseWorkingDispositionResult.Succeeded(
+                "No Spatial Unit SUID values were returned; polygon SUID writeback was skipped.",
+                string.Empty);
+        }
+
+        var settings = getSettings();
+        if (!string.Equals(settings.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase)
+            || !settings.EnterpriseWorkingReview.Enabled)
+        {
+            return EnterpriseWorkingDispositionResult.Succeeded(
+                "Enterprise working layers mode is not active; polygon Spatial Unit SUID writeback was skipped.",
+                string.Empty);
+        }
+
+        var reviewSettings = settings.EnterpriseWorkingReview;
+        var polygonsTarget = reviewSettings.Layers.Polygons;
+        if (string.IsNullOrWhiteSpace(polygonsTarget))
+        {
+            return EnterpriseWorkingDispositionResult.Failed(
+                "Enterprise polygon Spatial Unit SUID writeback failed.",
+                new[] { "Polygons working layer target is not configured." });
+        }
+
+        var scopeField = string.IsNullOrWhiteSpace(reviewSettings.TransactionScopeField)
+            ? "transaction_number"
+            : reviewSettings.TransactionScopeField;
+        var scopeValue = ResolveScopeValue(manifest, scopeField);
+        if (string.IsNullOrWhiteSpace(scopeValue))
+        {
+            return EnterpriseWorkingDispositionResult.Failed(
+                "Enterprise polygon Spatial Unit SUID writeback failed.",
+                new[] { $"The scope field '{scopeField}' does not map to a value from the current manifest." });
+        }
+
+        try
+        {
+            if (Uri.TryCreate(polygonsTarget, UriKind.Absolute, out var uri)
+                && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            {
+                await UpdateFeatureServicePolygonSpatialUnitReferencesAsync(
+                    polygonsTarget,
+                    scopeField,
+                    scopeValue,
+                    references,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                UpdateJsonPolygonSpatialUnitReferences(polygonsTarget, scopeField, scopeValue, references);
+            }
+
+            Directory.CreateDirectory(layout.WorkingDirectory);
+            var evidencePath = Path.Combine(layout.WorkingDirectory, "enterprise_working_polygon_spatial_unit_references.json");
+            var evidence = new JsonObject
+            {
+                ["schema_version"] = "enterprise_working_polygon_spatial_unit_references_v1",
+                ["transaction_id"] = manifest.TransactionId,
+                ["transaction_number"] = manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId,
+                ["scope_field"] = scopeField,
+                ["scope_value"] = scopeValue,
+                ["reference_count"] = references.Length,
+                ["written_at_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)
+            };
+            File.WriteAllText(evidencePath, evidence.ToJsonString(JsonOptions));
+            return EnterpriseWorkingDispositionResult.Succeeded(
+                "Enterprise working_polygons Spatial Unit SUID values were recorded in SUID.",
+                evidencePath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or NotSupportedException or HttpRequestException or TaskCanceledException)
+        {
+            return EnterpriseWorkingDispositionResult.Failed(
+                "Enterprise polygon Spatial Unit SUID writeback failed.",
+                new[] { exception.Message });
+        }
+    }
+
     private static async Task UpdateFeatureServiceLayerAsync(
         string targetUrl,
         string layerRole,
@@ -387,6 +481,94 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         EnsureArcGisDispositionSuccess(updateResponse, "updateFeatures", "case_index");
     }
 
+    private static async Task UpdateFeatureServicePolygonSpatialUnitReferencesAsync(
+        string targetUrl,
+        string scopeField,
+        string scopeValue,
+        IReadOnlyList<InnolaSpatialUnitPolygonReference> references,
+        CancellationToken cancellationToken)
+    {
+        var token = GetPortalToken();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("ArcGIS Enterprise polygon Spatial Unit SUID writeback requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
+        }
+
+        var referer = GetArcGisReferer(targetUrl);
+        var metadataForm = new Dictionary<string, string>
+        {
+            ["f"] = "json"
+        };
+        AddToken(metadataForm, token);
+        var metadataResponse = await PostFormAsync(targetUrl.TrimEnd('/'), metadataForm, cancellationToken, referer).ConfigureAwait(false);
+        EnsureArcGisDispositionSuccess(metadataResponse, "metadata", "polygons");
+        var objectIdField = ReadJsonString(metadataResponse, "objectIdField")
+            ?? ReadJsonString(metadataResponse, "objectIdFieldName")
+            ?? "OBJECTID";
+        EnsureRequiredFields(metadataResponse, "polygons", RequiredPolygonSpatialUnitReferenceFields);
+
+        var where = $"{scopeField} = '{EscapeSqlLiteral(scopeValue)}'";
+        var queryForm = new Dictionary<string, string>
+        {
+            ["f"] = "json",
+            ["where"] = where,
+            ["outFields"] = $"{objectIdField},parcel_name",
+            ["returnGeometry"] = "false"
+        };
+        AddToken(queryForm, token);
+        var queryResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/query", queryForm, cancellationToken, referer).ConfigureAwait(false);
+        EnsureArcGisDispositionSuccess(queryResponse, "query", "polygons");
+
+        if (queryResponse["features"] is not JsonArray features || features.Count == 0)
+        {
+            throw new InvalidOperationException($"polygons Spatial Unit SUID writeback found no rows for {scopeField}={scopeValue}.");
+        }
+
+        var updates = new JsonArray();
+        var unmatched = references.ToList();
+        var featureObjects = features.OfType<JsonObject>().ToArray();
+        foreach (var feature in featureObjects)
+        {
+            if (feature["attributes"] is not JsonObject attributes
+                || !attributes.TryGetPropertyValue(objectIdField, out var objectId)
+                || objectId is null)
+            {
+                throw new InvalidOperationException($"polygons Spatial Unit SUID query did not return {objectIdField}.");
+            }
+
+            var parcelName = ReadJsonString(attributes, "parcel_name");
+            var reference = TakeReferenceForParcel(unmatched, parcelName);
+            if (reference is null)
+            {
+                continue;
+            }
+
+            updates.Add(new JsonObject
+            {
+                ["attributes"] = new JsonObject
+                {
+                    [objectIdField] = objectId.DeepClone(),
+                    ["SUID"] = BuildPolygonSpatialUnitValue(reference)
+                }
+            });
+        }
+
+        if (updates.Count == 0)
+        {
+            throw new InvalidOperationException("polygons Spatial Unit SUID writeback could not match any returned Spatial Unit references to polygon rows.");
+        }
+
+        var updateForm = new Dictionary<string, string>
+        {
+            ["f"] = "json",
+            ["features"] = updates.ToJsonString(JsonOptions),
+            ["rollbackOnFailure"] = "true"
+        };
+        AddToken(updateForm, token);
+        var updateResponse = await PostFormAsync($"{targetUrl.TrimEnd('/')}/updateFeatures", updateForm, cancellationToken, referer).ConfigureAwait(false);
+        EnsureArcGisDispositionSuccess(updateResponse, "updateFeatures", "polygons");
+    }
+
     private static void UpdateJsonStore(
         string targetPath,
         string layerRole,
@@ -418,6 +600,51 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
             {
                 ApplyDisposition(storeRecord.Payload, request, decidedAtUtc);
             }
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? ".");
+        File.WriteAllText(targetPath, JsonSerializer.Serialize(document, JsonOptions));
+    }
+
+    private static void UpdateJsonPolygonSpatialUnitReferences(
+        string targetPath,
+        string scopeField,
+        string scopeValue,
+        IReadOnlyList<InnolaSpatialUnitPolygonReference> references)
+    {
+        var document = LoadTargetDocument(targetPath);
+        var matched = document.Records.Where(record =>
+            (string.IsNullOrWhiteSpace(record.LayerRole) || string.Equals(record.LayerRole, "polygons", StringComparison.OrdinalIgnoreCase))
+            && record.Scope.TryGetPropertyValue(scopeField, out var valueNode)
+            && string.Equals(valueNode?.GetValue<string>(), scopeValue, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (matched.Length == 0)
+        {
+            throw new InvalidOperationException($"No polygons rows were found for {scopeField}={scopeValue}.");
+        }
+
+        var unmatched = references.ToList();
+        var updatedCount = 0;
+        foreach (var storeRecord in matched)
+        {
+            if (storeRecord.Payload["records"] is JsonArray records)
+            {
+                foreach (var record in records.OfType<JsonObject>())
+                {
+                    if (ApplyPolygonSpatialUnitReference(record, unmatched))
+                    {
+                        updatedCount++;
+                    }
+                }
+            }
+            else if (ApplyPolygonSpatialUnitReference(storeRecord.Payload, unmatched))
+            {
+                updatedCount++;
+            }
+        }
+
+        if (updatedCount == 0)
+        {
+            throw new InvalidOperationException("No polygons rows matched returned Spatial Unit references.");
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath) ?? ".");
@@ -494,6 +721,52 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
     {
         record["spatial_unit_id"] = spatialUnitId;
         record["spatial_unit_api_status"] = spatialUnitApiStatus;
+    }
+
+    private static bool ApplyPolygonSpatialUnitReference(JsonObject record, List<InnolaSpatialUnitPolygonReference> unmatched)
+    {
+        var reference = TakeReferenceForParcel(unmatched, ReadJsonString(record, "parcel_name"));
+        if (reference is null)
+        {
+            return false;
+        }
+
+        record["SUID"] = BuildPolygonSpatialUnitValue(reference);
+        return true;
+    }
+
+    private static InnolaSpatialUnitPolygonReference? TakeReferenceForParcel(
+        List<InnolaSpatialUnitPolygonReference> unmatched,
+        string? parcelName)
+    {
+        if (unmatched.Count == 0)
+        {
+            return null;
+        }
+
+        var index = -1;
+        if (!string.IsNullOrWhiteSpace(parcelName))
+        {
+            index = unmatched.FindIndex(reference =>
+                string.Equals(reference.ParcelName, parcelName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (index < 0)
+        {
+            index = 0;
+        }
+
+        var reference = unmatched[index];
+        unmatched.RemoveAt(index);
+        return reference;
+    }
+
+    private static string BuildPolygonSpatialUnitValue(InnolaSpatialUnitPolygonReference reference)
+    {
+        var value = string.IsNullOrWhiteSpace(reference.SpatialUnitSuid)
+            ? reference.SpatialUnitId
+            : reference.SpatialUnitSuid;
+        return value ?? string.Empty;
     }
 
     private static void EnsureRequiredFields(JsonObject metadataResponse, string layerRole)
