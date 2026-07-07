@@ -8,6 +8,7 @@
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
   "review_workspace_mode": "parcel_fabric_local",
+  "manual_review_retry_threshold": 2,
   "enterprise_working_review": {
     "enabled": true,
     "service_root": "https://jm-gis.innola-solutions.com/server/rest",
@@ -18,11 +19,11 @@
     "allow_cross_machine_restore": true,
     "transaction_scope_field": "transaction_number",
     "layers": {
-      "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/0",
-      "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
-      "polygons": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
-      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4",
-      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3"
+      "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
+      "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
+      "polygons": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3",
+      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/0",
+      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4"
     }
   },
   "enterprise_working_admin": {

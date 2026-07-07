@@ -307,6 +307,41 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(!names.Any(name => name.Contains(".gdb/", StringComparison.OrdinalIgnoreCase)), "Resume package should exclude file geodatabase payload.");
     }
 
+    public static async Task CompletedPackageSkipsFileGeodatabaseLockFiles()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detailService = new MockInnolaTransactionDetailService();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, detailService, tempRoot.Path);
+
+        var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial load should succeed.");
+
+        var layout = first.Layout!;
+        Directory.CreateDirectory(layout.OutputDirectory);
+        File.WriteAllText(Path.Combine(layout.OutputDirectory, "output_summary.json"), "{\"status\":\"ready\"}");
+        var gdbDirectory = Path.Combine(layout.OutputDirectory, "TR100000004_parcel_output.gdb");
+        Directory.CreateDirectory(gdbDirectory);
+        File.WriteAllText(Path.Combine(gdbDirectory, "a00000001.gdbtable"), "file geodatabase table");
+        File.WriteAllText(Path.Combine(gdbDirectory, "parcel_lines.BL4XFY3.52320.6628.sr.lock"), "runtime lock");
+        File.WriteAllText(Path.Combine(gdbDirectory, "_gdb.BL4XFY3.52320.6628.lock"), "runtime lock");
+
+        var resumeService = new CaseResumePackageService(() => FixedNow(), () => "test");
+        var package = resumeService.Build(layout, manager.SelectedTransaction!, "tester", includeFullOutputArtifacts: true);
+
+        TestAssert.True(package.Success, package.ErrorMessage ?? "Completed package should build.");
+
+        using var archive = new ZipArchive(File.OpenRead(package.PackagePath!), ZipArchiveMode.Read);
+        var names = archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToArray();
+        TestAssert.True(
+            names.Contains("output/TR100000004_parcel_output.gdb/a00000001.gdbtable"),
+            "Completed package should include real file geodatabase contents.");
+        TestAssert.True(
+            !names.Any(name => name.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)),
+            "Completed package should skip ArcGIS runtime lock files.");
+    }
+
     public static async Task ExistingCaseFolderMismatchBlocksLoad()
     {
         using var tempRoot = new TempDirectory();

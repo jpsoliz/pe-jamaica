@@ -12,6 +12,7 @@ public sealed record InnolaTransactionSettings(
     string ReviewWorkspaceMode,
     string? ReviewWorkspaceModeWarning,
     string PdfViewerMode,
+    int ManualReviewRetryThreshold,
     EnterpriseWorkingReviewSettings EnterpriseWorkingReview,
     EnterpriseParcelFabricReviewSettings EnterpriseParcelFabricReview,
     IReadOnlyList<string> SupportedTransactionTypes,
@@ -59,6 +60,7 @@ public sealed record InnolaTransactionSettings(
         ReviewWorkspaceModeNormal,
         null,
         PdfViewerModeEmbeddedBrowser,
+        2,
         EnterpriseWorkingReviewSettings.Default,
         EnterpriseParcelFabricReviewSettings.Default,
         SafeDefaultSupportedTransactionTypes,
@@ -111,6 +113,7 @@ public sealed record InnolaTransactionSettings(
             var mode = ReadString(root, "innola_transaction_mode") ?? Default.Mode;
             var processStep = ReadString(root, "innola_process_step") ?? Default.ProcessStep;
             var outputRoot = ReadString(root, "case_folder_output_root");
+            var manualReviewRetryThreshold = ReadPositiveInt(root, "manual_review_retry_threshold") ?? Default.ManualReviewRetryThreshold;
             var attachmentUploadRoute = ReadString(root, "innola_attachment_upload_route") ?? Default.AttachmentUploadRoute;
             var attachmentUploadBindingMode = ReadString(root, "innola_attachment_upload_binding_mode") ?? Default.AttachmentUploadBindingMode;
             var attachmentUploadMode = ReadString(root, "innola_attachment_upload_mode") ?? Default.AttachmentUploadMode;
@@ -128,6 +131,7 @@ public sealed record InnolaTransactionSettings(
                 reviewWorkspaceMode.Value,
                 reviewWorkspaceMode.Warning,
                 pdfViewerMode,
+                manualReviewRetryThreshold,
                 enterpriseWorkingReview,
                 enterpriseParcelFabricReview,
                 supportedTypes.Values,
@@ -199,6 +203,16 @@ public sealed record InnolaTransactionSettings(
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+    }
+
+    private static int? ReadPositiveInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var number)
+            && number > 0
+                ? number
+                : null;
     }
 
     private static SupportedTransactionTypesResolution ResolveSupportedTransactionTypes(JsonElement root)

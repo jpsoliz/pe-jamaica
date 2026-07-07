@@ -397,7 +397,10 @@ public sealed class WorkflowSession
         && IsGeoreferenceCheckPassed()
         && IsDimensionCheckPassed();
 
-    public bool CanChooseManualCogoReview => !extractionRunActive && CanChooseManualCogoReviewState(CurrentState) && HasExtractionReviewArtifactForCurrentCase();
+    public bool CanChooseManualCogoReview =>
+        !extractionRunActive
+        && CanChooseManualCogoReviewState(CurrentState)
+        && (HasExtractionReviewArtifactForCurrentCase() || extractionDecisionGateResult.StronglyRecommendManual);
 
     public bool CanRunValidation => !validationRunActive && CanRunValidationState(CurrentState);
 
@@ -1851,6 +1854,7 @@ public sealed class WorkflowSession
                 Notes = extractionDecisionGateResult.Issues.Concat(extractionDecisionGateResult.Warnings).ToArray()
             };
             extractionDecisionGateService.SaveState(layout, extractionDecisionGateState);
+            RefreshExtractionDecisionGate(layout);
             workflowLifecycleAuditService.Record(
                 layout,
                 TransactionId,

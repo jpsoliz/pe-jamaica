@@ -14,6 +14,8 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 {
     private const string SpatialUnitClass = "SpatialUnitExt";
     private const string SpatialUnitTypeKey = "spatialunit";
+    private const string DefaultParishDisplayName = "St Andrew";
+    private const string DefaultParishTypeKey = "parish_st_andrew";
     private static readonly JsonSerializerOptions TraceJsonOptions = new()
     {
         WriteIndented = true
@@ -76,6 +78,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                     outputSummary,
                     index < polygonAttributes.Count ? polygonAttributes[index] : null))
                 .ToArray();
+            WriteSpatialUnitApiPayload(layout, transaction, polygonAttributes, populated);
 
             var saved = await SaveSpatialUnitsAsync(
                 session,
@@ -235,13 +238,21 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             spatialUnit["lot"] = polygonAttributes.Pid;
             spatialUnit["lotNo"] = polygonAttributes.Pid;
             spatialUnit["lot No."] = polygonAttributes.Pid;
+            spatialUnit["label"] = polygonAttributes.Pid;
         }
 
-        spatialUnit["Parish"] = polygonAttributes.Parish;
+        spatialUnit["Parish"] = string.IsNullOrWhiteSpace(polygonAttributes.Parish)
+            ? DefaultParishDisplayName
+            : polygonAttributes.Parish;
+        ApplyAddressParish(spatialUnit);
 
         if (polygonAttributes.Area.HasValue)
         {
             spatialUnit["area"] = polygonAttributes.Area.Value;
+            spatialUnit["legalArea"] = polygonAttributes.Area.Value;
+            spatialUnit["surveyArea"] = polygonAttributes.Area.Value;
+            spatialUnit["gisArea"] = polygonAttributes.Area.Value;
+            spatialUnit["legalAreaApproximate"] = false;
         }
 
         if (!string.IsNullOrWhiteSpace(polygonAttributes.Suid))
@@ -286,7 +297,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             var suid = ReadString(properties, "SUID", "suid");
             polygons.Add(new WorkingPolygonSpatialUnitAttributes(
                 pid,
-                null,
+                ReadString(properties, "parish", "Parish") ?? DefaultParishDisplayName,
                 ReadDouble(properties, "area_sq_m", "area"),
                 suid));
         }
@@ -380,6 +391,57 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             ["publish_run_id"] = disposition.PublishRunId
         };
         WriteWorkingEvidence(layout, "spatial_unit_api_request.json", evidence);
+    }
+
+    private static void WriteSpatialUnitApiPayload(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        IReadOnlyList<WorkingPolygonSpatialUnitAttributes> polygonAttributes,
+        IReadOnlyList<JsonObject> populatedObjects)
+    {
+        var evidence = new JsonObject
+        {
+            ["schema_version"] = "spatial_unit_api_payload_debug_v1",
+            ["written_at_utc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["transaction_id"] = transaction.TransactionId,
+            ["transaction_number"] = transaction.TransactionNumber,
+            ["task_id"] = transaction.TaskId,
+            ["polygon_attribute_count"] = polygonAttributes.Count,
+            ["payload_count"] = populatedObjects.Count,
+            ["polygon_attributes"] = new JsonArray(polygonAttributes.Select(item => new JsonObject
+            {
+                ["pid"] = item.Pid,
+                ["parish"] = item.Parish,
+                ["area"] = item.Area,
+                ["suid"] = item.Suid
+            }).ToArray<JsonNode?>()),
+            ["payload_preview"] = new JsonArray(populatedObjects.Select(item => item.DeepClone()).ToArray())
+        };
+        WriteWorkingEvidence(layout, "spatial_unit_api_payload.json", evidence);
+    }
+
+    private static void ApplyAddressParish(JsonObject spatialUnit)
+    {
+        var address = spatialUnit["address"] as JsonObject;
+        if (address is null)
+        {
+            address = new JsonObject
+            {
+                ["@c"] = "AddressExt",
+                ["country"] = "country_jm"
+            };
+            spatialUnit["address"] = address;
+        }
+
+        if (string.IsNullOrWhiteSpace(ReadString(address, "country")))
+        {
+            address["country"] = "country_jm";
+        }
+
+        address["parish"] = DefaultParishTypeKey;
+        address["description"] = string.IsNullOrWhiteSpace(ReadString(address, "description"))
+            ? DefaultParishDisplayName
+            : ReadString(address, "description");
     }
 
     private static void WriteSpatialUnitApiResponse(

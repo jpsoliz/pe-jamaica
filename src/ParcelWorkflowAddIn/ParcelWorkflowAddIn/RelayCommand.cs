@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace ParcelWorkflowAddIn;
 
@@ -32,6 +33,13 @@ public sealed class RelayCommand : ICommand
 
     public void RaiseCanExecuteChanged()
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.InvokeAsync(RaiseCanExecuteChanged, DispatcherPriority.Background);
+            return;
+        }
+
         CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
 }

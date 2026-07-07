@@ -383,7 +383,7 @@ def _apply_visualization_defaults(
 
     result = _apply_working_lines_visualization(lines_layer, token_env_var)
     if result["status"] == "failed":
-        errors.append(f"Enterprise default visualization setup failed: {result['message']}")
+        warnings.append(f"Enterprise default visualization setup failed: {result['message']}")
     elif result["status"] == "applied":
         warnings.append("Enterprise working_lines default COGO labeling was applied.")
 

@@ -220,6 +220,11 @@ public sealed class CaseResumePackageService
     {
         var normalized = relativePath.Replace('\\', '/');
 
+        if (IsFileGeodatabaseLockFile(normalized))
+        {
+            return false;
+        }
+
         if (normalized.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
         {
             return true;
@@ -257,6 +262,14 @@ public sealed class CaseResumePackageService
         }
 
         return false;
+    }
+
+    private static bool IsFileGeodatabaseLockFile(string normalizedRelativePath)
+    {
+        return normalizedRelativePath.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)
+            && normalizedRelativePath
+                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Any(part => part.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase));
     }
 }
 

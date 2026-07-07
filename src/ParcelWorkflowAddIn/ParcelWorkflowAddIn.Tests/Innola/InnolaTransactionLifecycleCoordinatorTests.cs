@@ -310,6 +310,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(1, reportService.CallCount, "Report service should be called once.");
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
         TestAssert.True(!string.IsNullOrWhiteSpace(disposition?.ComputeExaminationReportRef), "Disposition should persist report reference.");
+        TestAssert.Equal("saved", disposition?.PlanCheckApiStatus, "Disposition should persist Plan Check API status before package upload.");
+        TestAssert.True(disposition?.PlanCheckApiRef?.EndsWith("plan_check_api_response.json", StringComparison.OrdinalIgnoreCase) == true, "Disposition should persist Plan Check response evidence reference.");
         var detail = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, selected);
         var completedFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004");
         var attachment = detail.Detail!.Attachments.FirstOrDefault(attachment =>
@@ -333,6 +335,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_examination_report_generated", StringComparison.OrdinalIgnoreCase), "Audit should record report generation.");
+        TestAssert.True(audit.Contains("compute_plan_check_writeback_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check writeback success.");
     }
 
     public static async Task CompleteStopsBeforePackageUploadWhenReportGenerationFails()
@@ -371,6 +374,47 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(null, disposition?.ComputeExaminationReportRef, "Failed report generation must not be recorded as final report evidence.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_examination_report_failed", StringComparison.OrdinalIgnoreCase), "Audit should record report failure.");
+    }
+
+    public static async Task CompleteStopsBeforePackageUploadWhenPlanCheckWritebackFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var reportService = new FakeReportService(success: true);
+        var planChecks = new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Failed("Innola Plan Check writeback failed. Try again.", "plan_check_failed"));
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            reportService,
+            planChecks);
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+        var before = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        var beforeCount = before.Detail!.Attachments.Count;
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should fail when Plan Check writeback fails.");
+        TestAssert.Equal(1, planChecks.CallCount, "Plan Check service should be called once.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after Plan Check failure.");
+        var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
+        TestAssert.Equal(beforeCount, after.Detail!.Attachments.Count, "Completed package must not upload after Plan Check failure.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal(null, disposition?.PlanCheckApiStatus, "Failed Plan Check writeback must not be recorded as saved.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_plan_check_writeback_started", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check start.");
+        TestAssert.True(audit.Contains("compute_plan_check_writeback_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check failure.");
     }
 
     public static async Task LifecycleFailuresPreserveStateAndRedactSecrets()
@@ -429,7 +473,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         IInnolaTransactionLifecycleService lifecycleService,
         string outputRoot,
         ITransactionCompletionReadinessService? readiness = null,
-        IInnolaSpatialUnitService? spatialUnitService = null)
+        IInnolaSpatialUnitService? spatialUnitService = null,
+        IInnolaPlanCheckService? planCheckService = null)
     {
         return new InnolaTransactionLifecycleCoordinator(
             manager,
@@ -440,7 +485,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => FixedNow(),
-            new FakeReportService(success: true));
+            new FakeReportService(success: true),
+            planCheckService ?? new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Succeeded()));
     }
 
     private static void WriteDisposition(CaseFolderLayout layout)
@@ -561,6 +607,29 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         public int CallCount { get; private set; }
 
         public Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction transaction,
+            string caseFolderPath,
+            ComputeReviewDispositionDocument disposition,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class RecordingPlanCheckService : IInnolaPlanCheckService
+    {
+        private readonly InnolaPlanCheckWritebackResult result;
+
+        public RecordingPlanCheckService(InnolaPlanCheckWritebackResult result)
+        {
+            this.result = result;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<InnolaPlanCheckWritebackResult> WriteAsync(
             InnolaSession session,
             SelectedInnolaTransaction transaction,
             string caseFolderPath,

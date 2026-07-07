@@ -60,8 +60,13 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("110900205", savedObject.GetProperty("lot").GetString(), "Spatial Unit lot should come from working polygon parcel_name.");
         TestAssert.Equal("110900205", savedObject.GetProperty("lotNo").GetString(), "Spatial Unit lot number should come from working polygon parcel_name.");
         TestAssert.Equal("110900205", savedObject.GetProperty("lot No.").GetString(), "Spatial Unit lot label should come from working polygon parcel_name.");
-        TestAssert.True(savedObject.GetProperty("Parish").ValueKind == JsonValueKind.Null, "Spatial Unit Parish should be null until a working polygon parish source exists.");
+        TestAssert.Equal("110900205", savedObject.GetProperty("label").GetString(), "Spatial Unit label should come from working polygon parcel_name.");
+        TestAssert.Equal("St Andrew", savedObject.GetProperty("Parish").GetString(), "Spatial Unit Parish should default to St Andrew.");
+        TestAssert.Equal("parish_st_andrew", savedObject.GetProperty("address").GetProperty("parish").GetString(), "Spatial Unit address parish should use the Innola St Andrew dictionary key.");
         TestAssert.Equal(1234.56, savedObject.GetProperty("area").GetDouble(), "Spatial Unit area should come from working polygon area_sq_m.");
+        TestAssert.Equal(1234.56, savedObject.GetProperty("legalArea").GetDouble(), "Spatial Unit legal area should come from working polygon area_sq_m.");
+        TestAssert.Equal(1234.56, savedObject.GetProperty("surveyArea").GetDouble(), "Spatial Unit survey area should come from working polygon area_sq_m.");
+        TestAssert.Equal(1234.56, savedObject.GetProperty("gisArea").GetDouble(), "Spatial Unit GIS area should come from working polygon area_sq_m.");
         TestAssert.True(!savedObject.TryGetProperty("SUID", out _), "Spatial Unit create payload should not send a fallback SUID; the framework generates it.");
         var workingLayer = savedObject.GetProperty("workingLayerReferences")[0];
         TestAssert.Equal("polygons", workingLayer.GetProperty("layerRole").GetString(), "Working layer reference should include layer role.");
@@ -69,8 +74,10 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("addr-1", savedObject.GetProperty("address").GetProperty("id").GetString(), "API generated address object should be preserved.");
         TestAssert.Equal("link-1", savedObject.GetProperty("link").GetProperty("id").GetString(), "API generated link object should be preserved.");
         var requestEvidencePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_request.json");
+        var payloadEvidencePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_payload.json");
         var responseEvidencePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_response.json");
         TestAssert.True(File.Exists(requestEvidencePath), "Spatial Unit request evidence should be written before API calls.");
+        TestAssert.True(File.Exists(payloadEvidencePath), "Spatial Unit payload evidence should be written before API save.");
         TestAssert.True(File.Exists(responseEvidencePath), "Spatial Unit response evidence should be written after API save.");
         using var responseEvidence = JsonDocument.Parse(File.ReadAllText(responseEvidencePath));
         TestAssert.Equal(2, responseEvidence.RootElement.GetProperty("saved_object_count").GetInt32(), "Spatial Unit response evidence should include saved object count.");

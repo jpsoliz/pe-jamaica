@@ -107,6 +107,20 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal(null, settings.ComputeWorkflowStagesWarning, "Valid compute stage list should not produce a warning.");
     }
 
+    public static void ManualReviewRetryThresholdLoadsFromConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "manual_review_retry_threshold": 5
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(5, settings.ManualReviewRetryThreshold, "Manual review retry threshold mismatch.");
+    }
+
     public static void InvalidReviewWorkspaceModeFallsBackToNormal()
     {
         using var settingsFile = WriteSettingsFile(

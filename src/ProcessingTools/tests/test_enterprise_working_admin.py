@@ -718,7 +718,7 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         self.assertEqual("already_current", payload["visualization"]["status"])
         self.assertEqual(["COGO Segment"], payload["validation"]["live_metadata"]["lines"]["label_class_names"])
 
-    def test_live_provision_fails_when_visualization_update_definition_fails(self):
+    def test_live_provision_warns_when_visualization_update_definition_fails(self):
         previous = os.environ.get("ARCGIS_PORTAL_TOKEN")
         os.environ["ARCGIS_PORTAL_TOKEN"] = "secret-token-value"
         args = admin_script.parse_args(
@@ -759,9 +759,10 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
             else:
                 os.environ["ARCGIS_PORTAL_TOKEN"] = previous
 
-        self.assertEqual("failed", payload["status"])
+        self.assertEqual("provisioned", payload["status"])
         self.assertEqual("failed", payload["visualization"]["status"])
-        self.assertIn("Enterprise default visualization setup failed", payload["validation"]["errors"][0])
+        self.assertFalse(payload["validation"]["errors"])
+        self.assertIn("Enterprise default visualization setup failed", payload["validation"]["warnings"][0])
         self.assertNotIn("secret-token-value", json.dumps(payload))
 
     def test_feature_collection_schema_includes_compute_disposition_fields_and_domain(self):

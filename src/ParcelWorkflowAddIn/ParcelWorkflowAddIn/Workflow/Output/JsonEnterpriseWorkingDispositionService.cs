@@ -506,13 +506,17 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
             ?? ReadJsonString(metadataResponse, "objectIdFieldName")
             ?? "OBJECTID";
         EnsureRequiredFields(metadataResponse, "polygons", RequiredPolygonSpatialUnitReferenceFields);
+        var parcelNameField = ResolveActualFieldName(metadataResponse, "parcel_name") ?? "parcel_name";
+        var suidField = ResolveActualFieldName(metadataResponse, "SUID")
+            ?? ResolveActualFieldName(metadataResponse, "suid")
+            ?? "SUID";
 
         var where = $"{scopeField} = '{EscapeSqlLiteral(scopeValue)}'";
         var queryForm = new Dictionary<string, string>
         {
             ["f"] = "json",
             ["where"] = where,
-            ["outFields"] = $"{objectIdField},parcel_name",
+            ["outFields"] = $"{objectIdField},{parcelNameField}",
             ["returnGeometry"] = "false"
         };
         AddToken(queryForm, token);
@@ -536,7 +540,7 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
                 throw new InvalidOperationException($"polygons Spatial Unit SUID query did not return {objectIdField}.");
             }
 
-            var parcelName = ReadJsonString(attributes, "parcel_name");
+            var parcelName = ReadJsonString(attributes, parcelNameField);
             var reference = TakeReferenceForParcel(unmatched, parcelName);
             if (reference is null)
             {
@@ -548,7 +552,7 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
                 ["attributes"] = new JsonObject
                 {
                     [objectIdField] = objectId.DeepClone(),
-                    ["SUID"] = BuildPolygonSpatialUnitValue(reference)
+                    [suidField] = BuildPolygonSpatialUnitValue(reference)
                 }
             });
         }
@@ -798,6 +802,25 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         }
     }
 
+    private static string? ResolveActualFieldName(JsonObject metadataResponse, string requestedName)
+    {
+        if (metadataResponse["fields"] is not JsonArray fields)
+        {
+            return null;
+        }
+
+        foreach (var field in fields.OfType<JsonObject>())
+        {
+            var name = ReadJsonString(field, "name");
+            if (string.Equals(name, requestedName, StringComparison.OrdinalIgnoreCase))
+            {
+                return name;
+            }
+        }
+
+        return null;
+    }
+
     private static Uri? GetArcGisReferer(string targetUrl)
     {
         if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var uri))
@@ -866,14 +889,41 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
 
         if (response.TryGetPropertyValue("updateResults", out var updateResultsNode) && updateResultsNode is JsonArray updateResults)
         {
-            var failed = updateResults.OfType<JsonObject>().FirstOrDefault(result =>
+            var failures = updateResults.OfType<JsonObject>().Where(result =>
                 result.TryGetPropertyValue("success", out var successNode)
-                && successNode?.GetValue<bool>() == false);
-            if (failed is not null)
+                && successNode?.GetValue<bool>() == false).ToArray();
+            if (failures.Length > 0)
             {
-                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more rows were rejected.");
+                var details = failures
+                    .Select((failure, index) => BuildUpdateFailureDetail(failure, index + 1))
+                    .Where(detail => !string.IsNullOrWhiteSpace(detail))
+                    .ToArray();
+                var detailSuffix = details.Length == 0
+                    ? string.Empty
+                    : $" {string.Join("; ", details)}";
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more rows were rejected.{detailSuffix}");
             }
         }
+    }
+
+    private static string BuildUpdateFailureDetail(JsonObject failure, int index)
+    {
+        var objectId = ReadJsonString(failure, "objectId")
+            ?? ReadJsonString(failure, "globalId")
+            ?? ReadJsonString(failure, "uniqueId")
+            ?? $"row {index}";
+        if (failure["error"] is JsonObject error)
+        {
+            var message = ReadJsonString(error, "description")
+                ?? ReadJsonString(error, "message")
+                ?? "ArcGIS rejected the update.";
+            var code = ReadJsonNumber(error, "code");
+            return code.HasValue
+                ? $"{objectId}: {code.Value} {message}"
+                : $"{objectId}: {message}";
+        }
+
+        return $"{objectId}: ArcGIS rejected the update.";
     }
 
     private static void AddToken(IDictionary<string, string> form, string? token)

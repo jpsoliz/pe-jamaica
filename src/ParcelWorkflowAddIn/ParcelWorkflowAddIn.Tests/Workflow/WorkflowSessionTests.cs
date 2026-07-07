@@ -1071,6 +1071,48 @@ internal static class WorkflowSessionTests
         TestAssert.True(session.CurrentExtractionDecisionGate.StronglyRecommendManual, "Repeated weak reruns should escalate toward manual review.");
     }
 
+    public static void WorkflowSessionManualReviewCanBeChosenAfterConfiguredWeakAttemptThresholdWithoutReviewArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                Directory.CreateDirectory(layout.LogsDirectory);
+                File.WriteAllText(Path.Combine(layout.LogsDirectory, "process.log"), "Extraction produced zero review rows.");
+                return new WorkflowScriptExecutionResult(true, null, null, Array.Empty<AvailableArtifact>());
+            }),
+            new ExtractionReviewPersistenceService(),
+            new FakeValidationExecutionService(blocked: false),
+            new ValidationSummaryPersistenceService(),
+            new FakeOutputExecutionService(shouldFail: false),
+            new OutputSummaryPersistenceService(),
+            new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
+            new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
+            new JsonEnterpriseWorkingDispositionService(() => InnolaTransactionSettings.Default),
+            new ComputeReviewDispositionPersistenceService(),
+            new SpatialReviewApprovalPersistenceService(),
+            new ExtractionDecisionGateService(() => 1),
+            new WorkflowLifecycleAuditService(),
+            () => InnolaTransactionSettings.Default with { ManualReviewRetryThreshold = 1 });
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+
+        _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        TestAssert.True(session.CurrentExtractionDecisionGate.StronglyRecommendManual, "Configured threshold should escalate weak extraction toward manual review.");
+        TestAssert.True(session.CanChooseManualCogoReview, "Manual review should be selectable after repeated weak extraction even when no review artifact was produced.");
+    }
+
     public static void WorkflowSessionManualCogoReviewRecordsDecisionGateRoute()
     {
         using var tempRoot = new TempDirectory();
@@ -1635,6 +1677,68 @@ internal static class WorkflowSessionTests
         TestAssert.True(!attributes.ContainsKey("length"), "Unsupported point length should not be sent to Enterprise.");
         TestAssert.True(!attributes.ContainsKey("distance_txt"), "Unsupported point distance_txt should not be sent to Enterprise.");
         TestAssert.True(feature.ContainsKey("geometry"), "Geometry should still be sent with the filtered attributes.");
+        var spatialReference = feature["geometry"]!.AsObject()["spatialReference"]!.AsObject();
+        TestAssert.Equal(3448, spatialReference["wkid"]!.GetValue<int>(), "Enterprise geometry should include JAD2001 spatial reference.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors()
+    {
+        var response = new JsonObject
+        {
+            ["addResults"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["success"] = false,
+                    ["error"] = new JsonObject
+                    {
+                        ["code"] = 1000,
+                        ["description"] = "The geometry is invalid."
+                    }
+                }
+            }
+        };
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "EnsureArcGisSuccess",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { response, "addFeatures", "lines" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("The geometry is invalid", StringComparison.OrdinalIgnoreCase), "Add failure should include ArcGIS row error details.");
+            TestAssert.True(invalidOperation.Message.Contains("1000", StringComparison.OrdinalIgnoreCase), "Add failure should include ArcGIS error code.");
+            return;
+        }
+
+        throw new InvalidOperationException("Add results failure should throw.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishRejectsMismatchedLayerTarget()
+    {
+        var metadata = new JsonObject
+        {
+            ["name"] = "working_points",
+            ["geometryType"] = "esriGeometryPoint"
+        };
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "ValidateLayerTargetRole",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { metadata, "https://enterprise.local/FeatureServer/1", "lines" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("working_points", StringComparison.OrdinalIgnoreCase), "Layer role mismatch should report the actual layer name.");
+            TestAssert.True(invalidOperation.Message.Contains("working_lines", StringComparison.OrdinalIgnoreCase), "Layer role mismatch should report the expected layer name.");
+            return;
+        }
+
+        throw new InvalidOperationException("Mismatched Enterprise layer metadata should throw.");
     }
 
     public static void WorkflowSessionEnterprisePublishRequiresCaseIndexTarget()

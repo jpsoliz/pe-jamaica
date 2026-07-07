@@ -59,6 +59,12 @@ public class ParcelWorkflowDockpane : UserControl
 
     private async Task RefreshPdfViewerAsync()
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            await Dispatcher.InvokeAsync(RefreshPdfViewerAsync).Task.Unwrap();
+            return;
+        }
+
         if (dockpanePdfWebView is null || DataContext is not ParcelWorkflowDockpaneViewModel viewModel)
         {
             return;

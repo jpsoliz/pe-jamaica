@@ -44,7 +44,9 @@ public sealed record ComputeReviewDispositionDocument(
     [property: JsonPropertyName("working_package_file_name")] string? WorkingPackageFileName,
     [property: JsonPropertyName("working_package_source_type")] string? WorkingPackageSourceType,
     [property: JsonPropertyName("working_package_upload_status")] string? WorkingPackageUploadStatus,
-    [property: JsonPropertyName("compute_examination_report_ref")] string? ComputeExaminationReportRef = null);
+    [property: JsonPropertyName("compute_examination_report_ref")] string? ComputeExaminationReportRef = null,
+    [property: JsonPropertyName("plan_check_api_status")] string? PlanCheckApiStatus = null,
+    [property: JsonPropertyName("plan_check_api_ref")] string? PlanCheckApiRef = null);
 
 public sealed record ComputeReviewDispositionRequest(
     ComputeReviewDecision Decision,

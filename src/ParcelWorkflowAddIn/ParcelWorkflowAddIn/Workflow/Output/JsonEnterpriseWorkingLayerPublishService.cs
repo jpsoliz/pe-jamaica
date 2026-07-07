@@ -458,6 +458,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         AddToken(metadataForm, token);
         var metadataResponse = await PostFormAsync(targetUrl.TrimEnd('/'), metadataForm, cancellationToken, referer).ConfigureAwait(false);
         EnsureArcGisSuccess(metadataResponse, "token validation", layerRole);
+        ValidateLayerTargetRole(metadataResponse, targetUrl, layerRole);
 
         var where = $"{transactionScopeField} = '{EscapeSqlLiteral(transactionScopeValue)}'";
         var deleteForm = new Dictionary<string, string>
@@ -689,12 +690,13 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
 
         if (response.TryGetPropertyValue("addResults", out var addResultsNode) && addResultsNode is JsonArray addResults)
         {
-            var failed = addResults.OfType<JsonObject>().FirstOrDefault(result =>
+            var failedResults = addResults.OfType<JsonObject>().Where(result =>
                 result.TryGetPropertyValue("success", out var successNode)
-                && successNode?.GetValue<bool>() == false);
-            if (failed is not null)
+                && successNode?.GetValue<bool>() == false).ToArray();
+            if (failedResults.Length > 0)
             {
-                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more rows were rejected.");
+                throw new InvalidOperationException(
+                    $"{operation} failed for {layerRole}: one or more rows were rejected. {FormatArcGisEditFailures(failedResults)}");
             }
         }
 
@@ -705,9 +707,86 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 && successNode?.GetValue<bool>() == false);
             if (failed is not null)
             {
-                throw new InvalidOperationException($"{operation} failed for {layerRole}: one or more existing rows could not be removed.");
+                throw new InvalidOperationException(
+                    $"{operation} failed for {layerRole}: one or more existing rows could not be removed. {FormatArcGisEditFailures(new[] { failed })}");
             }
         }
+    }
+
+    private static void ValidateLayerTargetRole(JsonObject metadata, string targetUrl, string layerRole)
+    {
+        var actualName = ReadJsonString(metadata, "name") ?? string.Empty;
+        var actualGeometryType = ReadJsonString(metadata, "geometryType") ?? string.Empty;
+        var expectedName = ExpectedLayerName(layerRole);
+        var expectedGeometryType = ExpectedGeometryType(layerRole);
+        var isTable = string.Equals(layerRole, "case_index", StringComparison.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(expectedName)
+            && !string.Equals(actualName, expectedName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Configured {layerRole} Enterprise target does not match the expected layer. URL '{targetUrl}' returned layer '{actualName}', expected '{expectedName}'. Re-run Enterprise Admin provisioning or update the Enterprise Working Review layer URLs in Settings.");
+        }
+
+        if (!isTable
+            && !string.IsNullOrWhiteSpace(expectedGeometryType)
+            && !string.Equals(actualGeometryType, expectedGeometryType, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Configured {layerRole} Enterprise target has geometry '{actualGeometryType}', expected '{expectedGeometryType}'. URL: '{targetUrl}'. Re-run Enterprise Admin provisioning or update the Enterprise Working Review layer URLs in Settings.");
+        }
+    }
+
+    private static string ExpectedLayerName(string layerRole)
+    {
+        return layerRole.ToLowerInvariant() switch
+        {
+            "points" => "working_points",
+            "lines" => "working_lines",
+            "polygons" => "working_polygons",
+            "issues" => "working_issues",
+            "case_index" => "working_case_index",
+            _ => string.Empty
+        };
+    }
+
+    private static string ExpectedGeometryType(string layerRole)
+    {
+        return layerRole.ToLowerInvariant() switch
+        {
+            "points" => "esriGeometryPoint",
+            "lines" => "esriGeometryPolyline",
+            "polygons" => "esriGeometryPolygon",
+            "issues" => "esriGeometryPoint",
+            _ => string.Empty
+        };
+    }
+
+    private static string FormatArcGisEditFailures(IReadOnlyList<JsonObject> failedResults)
+    {
+        var details = failedResults
+            .Take(5)
+            .Select((result, index) =>
+            {
+                var objectId = ReadJsonString(result, "objectId") ?? ReadJsonString(result, "globalId") ?? $"row {index + 1}";
+                var error = result["error"] as JsonObject;
+                if (error is null)
+                {
+                    return $"{objectId}: rejected without error details";
+                }
+
+                var code = TryReadJsonInt(error, "code")?.ToString(CultureInfo.InvariantCulture);
+                var description = ReadJsonString(error, "description") ?? ReadJsonString(error, "message") ?? "ArcGIS Enterprise returned an edit error.";
+                return string.IsNullOrWhiteSpace(code)
+                    ? $"{objectId}: {description}"
+                    : $"{objectId}: {code} {description}";
+            })
+            .ToArray();
+
+        var suffix = failedResults.Count > details.Length
+            ? $" Additional rejected rows: {failedResults.Count - details.Length}."
+            : string.Empty;
+        return $"Rejected rows: {string.Join("; ", details)}.{suffix}";
     }
 
     private static void AddToken(IDictionary<string, string> form, string? token)
@@ -1118,12 +1197,26 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
 
     private static JsonNode? NormalizeArcGisGeometry(JsonNode geometry)
     {
+        JsonNode? normalized;
         if (geometry is JsonObject geometryObject && geometryObject.TryGetPropertyValue("type", out var typeNode))
         {
-            return ConvertGeoJsonGeometry(geometryObject);
+            normalized = ConvertGeoJsonGeometry(geometryObject);
+        }
+        else
+        {
+            normalized = geometry.DeepClone();
         }
 
-        return geometry.DeepClone();
+        if (normalized is JsonObject normalizedObject && !normalizedObject.ContainsKey("spatialReference"))
+        {
+            normalizedObject["spatialReference"] = new JsonObject
+            {
+                ["wkid"] = 3448,
+                ["latestWkid"] = 3448
+            };
+        }
+
+        return normalized;
     }
 
     private static JsonObject ConvertGeoJsonGeometry(JsonObject geometry)

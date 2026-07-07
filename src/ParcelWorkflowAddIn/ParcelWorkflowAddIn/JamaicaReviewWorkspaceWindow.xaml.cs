@@ -85,6 +85,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
     private async Task RefreshPdfViewerAsync()
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            await Dispatcher.InvokeAsync(RefreshPdfViewerAsync).Task.Unwrap();
+            return;
+        }
+
         if (ViewerPdfWebView is null)
         {
             return;

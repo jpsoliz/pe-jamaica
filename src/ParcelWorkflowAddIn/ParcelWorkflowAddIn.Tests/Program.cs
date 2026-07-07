@@ -107,6 +107,7 @@ var tests = new (string Name, Action Run)[]
     ("workflow session allows source actions after review approved", WorkflowSessionTests.WorkflowSessionAllowsSourceActionsAfterReviewApproved),
     ("workflow session review approved does not allow draft extraction rerun", WorkflowSessionTests.WorkflowSessionReviewApprovedDoesNotAllowDraftExtractionRerun),
     ("workflow session manual cogo fallback requires extracted review artifact", WorkflowSessionTests.WorkflowSessionManualCogoFallbackRequiresExtractedReviewArtifact),
+    ("workflow session manual review enabled after configured weak attempt threshold", WorkflowSessionTests.WorkflowSessionManualReviewCanBeChosenAfterConfiguredWeakAttemptThresholdWithoutReviewArtifact),
     ("workflow session manual cogo fallback sets manual state and blocks validation", WorkflowSessionTests.WorkflowSessionManualCogoFallbackSetsManualStateAndBlocksValidation),
     ("workflow session reports reopen failures without replacing active case", WorkflowSessionTests.WorkflowSessionReportsReopenFailuresWithoutReplacingActiveCase),
     ("workflow session does not create processing artifacts during reopen", WorkflowSessionTests.WorkflowSessionDoesNotCreateProcessingArtifactsDuringReopen),
@@ -158,6 +159,8 @@ var tests = new (string Name, Action Run)[]
     ("workflow session enterprise case index records spatial unit reference", () => WorkflowSessionTests.WorkflowSessionEnterpriseCaseIndexRecordsSpatialUnitReference().GetAwaiter().GetResult()),
     ("workflow session enterprise polygons record spatial unit suid in SUID field", () => WorkflowSessionTests.WorkflowSessionEnterprisePolygonsRecordSpatialUnitSuidInSuidField().GetAwaiter().GetResult()),
     ("workflow session enterprise publish filters point attributes to enterprise schema", WorkflowSessionTests.WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema),
+    ("workflow session enterprise publish reports ArcGIS add feature row errors", WorkflowSessionTests.WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors),
+    ("workflow session enterprise publish rejects mismatched layer target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRejectsMismatchedLayerTarget),
     ("workflow session enterprise publish requires case index target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRequiresCaseIndexTarget),
     ("workflow session enterprise publish failure keeps local outputs", WorkflowSessionTests.WorkflowSessionEnterprisePublishFailureKeepsLocalOutputs),
     ("workflow session records approved compute disposition artifact", WorkflowSessionTests.WorkflowSessionRecordsApprovedComputeDispositionArtifact),
@@ -234,6 +237,7 @@ var tests = new (string Name, Action Run)[]
     ("innola missing supported transaction types fall back to safe defaults", InnolaTransactionSettingsTests.MissingSupportedTransactionTypesFallBackToSafeDefaults),
     ("innola invalid supported transaction types fall back to safe defaults", InnolaTransactionSettingsTests.InvalidSupportedTransactionTypesFallBackToSafeDefaults),
     ("innola compute workflow stages load from configuration", InnolaTransactionSettingsTests.ComputeWorkflowStagesLoadFromConfiguration),
+    ("innola manual review retry threshold loads from configuration", InnolaTransactionSettingsTests.ManualReviewRetryThresholdLoadsFromConfiguration),
     ("innola invalid review workspace mode falls back to normal", InnolaTransactionSettingsTests.InvalidReviewWorkspaceModeFallsBackToNormal),
     ("innola legacy parcel fabric review workspace mode normalizes to local parcel fabric", InnolaTransactionSettingsTests.LegacyParcelFabricReviewWorkspaceModeNormalizesToLocalParcelFabric),
     ("innola enterprise working layers mode loads enterprise configuration", InnolaTransactionSettingsTests.EnterpriseWorkingLayersModeLoadsEnterpriseConfiguration),
@@ -274,6 +278,7 @@ var tests = new (string Name, Action Run)[]
     ("innola transaction load avoids duplicate attachment overwrite", () => InnolaTransactionLoadServiceTests.DuplicateAttachmentNamesDoNotOverwriteExistingFiles().GetAwaiter().GetResult()),
     ("innola transaction load restores resume package state", () => InnolaTransactionLoadServiceTests.ResumePackageRestoresSavedWorkflowState().GetAwaiter().GetResult()),
     ("innola resume package excludes heavy output artifacts", () => InnolaTransactionLoadServiceTests.ResumePackageExcludesHeavyOutputArtifactsButKeepsWorkingState().GetAwaiter().GetResult()),
+    ("innola completed package skips file geodatabase lock files", () => InnolaTransactionLoadServiceTests.CompletedPackageSkipsFileGeodatabaseLockFiles().GetAwaiter().GetResult()),
     ("innola transaction load reopens existing same case", () => InnolaTransactionLoadServiceTests.ExistingCaseFolderForSameTransactionReopensWithoutDuplicatingAttachments().GetAwaiter().GetResult()),
     ("innola transaction load blocks existing mismatch", () => InnolaTransactionLoadServiceTests.ExistingCaseFolderMismatchBlocksLoad().GetAwaiter().GetResult()),
     ("innola transaction load persists workflow script plan", () => InnolaTransactionLoadServiceTests.SuccessfulLoadPersistsWorkflowRuleAndScriptPlan().GetAwaiter().GetResult()),
@@ -289,6 +294,7 @@ var tests = new (string Name, Action Run)[]
     ("innola lifecycle complete blocks on spatial unit failure", () => InnolaTransactionLifecycleCoordinatorTests.CompleteStopsBeforePackageUploadAndLifecycleCompleteWhenSpatialUnitFails().GetAwaiter().GetResult()),
     ("innola lifecycle complete generates report before package upload", () => InnolaTransactionLifecycleCoordinatorTests.CompleteGeneratesReportBeforePackageUploadAndIncludesReportInPackage().GetAwaiter().GetResult()),
     ("innola lifecycle complete blocks on report generation failure", () => InnolaTransactionLifecycleCoordinatorTests.CompleteStopsBeforePackageUploadWhenReportGenerationFails().GetAwaiter().GetResult()),
+    ("innola lifecycle complete blocks on plan check writeback failure", () => InnolaTransactionLifecycleCoordinatorTests.CompleteStopsBeforePackageUploadWhenPlanCheckWritebackFails().GetAwaiter().GetResult()),
     ("compute examination report generation uses persisted stage findings", ComputeExaminationReportServiceTests.ReportGenerationUsesPersistedStageFindings),
     ("innola lifecycle complete blocks on working package upload failure", () => InnolaTransactionLifecycleCoordinatorTests.CompleteStopsBeforeLifecycleCompleteWhenWorkingPackageUploadFails().GetAwaiter().GetResult()),
     ("innola lifecycle failures preserve state and redact secrets", () => InnolaTransactionLifecycleCoordinatorTests.LifecycleFailuresPreserveStateAndRedactSecrets().GetAwaiter().GetResult()),
@@ -301,6 +307,10 @@ var tests = new (string Name, Action Run)[]
     ("innola live detail keeps selected transaction number when detail only has application number", () => InnolaTransactionDetailServiceTests.LiveDetailKeepsSelectedTransactionNumberWhenDetailOnlyHasApplicationNumber().GetAwaiter().GetResult()),
     ("innola spatial unit service creates defaults then saves", () => InnolaSpatialUnitServiceTests.CreatesDefaultsThenSavesPopulatedSpatialUnit().GetAwaiter().GetResult()),
     ("innola spatial unit service blocks unauthorized session", () => InnolaSpatialUnitServiceTests.ReturnsFailureForUnauthorizedSession().GetAwaiter().GetResult()),
+    ("innola plan check service writes checklist and preserves payload", () => InnolaPlanCheckServiceTests.WritesPlanChecklistAndPreservesPlanPayload().GetAwaiter().GetResult()),
+    ("innola plan check service does not pass pending stages", () => InnolaPlanCheckServiceTests.DoesNotPassRowsForPendingStageStatus().GetAwaiter().GetResult()),
+    ("innola plan check service fails when checklist missing", () => InnolaPlanCheckServiceTests.FailsWhenChecklistIsMissing().GetAwaiter().GetResult()),
+    ("innola plan check service blocks unauthorized session", () => InnolaPlanCheckServiceTests.FailsBeforeHttpWhenUnauthorized().GetAwaiter().GetResult()),
     ("transaction panel logged out does not call transaction service", () => TransactionPanelStateTests.LoggedOutPanelDoesNotCallTransactionService().GetAwaiter().GetResult()),
     ("transaction panel logged in refresh uses session query and shows rows", () => TransactionPanelStateTests.LoggedInRefreshUsesSessionQueryAndShowsRows().GetAwaiter().GetResult()),
     ("transaction panel search remains enabled when refresh returns no rows", () => TransactionPanelStateTests.SearchRemainsEnabledWhenRefreshReturnsNoRows().GetAwaiter().GetResult()),
@@ -326,10 +336,16 @@ var tests = new (string Name, Action Run)[]
     ("transaction panel logout clears selected transaction and rows", () => TransactionPanelStateTests.LogoutClearsSelectedTransactionRowsAndKeepsParcelWorkflowDisabled().GetAwaiter().GetResult())
 };
 
-foreach (var test in tests)
+var selectedTests = args.Length == 0
+    ? tests
+    : tests
+        .Where(test => args.Any(arg => test.Name.Contains(arg, StringComparison.OrdinalIgnoreCase)))
+        .ToArray();
+
+foreach (var test in selectedTests)
 {
     test.Run();
     Console.WriteLine($"PASS {test.Name}");
 }
 
-Console.WriteLine($"PASS {tests.Length} tests");
+Console.WriteLine($"PASS {selectedTests.Length} tests");

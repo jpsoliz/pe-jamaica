@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net.Http;
+using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Workflow.Disposition;
@@ -19,6 +20,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
     private readonly CaseResumePackageService resumePackageService;
     private readonly ComputeReviewDispositionPersistenceService dispositionPersistenceService;
     private readonly IComputeExaminationReportService computeExaminationReportService;
+    private readonly IInnolaPlanCheckService planCheckService;
     private readonly Func<DateTimeOffset> getUtcNow;
 
     public InnolaTransactionLifecycleCoordinator(
@@ -30,7 +32,8 @@ public sealed class InnolaTransactionLifecycleCoordinator
         WorkflowLifecycleAuditService auditService,
         CaseResumePackageService resumePackageService,
         Func<DateTimeOffset>? getUtcNow = null,
-        IComputeExaminationReportService? computeExaminationReportService = null)
+        IComputeExaminationReportService? computeExaminationReportService = null,
+        IInnolaPlanCheckService? planCheckService = null)
     {
         this.sessionManager = sessionManager;
         this.detailService = detailService;
@@ -41,6 +44,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
         this.resumePackageService = resumePackageService;
         dispositionPersistenceService = new ComputeReviewDispositionPersistenceService();
         this.computeExaminationReportService = computeExaminationReportService ?? new ComputeExaminationReportService();
+        this.planCheckService = planCheckService ?? new MockInnolaPlanCheckService();
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -261,36 +265,58 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     ShellState.CompletedAttachmentSourceType,
                     "pending");
 
-                UpdateManifestAndAudit(
-                    "compute_spatial_unit_save_started",
-                    "started",
-                    "Starting Innola Spatial Unit save.",
-                    null,
-                    LifecycleStatusForManifest(),
-                    completionReady: true,
-                    completionReadyReason: "ready",
-                    spatialUnitApiStatus: "started");
-
-                var spatialUnitResult = await spatialUnitService.CreateOrUpdateAsync(
-                    sessionManager.CurrentSession!,
-                    sessionManager.SelectedTransaction!,
-                    layout.RootDirectory,
-                    disposition,
-                    cancellationToken).ConfigureAwait(false);
-                if (!spatialUnitResult.Success)
+                InnolaSpatialUnitSaveResult spatialUnitResult;
+                if (string.Equals(disposition.SpatialUnitApiStatus, "saved", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(disposition.SpatialUnitId))
                 {
-                    var message = SafeRetryMessage(spatialUnitResult.Message, "Could not create Spatial Unit. Try again.");
-                    sessionManager.MarkLifecycleError(message);
                     UpdateManifestAndAudit(
-                        "compute_spatial_unit_save_failed",
-                        "failed",
-                        message,
-                        spatialUnitResult.ErrorCategory,
-                        "error",
+                        "compute_spatial_unit_reuse_started",
+                        "started",
+                        "Reusing previously saved Innola Spatial Unit references.",
+                        null,
+                        LifecycleStatusForManifest(),
                         completionReady: true,
                         completionReadyReason: "ready",
-                        lastErrorCategory: spatialUnitResult.ErrorCategory);
-                    return InnolaTransactionLoadResult.Failure(message);
+                        spatialUnitId: disposition.SpatialUnitId,
+                        spatialUnitApiStatus: "saved");
+                    spatialUnitResult = InnolaSpatialUnitSaveResult.Succeeded(
+                        disposition.SpatialUnitId,
+                        "Spatial Unit already saved; reusing persisted references.",
+                        LoadPersistedPolygonReferences(layout));
+                }
+                else
+                {
+                    UpdateManifestAndAudit(
+                        "compute_spatial_unit_save_started",
+                        "started",
+                        "Starting Innola Spatial Unit save.",
+                        null,
+                        LifecycleStatusForManifest(),
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        spatialUnitApiStatus: "started");
+
+                    spatialUnitResult = await spatialUnitService.CreateOrUpdateAsync(
+                        sessionManager.CurrentSession!,
+                        sessionManager.SelectedTransaction!,
+                        layout.RootDirectory,
+                        disposition,
+                        cancellationToken).ConfigureAwait(false);
+                    if (!spatialUnitResult.Success)
+                    {
+                        var message = SafeRetryMessage(spatialUnitResult.Message, "Could not create Spatial Unit. Try again.");
+                        sessionManager.MarkLifecycleError(message);
+                        UpdateManifestAndAudit(
+                            "compute_spatial_unit_save_failed",
+                            "failed",
+                            message,
+                            spatialUnitResult.ErrorCategory,
+                            "error",
+                            completionReady: true,
+                            completionReadyReason: "ready",
+                            lastErrorCategory: spatialUnitResult.ErrorCategory);
+                        return InnolaTransactionLoadResult.Failure(message);
+                    }
                 }
 
                 var updatedDisposition = disposition with
@@ -354,7 +380,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     polygonSuidReferenceResult.Success
                         ? "compute_spatial_unit_polygon_suid_reference_saved"
                         : "compute_spatial_unit_polygon_suid_reference_failed",
-                    polygonSuidReferenceResult.Success ? "succeeded" : "warning",
+                    polygonSuidReferenceResult.Success ? "succeeded" : "failed",
                     polygonSuidReferenceResult.Success
                         ? polygonSuidReferenceResult.Message
                         : string.Join("; ", polygonSuidReferenceResult.Errors),
@@ -364,6 +390,14 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     completionReadyReason: "ready",
                     spatialUnitId: spatialUnitResult.SpatialUnitId,
                     spatialUnitApiStatus: "saved");
+                if (!polygonSuidReferenceResult.Success)
+                {
+                    var message = SafeRetryMessage(
+                        polygonSuidReferenceResult.Message,
+                        "Enterprise working_polygons SUID writeback failed. Spatial Units were created, but Finalize stopped before package upload and task completion.");
+                    sessionManager.MarkLifecycleError(message);
+                    return InnolaTransactionLoadResult.Failure(message);
+                }
 
                 disposition = updatedDisposition;
             }
@@ -405,6 +439,61 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     LifecycleStatusForManifest(),
                     completionReady: true,
                     completionReadyReason: "ready");
+
+                if (!string.Equals(disposition.PlanCheckApiStatus, "saved", StringComparison.OrdinalIgnoreCase))
+                {
+                    UpdateManifestAndAudit(
+                        "compute_plan_check_writeback_started",
+                        "started",
+                        "Starting Innola Plan Check writeback.",
+                        null,
+                        LifecycleStatusForManifest(),
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        spatialUnitId: disposition.SpatialUnitId,
+                        spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
+
+                    var planCheckResult = await planCheckService.WriteAsync(
+                        sessionManager.CurrentSession!,
+                        sessionManager.SelectedTransaction!,
+                        layout.RootDirectory,
+                        disposition,
+                        cancellationToken).ConfigureAwait(false);
+                    if (!planCheckResult.Success)
+                    {
+                        var message = SafeRetryMessage(planCheckResult.Message, "Innola Plan Check writeback failed. Try again.");
+                        sessionManager.MarkLifecycleError(message);
+                        UpdateManifestAndAudit(
+                            "compute_plan_check_writeback_failed",
+                            "failed",
+                            message,
+                            planCheckResult.ErrorCategory,
+                            "error",
+                            completionReady: true,
+                            completionReadyReason: "ready",
+                            lastErrorCategory: planCheckResult.ErrorCategory,
+                            spatialUnitId: disposition.SpatialUnitId,
+                            spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
+                        return InnolaTransactionLoadResult.Failure(message);
+                    }
+
+                    disposition = disposition with
+                    {
+                        PlanCheckApiStatus = "saved",
+                        PlanCheckApiRef = Path.Combine(layout.WorkingDirectory, "plan_check_api_response.json")
+                    };
+                    dispositionPersistenceService.Save(layout, disposition);
+                    UpdateManifestAndAudit(
+                        "compute_plan_check_writeback_saved",
+                        "succeeded",
+                        "Innola Plan Check values saved.",
+                        null,
+                        LifecycleStatusForManifest(),
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        spatialUnitId: disposition.SpatialUnitId,
+                        spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
+                }
             }
 
             var packageFileName = disposition?.WorkingPackageFileName
@@ -506,7 +595,9 @@ public sealed class InnolaTransactionLifecycleCoordinator
             var package = resumePackageService.Build(layout, transaction, sessionManager.CurrentUser?.Username, includeFullOutputArtifacts);
             if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath) || string.IsNullOrWhiteSpace(package.ContentType))
             {
-                return CasePackageUploadResult.Failure(fileName, sourceType, package.ErrorMessage ?? "Resume package could not be created.");
+                var errorMessage = package.ErrorMessage ?? "Resume package could not be created.";
+                WritePackageUploadFailureEvidence(layout, transaction, fileName, sourceType, "package_build_failed", errorMessage, null, null);
+                return CasePackageUploadResult.Failure(fileName, sourceType, errorMessage);
             }
 
             packagePath = package.PackagePath;
@@ -519,12 +610,34 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 content,
                 sourceType,
                 cancellationToken);
+            if (!result.Success)
+            {
+                WritePackageUploadFailureEvidence(
+                    layout,
+                    transaction,
+                    fileName,
+                    sourceType,
+                    result.ErrorCategory ?? "upload_failed",
+                    result.ErrorMessage ?? "Could not upload case package.",
+                    packagePath,
+                    content.Length);
+            }
+
             return result.Success
                 ? CasePackageUploadResult.Succeeded(fileName, sourceType)
                 : CasePackageUploadResult.Failure(fileName, sourceType, result.ErrorMessage ?? "Could not upload case package.", result.ErrorCategory);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or TaskCanceledException)
         {
+            WritePackageUploadFailureEvidence(
+                layout,
+                transaction,
+                fileName,
+                sourceType,
+                exception.GetType().Name,
+                exception.Message,
+                packagePath,
+                null);
             return CasePackageUploadResult.Failure(fileName, sourceType, "Could not package case state for upload.", exception.GetType().Name);
         }
         finally
@@ -543,6 +656,63 @@ public sealed class InnolaTransactionLifecycleCoordinator
         }
     }
 
+    private void WritePackageUploadFailureEvidence(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string fileName,
+        string sourceType,
+        string errorCategory,
+        string errorMessage,
+        string? packagePath,
+        long? packageBytes)
+    {
+        try
+        {
+            Directory.CreateDirectory(layout.WorkingDirectory);
+            var evidence = new
+            {
+                schema_version = "working_package_upload_failure_v1",
+                written_at_utc = getUtcNow().UtcDateTime.ToString("O"),
+                transaction_id = transaction.TransactionId,
+                transaction_number = transaction.TransactionNumber,
+                task_id = transaction.TaskId,
+                file_name = fileName,
+                source_type = sourceType,
+                package_path = packagePath,
+                package_bytes = packageBytes,
+                upload_route = ShellState.AttachmentUploadRoute,
+                upload_binding_mode = ShellState.AttachmentUploadBindingMode,
+                upload_mode = ShellState.AttachmentUploadMode,
+                error_category = errorCategory,
+                error_message = SanitizeUploadDiagnostic(errorMessage)
+            };
+            File.WriteAllText(
+                Path.Combine(layout.WorkingDirectory, "working_package_upload_failure.json"),
+                JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException
+            or InvalidOperationException)
+        {
+            // Upload evidence must not block lifecycle failure reporting.
+        }
+    }
+
+    private static string SanitizeUploadDiagnostic(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return value.Contains("token", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("password", StringComparison.OrdinalIgnoreCase)
+            ? "Upload failed. Sensitive diagnostic was redacted."
+            : value;
+    }
+
     private ComputeReviewDispositionDocument SaveWorkingPackageState(
         CaseFolderLayout layout,
         ComputeReviewDispositionDocument disposition,
@@ -558,6 +728,52 @@ public sealed class InnolaTransactionLifecycleCoordinator
         };
         dispositionPersistenceService.Save(layout, updated);
         return updated;
+    }
+
+    private static IReadOnlyList<InnolaSpatialUnitPolygonReference> LoadPersistedPolygonReferences(CaseFolderLayout layout)
+    {
+        var responsePath = Path.Combine(layout.WorkingDirectory, "spatial_unit_api_response.json");
+        if (!File.Exists(responsePath))
+        {
+            return Array.Empty<InnolaSpatialUnitPolygonReference>();
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(responsePath));
+            if (!document.RootElement.TryGetProperty("polygon_references", out var referencesElement)
+                || referencesElement.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<InnolaSpatialUnitPolygonReference>();
+            }
+
+            var references = new List<InnolaSpatialUnitPolygonReference>();
+            foreach (var item in referencesElement.EnumerateArray())
+            {
+                references.Add(new InnolaSpatialUnitPolygonReference(
+                    ReadJsonString(item, "parcel_name"),
+                    ReadJsonString(item, "spatial_unit_id"),
+                    ReadJsonString(item, "spatial_unit_suid")));
+            }
+
+            return references;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            return Array.Empty<InnolaSpatialUnitPolygonReference>();
+        }
+    }
+
+    private static string? ReadJsonString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(propertyName, out var property)
+            && property.ValueKind == JsonValueKind.String)
+        {
+            return property.GetString();
+        }
+
+        return null;
     }
 
     private string? ValidateActiveTransaction(bool requireOwner = false)

@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Innola;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -9,10 +10,17 @@ public sealed class ExtractionDecisionGateService
 {
     private const string SchemaVersion = "1.0.0";
     private const double InvalidCoordinateRatioThreshold = 0.35d;
+    private readonly Func<int> getManualReviewRetryThreshold;
     private static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true
     };
+
+    public ExtractionDecisionGateService(Func<int>? getManualReviewRetryThreshold = null)
+    {
+        this.getManualReviewRetryThreshold = getManualReviewRetryThreshold
+            ?? (() => InnolaTransactionSettings.Load().ManualReviewRetryThreshold);
+    }
 
     public string StateFileName => "extraction_decision_gate.json";
 
@@ -161,7 +169,7 @@ public sealed class ExtractionDecisionGateService
         return Path.Combine(layout.WorkingDirectory, StateFileName);
     }
 
-    private static ExtractionDecisionGateResult BuildWeakResult(
+    private ExtractionDecisionGateResult BuildWeakResult(
         string qualityStatus,
         ExtractionDecisionGateState state,
         IReadOnlyList<string> issues,
@@ -169,7 +177,8 @@ public sealed class ExtractionDecisionGateService
         int usableRows,
         int totalRows)
     {
-        var stronglyRecommendManual = state.WeakAttemptCount >= 2;
+        var retryThreshold = Math.Max(1, getManualReviewRetryThreshold());
+        var stronglyRecommendManual = state.WeakAttemptCount >= retryThreshold;
         var summary = issues.Count > 0
             ? issues[0]
             : "Extraction review needs a routing decision.";
