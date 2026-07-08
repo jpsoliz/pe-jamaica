@@ -282,6 +282,7 @@ TBD
 - Live provision path creates or reuses `working_review_innola_view` using Portal REST first, with ArcGIS Python API as fallback, and then creates/updates the web map item using `ARCGIS_PORTAL_TOKEN`.
 - If `feature_layer_view_url` is already configured, the script reuses that view and only updates/creates the web map.
 - Live testing against `jm-gis` showed this Enterprise deployment rejects `addToDefinition` for an empty hosted view FeatureServer, so the script now validates configured view children and supports an explicit `-AllowSourceServiceMap` fallback to create the web map from `working_review` for controlled internal validation.
+- Patched the live fallback path so source-service fallback no longer fails later on the missing `feature_layer_view_url` guard. Verified live provisioning created `innola_compute_review_map` item `8b4c4b43ad6c4620b1ea2d59dc94f26f`.
 
 ### File List
 
@@ -299,3 +300,4 @@ TBD
 | 2026-07-07 | 0.4 | Added a single PowerShell wrapper for validate, dry-run export, and live provisioning execution. | Codex |
 | 2026-07-07 | 0.5 | Reworked feature-layer-view creation to use Portal REST before ArcGIS Python API fallback for more reliable terminal execution. | Codex |
 | 2026-07-07 | 0.6 | Added hosted-view child validation, early token validation, and explicit source-service fallback for Enterprise deployments that reject view `addToDefinition`. | Codex |
+| 2026-07-08 | 0.7 | Fixed live source-service fallback web map provisioning and verified Portal token validity against `community/self`. | Codex |

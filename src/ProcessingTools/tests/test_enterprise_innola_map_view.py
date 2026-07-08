@@ -174,6 +174,58 @@ class EnterpriseInnolaMapViewTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertTrue(any("portal token" in error.lower() for error in payload["validation"]["errors"]))
 
+    def test_live_provision_allows_source_service_map_fallback(self):
+        previous = os.environ.get("ARCGIS_PORTAL_TOKEN")
+        os.environ["ARCGIS_PORTAL_TOKEN"] = "token"
+        settings = _settings()
+        settings["enterprise_innola_map_view"].pop("feature_layer_view_url")
+        original_load = admin_script._load_settings
+        original_rest = admin_script._create_or_get_feature_layer_view_rest
+        original_api = admin_script._create_or_get_feature_layer_view_with_arcgis_api
+        original_post = admin_script._post_form
+        calls = []
+
+        def fake_post(url, form, token_env_var):
+            calls.append((url, form))
+            if url.endswith("/community/self"):
+                return {"username": "GIS_Test"}
+            if url.endswith("/search"):
+                return {"results": []}
+            if url.endswith("/addItem"):
+                return {"success": True, "id": "web-map-item"}
+            return {"success": True}
+
+        try:
+            admin_script._load_settings = lambda path: settings
+            admin_script._create_or_get_feature_layer_view_rest = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("rest failed"))
+            admin_script._create_or_get_feature_layer_view_with_arcgis_api = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("api failed"))
+            admin_script._post_form = fake_post
+            args = admin_script.parse_args(
+                [
+                    "provision",
+                    "--no-dry-run",
+                    "--allow-source-service-map",
+                    "--source-feature-layer-item-id",
+                    "source-item",
+                ]
+            )
+
+            payload = admin_script.build_payload(args)
+        finally:
+            admin_script._load_settings = original_load
+            admin_script._create_or_get_feature_layer_view_rest = original_rest
+            admin_script._create_or_get_feature_layer_view_with_arcgis_api = original_api
+            admin_script._post_form = original_post
+            if previous is None:
+                os.environ.pop("ARCGIS_PORTAL_TOKEN", None)
+            else:
+                os.environ["ARCGIS_PORTAL_TOKEN"] = previous
+
+        self.assertEqual("provisioned", payload["status"])
+        self.assertEqual("web-map-item", payload["outputs"]["web_map_item_id"])
+        self.assertEqual("source_service_fallback", payload["live_result"]["feature_layer_view"]["action"])
+        self.assertTrue(any("source service" in warning for warning in payload["validation"]["warnings"]))
+
     def test_working_service_url_is_derived_from_child_layer_url(self):
         args = admin_script.parse_args(["export-config"])
         config = admin_script._resolve_config(args, _settings())

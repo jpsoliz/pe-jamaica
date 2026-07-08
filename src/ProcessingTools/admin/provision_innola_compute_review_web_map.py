@@ -915,9 +915,11 @@ def _provision_live_web_map(
         errors.append(f"Live web map provisioning requires a portal token in {token_env_var}.")
         return {}
 
-    if not config["feature_layer_view_url"]:
+    if not config["feature_layer_view_url"] and not config.get("allow_source_service_map"):
         errors.append("Live provisioning requires feature_layer_view_url. Create/configure the read-only view first.")
         return {}
+    if not config["feature_layer_view_url"] and config.get("allow_source_service_map"):
+        warnings.append("Live web map provisioning is using the editable working_review source service because allow_source_service_map is enabled.")
 
     try:
         username = _read_portal_username(config["portal_url"], token_env_var)
