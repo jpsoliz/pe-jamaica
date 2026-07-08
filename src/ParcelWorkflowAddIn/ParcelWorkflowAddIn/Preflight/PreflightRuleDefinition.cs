@@ -14,6 +14,8 @@ public sealed record PreflightRuleDefinition(
     [property: JsonPropertyName("locked")] bool Locked,
     [property: JsonPropertyName("transaction_types")] IReadOnlyList<string>? TransactionTypes = null,
     [property: JsonPropertyName("workflow_stages")] IReadOnlyList<string>? WorkflowStages = null,
+    [property: JsonPropertyName("transaction_type_profiles")] IReadOnlyList<string>? TransactionTypeProfiles = null,
+    [property: JsonPropertyName("document_profiles")] IReadOnlyList<string>? DocumentProfiles = null,
     [property: JsonPropertyName("source_roles")] IReadOnlyList<string>? SourceRoles = null,
     [property: JsonPropertyName("file_types")] IReadOnlyList<string>? FileTypes = null,
     [property: JsonPropertyName("embedded_text_preferred")] bool? EmbeddedTextPreferred = null,
@@ -58,6 +60,12 @@ public sealed record PreflightRuleDefinition(
     {
         return MatchesAny(TransactionTypes, transactionType)
             && MatchesAny(WorkflowStages, workflowStage);
+    }
+
+    public bool AppliesToTransactionProfile(string? transactionProfile, string? documentProfile)
+    {
+        return MatchesAny(TransactionTypeProfiles, transactionProfile)
+            && MatchesAny(DocumentProfiles, documentProfile);
     }
 
     public bool AppliesToSource(string? sourceRole, string? fileType)

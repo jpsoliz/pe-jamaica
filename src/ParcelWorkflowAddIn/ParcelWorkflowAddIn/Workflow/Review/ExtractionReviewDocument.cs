@@ -26,7 +26,93 @@ public sealed class ExtractionReviewDocument
 
     public List<ExtractionReviewRow> Rows { get; } = [];
 
+    public List<ExtractionReviewSegment> Segments { get; } = [];
+
     public JsonObject RootMetadata { get; set; } = [];
+}
+
+public sealed class ExtractionReviewSegment
+{
+    public string SegmentId { get; set; } = string.Empty;
+
+    public int? Sequence { get; set; }
+
+    public string FromPoint { get; set; } = string.Empty;
+
+    public string ToPoint { get; set; } = string.Empty;
+
+    public string BearingText { get; set; } = string.Empty;
+
+    public string DistanceText { get; set; } = string.Empty;
+
+    public string LengthText { get; set; } = string.Empty;
+
+    public bool IncludeInBoundary { get; set; } = true;
+
+    public string Confidence { get; set; } = string.Empty;
+
+    public string Status { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string SourceEvidence { get; set; } = string.Empty;
+
+    public string ReviewFromPoint { get; set; } = string.Empty;
+
+    public string ReviewToPoint { get; set; } = string.Empty;
+
+    public string ReviewBearingText { get; set; } = string.Empty;
+
+    public string ReviewDistanceText { get; set; } = string.Empty;
+
+    public string ReviewLengthText { get; set; } = string.Empty;
+
+    public int? ReviewSequence { get; set; }
+
+    public bool? ReviewIncludeInBoundary { get; set; }
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public bool IsEdited { get; set; }
+
+    public ExtractionReviewSegmentOriginalValues OriginalValues { get; set; } = new();
+
+    public JsonObject RawSegment { get; set; } = [];
+
+    public int EffectiveSequence => ReviewSequence ?? Sequence ?? int.MaxValue;
+
+    public string EffectiveFromPoint => string.IsNullOrWhiteSpace(ReviewFromPoint) ? FromPoint : ReviewFromPoint;
+
+    public string EffectiveToPoint => string.IsNullOrWhiteSpace(ReviewToPoint) ? ToPoint : ReviewToPoint;
+
+    public string EffectiveBearingText => string.IsNullOrWhiteSpace(ReviewBearingText) ? BearingText : ReviewBearingText;
+
+    public string EffectiveDistanceText => string.IsNullOrWhiteSpace(ReviewDistanceText) ? DistanceText : ReviewDistanceText;
+
+    public string EffectiveLengthText => string.IsNullOrWhiteSpace(ReviewLengthText) ? LengthText : ReviewLengthText;
+
+    public bool EffectiveIncludeInBoundary => ReviewIncludeInBoundary ?? IncludeInBoundary;
+}
+
+public sealed class ExtractionReviewSegmentOriginalValues
+{
+    public int? Sequence { get; set; }
+
+    public string FromPoint { get; set; } = string.Empty;
+
+    public string ToPoint { get; set; } = string.Empty;
+
+    public string BearingText { get; set; } = string.Empty;
+
+    public string DistanceText { get; set; } = string.Empty;
+
+    public string LengthText { get; set; } = string.Empty;
+
+    public bool IncludeInBoundary { get; set; } = true;
 }
 
 public sealed class ExtractionReviewRow

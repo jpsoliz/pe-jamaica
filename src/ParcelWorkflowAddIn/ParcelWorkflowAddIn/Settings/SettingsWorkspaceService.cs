@@ -74,6 +74,7 @@ public sealed class SettingsWorkspaceService
             SupportedTransactionTypes = transactionSettings.SupportedTransactionTypes.ToList(),
             ComputeWorkflowStages = transactionSettings.ComputeWorkflowStages.ToList(),
             ComputeAttachmentSourceTypesJson = ResolveComputeAttachmentSourceTypesJson(settingsRoot, transactionSettings),
+            ComputeTransactionTypeProfilesJson = ResolveComputeTransactionTypeProfilesJson(settingsRoot, transactionSettings),
             InnolaAttachmentUploadRoute = transactionSettings.AttachmentUploadRoute,
             InnolaAttachmentUploadBindingMode = transactionSettings.AttachmentUploadBindingMode,
             InnolaAttachmentUploadMode = transactionSettings.AttachmentUploadMode,
@@ -219,6 +220,22 @@ public sealed class SettingsWorkspaceService
             catch (JsonException exception)
             {
                 messages.Add(new("Innola Integration", "Compute Attachment Source Types", $"Compute attachment source types must be valid JSON. {exception.Message}"));
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(document.ComputeTransactionTypeProfilesJson))
+        {
+            messages.Add(new("Innola Integration", "Compute Transaction Type Profiles", "Compute transaction type profiles JSON is required."));
+        }
+        else
+        {
+            try
+            {
+                JsonNode.Parse(document.ComputeTransactionTypeProfilesJson);
+            }
+            catch (JsonException exception)
+            {
+                messages.Add(new("Innola Integration", "Compute Transaction Type Profiles", $"Compute transaction type profiles must be valid JSON. {exception.Message}"));
             }
         }
 
@@ -433,6 +450,7 @@ public sealed class SettingsWorkspaceService
         root["supported_transaction_types"] = CreateStringArray(document.SupportedTransactionTypes);
         root["compute_workflow_stages"] = CreateStringArray(document.ComputeWorkflowStages);
         SetJson(root, "compute_attachment_source_types", document.ComputeAttachmentSourceTypesJson);
+        SetJson(root, "compute_transaction_type_profiles", document.ComputeTransactionTypeProfilesJson);
         SetString(root, "innola_attachment_upload_route", document.InnolaAttachmentUploadRoute);
         SetString(root, "innola_attachment_upload_binding_mode", document.InnolaAttachmentUploadBindingMode);
         SetString(root, "innola_attachment_upload_mode", document.InnolaAttachmentUploadMode);
@@ -1044,6 +1062,11 @@ public sealed class SettingsWorkspaceService
             warnings.Add(transactionSettings.ComputeWorkflowStagesWarning);
         }
 
+        if (!string.IsNullOrWhiteSpace(transactionSettings.ComputeTransactionTypeProfilesWarning))
+        {
+            warnings.Add(transactionSettings.ComputeTransactionTypeProfilesWarning);
+        }
+
         if (!string.IsNullOrWhiteSpace(transactionSettings.EnterpriseWorkingReview.Warning))
         {
             warnings.Add(transactionSettings.EnterpriseWorkingReview.Warning);
@@ -1284,6 +1307,32 @@ public sealed class SettingsWorkspaceService
                 ["required"] = item.Required,
                 ["internal_only"] = item.InternalOnly,
                 ["extensions"] = new JsonArray(item.Extensions.Select(extension => (JsonNode?)JsonValue.Create(extension)).ToArray())
+            })
+            .ToArray();
+
+        return new JsonArray(nodes).ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string ResolveComputeTransactionTypeProfilesJson(JsonObject? root, InnolaTransactionSettings transactionSettings)
+    {
+        var configured = ReadJson(root, "compute_transaction_type_profiles");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var nodes = transactionSettings.ComputeTransactionTypeProfiles
+            .Select(item => new JsonObject
+            {
+                ["profile_id"] = item.ProfileId,
+                ["enabled"] = item.Enabled,
+                ["transaction_type_codes"] = new JsonArray(item.TransactionTypeCodes.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+                ["transaction_type_names"] = new JsonArray(item.TransactionTypeNames.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+                ["workflow_profile"] = item.WorkflowProfile,
+                ["required_source_roles"] = new JsonArray(item.RequiredSourceRoles.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+                ["optional_source_roles"] = new JsonArray(item.OptionalSourceRoles.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+                ["primary_extraction_role"] = item.PrimaryExtractionRole,
+                ["document_profile"] = item.DocumentProfile
             })
             .ToArray();
 

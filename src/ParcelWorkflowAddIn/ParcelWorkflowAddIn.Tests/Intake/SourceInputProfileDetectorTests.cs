@@ -41,6 +41,21 @@ internal static class SourceInputProfileDetectorTests
         TestAssert.Equal(0, profile.MissingRoles.Count, "Scenario B should not have missing roles.");
     }
 
+    public static void DetectsPxaSurveyPlanPdfFromSurveyPlanRole()
+    {
+        var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));
+        var sources = new[]
+        {
+            Source("DOC_PLAN_492321.pdf", ".pdf", SourceRole.SurveyPlanPdf)
+        };
+
+        var profile = detector.Detect(sources);
+
+        TestAssert.Equal(SourceInputProfile.PxaSurveyPlan, profile.ProfileCode, "PXA survey plan profile code mismatch.");
+        TestAssert.Equal("matched", profile.Status, "PXA survey plan PDF should be matched.");
+        TestAssert.Equal(0, profile.MissingRoles.Count, "PXA survey plan PDF should not require computation sheet.");
+    }
+
     public static void DetectsIncompleteIntakeWithMissingRoles()
     {
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));

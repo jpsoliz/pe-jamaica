@@ -224,7 +224,7 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(null, manager.SelectedTransaction, "Unsupported transaction should not become selected in session state.");
         TestAssert.True(!manager.IsTransactionLoaded, "Unsupported transaction should not load a case folder.");
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Unsupported transaction row should remain selected.");
-        TestAssert.Equal("This transaction type is not supported by Parcel Workflow. Please return to the transaction list and select a valid examination transaction.", panel.StatusText, "Unsupported transaction status mismatch.");
+        TestAssert.Equal("Transaction TR100000004 cannot be opened because transaction type 'Survey Update' is not supported by Parcel Workflow [Compute]. Supported types: Cadastral Plan Examination, Plan Examination.", panel.StatusText, "Unsupported transaction status mismatch.");
         TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported transaction should surface a matching blocking error.");
     }
 
@@ -257,7 +257,7 @@ internal static class TransactionPanelStateTests
 
         TestAssert.Equal(null, manager.SelectedTransaction, "Unsupported workflow stage should not become selected in session state.");
         TestAssert.True(!manager.IsTransactionLoaded, "Unsupported workflow stage should not load a case folder.");
-        TestAssert.Equal("This transaction belongs to a different workflow stage and cannot be opened in Parcel Workflow [Compute]. Please return to the transaction list and select a Compute transaction.", panel.StatusText, "Unsupported workflow stage status mismatch.");
+        TestAssert.Equal("Transaction TR100000004 cannot be opened because task 'Compare Survey Plan' is not configured for Parcel Workflow [Compute]. Supported tasks: Assign Computation Task, Computation Check, Compute Survey Plan.", panel.StatusText, "Unsupported workflow stage status mismatch.");
         TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported workflow stage should surface a matching blocking error.");
     }
 

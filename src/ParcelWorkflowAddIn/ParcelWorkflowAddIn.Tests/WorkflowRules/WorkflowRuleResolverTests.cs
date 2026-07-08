@@ -77,6 +77,39 @@ internal static class WorkflowRuleResolverTests
         TestAssert.True(result.ErrorMessage!.Contains("No workflow rule", StringComparison.OrdinalIgnoreCase), "No-match message should be clear.");
     }
 
+    public static void PxaSurveyPlanProfileResolvesToPxaPlan()
+    {
+        using var rules = DefaultRulesFile();
+        var resolver = Resolver(rules.Path);
+        var profile = new DetectedSourceInputProfile(
+            SourceInputProfile.PxaSurveyPlan,
+            SourceInputProfile.PxaSurveyPlanLabel,
+            "matched",
+            FixedNow().UtcDateTime.ToString("O"),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+        var sources = new[]
+        {
+            Source("DOC_PLAN_492321.pdf", ".pdf", SourceRole.SurveyPlanPdf)
+        };
+        var context = new WorkflowRuleResolutionContext(
+            "PXA",
+            "parcel_workflow",
+            profile,
+            sources,
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            "pxa_single_parcel_survey_plan",
+            "pxa_single_parcel_survey_plan",
+            "scanned_single_parcel_survey_plan_pdf");
+
+        var result = resolver.Resolve(context);
+
+        TestAssert.True(result.Success, "PXA survey plan should resolve.");
+        TestAssert.Equal("pxa_single_parcel_survey_plan_v1", result.ScriptPlan!.RuleId, "PXA rule id mismatch.");
+        TestAssert.Equal("pxa_single_parcel_survey_plan", result.ScriptPlan.WorkflowProfile, "PXA workflow profile mismatch.");
+        TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.SurveyPlanPdf), "PXA plan should use survey plan PDF input role.");
+    }
+
     public static void PlanParametersDoNotPersistSecretValues()
     {
         using var rules = SecretRulesFile();

@@ -16,6 +16,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     private readonly ParcelWorkflowDockpaneViewModel parent;
     private JamaicaParcelGroupViewModel? selectedParcelGroup;
     private ExtractionReviewRowViewModel? selectedVisibleRow;
+    private ExtractionReviewSegmentViewModel? selectedVisibleSegment;
     private bool isRefreshingProjection;
     private bool isApplyingSelectedParcelGroup;
     private bool suppressParentParcelContextSync;
@@ -27,7 +28,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         this.parent = parent;
         parent.PropertyChanged += OnParentPropertyChanged;
         parent.ReviewRows.CollectionChanged += OnReviewRowsCollectionChanged;
+        parent.ReviewSegments.CollectionChanged += OnReviewSegmentsCollectionChanged;
         VisibleRows = [];
+        VisibleSegments = [];
         ParcelGroups = [];
         RefreshProjection();
     }
@@ -37,6 +40,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<JamaicaParcelGroupViewModel> ParcelGroups { get; }
 
     public ObservableCollection<ExtractionReviewRowViewModel> VisibleRows { get; }
+
+    public ObservableCollection<ExtractionReviewSegmentViewModel> VisibleSegments { get; }
 
     public string WindowTitle => "Points Validation Tool";
 
@@ -106,11 +111,22 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool CanSaveReview => parent.CanSaveReviewChangesFromWorkspace;
 
+    public bool ReviewHasBlockers => parent.ReviewHasBlockers;
+
+    public string SelectedReviewRowValidationIssueText => parent.SelectedReviewRowValidationIssueText;
+
     public bool CanCompleteValidation =>
         parent.HasLoadedReviewData
         && !parent.IsReviewLocked
         && !parent.ReviewHasBlockers
         && !parent.IsManualReviewEditMode;
+
+    public bool HasReviewSegments => parent.ReviewSegments.Count > 0;
+
+    public string SegmentReviewSummary =>
+        HasReviewSegments
+            ? $"{parent.ReviewSegments.Count} reviewed segment candidate(s). Edit the boundary chain before saving or completing validation."
+            : "No segment candidates are available for this review artifact.";
 
     public string ViewerFileTitle => parent.ReviewViewerFileTitle;
 
@@ -260,6 +276,21 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedRowSummary));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
             OnPropertyChanged(nameof(ParcelContextPreviewPaths));
+        }
+    }
+
+    public ExtractionReviewSegmentViewModel? SelectedVisibleSegment
+    {
+        get => selectedVisibleSegment;
+        set
+        {
+            if (ReferenceEquals(selectedVisibleSegment, value))
+            {
+                return;
+            }
+
+            selectedVisibleSegment = value;
+            OnPropertyChanged(nameof(SelectedVisibleSegment));
         }
     }
 
@@ -452,6 +483,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     {
         parent.PropertyChanged -= OnParentPropertyChanged;
         parent.ReviewRows.CollectionChanged -= OnReviewRowsCollectionChanged;
+        parent.ReviewSegments.CollectionChanged -= OnReviewSegmentsCollectionChanged;
     }
 
     public bool SaveReviewChanges()
@@ -539,6 +571,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         RefreshProjection();
     }
 
+    private void OnReviewSegmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RebuildVisibleSegments();
+        OnPropertyChanged(nameof(HasReviewSegments));
+        OnPropertyChanged(nameof(SegmentReviewSummary));
+        OnPropertyChanged(nameof(CanCompleteValidation));
+    }
+
     private void OnParentPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -578,14 +618,23 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 NotifyViewerProperties();
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewRows):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewSegments):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
             case nameof(ParcelWorkflowDockpaneViewModel.HasSingleReviewParcelGroup):
                 RefreshProjection();
+                OnPropertyChanged(nameof(HasReviewSegments));
+                OnPropertyChanged(nameof(SegmentReviewSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
                 OnPropertyChanged(nameof(ApprovalGuidance));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewHasBlockers):
+            case nameof(ParcelWorkflowDockpaneViewModel.SelectedReviewRowValidationIssueText):
+                OnPropertyChanged(nameof(ReviewHasBlockers));
+                OnPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
+                OnPropertyChanged(nameof(CanCompleteValidation));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
                 OnPropertyChanged(nameof(ReviewBadge));
@@ -622,6 +671,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ParcelContextPreviewPaths));
                 OnPropertyChanged(nameof(SelectedPointPreview));
                 OnPropertyChanged(nameof(SelectedRowSummary));
+                OnPropertyChanged(nameof(HasReviewSegments));
+                OnPropertyChanged(nameof(SegmentReviewSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
                 OnPropertyChanged(nameof(CanCompleteValidation));
@@ -683,6 +734,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             }
 
             RebuildVisibleRows();
+            RebuildVisibleSegments();
             OnPropertyChanged(nameof(UsesLiveArtifacts));
             OnPropertyChanged(nameof(WorkspaceStatus));
             OnPropertyChanged(nameof(DataBindingModeText));
@@ -696,6 +748,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(HasUnsavedReviewChanges));
             OnPropertyChanged(nameof(CanSaveReview));
             OnPropertyChanged(nameof(CanCompleteValidation));
+            OnPropertyChanged(nameof(HasReviewSegments));
+            OnPropertyChanged(nameof(SegmentReviewSummary));
         }
         finally
         {
@@ -727,6 +781,26 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ParcelContextPreviewPaths));
         OnPropertyChanged(nameof(SelectedPointPreview));
         OnPropertyChanged(nameof(SelectedRowSummary));
+    }
+
+    private void RebuildVisibleSegments()
+    {
+        var previousSegmentId = SelectedVisibleSegment?.SegmentId;
+        var segments = parent.ReviewSegments
+            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        VisibleSegments.Clear();
+        foreach (var segment in segments)
+        {
+            VisibleSegments.Add(segment);
+        }
+
+        SelectedVisibleSegment = segments.FirstOrDefault(segment =>
+                                     string.Equals(segment.SegmentId, previousSegmentId, StringComparison.OrdinalIgnoreCase))
+                                 ?? segments.FirstOrDefault();
     }
 
     private PointCollection BuildPreviewPoints()

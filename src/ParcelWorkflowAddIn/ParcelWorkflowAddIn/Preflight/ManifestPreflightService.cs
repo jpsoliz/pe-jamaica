@@ -227,9 +227,8 @@ public sealed class ManifestPreflightService
                 "Resolve missing supporting document roles and refresh intake."));
         }
 
-        EvaluateSupportingDocumentInventory(manifest, blockers, warnings, passed);
-
         var requiredRoles = GetRequiredRoles(manifest, profile.ProfileCode);
+        EvaluateSupportingDocumentInventory(manifest, requiredRoles, blockers, warnings, passed);
         foreach (var role in requiredRoles)
         {
             await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
@@ -413,6 +412,37 @@ public sealed class ManifestPreflightService
 
         if (!hasConcreteGeoreferenceValidation)
         {
+            var surveyPlanEvidence = TryLoadSurveyPlanExtractionEvidence(layout);
+            if (surveyPlanEvidence is not null)
+            {
+                hasConcreteGeoreferenceValidation = true;
+                var evidence = surveyPlanEvidence.ToGeoreferenceEvidence();
+                var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
+                if (surveyPlanEvidence.HasGeoreferenceEvidence)
+                {
+                    passed.Add(PreflightCheck.PassedForCategory(
+                        readinessRule?.Category ?? "georeference",
+                        readinessRule?.RuleId ?? "georeference_spatial_validation_readiness",
+                        $"Passed: Survey plan evidence is available for Georeference Check ({surveyPlanEvidence.CoordinateSystem ?? "coordinate system unknown"}, parish {surveyPlanEvidence.Parish ?? "unknown"}).",
+                        surveyPlanEvidence.SummaryPath,
+                        SourceRole.SurveyPlanPdf).WithDisplayName(readinessRule?.DisplayName ?? "Concrete georeference validation").WithOutcome("passed", evidence));
+                }
+                else if (readinessRule is { Enabled: true })
+                {
+                    AddRuleIssue(
+                        readinessRule,
+                        blockers,
+                        warnings,
+                        "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
+                        surveyPlanEvidence.SummaryPath,
+                        SourceRole.SurveyPlanPdf,
+                        "Review the survey plan PDF manually or rerun the OCR/vision extraction.");
+                }
+            }
+        }
+
+        if (!hasConcreteGeoreferenceValidation)
+        {
             var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
             if (readinessRule is { Enabled: true })
             {
@@ -498,6 +528,32 @@ public sealed class ManifestPreflightService
             return;
         }
 
+        var surveyPlanEvidence = TryLoadSurveyPlanExtractionEvidence(layout);
+        if (surveyPlanEvidence is not null)
+        {
+            var evidence = surveyPlanEvidence.ToDimensionEvidence();
+            if (surveyPlanEvidence.HasDimensionEvidence)
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    readinessRule.Category,
+                    readinessRule.RuleId,
+                    $"Passed: Survey plan extraction produced {surveyPlanEvidence.PointCount} point candidate(s), {surveyPlanEvidence.SegmentCount} segment candidate(s), and document area {surveyPlanEvidence.DocumentArea ?? "unknown"}.",
+                    surveyPlanEvidence.SummaryPath,
+                    SourceRole.SurveyPlanPdf).WithDisplayName(readinessRule.DisplayName).WithOutcome("passed", evidence));
+                return;
+            }
+
+            AddRuleIssue(
+                readinessRule,
+                blockers,
+                warnings,
+                "Survey plan extraction summary exists, but point/segment evidence is insufficient for geometry construction.",
+                surveyPlanEvidence.SummaryPath,
+                SourceRole.SurveyPlanPdf,
+                "Use the Points Validation Tool manual-review path to enter or correct point and line rows.");
+            return;
+        }
+
         AddRuleIssue(
             readinessRule,
             blockers,
@@ -506,6 +562,61 @@ public sealed class ManifestPreflightService
             source.CopiedPath,
             source.SourceRole,
             "Add a configured dimension geometry validator or rerun after a dimension-readiness artifact is available.");
+    }
+
+    private static SurveyPlanExtractionEvidence? TryLoadSurveyPlanExtractionEvidence(CaseFolderLayout layout)
+    {
+        var summaryPath = Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json");
+        if (!File.Exists(summaryPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(summaryPath));
+            var root = document.RootElement;
+            var coordinateSystem = ReadNestedFieldValue(root, "coordinate_system");
+            var parish = ReadNestedFieldValue(root, "survey_metadata", "parish");
+            var documentArea = ReadNestedFieldValue(root, "survey_metadata", "document_area");
+            var pointCount = ReadInt(root, "point_count");
+            var segmentCount = ReadInt(root, "segment_count");
+            return new SurveyPlanExtractionEvidence(summaryPath, coordinateSystem, parish, documentArea, pointCount, segmentCount);
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ReadNestedFieldValue(JsonElement root, params string[] path)
+    {
+        var current = root;
+        foreach (var part in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(part, out current))
+            {
+                return null;
+            }
+        }
+
+        if (current.ValueKind == JsonValueKind.Object
+            && current.TryGetProperty("value", out var value)
+            && value.ValueKind == JsonValueKind.String)
+        {
+            return value.GetString();
+        }
+
+        return current.ValueKind == JsonValueKind.String ? current.GetString() : null;
+    }
+
+    private static int ReadInt(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value)
+               && value.ValueKind == JsonValueKind.Number
+               && value.TryGetInt32(out var result)
+            ? result
+            : 0;
     }
 
     private async Task EvaluateRequiredRole(
@@ -939,6 +1050,11 @@ public sealed class ManifestPreflightService
 
     private IReadOnlyList<string> GetRequiredRoles(ManifestDocument manifest, string profileCode)
     {
+        if (manifest.Payload.TransactionTypeProfile is { RequiredSourceRoles.Count: > 0 } transactionProfile)
+        {
+            return transactionProfile.RequiredSourceRoles;
+        }
+
         var rule = ruleCatalog.TryGetRule("required_source_roles");
         var transactionType = manifest.Payload.InnolaTransaction?.CaseType;
         var workflowStage = manifest.Payload.InnolaTransaction?.TaskName;
@@ -957,6 +1073,7 @@ public sealed class ManifestPreflightService
         return SourceRole.Normalize(role) switch
         {
             SourceRole.PlanMapReference => "Survey plan / map reference: missing.",
+            SourceRole.SurveyPlanPdf => "Survey plan PDF: missing.",
             SourceRole.ComputationSheet => "Survey / computation sheet: missing.",
             SourceRole.CoordinateTextSource => "Structured survey points: missing.",
             SourceRole.DwgSource => "AutoCAD survey source: missing.",
@@ -971,32 +1088,46 @@ public sealed class ManifestPreflightService
 
     private static void EvaluateSupportingDocumentInventory(
         ManifestDocument manifest,
+        IReadOnlyList<string> requiredRoles,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed)
     {
-        foreach (var definition in ComputeAttachmentSourceTypeCatalog.SafeDefaults.Where(item => !item.InternalOnly && !item.Required))
+        var optionalRoles = manifest.Payload.TransactionTypeProfile?.OptionalSourceRoles
+            ?? ComputeAttachmentSourceTypeCatalog.SafeDefaults
+                .Where(item => !item.InternalOnly && !item.Required)
+                .Select(item => item.WorkflowRole)
+                .ToArray();
+
+        foreach (var role in optionalRoles
+            .Where(role => !requiredRoles.Any(required => SourceRole.Matches(role, required)))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var source = ResolveSourceForDefinition(manifest, definition);
-            var checkId = $"supporting_document_{definition.SourceType}";
+            var source = ResolveSourceForRole(manifest, role);
+            var checkId = $"supporting_document_{NormalizeCheckIdSegment(role)}";
             if (source is not null)
             {
                 passed.Add(PreflightCheck.PassedForCategory(
                     "supporting_document",
                     checkId,
-                    $"{definition.DisplayName}: found - {Path.GetFileName(source.CopiedPath)} ({source.FileType}).",
+                    $"{SourceRole.DisplayName(role)}: found - {Path.GetFileName(source.CopiedPath)} ({source.FileType}).",
                     source.CopiedPath,
-                    definition.WorkflowRole));
+                    role));
                 continue;
             }
 
             passed.Add(PreflightCheck.PassedForCategory(
                 "supporting_document",
                 checkId,
-                $"{definition.DisplayName}: not provided (optional).",
+                $"{SourceRole.DisplayName(role)}: not provided (optional).",
                 null,
-                definition.WorkflowRole));
+                role));
         }
+    }
+
+    private static ManifestSourceFile? ResolveSourceForRole(ManifestDocument manifest, string role)
+    {
+        return manifest.Payload.SourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, role));
     }
 
     private static ManifestSourceFile? ResolveSourceForDefinition(ManifestDocument manifest, ComputeAttachmentSourceTypeDefinition definition)
@@ -1138,4 +1269,44 @@ public sealed class ManifestPreflightService
     private sealed record TabularCoordinateParseResult(
         bool HasCoordinateColumns,
         (double Easting, double Northing)? SampleCoordinate);
+
+    private sealed record SurveyPlanExtractionEvidence(
+        string SummaryPath,
+        string? CoordinateSystem,
+        string? Parish,
+        string? DocumentArea,
+        int PointCount,
+        int SegmentCount)
+    {
+        public bool HasGeoreferenceEvidence =>
+            !string.IsNullOrWhiteSpace(CoordinateSystem)
+            && (!string.IsNullOrWhiteSpace(Parish) || PointCount > 0);
+
+        public bool HasDimensionEvidence => PointCount >= 3 && SegmentCount >= 3;
+
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> ToGeoreferenceEvidence()
+        {
+            return new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["coordinate_system"] = Values(CoordinateSystem),
+                ["parish"] = Values(Parish),
+                ["coordinate_table_point_count"] = Values(PointCount.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            };
+        }
+
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> ToDimensionEvidence()
+        {
+            return new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["point_count"] = Values(PointCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ["segment_count"] = Values(SegmentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ["document_area"] = Values(DocumentArea)
+            };
+        }
+
+        private static IReadOnlyList<string> Values(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? Array.Empty<string>() : new[] { value };
+        }
+    }
 }

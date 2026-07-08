@@ -98,6 +98,52 @@ class OutputAdapterTests(unittest.TestCase):
         self.assertEqual("20.00", fake.datasets["target"]["rows"][1]["length_txt"])
         self.assertEqual(20.0, fake.datasets["target"]["rows"][1]["distance_m"])
 
+    def test_output_adapter_prefers_reviewed_pxa_segments_for_lines(self):
+        review_data = {
+            "segments": [
+                {
+                    "segment_id": "seg-1",
+                    "review_sequence": 1,
+                    "review_from_point": "18",
+                    "review_to_point": "15",
+                    "review_bearing_txt": "S84°56'E",
+                    "review_distance_txt": "33.470",
+                    "review_include_in_boundary": True,
+                    "review_status": "accepted",
+                }
+            ]
+        }
+        point_groups = [
+            {
+                "group_id": "parcel-001",
+                "parcel_id": "parcel-001",
+                "points": [
+                    {
+                        "point_identifier": "15",
+                        "easting": 712897.345,
+                        "northing": 670582.156,
+                        "parcel_id": "parcel-001",
+                        "parcel_group_id": "parcel-001",
+                    },
+                    {
+                        "point_identifier": "18",
+                        "easting": 712864.006,
+                        "northing": 670585.112,
+                        "parcel_id": "parcel-001",
+                        "parcel_group_id": "parcel-001",
+                    },
+                ],
+            }
+        ]
+
+        segments = output_adapter._reviewed_boundary_segments(review_data, point_groups)
+
+        self.assertEqual(1, len(segments))
+        self.assertEqual("18", segments[0]["from_point_id"])
+        self.assertEqual("15", segments[0]["to_point_id"])
+        self.assertEqual("S84°56'E", segments[0]["bearing_txt"])
+        self.assertEqual("33.470", segments[0]["distance_txt"])
+
     def test_output_adapter_writes_output_summary_and_geojson(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

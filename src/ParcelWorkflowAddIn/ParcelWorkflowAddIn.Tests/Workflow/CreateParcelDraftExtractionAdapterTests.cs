@@ -1,5 +1,7 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -683,6 +685,154 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("pdf_text_structured_computation", root.GetProperty("extraction_method").GetString(), "Extraction method should reflect the text-first execution path.");
     }
 
+    public static void ExtractionAdapterRoutesPxaSurveyPlanPdfToSurveyPlanReviewArtifacts()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000492");
+        var catalogPath = Path.Combine(tempRoot.Path, "missing_doc_type_catalog.json");
+        var surveyPlanPath = Path.Combine(layout.SourceDirectory, "DOC_PLAN_492321.pdf");
+        File.WriteAllText(
+            surveyPlanPath,
+            """
+            Parish: Clarendon
+            Coordinate System: JAD 2001
+            Grid North / North Arrow
+            Area: 854.807 sq. metres
+            Survey date: September 03, 2024
+            Instrument: TOPCON GM-52 #12345
+            Surveyed by: Michael D. Isaacs
+            Owners: Jane Brown; Paul Brown
+            Representatives: Agent Smith
+            Adjacent Owners: Mary Green; John Black
+            Point 1 644195.8078 669833.1503
+            Point 2 644239.8415 669815.9993
+            Point 3 644322.7815 669815.9020
+            N70°40'53"W 78.36m
+            S85°01'15"E 40.43m
+            """);
+
+        var adapter = new CreateParcelDraftExtractionAdapter(
+            new FakeProcessRunner((_, _, _, _, _) => throw new InvalidOperationException("PXA survey-plan extraction should not call the computation-sheet process runner when embedded text is available.")),
+            catalogPath);
+        var context = CreatePxaContext(layout, surveyPlanPath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "PXA survey plan extraction should create review artifacts.");
+        var reviewPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var summaryPath = Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json");
+        var routePath = Path.Combine(layout.WorkingDirectory, "extraction_route.json");
+        TestAssert.True(File.Exists(reviewPath), "Review artifact should be written.");
+        TestAssert.True(File.Exists(summaryPath), "Survey plan summary should be written.");
+        TestAssert.True(File.Exists(routePath), "Route diagnostics should be written.");
+
+        using var review = JsonDocument.Parse(File.ReadAllText(reviewPath));
+        var root = review.RootElement;
+        TestAssert.Equal("scanned_single_parcel_survey_plan_pdf", root.GetProperty("source_profile").GetString(), "Survey plan source profile should be persisted.");
+        TestAssert.Equal("SINGLE_PARCEL_SURVEY_PLAN_PDF_V1", root.GetProperty("doc_type_id").GetString(), "Survey plan document type should be selected.");
+        TestAssert.Equal("survey_plan_ocr_vision", root.GetProperty("active_extractor_id").GetString(), "Survey plan OCR/vision extractor should be active.");
+        TestAssert.Equal("JAD 2001", root.GetProperty("coordinate_system").GetProperty("value").GetString(), "Coordinate system should be extracted.");
+        TestAssert.Equal("Clarendon", root.GetProperty("survey_metadata").GetProperty("parish").GetProperty("value").GetString(), "Parish should be extracted.");
+        TestAssert.True(root.GetProperty("north_arrow").GetProperty("Detected").GetBoolean(), "North arrow evidence should be recorded.");
+        TestAssert.Equal(3, root.GetProperty("rows").GetArrayLength(), "Coordinate-table point rows should be reviewable.");
+        TestAssert.Equal(2, root.GetProperty("segments").GetArrayLength(), "Bearing/distance rows should be reviewable.");
+
+        using var summary = JsonDocument.Parse(File.ReadAllText(summaryPath));
+        TestAssert.Equal("854.807 sq. metres", summary.RootElement.GetProperty("survey_metadata").GetProperty("document_area").GetProperty("value").GetString(), "Document area should be in the summary.");
+        TestAssert.Equal(3, summary.RootElement.GetProperty("stage_evidence").GetProperty("georeference_check").GetProperty("coordinate_table_point_count").GetInt32(), "Stage evidence should expose point count.");
+        TestAssert.Equal("candidate", summary.RootElement.GetProperty("stage_evidence").GetProperty("dimension_check").GetProperty("geometry_candidate_status").GetString(), "Dimension evidence should identify geometry candidate readiness.");
+    }
+
+    public static void ExtractionAdapterRoutesNoTextPxaSurveyPlanPdfToManualReviewArtifacts()
+    {
+        using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000492");
+        var catalogPath = Path.Combine(tempRoot.Path, "missing_doc_type_catalog.json");
+        var surveyPlanPath = Path.Combine(layout.SourceDirectory, "DOC_PLAN_492321.pdf");
+        File.WriteAllText(
+            surveyPlanPath,
+            """
+            %PDF-1.7
+            1 0 obj
+            << /Type /Page /Resources << /XObject << /Im0 2 0 R >> >> >>
+            endobj
+            %%EOF
+            """);
+
+        var runnerCalls = 0;
+        var adapter = new CreateParcelDraftExtractionAdapter(
+            new FakeProcessRunner((_, arguments, _, _, _) =>
+            {
+                TestAssert.True(arguments.Contains("survey_plan_ocr_vision_extraction.py", StringComparison.OrdinalIgnoreCase), "Image-only PXA survey plans should invoke the survey-plan OCR/vision provider, not the embedded-text parser.");
+                TestAssert.True(!arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase), "Image-only PXA survey plans must not call the embedded-text parser.");
+                runnerCalls++;
+                var reviewJsonPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+                File.WriteAllText(
+                    reviewJsonPath,
+                    $$"""
+                    {
+                      "transaction_number": "100000492",
+                      "source_profile": "scanned_single_parcel_survey_plan_pdf",
+                      "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+                      "active_extractor_id": "survey_plan_ocr_vision",
+                      "status": "review_required",
+                      "row_count": 3,
+                      "segment_row_count": 3,
+                      "coordinate_system": { "value": "JAD 2001" },
+                      "north_arrow": { "Detected": true },
+                      "survey_metadata": {
+                        "parish": { "value": "Clarendon" },
+                        "document_area": { "value": "854.807 sq. metres" }
+                      },
+                      "rows": [
+                        { "point_id": "1", "easting": "669833.1503", "northing": "644195.8078" },
+                        { "point_id": "2", "easting": "669815.9993", "northing": "644239.8415" },
+                        { "point_id": "3", "easting": "669815.9020", "northing": "644322.7815" }
+                      ],
+                      "segments": [
+                        { "bearing_txt": "N70°40'53\"W", "distance_txt": "78.36" },
+                        { "bearing_txt": "S85°01'15\"E", "distance_txt": "40.43" },
+                        { "bearing_txt": "S09°46'09\"E", "distance_txt": "70.297" }
+                      ],
+                      "outputs": {
+                        "review_json": "{{reviewJsonPath.Replace("\\", "\\\\")}}"
+                      }
+                    }
+                    """);
+                var stdout = $$"""
+                {
+                  "status": "success",
+                  "text_layer_available": false,
+                  "parser_status": "ocr_vision_parsed",
+                  "parsed_parcel_count": 1,
+                  "parsed_row_count": 3,
+                  "outputs": {
+                    "review_json": "{{reviewJsonPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """;
+                return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+            }),
+            catalogPath);
+        var context = CreatePxaContext(layout, surveyPlanPath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Image-only PXA survey plan extraction should still produce review artifacts.");
+        var reviewPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var routePath = Path.Combine(layout.WorkingDirectory, "extraction_route.json");
+        using var review = JsonDocument.Parse(File.ReadAllText(reviewPath));
+        using var route = JsonDocument.Parse(File.ReadAllText(routePath));
+
+        TestAssert.Equal("survey_plan_ocr_vision", review.RootElement.GetProperty("active_extractor_id").GetString(), "Image-only survey plans should route to the configured OCR/vision extractor.");
+        TestAssert.False(review.RootElement.GetProperty("text_layer_available").GetBoolean(), "Raw PDF containers should not be treated as embedded text.");
+        TestAssert.Equal("review_required", review.RootElement.GetProperty("status").GetString(), "OCR/vision output should remain reviewable.");
+        TestAssert.Equal("ocr_vision_parsed", route.RootElement.GetProperty("text_layer_probe_status").GetString(), "Route diagnostics should preserve external parser status.");
+        TestAssert.Equal(3, review.RootElement.GetProperty("rows").GetArrayLength(), "Image-only plans should consume OCR/vision coordinate rows.");
+        TestAssert.Equal(1, runnerCalls, "Image-only PXA survey plans should invoke the configured extraction process.");
+    }
+
     private static WorkflowScriptExecutionContext CreateContext(
         CaseFolderLayout layout,
         string sourcePath,
@@ -780,6 +930,100 @@ internal static class CreateParcelDraftExtractionAdapterTests
             manifest.Payload.ScriptPlan,
             step,
             new WorkflowRuleSettings("openai", openAiEnabled, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            executionSettings,
+            new Dictionary<string, object?>());
+    }
+
+    private static WorkflowScriptExecutionContext CreatePxaContext(CaseFolderLayout layout, string surveyPlanPath)
+    {
+        var sourceFiles = new[]
+        {
+            new ManifestSourceFile("innola:survey-plan", surveyPlanPath, Path.GetExtension(surveyPlanPath), 10, "2026-07-08T00:00:00Z", "survey_plan_pdf", "st_survey_plan_pdf")
+        };
+        var transactionProfile = ComputeTransactionTypeProfileCatalog.ToResolved(
+            ComputeTransactionTypeProfileCatalog.SafeDefaults
+                .First(profile => string.Equals(profile.ProfileId, "pxa_single_parcel_survey_plan", StringComparison.OrdinalIgnoreCase)));
+        var scriptPlan = new WorkflowScriptPlan(
+            "1.0.0",
+            "pxa_single_parcel_survey_plan_v1",
+            "0.1.0",
+            "pxa_single_parcel_survey_plan",
+            "2026-07-08T00:00:00Z",
+            WorkflowRuleResolver.ComputeSourceManifestHash(sourceFiles),
+            new[]
+            {
+                new WorkflowScriptStep(
+                    "extract_single_parcel_survey_plan_pdf",
+                    "extraction_adapter",
+                    "extract_single_parcel_survey_plan_pdf",
+                    new[] { "survey_plan_pdf" },
+                    new[]
+                    {
+                        "working/survey_plan_extraction_summary.json",
+                        "working/extraction_review_data.json",
+                        "working/extraction_route.json"
+                    },
+                    new Dictionary<string, string>
+                    {
+                        ["document_profile"] = "scanned_single_parcel_survey_plan_pdf"
+                    },
+                    600,
+                    true,
+                    "openai",
+                    "local")
+            });
+        var manifest = ManifestDocument.CreateInitial("100000492", "run-pxa", new DateTimeOffset(2026, 7, 8, 0, 0, 0, TimeSpan.Zero), "tester") with
+        {
+            Payload = new ManifestPayload(
+                "preflight_passed",
+                sourceFiles,
+                new DetectedSourceInputProfile("pxa_survey_plan_pdf", "PXA survey plan PDF", "matched", "2026-07-08T00:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
+                new ManifestInnolaTransaction(
+                    "txn-pxa",
+                    "100000492",
+                    "task-pxa",
+                    "Review Computation Findings",
+                    "parcel_workflow",
+                    "PXA",
+                    "PXA",
+                    "tester",
+                    "tester",
+                    "Super Group",
+                    null,
+                    null,
+                    "2026-07-08T00:00:00Z"),
+                null,
+                null,
+                "pxa_single_parcel_survey_plan",
+                "pxa_single_parcel_survey_plan_v1",
+                "0.1.0",
+                scriptPlan,
+                null,
+                transactionProfile)
+        };
+        var executionSettings = new WorkflowExecutionSettings(
+            Path.Combine(layout.RootDirectory, "python.exe"),
+            Path.Combine(layout.RootDirectory, "CreateParcelFromFile.py"),
+            "output_adapter.py",
+            "normal",
+            120,
+            false,
+            false,
+            "source_then_computed",
+            string.Empty,
+            null,
+            null,
+            "validation_adapter.py",
+            null);
+        File.WriteAllText(executionSettings.PythonExecutable, "stub");
+        File.WriteAllText(executionSettings.CreateParcelScriptPath, "stub");
+
+        return new WorkflowScriptExecutionContext(
+            layout,
+            manifest,
+            scriptPlan,
+            scriptPlan.Steps[0],
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
             executionSettings,
             new Dictionary<string, object?>());
     }

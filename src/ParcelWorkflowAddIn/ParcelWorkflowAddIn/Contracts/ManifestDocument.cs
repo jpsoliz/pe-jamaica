@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.WorkflowRules;
 
@@ -45,7 +46,8 @@ public sealed record ManifestPayload(
     [property: JsonPropertyName("workflow_rule_id")] string? WorkflowRuleId = null,
     [property: JsonPropertyName("workflow_rule_version")] string? WorkflowRuleVersion = null,
     [property: JsonPropertyName("script_plan")] WorkflowScriptPlan? ScriptPlan = null,
-    [property: JsonPropertyName("supporting_document_options")] ManifestSupportingDocumentOptions? SupportingDocumentOptions = null);
+    [property: JsonPropertyName("supporting_document_options")] ManifestSupportingDocumentOptions? SupportingDocumentOptions = null,
+    [property: JsonPropertyName("transaction_type_profile")] ResolvedComputeTransactionTypeProfile? TransactionTypeProfile = null);
 
 public sealed record ManifestSupportingDocumentOptions(
     [property: JsonPropertyName("import_structured_survey_points")] bool ImportStructuredSurveyPoints = false,

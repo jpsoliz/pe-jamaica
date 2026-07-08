@@ -346,6 +346,23 @@ internal static class SettingsWorkspaceServiceTests
         document.InnolaServerUrl = "https://saved.local/";
         document.SupportedTransactionTypes = new List<string> { "Plan Examination", "Cadastral Plan Examination" };
         document.ComputeWorkflowStages = new List<string> { "Compute Survey Plan", "Assign Computation Task" };
+        document.ComputeTransactionTypeProfilesJson =
+            """
+            [
+              {
+                "profile_id": "custom_pxa",
+                "enabled": true,
+                "transaction_type_codes": ["PXA"],
+                "transaction_type_names": ["PXA"],
+                "workflow_profile": "pxa_single_parcel_survey_plan",
+                "required_source_roles": ["survey_plan_pdf"],
+                "optional_source_roles": ["coordinate_text_source", "dwg_source"],
+                "primary_extraction_role": "survey_plan_pdf",
+                "document_profile": "scanned_single_parcel_survey_plan_pdf",
+                "future_field": "preserve me"
+              }
+            ]
+            """;
         document.OutputAdapterTimeoutSeconds = 600;
         document.OpenAiExtractionProfile = SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy;
         document.OpenAiModel = "gpt-4.1";
@@ -395,6 +412,8 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://saved.local/", reloaded.InnolaServerUrl, "Innola server save mismatch.");
         TestAssert.Equal(2, reloaded.SupportedTransactionTypes.Count, "Supported transaction types save mismatch.");
         TestAssert.Equal(2, reloaded.ComputeWorkflowStages.Count, "Compute workflow stages save mismatch.");
+        TestAssert.True(reloaded.ComputeTransactionTypeProfilesJson.Contains("custom_pxa", StringComparison.Ordinal), "Transaction profile JSON should round-trip.");
+        TestAssert.True(reloaded.ComputeTransactionTypeProfilesJson.Contains("future_field", StringComparison.Ordinal), "Unknown transaction profile fields should be preserved.");
         TestAssert.Equal(600, reloaded.OutputAdapterTimeoutSeconds, "Output timeout save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.OpenAiExtractionProfileHighAccuracy, reloaded.OpenAiExtractionProfile, "OpenAI extraction profile save mismatch.");
         TestAssert.Equal("gpt-4.1", reloaded.OpenAiModel, "OpenAI model save mismatch.");

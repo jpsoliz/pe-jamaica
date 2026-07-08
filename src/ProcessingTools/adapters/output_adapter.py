@@ -401,6 +401,102 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
     return segments
 
 
+def _reviewed_boundary_segments(review_data: dict[str, Any], point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    raw_segments = review_data.get("segments")
+    if not isinstance(raw_segments, list):
+        return []
+
+    point_by_id: dict[str, dict[str, Any]] = {}
+    for group in point_groups:
+        for point in group.get("points") or []:
+            point_id = str(point.get("point_identifier") or point.get("point_id") or "").strip()
+            if point_id:
+                point_by_id[point_id.lower()] = point
+
+    segments: list[dict[str, Any]] = []
+    for index, raw_segment in enumerate(raw_segments, start=1):
+        if not isinstance(raw_segment, dict):
+            continue
+        include_value = raw_segment.get("review_include_in_boundary")
+        if include_value is None:
+            include_value = raw_segment.get("include_in_boundary")
+        if include_value is not None and not _parse_bool(include_value):
+            continue
+
+        from_point_id = _normalize_text(raw_segment.get("review_from_point") or raw_segment.get("from_point"), 64)
+        to_point_id = _normalize_text(raw_segment.get("review_to_point") or raw_segment.get("to_point"), 64)
+        start = point_by_id.get(from_point_id.lower())
+        end = point_by_id.get(to_point_id.lower())
+        if start is None or end is None:
+            continue
+
+        sequence = _parse_int(raw_segment.get("review_sequence") or raw_segment.get("segment_no") or raw_segment.get("sequence")) or index
+        parcel_id = start.get("parcel_id") or end.get("parcel_id") or start.get("parcel_group_id") or "parcel-001"
+        parcel_group_id = start.get("parcel_group_id") or end.get("parcel_group_id") or parcel_id
+        bearing_txt = _normalize_text(raw_segment.get("review_bearing_txt") or raw_segment.get("bearing_txt") or raw_segment.get("bearing"), 64)
+        distance_txt = _normalize_text(
+            raw_segment.get("review_distance_txt")
+            or raw_segment.get("review_length_txt")
+            or raw_segment.get("distance_txt")
+            or raw_segment.get("length_txt")
+            or raw_segment.get("distance")
+            or raw_segment.get("length")
+            or "",
+            64,
+        )
+        distance_m = _parse_coordinate(distance_txt)
+        if distance_m is None:
+            distance_m = _distance_between(
+                float(start["easting"]),
+                float(start["northing"]),
+                float(end["easting"]),
+                float(end["northing"]),
+            )
+        status_txt = _normalize_text(raw_segment.get("review_status") or raw_segment.get("status") or "", 64)
+        source_evidence = _normalize_text(raw_segment.get("source_evidence") or raw_segment.get("review_notes") or "", 1024)
+
+        segments.append(
+            {
+                "line_id": f"{parcel_id}_L{sequence}",
+                "segment_index": len(segments) + 1,
+                "segment_order": sequence,
+                "parcel_id": parcel_id,
+                "parcel_group_id": parcel_group_id,
+                "traverse_id": start.get("traverse_id") or end.get("traverse_id") or "",
+                "line_type": "line",
+                "start_point": from_point_id,
+                "end_point": to_point_id,
+                "from_point_id": from_point_id,
+                "to_point_id": to_point_id,
+                "start": (start["easting"], start["northing"]),
+                "end": (end["easting"], end["northing"]),
+                "bearing": bearing_txt,
+                "bearing_txt": bearing_txt,
+                "length": distance_txt,
+                "length_txt": distance_txt,
+                "distance_txt": distance_txt,
+                "distance_m": distance_m,
+                "radius_m": None,
+                "arc_length_m": None,
+                "delta_angle_txt": "",
+                "chord_bearing_txt": "",
+                "chord_distance_m": None,
+                "doc_type_id": start.get("doc_type_id") or end.get("doc_type_id") or "",
+                "source_doc": start.get("source_doc") or end.get("source_doc") or "",
+                "row_id": _normalize_text(raw_segment.get("segment_id") or f"segment-{sequence}", 64),
+                "status": status_txt,
+                "status_txt": status_txt,
+                "source_evidence": source_evidence,
+                "source_txt": source_evidence,
+                "is_boundary_break": False,
+                "is_manual": bool(start.get("is_manual")) or bool(end.get("is_manual")),
+                "is_edited": True,
+            }
+        )
+
+    return sorted(segments, key=lambda segment: int(segment.get("segment_order") or 0))
+
+
 def _rounded_coord_key(coord: Any) -> tuple[float, float]:
     return (round(float(coord[0]), 6), round(float(coord[1]), 6))
 
@@ -2048,7 +2144,7 @@ def main(argv: list[str] | None = None) -> int:
 
     point_groups = _apply_group_parcel_metadata(_grouped_point_sequences(points))
     points = [point for group in point_groups for point in (group.get("points") or [])]
-    segments = _polyline_segments(point_groups)
+    segments = _reviewed_boundary_segments(review_data, point_groups) or _polyline_segments(point_groups)
     polygons = _polygon_rings(point_groups)
     points, segments, polygons = _prepare_optional_output_cogo(
         points,

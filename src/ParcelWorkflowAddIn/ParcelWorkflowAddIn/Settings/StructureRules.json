@@ -188,7 +188,8 @@
       "source_roles": [
         "computation_sheet",
         "coordinate_text_source",
-        "plan_map_reference"
+        "plan_map_reference",
+        "survey_plan_pdf"
       ],
       "allow_tabular_georeference": true
     },
@@ -242,7 +243,8 @@
       "source_roles": [
         "computation_sheet",
         "coordinate_text_source",
-        "plan_map_reference"
+        "plan_map_reference",
+        "survey_plan_pdf"
       ]
     },
     {
@@ -250,13 +252,14 @@
       "group": "dimension",
       "category": "dimension",
       "display_name": "Dimension source presence",
-      "description": "A computation sheet or configured spatial line source must be available before Validate Points and Lines can begin.",
+      "description": "A computation sheet, survey plan PDF, or configured spatial line source must be available before Validate Points and Lines can begin.",
       "enabled": true,
       "severity": "blocker",
       "locked": true,
       "source_roles": [
         "computation_sheet",
-        "coordinate_text_source"
+        "coordinate_text_source",
+        "survey_plan_pdf"
       ]
     },
     {
@@ -270,7 +273,8 @@
       "locked": false,
       "source_roles": [
         "computation_sheet",
-        "coordinate_text_source"
+        "coordinate_text_source",
+        "survey_plan_pdf"
       ]
     }
   ]

@@ -1235,7 +1235,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return true;
         }
 
-        const string message = "This transaction type is not supported by Parcel Workflow. Please return to the transaction list and select a valid examination transaction.";
+        var visibleType = string.IsNullOrWhiteSpace(normalizedType) ? "(blank)" : normalizedType;
+        var supported = supportedTransactionTypes.Count == 0
+            ? "none configured"
+            : string.Join(", ", supportedTransactionTypes.OrderBy(type => type, StringComparer.OrdinalIgnoreCase));
+        var message = $"Transaction {row.TransactionNumber} cannot be opened because transaction type '{visibleType}' is not supported by Parcel Workflow [Compute]. Supported types: {supported}.";
         ErrorText = message;
         StatusText = message;
         RestoreSelectedRow(row.TransactionNumber);
@@ -1250,7 +1254,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return true;
         }
 
-        const string message = "This transaction belongs to a different workflow stage and cannot be opened in Parcel Workflow [Compute]. Please return to the transaction list and select a Compute transaction.";
+        var visibleStage = string.IsNullOrWhiteSpace(normalizedStage) ? "(blank)" : normalizedStage;
+        var supported = computeWorkflowStages.Count == 0
+            ? "none configured"
+            : string.Join(", ", computeWorkflowStages.OrderBy(stage => stage, StringComparer.OrdinalIgnoreCase));
+        var message = $"Transaction {row.TransactionNumber} cannot be opened because task '{visibleStage}' is not configured for Parcel Workflow [Compute]. Supported tasks: {supported}.";
         ErrorText = message;
         StatusText = message;
         RestoreSelectedRow(row.TransactionNumber);

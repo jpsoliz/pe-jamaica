@@ -8,7 +8,10 @@ public sealed record WorkflowRuleResolutionContext(
     string ProcessStep,
     DetectedSourceInputProfile? DetectedProfile,
     IReadOnlyList<ManifestSourceFile> SourceFiles,
-    WorkflowRuleSettings Settings);
+    WorkflowRuleSettings Settings,
+    string? TransactionTypeProfileId = null,
+    string? WorkflowProfile = null,
+    string? DocumentProfile = null);
 
 public sealed record WorkflowRuleSettings(
     string OcrEngine,

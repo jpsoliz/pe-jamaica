@@ -565,7 +565,10 @@ public sealed class WorkflowSession
             manifest.Payload.InnolaTransaction.ProcessStep,
             profile,
             effectiveSourceFiles,
-            getWorkflowRuleSettings()));
+            getWorkflowRuleSettings(),
+            manifest.Payload.TransactionTypeProfile?.ProfileId,
+            manifest.Payload.TransactionTypeProfile?.WorkflowProfile,
+            manifest.Payload.TransactionTypeProfile?.DocumentProfile));
     }
 
     public CaseFolderReopenResult ReopenCaseFolder(string caseFolderPath)

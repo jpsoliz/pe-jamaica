@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Globalization;
 
 namespace ParcelWorkflowAddIn.Workflow.Review;
 
@@ -55,9 +56,20 @@ public sealed class ExtractionReviewPersistenceService
             }
         }
 
+        if (rootNode["segments"] is JsonArray segmentArray)
+        {
+            var index = 0;
+            foreach (var item in segmentArray.OfType<JsonObject>())
+            {
+                index++;
+                document.Segments.Add(MapSegment(item, index));
+            }
+        }
+
         ApplyDerivedGrouping(document.Rows);
 
         document.RowCount = document.Rows.Count > 0 ? document.Rows.Count : document.RowCount;
+        document.SegmentRowCount = document.Segments.Count > 0 ? document.Segments.Count : document.SegmentRowCount;
         if (string.IsNullOrWhiteSpace(document.ReviewHash))
         {
             document.ReviewHash = ComputeReviewHash(document);
@@ -75,6 +87,7 @@ public sealed class ExtractionReviewPersistenceService
 
         document.ReviewVersion = Math.Max(document.ReviewVersion + 1, 1);
         document.RowCount = document.Rows.Count;
+        document.SegmentRowCount = document.Segments.Count;
         document.LastSavedAt = DateTimeOffset.UtcNow.UtcDateTime.ToString("O");
         document.LastSavedBy = operatorId;
         document.ReviewHash = ComputeReviewHash(document);
@@ -177,6 +190,36 @@ public sealed class ExtractionReviewPersistenceService
                     extraction_status = row.OriginalValues.ExtractionStatus,
                     source_evidence = row.OriginalValues.SourceEvidence
                 }
+            }),
+            segments = document.Segments.Select(segment => new
+            {
+                segment_id = segment.SegmentId,
+                sequence = segment.Sequence,
+                from_point = segment.FromPoint,
+                to_point = segment.ToPoint,
+                bearing_txt = segment.BearingText,
+                distance_txt = segment.DistanceText,
+                length_txt = segment.LengthText,
+                include_in_boundary = segment.IncludeInBoundary,
+                review_sequence = segment.ReviewSequence,
+                review_from_point = segment.ReviewFromPoint,
+                review_to_point = segment.ReviewToPoint,
+                review_bearing_txt = segment.ReviewBearingText,
+                review_distance_txt = segment.ReviewDistanceText,
+                review_length_txt = segment.ReviewLengthText,
+                review_include_in_boundary = segment.ReviewIncludeInBoundary,
+                review_status = segment.ReviewStatus,
+                review_notes = segment.ReviewNotes,
+                original_values = new
+                {
+                    sequence = segment.OriginalValues.Sequence,
+                    from_point = segment.OriginalValues.FromPoint,
+                    to_point = segment.OriginalValues.ToPoint,
+                    bearing_txt = segment.OriginalValues.BearingText,
+                    distance_txt = segment.OriginalValues.DistanceText,
+                    length_txt = segment.OriginalValues.LengthText,
+                    include_in_boundary = segment.OriginalValues.IncludeInBoundary
+                }
             })
         });
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
@@ -236,6 +279,67 @@ public sealed class ExtractionReviewPersistenceService
             || row.Unresolved
             || !string.IsNullOrWhiteSpace(row.ReviewNotes);
         return row;
+    }
+
+    private static ExtractionReviewSegment MapSegment(JsonObject segmentObject, int index)
+    {
+        var sequence = ReadNullableInt(segmentObject, "review_sequence", "segment_no", "segment_index", "sequence");
+        var fromPoint = ReadFirstString(segmentObject, "from_point", "from_pt", "start_pt") ?? string.Empty;
+        var toPoint = ReadFirstString(segmentObject, "to_point", "to_pt", "end_pt") ?? string.Empty;
+        var bearing = ReadFirstString(segmentObject, "bearing_txt", "bearing", "course", "direction") ?? string.Empty;
+        var distance = ReadFirstString(segmentObject, "distance_txt", "distance", "distance_m") ?? string.Empty;
+        var length = ReadFirstString(segmentObject, "length_txt", "length", "length_m") ?? distance;
+        var originalNode = segmentObject["review_original_values"] as JsonObject;
+
+        var segment = new ExtractionReviewSegment
+        {
+            SegmentId = ReadFirstString(segmentObject, "segment_id", "line_id", "row_id") ?? $"segment-{index:000}",
+            Sequence = sequence,
+            FromPoint = fromPoint,
+            ToPoint = toPoint,
+            BearingText = bearing,
+            DistanceText = distance,
+            LengthText = length,
+            IncludeInBoundary = ReadNullableBool(segmentObject, "include_in_boundary", "is_boundary_segment") ?? true,
+            Confidence = ReadFirstString(segmentObject, "confidence", "group_confidence") ?? string.Empty,
+            Status = ReadFirstString(segmentObject, "status", "confidence_status") ?? string.Empty,
+            SourcePage = ReadFirstString(segmentObject, "source_page") ?? string.Empty,
+            SourceZone = ReadFirstString(segmentObject, "source_zone") ?? string.Empty,
+            SourceEvidence = ReadFirstString(segmentObject, "source_evidence", "source_text", "evidence") ?? string.Empty,
+            ReviewSequence = ReadNullableInt(segmentObject, "review_sequence"),
+            ReviewFromPoint = ReadFirstString(segmentObject, "review_from_point") ?? string.Empty,
+            ReviewToPoint = ReadFirstString(segmentObject, "review_to_point") ?? string.Empty,
+            ReviewBearingText = ReadFirstString(segmentObject, "review_bearing_txt") ?? string.Empty,
+            ReviewDistanceText = ReadFirstString(segmentObject, "review_distance_txt") ?? string.Empty,
+            ReviewLengthText = ReadFirstString(segmentObject, "review_length_txt") ?? string.Empty,
+            ReviewIncludeInBoundary = ReadNullableBool(segmentObject, "review_include_in_boundary"),
+            ReviewStatus = ReadFirstString(segmentObject, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(segmentObject, "review_notes", "review_note", "notes") ?? string.Empty,
+            RawSegment = CloneObject(segmentObject)
+        };
+
+        segment.OriginalValues = new ExtractionReviewSegmentOriginalValues
+        {
+            Sequence = ReadNullableInt(originalNode, "sequence") ?? sequence,
+            FromPoint = ReadFirstString(originalNode, "from_point") ?? fromPoint,
+            ToPoint = ReadFirstString(originalNode, "to_point") ?? toPoint,
+            BearingText = ReadFirstString(originalNode, "bearing_txt") ?? bearing,
+            DistanceText = ReadFirstString(originalNode, "distance_txt") ?? distance,
+            LengthText = ReadFirstString(originalNode, "length_txt") ?? length,
+            IncludeInBoundary = ReadNullableBool(originalNode, "include_in_boundary") ?? segment.IncludeInBoundary
+        };
+
+        segment.IsEdited = segment.ReviewSequence.HasValue && segment.ReviewSequence != segment.OriginalValues.Sequence
+            || HasOverride(segment.ReviewFromPoint, segment.OriginalValues.FromPoint)
+            || HasOverride(segment.ReviewToPoint, segment.OriginalValues.ToPoint)
+            || HasOverride(segment.ReviewBearingText, segment.OriginalValues.BearingText)
+            || HasOverride(segment.ReviewDistanceText, segment.OriginalValues.DistanceText)
+            || HasOverride(segment.ReviewLengthText, segment.OriginalValues.LengthText)
+            || segment.ReviewIncludeInBoundary.HasValue && segment.ReviewIncludeInBoundary != segment.OriginalValues.IncludeInBoundary
+            || !string.IsNullOrWhiteSpace(segment.ReviewStatus)
+            || !string.IsNullOrWhiteSpace(segment.ReviewNotes);
+
+        return segment;
     }
 
     private static JsonObject SerializeDocument(ExtractionReviewDocument document)
@@ -307,6 +411,48 @@ public sealed class ExtractionReviewPersistenceService
         }
 
         root["rows"] = rows;
+        var segments = new JsonArray();
+        foreach (var segment in document.Segments.OrderBy(item => item.EffectiveSequence))
+        {
+            var segmentObject = CloneObject(segment.RawSegment);
+            segmentObject["segment_id"] = segment.SegmentId;
+            segmentObject["segment_no"] = segment.Sequence;
+            segmentObject["sequence"] = segment.Sequence;
+            segmentObject["from_point"] = segment.FromPoint;
+            segmentObject["to_point"] = segment.ToPoint;
+            segmentObject["bearing_txt"] = segment.BearingText;
+            segmentObject["distance_txt"] = segment.DistanceText;
+            segmentObject["length_txt"] = string.IsNullOrWhiteSpace(segment.LengthText) ? segment.DistanceText : segment.LengthText;
+            segmentObject["include_in_boundary"] = segment.IncludeInBoundary;
+            segmentObject["confidence"] = string.IsNullOrWhiteSpace(segment.Confidence) ? null : segment.Confidence;
+            segmentObject["status"] = string.IsNullOrWhiteSpace(segment.Status) ? null : segment.Status;
+            segmentObject["source_page"] = string.IsNullOrWhiteSpace(segment.SourcePage) ? null : segment.SourcePage;
+            segmentObject["source_zone"] = string.IsNullOrWhiteSpace(segment.SourceZone) ? null : segment.SourceZone;
+            segmentObject["source_evidence"] = string.IsNullOrWhiteSpace(segment.SourceEvidence) ? null : segment.SourceEvidence;
+            segmentObject["review_sequence"] = segment.ReviewSequence;
+            segmentObject["review_from_point"] = string.IsNullOrWhiteSpace(segment.ReviewFromPoint) ? null : segment.ReviewFromPoint;
+            segmentObject["review_to_point"] = string.IsNullOrWhiteSpace(segment.ReviewToPoint) ? null : segment.ReviewToPoint;
+            segmentObject["review_bearing_txt"] = string.IsNullOrWhiteSpace(segment.ReviewBearingText) ? null : segment.ReviewBearingText;
+            segmentObject["review_distance_txt"] = string.IsNullOrWhiteSpace(segment.ReviewDistanceText) ? null : segment.ReviewDistanceText;
+            segmentObject["review_length_txt"] = string.IsNullOrWhiteSpace(segment.ReviewLengthText) ? null : segment.ReviewLengthText;
+            segmentObject["review_include_in_boundary"] = segment.ReviewIncludeInBoundary;
+            segmentObject["review_status"] = string.IsNullOrWhiteSpace(segment.ReviewStatus) ? null : segment.ReviewStatus;
+            segmentObject["review_notes"] = string.IsNullOrWhiteSpace(segment.ReviewNotes) ? null : segment.ReviewNotes;
+            segmentObject["review_original_values"] = JsonSerializer.SerializeToNode(new
+            {
+                sequence = segment.OriginalValues.Sequence,
+                from_point = segment.OriginalValues.FromPoint,
+                to_point = segment.OriginalValues.ToPoint,
+                bearing_txt = segment.OriginalValues.BearingText,
+                distance_txt = segment.OriginalValues.DistanceText,
+                length_txt = segment.OriginalValues.LengthText,
+                include_in_boundary = segment.OriginalValues.IncludeInBoundary
+            });
+            segmentObject["review_last_modified_at"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O");
+            segments.Add(segmentObject);
+        }
+
+        root["segments"] = segments;
         return root;
     }
 
@@ -437,14 +583,43 @@ public sealed class ExtractionReviewPersistenceService
 
     private static string? ReadString(JsonObject? node, string propertyName)
     {
-        var value = node?[propertyName];
-        return value is null ? null : value.GetValue<string?>();
+        return ReadScalarString(node?[propertyName]);
     }
 
     private static bool ReadBool(JsonObject? node, string propertyName)
     {
         var value = node?[propertyName];
         return value is JsonValue jsonValue && jsonValue.TryGetValue<bool>(out var result) && result;
+    }
+
+    private static bool? ReadNullableBool(JsonObject? node, params string[] propertyNames)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            var value = node[propertyName];
+            if (value is not JsonValue jsonValue)
+            {
+                continue;
+            }
+
+            if (jsonValue.TryGetValue<bool>(out var boolValue))
+            {
+                return boolValue;
+            }
+
+            if (jsonValue.TryGetValue<string>(out var textValue)
+                && bool.TryParse(textValue, out var parsedValue))
+            {
+                return parsedValue;
+            }
+        }
+
+        return null;
     }
 
     private static int ReadInt(JsonObject? node, string propertyName)
@@ -491,9 +666,54 @@ public sealed class ExtractionReviewPersistenceService
         }
 
         return array
-            .Select(item => item?.GetValue<string?>())
+            .Select(ReadScalarString)
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Select(item => item!)
             .ToArray();
+    }
+
+    private static string? ReadScalarString(JsonNode? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value is not JsonValue jsonValue)
+        {
+            return null;
+        }
+
+        if (jsonValue.TryGetValue<string>(out var stringValue))
+        {
+            return stringValue;
+        }
+
+        if (jsonValue.TryGetValue<int>(out var intValue))
+        {
+            return intValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<long>(out var longValue))
+        {
+            return longValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<double>(out var doubleValue))
+        {
+            return doubleValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<decimal>(out var decimalValue))
+        {
+            return decimalValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (jsonValue.TryGetValue<bool>(out var boolValue))
+        {
+            return boolValue ? "true" : "false";
+        }
+
+        return null;
     }
 }

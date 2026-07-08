@@ -21,6 +21,13 @@ internal static class ComputeAttachmentSourceTypeCatalog
             InternalOnly: false,
             Extensions: new[] { ".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg" }),
         new ComputeAttachmentSourceTypeDefinition(
+            "st_survey_plan_pdf",
+            SourceRole.SurveyPlanPdf,
+            "Survey plan PDF",
+            Required: false,
+            InternalOnly: false,
+            Extensions: new[] { ".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg" }),
+        new ComputeAttachmentSourceTypeDefinition(
             "st_survey_points",
             SourceRole.CoordinateTextSource,
             "Structured survey points",
@@ -53,6 +60,7 @@ internal static class ComputeAttachmentSourceTypeCatalog
     {
         SourceRole.ComputationSheet,
         SourceRole.CoordinateTextSource,
-        SourceRole.PlanMapReference
+        SourceRole.PlanMapReference,
+        SourceRole.SurveyPlanPdf
     };
 }

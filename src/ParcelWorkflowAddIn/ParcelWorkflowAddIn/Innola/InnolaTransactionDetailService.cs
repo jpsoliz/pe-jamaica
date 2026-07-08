@@ -902,6 +902,12 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         {
             sourceType = "st_surveysheet";
         }
+        else if (text.Contains("survey plan pdf", StringComparison.Ordinal)
+            || text.Contains("pxa", StringComparison.Ordinal)
+            || text.Contains("single parcel survey", StringComparison.Ordinal))
+        {
+            sourceType = "st_survey_plan_pdf";
+        }
         else if (text.Contains("surveyplan", StringComparison.Ordinal)
             || text.Contains("survey plan", StringComparison.Ordinal)
             || text.Contains("map", StringComparison.Ordinal)

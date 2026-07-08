@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
@@ -17,6 +18,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private const string RouteArtifactPathKey = "route_artifact_path";
     private const string DefaultDocumentTypeCatalogPath = @"C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\Scripts\CreateParcel_doc_types.json";
     private const string TextStructuredExtractionScriptRelativePath = @"src\ProcessingTools\adapters\pdf_text_structured_extraction.py";
+    private const string SurveyPlanOcrVisionScriptRelativePath = @"src\ProcessingTools\adapters\survey_plan_ocr_vision_extraction.py";
 
     private readonly IProcessRunner processRunner;
     private readonly string documentTypeCatalogPath;
@@ -42,6 +44,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         {
             "extract_points_from_computation_pdf" or "normalize_points_computation_source"
                 => await ExecuteDraftExtractionAsync(context, cancellationToken).ConfigureAwait(false),
+            "extract_single_parcel_survey_plan_pdf"
+                => await ExecuteSingleParcelSurveyPlanExtractionAsync(context, cancellationToken).ConfigureAwait(false),
             "ocr_plan_map_pdf"
                 => CreatePlanOcrArtifact(context),
             "inspect_dwg_reference"
@@ -196,6 +200,625 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             }
 
             return WorkflowScriptStepExecutionResult.Passed(artifactPaths.ToArray());
+        }
+    }
+
+    private async Task<WorkflowScriptStepExecutionResult> ExecuteSingleParcelSurveyPlanExtractionAsync(
+        WorkflowScriptExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var manifest = context.Manifest;
+        var route = ResolveExtractionRoute(context);
+        if (route.PrimarySource is null)
+        {
+            return WorkflowScriptStepExecutionResult.Failed("No survey plan PDF source is available for single-parcel survey-plan extraction.");
+        }
+
+        Directory.CreateDirectory(context.Layout.WorkingDirectory);
+        Directory.CreateDirectory(context.Layout.LogsDirectory);
+
+        var transactionNumber = manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId;
+        var reviewArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_review_data.json");
+        var routeArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_route.json");
+        var summaryArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "survey_plan_extraction_summary.json");
+
+        var probe = ProbeSurveyPlanSource(route.PrimarySource.CopiedPath);
+        if (!probe.TextLayerAvailable)
+        {
+            var externalAttempt = await TryExecuteSurveyPlanExternalExtractionAsync(
+                context,
+                route,
+                transactionNumber,
+                reviewArtifactPath,
+                summaryArtifactPath,
+                routeArtifactPath,
+                probe,
+                cancellationToken).ConfigureAwait(false);
+            if (externalAttempt is not null)
+            {
+                return externalAttempt;
+            }
+        }
+
+        var extraction = ExtractSurveyPlanCandidate(route.PrimarySource, transactionNumber, probe);
+        WriteSurveyPlanReviewArtifact(reviewArtifactPath, route, extraction);
+        WriteSurveyPlanSummaryArtifact(summaryArtifactPath, route, extraction);
+
+        var diagnostics = CreateRuntimeDiagnostics(
+            route.ActiveExtractorId,
+            route.ProviderUsed,
+            extraction.FallbackReason,
+            textLayerProbeStatus: probe.TextLayerProbeStatus,
+            textLayerAvailable: probe.TextLayerAvailable,
+            parsedParcelCount: extraction.ParcelCountHint,
+            parsedRowCount: extraction.Points.Count);
+        EnrichReviewArtifact(reviewArtifactPath, route, diagnostics);
+        WriteRouteArtifact(routeArtifactPath, route, transactionNumber, diagnostics);
+
+        context.SharedItems[ReviewArtifactPathKey] = reviewArtifactPath;
+        context.SharedItems[RouteArtifactPathKey] = routeArtifactPath;
+        context.SharedItems[ReviewReportJsonKey] = JsonSerializer.Serialize(new
+        {
+            status = extraction.Status,
+            text_layer_available = probe.TextLayerAvailable,
+            parser_status = probe.TextLayerProbeStatus,
+            fallback_reason = extraction.FallbackReason,
+            parsed_parcel_count = extraction.ParcelCountHint,
+            parsed_row_count = extraction.Points.Count,
+            outputs = new
+            {
+                review_json = reviewArtifactPath,
+                route_json = routeArtifactPath,
+                survey_plan_summary_json = summaryArtifactPath
+            }
+        });
+
+        var artifactPaths = new List<string> { summaryArtifactPath, reviewArtifactPath, routeArtifactPath };
+        foreach (var outputArtifact in context.Step.OutputArtifacts)
+        {
+            var stepArtifactPath = ResolveArtifactPath(context, outputArtifact);
+            if (!artifactPaths.Any(path => string.Equals(Path.GetFullPath(path), Path.GetFullPath(stepArtifactPath), StringComparison.OrdinalIgnoreCase))
+                && File.Exists(stepArtifactPath))
+            {
+                artifactPaths.Add(stepArtifactPath);
+            }
+        }
+
+        return WorkflowScriptStepExecutionResult.Passed(artifactPaths.ToArray());
+    }
+
+    private async Task<WorkflowScriptStepExecutionResult?> TryExecuteSurveyPlanExternalExtractionAsync(
+        WorkflowScriptExecutionContext context,
+        ResolvedExtractionRoute route,
+        string transactionNumber,
+        string reviewArtifactPath,
+        string summaryArtifactPath,
+        string routeArtifactPath,
+        SurveyPlanSourceProbe probe,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(context.ExecutionSettings.PythonExecutable) || !File.Exists(context.ExecutionSettings.PythonExecutable))
+        {
+            return null;
+        }
+
+        var scriptPath = ResolveSurveyPlanOcrVisionScriptPath(context.ExecutionSettings);
+        if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
+        {
+            return null;
+        }
+
+        var processEnvironment = BuildProcessEnvironment(context.RuleSettings, route);
+        var stopwatch = Stopwatch.StartNew();
+        var result = await processRunner.RunAsync(
+            context.ExecutionSettings.PythonExecutable,
+            BuildSurveyPlanOcrVisionScriptArguments(scriptPath, route.PrimarySource!.CopiedPath, reviewArtifactPath, transactionNumber, context.RuleSettings),
+            TimeSpan.FromSeconds(Math.Max(30, context.Step.TimeoutSeconds)),
+            processEnvironment,
+            cancellationToken).ConfigureAwait(false);
+        stopwatch.Stop();
+
+        if (result.TimedOut)
+        {
+            return WorkflowScriptStepExecutionResult.Failed("Survey-plan OCR/vision extraction timed out before review data could be generated.");
+        }
+
+        if (result.ExitCode != 0)
+        {
+            return WorkflowScriptStepExecutionResult.Failed($"Survey-plan OCR/vision extraction failed. {Sanitize(result.StandardError, result.StandardOutput)}");
+        }
+
+        if (!TryParseStructuredTextEnvelope(result.StandardOutput, out var envelope))
+        {
+            return WorkflowScriptStepExecutionResult.Failed("Survey-plan OCR/vision extraction returned malformed JSON output.");
+        }
+
+        var diagnostics = CreateRuntimeDiagnostics(
+            route.ActiveExtractorId,
+            route.ProviderUsed,
+            envelope.FallbackReason,
+            envelope.ParserStatus ?? probe.TextLayerProbeStatus,
+            envelope.TextLayerAvailable ?? probe.TextLayerAvailable,
+            envelope.ParsedParcelCount,
+            envelope.ParsedRowCount);
+
+        var reviewJsonPath = envelope.ReviewJsonPath;
+        if (!string.IsNullOrWhiteSpace(reviewJsonPath) && File.Exists(reviewJsonPath))
+        {
+            CopyFileIfDifferent(reviewJsonPath, reviewArtifactPath);
+            EnrichReviewArtifact(reviewArtifactPath, route, diagnostics);
+            WriteSurveyPlanSummaryArtifactFromReviewJson(summaryArtifactPath, reviewArtifactPath, route, transactionNumber);
+            WriteRouteArtifact(routeArtifactPath, route, transactionNumber, diagnostics);
+            context.SharedItems[ReviewArtifactPathKey] = reviewArtifactPath;
+            context.SharedItems[RouteArtifactPathKey] = routeArtifactPath;
+            context.SharedItems[ReviewReportJsonKey] = result.StandardOutput;
+
+            return WorkflowScriptStepExecutionResult.Passed(CollectSurveyPlanArtifactPaths(context, summaryArtifactPath, reviewArtifactPath, routeArtifactPath));
+        }
+
+        return null;
+    }
+
+    private static SurveyPlanSourceProbe ProbeSurveyPlanSource(string sourcePath)
+    {
+        var extension = Path.GetExtension(sourcePath);
+        var isPdf = string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase);
+        var text = TryReadTextPayload(sourcePath);
+        var looksLikeRawPdfContainer = isPdf
+                                       && text.TrimStart().StartsWith("%PDF", StringComparison.OrdinalIgnoreCase);
+        var hasEmbeddedText = !looksLikeRawPdfContainer
+                              && !string.IsNullOrWhiteSpace(text)
+                              && Regex.IsMatch(text, "[A-Za-z]{3,}", RegexOptions.CultureInvariant);
+
+        return new SurveyPlanSourceProbe(
+            isPdf,
+            hasEmbeddedText,
+            hasEmbeddedText ? "embedded_text_probe_available" : "no_embedded_text_layer_or_unreadable_image_pdf",
+            hasEmbeddedText ? text : string.Empty);
+    }
+
+    private static SurveyPlanExtractionCandidate ExtractSurveyPlanCandidate(
+        ManifestSourceFile source,
+        string transactionNumber,
+        SurveyPlanSourceProbe probe)
+    {
+        var text = probe.TextContent ?? string.Empty;
+        var metadata = new Dictionary<string, SurveyPlanField>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["coordinate_system"] = Field("coordinate_system", ContainsToken(text, "JAD 2001") ? "JAD 2001" : FindFirst(text, @"\bJAD\s*2001\b"), ContainsToken(text, "JAD 2001") ? 0.95 : 0.0, "plan_header", "Coordinate system was inferred from visible plan text."),
+            ["parish"] = Field("parish", FindFirst(text, @"Parish\s*[:\-]?\s*(?<value>[A-Za-z .'-]+)"), 0.85, "memorandum", "Parish captured from plan text."),
+            ["document_area"] = Field("document_area", FindFirst(text, @"Area\s*[:\-]?\s*(?<value>[0-9,]+(?:\.[0-9]+)?\s*(?:sq\.?\s*m(?:etres|eters)?|m2|square\s+metres?))"), 0.85, "memorandum", "Area captured from document."),
+            ["survey_date"] = Field("survey_date", FindFirst(text, @"(?:Survey\s+date|Date\s+surveyed|Surveyed\s+on|Date)\s*[:\-]?\s*(?<value>[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"), 0.75, "signature_block", "Survey date captured from plan text."),
+            ["instrument"] = Field("instrument", FindFirst(text, @"Instrument\s*[:\-]?\s*(?<value>[A-Za-z0-9 #.\-_/]+)"), 0.75, "instrument_block", "Instrument make/no. captured from plan text."),
+            ["surveyed_by"] = Field("surveyed_by", FindFirst(text, @"Surveyed\s+by\s*[:\-]?\s*(?<value>[A-Za-z .'-]+)"), 0.8, "signature_block", "Surveyor captured from plan text.")
+        };
+
+        var northArrowDetected = ContainsToken(text, "North Arrow")
+                                 || ContainsToken(text, "Grid North")
+                                 || Regex.IsMatch(text, @"\bN\s*(?:arrow|orth)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var northArrow = new SurveyPlanDetectedFeature(
+            "north_arrow",
+            northArrowDetected,
+            northArrowDetected ? "map_sketch" : null,
+            northArrowDetected ? 0.8 : 0.0,
+            northArrowDetected ? "North arrow/grid north evidence detected." : "North arrow was not confidently detected.");
+
+        var points = ExtractSurveyPlanPoints(text);
+        var segments = ExtractSurveyPlanSegments(text);
+        var parties = ExtractNamedList(text, @"(?:Owner|Owners|Party|Parties)\s*[:\-]?\s*(?<value>[^\r\n]+)");
+        var representatives = ExtractNamedList(text, @"(?:Representative|Representatives)\s*[:\-]?\s*(?<value>[^\r\n]+)");
+        var adjacentOwners = ExtractNamedList(text, @"(?:Adjacent\s+Owners?|Adjoining\s+Owners?|Adjoining)\s*[:\-]?\s*(?<value>[^\r\n]+)");
+
+        var warnings = new List<string>();
+        if (!probe.TextLayerAvailable)
+        {
+            warnings.Add("PDF embedded text was unavailable; OCR/vision extraction is required for production parsing.");
+        }
+
+        if (points.Count == 0)
+        {
+            warnings.Add("No coordinate table rows were confidently extracted; manual point review is required.");
+        }
+
+        if (segments.Count == 0)
+        {
+            warnings.Add("No bearing/distance segment rows were confidently extracted; manual line review is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(metadata["coordinate_system"].Value))
+        {
+            warnings.Add("Coordinate system was not confidently extracted.");
+        }
+
+        var status = points.Count > 0 || segments.Count > 0 || metadata.Values.Any(field => !string.IsNullOrWhiteSpace(field.Value))
+            ? "review_required"
+            : "manual_review_required";
+        var fallbackReason = status == "manual_review_required" ? "low_confidence_or_no_ocr_text" : "ocr_vision_review_required";
+
+        return new SurveyPlanExtractionCandidate(
+            transactionNumber,
+            "scanned_single_parcel_survey_plan_pdf",
+            "survey_plan_ocr_vision",
+            Path.GetFileName(source.CopiedPath),
+            status,
+            fallbackReason,
+            1,
+            metadata,
+            northArrow,
+            points,
+            segments,
+            parties,
+            representatives,
+            adjacentOwners,
+            warnings);
+    }
+
+    private static IReadOnlyList<SurveyPlanPointCandidate> ExtractSurveyPlanPoints(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<SurveyPlanPointCandidate>();
+        }
+
+        var matches = Regex.Matches(
+            text,
+            @"(?:(?:Point|Pt\.?|P)\s*)?(?<id>[A-Za-z]?\d{1,5})\s+(?:N(?:orth(?:ing)?)?\s*[:=]?\s*)?(?<north>\d{5,7}(?:\.\d+)?)\s+(?:E(?:ast(?:ing)?)?\s*[:=]?\s*)?(?<east>\d{5,7}(?:\.\d+)?)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        var rows = new List<SurveyPlanPointCandidate>();
+        var sequence = 0;
+        foreach (Match match in matches.Cast<Match>().Take(250))
+        {
+            sequence++;
+            rows.Add(new SurveyPlanPointCandidate(
+                $"parcel-001-{sequence:000}",
+                match.Groups["id"].Value,
+                match.Groups["east"].Value,
+                match.Groups["north"].Value,
+                sequence,
+                1,
+                "coordinate_table",
+                0.72,
+                match.Value.Trim()));
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<SurveyPlanSegmentCandidate> ExtractSurveyPlanSegments(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<SurveyPlanSegmentCandidate>();
+        }
+
+        var matches = Regex.Matches(
+            text,
+            @"(?<bearing>[NS]\s*\d{1,2}\s*[°º]\s*\d{1,2}\s*['’]\s*\d{1,2}(?:\s*[""”])?\s*[EW])\s+(?:Length|Distance)?\s*[:=]?\s*(?<distance>\d{1,5}(?:\.\d+)?)\s*(?:m|metres?|meters?)?",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        var rows = new List<SurveyPlanSegmentCandidate>();
+        var sequence = 0;
+        foreach (Match match in matches.Cast<Match>().Take(250))
+        {
+            sequence++;
+            var distance = match.Groups["distance"].Value;
+            rows.Add(new SurveyPlanSegmentCandidate(
+                $"seg-{sequence:000}",
+                NormalizeBearingText(match.Groups["bearing"].Value),
+                distance,
+                distance,
+                sequence,
+                1,
+                "map_sketch",
+                0.68,
+                match.Value.Trim()));
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<SurveyPlanPartyCandidate> ExtractNamedList(string text, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<SurveyPlanPartyCandidate>();
+        }
+
+        return Regex.Matches(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .Cast<Match>()
+            .Select(match => match.Groups["value"].Value.Trim())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .SelectMany(value => value.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(value => new SurveyPlanPartyCandidate(value, 0.65, "memorandum"))
+            .ToArray();
+    }
+
+    private static void WriteSurveyPlanReviewArtifact(
+        string reviewArtifactPath,
+        ResolvedExtractionRoute route,
+        SurveyPlanExtractionCandidate extraction)
+    {
+        var rows = new JsonArray();
+        foreach (var point in extraction.Points)
+        {
+            rows.Add(new JsonObject
+            {
+                ["row_id"] = point.RowId,
+                ["parcel_group_id"] = "parcel-001",
+                ["parcel_name"] = "single parcel",
+                ["traverse_id"] = "parcel-001",
+                ["sequence_in_group"] = point.Sequence,
+                ["point_identifier"] = point.PointId,
+                ["point_id"] = point.PointId,
+                ["easting"] = point.Easting,
+                ["northing"] = point.Northing,
+                ["source_page"] = point.SourcePage,
+                ["source_zone"] = point.SourceZone,
+                ["confidence"] = point.Confidence,
+                ["source_evidence"] = point.SourceEvidence,
+                ["status"] = point.Confidence >= 0.7 ? "candidate" : "needs_review",
+                ["review_unresolved"] = point.Confidence < 0.7,
+                ["review_notes"] = point.Confidence < 0.7 ? "Low-confidence survey-plan OCR point candidate." : null,
+                ["row_provenance"] = "survey_plan_ocr"
+            });
+        }
+
+        var segments = new JsonArray();
+        foreach (var segment in extraction.Segments)
+        {
+            segments.Add(new JsonObject
+            {
+                ["segment_id"] = segment.SegmentId,
+                ["parcel_group_id"] = "parcel-001",
+                ["sequence_in_group"] = segment.Sequence,
+                ["bearing_txt"] = segment.BearingText,
+                ["distance_txt"] = segment.DistanceText,
+                ["length_txt"] = segment.LengthText,
+                ["source_page"] = segment.SourcePage,
+                ["source_zone"] = segment.SourceZone,
+                ["confidence"] = segment.Confidence,
+                ["source_evidence"] = segment.SourceEvidence,
+                ["status"] = segment.Confidence >= 0.7 ? "candidate" : "needs_review"
+            });
+        }
+
+        var root = BuildSurveyPlanRoot(route, extraction);
+        root["row_count"] = extraction.Points.Count;
+        root["segment_row_count"] = extraction.Segments.Count;
+        root["rows"] = rows;
+        root["segments"] = segments;
+        File.WriteAllText(reviewArtifactPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static void WriteSurveyPlanSummaryArtifact(
+        string summaryArtifactPath,
+        ResolvedExtractionRoute route,
+        SurveyPlanExtractionCandidate extraction)
+    {
+        var root = BuildSurveyPlanRoot(route, extraction);
+        root["point_count"] = extraction.Points.Count;
+        root["segment_count"] = extraction.Segments.Count;
+        root["stage_evidence"] = BuildSurveyPlanStageEvidence(extraction);
+        File.WriteAllText(summaryArtifactPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static void WriteSurveyPlanSummaryArtifactFromReviewJson(
+        string summaryArtifactPath,
+        string reviewArtifactPath,
+        ResolvedExtractionRoute route,
+        string transactionNumber)
+    {
+        using var reviewDocument = JsonDocument.Parse(File.ReadAllText(reviewArtifactPath));
+        var reviewRoot = reviewDocument.RootElement;
+        var root = new JsonObject
+        {
+            ["schema_version"] = "2.18.0",
+            ["transaction_number"] = ReadString(reviewRoot, "transaction_number") ?? transactionNumber,
+            ["source_profile"] = ReadString(reviewRoot, "source_profile") ?? "scanned_single_parcel_survey_plan_pdf",
+            ["parcel_count_hint"] = ReadInt(reviewRoot, "parcel_count"),
+            ["extraction_source"] = ReadString(reviewRoot, "extraction_source") ?? route.ActiveExtractorId,
+            ["extractor_id"] = ReadString(reviewRoot, "extractor_id") ?? route.DocumentTypeMatch.Definition.Extraction.ExtractorId,
+            ["active_extractor_id"] = route.ActiveExtractorId,
+            ["provider_used"] = route.ProviderUsed,
+            ["primary_source_role"] = route.PrimarySourceRole,
+            ["primary_source_file"] = route.PrimarySourceFile,
+            ["status"] = ReadString(reviewRoot, "status") ?? "review_required",
+            ["fallback_reason"] = ReadString(reviewRoot, "fallback_reason"),
+            ["coordinate_system"] = CloneObjectOrDefault(reviewRoot, "coordinate_system"),
+            ["north_arrow"] = CloneObjectOrDefault(reviewRoot, "north_arrow"),
+            ["survey_metadata"] = CloneObjectOrDefault(reviewRoot, "survey_metadata"),
+            ["parties"] = CloneArrayOrEmpty(reviewRoot, "parties"),
+            ["representatives"] = CloneArrayOrEmpty(reviewRoot, "representatives"),
+            ["adjacent_owners"] = CloneArrayOrEmpty(reviewRoot, "adjacent_owners"),
+            ["field_confidence"] = CloneObjectOrDefault(reviewRoot, "field_confidence"),
+            ["review_notes"] = CloneArrayOrEmpty(reviewRoot, "review_notes"),
+            ["point_count"] = ReadInt(reviewRoot, "row_count"),
+            ["segment_count"] = ReadInt(reviewRoot, "segment_row_count")
+        };
+
+        root["stage_evidence"] = new JsonObject
+        {
+            ["structure_check"] = new JsonObject
+            {
+                ["source_profile"] = root["source_profile"]?.DeepClone(),
+                ["pdf_readable"] = true,
+                ["extractor_eligible"] = true,
+                ["expected_zones"] = new JsonArray("plan_sketch", "coordinate_table", "memorandum", "signature_block")
+            },
+            ["georeference_check"] = new JsonObject
+            {
+                ["coordinate_system"] = ReadNestedFieldValue(reviewRoot, "coordinate_system"),
+                ["parish"] = ReadNestedFieldValue(reviewRoot, "survey_metadata", "parish"),
+                ["coordinate_table_point_count"] = ReadInt(reviewRoot, "row_count")
+            },
+            ["dimension_check"] = new JsonObject
+            {
+                ["point_count"] = ReadInt(reviewRoot, "row_count"),
+                ["segment_count"] = ReadInt(reviewRoot, "segment_row_count"),
+                ["document_area"] = ReadNestedFieldValue(reviewRoot, "survey_metadata", "document_area"),
+                ["geometry_candidate_status"] = ReadInt(reviewRoot, "row_count") >= 3 || ReadInt(reviewRoot, "segment_row_count") >= 3 ? "candidate" : "manual_review_required"
+            }
+        };
+
+        File.WriteAllText(summaryArtifactPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string[] CollectSurveyPlanArtifactPaths(
+        WorkflowScriptExecutionContext context,
+        string summaryArtifactPath,
+        string reviewArtifactPath,
+        string routeArtifactPath)
+    {
+        var artifactPaths = new List<string> { summaryArtifactPath, reviewArtifactPath, routeArtifactPath };
+        foreach (var outputArtifact in context.Step.OutputArtifacts)
+        {
+            var stepArtifactPath = ResolveArtifactPath(context, outputArtifact);
+            if (!artifactPaths.Any(path => string.Equals(Path.GetFullPath(path), Path.GetFullPath(stepArtifactPath), StringComparison.OrdinalIgnoreCase))
+                && File.Exists(stepArtifactPath))
+            {
+                artifactPaths.Add(stepArtifactPath);
+            }
+        }
+
+        return artifactPaths.ToArray();
+    }
+
+    private static JsonObject BuildSurveyPlanRoot(ResolvedExtractionRoute route, SurveyPlanExtractionCandidate extraction)
+    {
+        return new JsonObject
+        {
+            ["schema_version"] = "2.18.0",
+            ["transaction_number"] = extraction.TransactionNumber,
+            ["source_profile"] = extraction.SourceProfile,
+            ["parcel_count_hint"] = extraction.ParcelCountHint,
+            ["extraction_source"] = extraction.ExtractorId,
+            ["extractor_id"] = extraction.ExtractorId,
+            ["active_extractor_id"] = route.ActiveExtractorId,
+            ["provider_used"] = route.ProviderUsed,
+            ["primary_source_role"] = route.PrimarySourceRole,
+            ["primary_source_file"] = extraction.SourceFileName,
+            ["status"] = extraction.Status,
+            ["fallback_reason"] = extraction.FallbackReason,
+            ["coordinate_system"] = BuildFieldNode(extraction.Metadata["coordinate_system"]),
+            ["north_arrow"] = JsonSerializer.SerializeToNode(extraction.NorthArrow)!.AsObject(),
+            ["survey_metadata"] = new JsonObject
+            {
+                ["parish"] = BuildFieldNode(extraction.Metadata["parish"]),
+                ["document_area"] = BuildFieldNode(extraction.Metadata["document_area"]),
+                ["survey_date"] = BuildFieldNode(extraction.Metadata["survey_date"]),
+                ["instrument"] = BuildFieldNode(extraction.Metadata["instrument"]),
+                ["surveyed_by"] = BuildFieldNode(extraction.Metadata["surveyed_by"])
+            },
+            ["parties"] = new JsonArray(extraction.Parties.Select(item => JsonSerializer.SerializeToNode(item)).ToArray()),
+            ["representatives"] = new JsonArray(extraction.Representatives.Select(item => JsonSerializer.SerializeToNode(item)).ToArray()),
+            ["adjacent_owners"] = new JsonArray(extraction.AdjacentOwners.Select(item => JsonSerializer.SerializeToNode(item)).ToArray()),
+            ["field_confidence"] = JsonSerializer.SerializeToNode(extraction.Metadata.ToDictionary(item => item.Key, item => item.Value.Confidence, StringComparer.OrdinalIgnoreCase))!,
+            ["review_notes"] = new JsonArray(extraction.Warnings.Select(warning => JsonValue.Create(warning)).ToArray())
+        };
+    }
+
+    private static JsonObject BuildSurveyPlanStageEvidence(SurveyPlanExtractionCandidate extraction)
+    {
+        return new JsonObject
+        {
+            ["structure_check"] = new JsonObject
+            {
+                ["source_profile"] = extraction.SourceProfile,
+                ["pdf_readable"] = true,
+                ["extractor_eligible"] = true,
+                ["expected_zones"] = new JsonArray("plan_sketch", "coordinate_table", "memorandum", "signature_block")
+            },
+            ["georeference_check"] = new JsonObject
+            {
+                ["coordinate_system"] = extraction.Metadata["coordinate_system"].Value,
+                ["coordinate_system_confidence"] = extraction.Metadata["coordinate_system"].Confidence,
+                ["parish"] = extraction.Metadata["parish"].Value,
+                ["parish_confidence"] = extraction.Metadata["parish"].Confidence,
+                ["coordinate_table_point_count"] = extraction.Points.Count
+            },
+            ["dimension_check"] = new JsonObject
+            {
+                ["point_count"] = extraction.Points.Count,
+                ["segment_count"] = extraction.Segments.Count,
+                ["document_area"] = extraction.Metadata["document_area"].Value,
+                ["geometry_candidate_status"] = extraction.Points.Count >= 3 || extraction.Segments.Count >= 3 ? "candidate" : "manual_review_required"
+            }
+        };
+    }
+
+    private static JsonObject BuildFieldNode(SurveyPlanField field)
+    {
+        return new JsonObject
+        {
+            ["field"] = field.FieldName,
+            ["value"] = string.IsNullOrWhiteSpace(field.Value) ? null : field.Value,
+            ["confidence"] = field.Confidence,
+            ["source_page"] = 1,
+            ["source_zone"] = field.SourceZone,
+            ["status"] = string.IsNullOrWhiteSpace(field.Value) ? "not_extracted" : field.Confidence >= 0.7 ? "candidate" : "needs_review",
+            ["review_note"] = field.ReviewNote
+        };
+    }
+
+    private static SurveyPlanField Field(string fieldName, string? value, double confidence, string sourceZone, string reviewNote)
+    {
+        var normalized = value?.Trim();
+        return new SurveyPlanField(fieldName, string.IsNullOrWhiteSpace(normalized) ? null : normalized, string.IsNullOrWhiteSpace(normalized) ? 0.0 : confidence, sourceZone, string.IsNullOrWhiteSpace(normalized) ? "Field was not confidently extracted." : reviewNote);
+    }
+
+    private static string? FindFirst(string text, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return match.Groups["value"].Success
+            ? match.Groups["value"].Value.Trim()
+            : match.Value.Trim();
+    }
+
+    private static bool ContainsToken(string text, string token)
+    {
+        return !string.IsNullOrWhiteSpace(text)
+               && text.Contains(token, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeBearingText(string value)
+    {
+        return Regex.Replace(value.Trim(), @"\s+", string.Empty, RegexOptions.CultureInvariant)
+            .Replace('º', '°')
+            .Replace('’', '\'')
+            .Replace("”", "\"", StringComparison.Ordinal);
+    }
+
+    private static string TryReadTextPayload(string sourcePath)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(sourcePath);
+            if (bytes.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var text = Encoding.UTF8.GetString(bytes);
+            return text.Count(char.IsControl) > text.Length / 3
+                ? string.Empty
+                : text;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DecoderFallbackException)
+        {
+            return string.Empty;
         }
     }
 
@@ -424,7 +1047,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
     private static IReadOnlyDictionary<string, string?>? BuildProcessEnvironment(WorkflowRuleSettings ruleSettings, ResolvedExtractionRoute route)
     {
-        if (!route.AiUsed || !ruleSettings.OpenAiEnabled)
+        if ((!route.AiUsed && !string.Equals(route.ActiveExtractorId, "survey_plan_ocr_vision", StringComparison.OrdinalIgnoreCase))
+            || !ruleSettings.OpenAiEnabled)
         {
             return null;
         }
@@ -440,7 +1064,9 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
         return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
-            ["OPENAI_API_KEY"] = configuredValue
+            ["OPENAI_API_KEY"] = configuredValue,
+            ["OPENAI_MODEL"] = ResolveEffectiveOpenAiModel(ruleSettings),
+            ["OPENAI_EXTRACTION_PROFILE"] = ruleSettings.OpenAiExtractionProfile
         };
     }
 
@@ -485,10 +1111,12 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             .Where(source => !SourceRole.Matches(source.SourceRole, SourceRole.DwgSource))
             .Select(source => new SourceRouteCandidate(
                 source,
-                catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(
+                ResolveDocumentTypeMatchForSource(
+                    catalog,
+                    source,
                     source.SourceRole ?? "unknown_source",
                     Path.GetFileName(source.CopiedPath),
-                    source.FileType))))
+                    source.FileType)))
             .ToArray();
 
         var computationCandidate = candidates
@@ -517,10 +1145,14 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
         var primarySource = selected?.Source ?? ResolvePointsSource(sourceFiles, context.Step.InputRoles);
         var primaryMatch = selected?.Match
-            ?? catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(
-                primarySource?.SourceRole ?? "unknown_source",
-                primarySource is null ? string.Empty : Path.GetFileName(primarySource.CopiedPath),
-                primarySource?.FileType ?? string.Empty));
+            ?? (primarySource is null
+                ? catalog.ResolveBestMatch(new DocumentTypeMatchCandidate("unknown_source", string.Empty, string.Empty))
+                : ResolveDocumentTypeMatchForSource(
+                    catalog,
+                    primarySource,
+                    primarySource.SourceRole ?? "unknown_source",
+                    Path.GetFileName(primarySource.CopiedPath),
+                    primarySource.FileType));
 
         var planSource = ResolveFirstSource(allSourceFiles, SourceRole.PlanMapReference);
         var dwgSource = ResolveFirstSource(allSourceFiles, SourceRole.DwgSource);
@@ -560,6 +1192,31 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ResolveCaseExtractionMode(activeExtractorId),
             unsafeToAutomate,
             ResolveOperatorMessage(primaryMatch, activeExtractorId));
+    }
+
+    private static DocumentTypeMatchResult ResolveDocumentTypeMatchForSource(
+        DocumentTypeCatalog catalog,
+        ManifestSourceFile source,
+        string role,
+        string fileName,
+        string extension)
+    {
+        if (SourceRole.Matches(source.SourceRole, SourceRole.SurveyPlanPdf)
+            && catalog.ResolveById("SINGLE_PARCEL_SURVEY_PLAN_PDF_V1") is { } surveyPlanDefinition)
+        {
+            return new DocumentTypeMatchResult(
+                surveyPlanDefinition,
+                "survey_plan_pdf_role_match",
+                1.0,
+                LowConfidence: false,
+                CandidateRole: role,
+                CandidateName: fileName,
+                MatchScore: surveyPlanDefinition.Match.ScoreThreshold,
+                ScoreThreshold: surveyPlanDefinition.Match.ScoreThreshold,
+                CatalogPath: catalog.CatalogPath);
+        }
+
+        return catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(role, fileName, extension));
     }
 
     private static void EnrichReviewArtifact(string reviewArtifactPath, ResolvedExtractionRoute route, ExtractionRuntimeDiagnostics? diagnostics)
@@ -871,6 +1528,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     {
         return activeExtractorId switch
         {
+            "survey_plan_ocr_vision" => "single_parcel_survey_plan_pdf",
             "pdf_text_structured_computation" => "text_structured_pdf",
             "openai_table_pdf" => "openai_table",
             "structured_csv_points" or "structured_txt_points" => "structured_points",
@@ -900,7 +1558,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
     private static bool ExtractorRequiresAi(string extractorId)
     {
-        return string.Equals(extractorId, "openai_table_pdf", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(extractorId, "openai_table_pdf", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extractorId, "survey_plan_ocr_vision", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool AllowsAiFallback(DocumentTypeMatchResult match)
@@ -965,6 +1624,20 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         return $"\"{scriptPath}\" --source-pdf \"{sourcePdfPath}\" --output-json \"{outputJsonPath}\" --transaction-number \"{transactionNumber}\"";
     }
 
+    private static string BuildSurveyPlanOcrVisionScriptArguments(
+        string scriptPath,
+        string sourcePdfPath,
+        string outputJsonPath,
+        string transactionNumber,
+        WorkflowRuleSettings ruleSettings)
+    {
+        var model = ResolveEffectiveOpenAiModel(ruleSettings);
+        var profile = string.IsNullOrWhiteSpace(ruleSettings.OpenAiExtractionProfile)
+            ? "balanced"
+            : ruleSettings.OpenAiExtractionProfile.Trim();
+        return $"\"{scriptPath}\" --source-pdf \"{sourcePdfPath}\" --output-json \"{outputJsonPath}\" --transaction-number \"{transactionNumber}\" --model \"{model}\" --profile \"{profile}\"";
+    }
+
     private static string? ResolveTextStructuredExtractionScriptPath(WorkflowExecutionSettings executionSettings)
     {
         var configuredAdapterCandidates = new[]
@@ -987,6 +1660,30 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         }
 
         return ResolveProjectFile(TextStructuredExtractionScriptRelativePath);
+    }
+
+    private static string? ResolveSurveyPlanOcrVisionScriptPath(WorkflowExecutionSettings executionSettings)
+    {
+        var configuredAdapterCandidates = new[]
+        {
+            executionSettings.OutputAdapterScriptPath,
+            executionSettings.ValidationAdapterScriptPath
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Select(path => Path.GetDirectoryName(path!))
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Select(path => Path.Combine(path!, Path.GetFileName(SurveyPlanOcrVisionScriptRelativePath)))
+        .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var candidate in configuredAdapterCandidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return ResolveProjectFile(SurveyPlanOcrVisionScriptRelativePath);
     }
 
     private static string? ResolveProjectFile(string relativePath)
@@ -1161,6 +1858,38 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             || value.Contains("token", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static JsonObject CloneObjectOrDefault(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Object
+            ? JsonNode.Parse(value.GetRawText())!.AsObject()
+            : new JsonObject();
+    }
+
+    private static JsonArray CloneArrayOrEmpty(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? JsonNode.Parse(value.GetRawText())!.AsArray()
+            : new JsonArray();
+    }
+
+    private static string? ReadNestedFieldValue(JsonElement element, string objectName)
+    {
+        return element.TryGetProperty(objectName, out var value)
+               && value.ValueKind == JsonValueKind.Object
+            ? ReadString(value, "value")
+            : null;
+    }
+
+    private static string? ReadNestedFieldValue(JsonElement element, string objectName, string fieldName)
+    {
+        return element.TryGetProperty(objectName, out var value)
+               && value.ValueKind == JsonValueKind.Object
+               && value.TryGetProperty(fieldName, out var field)
+               && field.ValueKind == JsonValueKind.Object
+            ? ReadString(field, "value")
+            : null;
+    }
+
     private static string? ReadString(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
@@ -1235,6 +1964,70 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         bool? TextLayerAvailable,
         int? ParsedParcelCount,
         int? ParsedRowCount);
+
+    private sealed record SurveyPlanSourceProbe(
+        bool IsPdf,
+        bool TextLayerAvailable,
+        string TextLayerProbeStatus,
+        string TextContent);
+
+    private sealed record SurveyPlanExtractionCandidate(
+        string TransactionNumber,
+        string SourceProfile,
+        string ExtractorId,
+        string SourceFileName,
+        string Status,
+        string FallbackReason,
+        int ParcelCountHint,
+        IReadOnlyDictionary<string, SurveyPlanField> Metadata,
+        SurveyPlanDetectedFeature NorthArrow,
+        IReadOnlyList<SurveyPlanPointCandidate> Points,
+        IReadOnlyList<SurveyPlanSegmentCandidate> Segments,
+        IReadOnlyList<SurveyPlanPartyCandidate> Parties,
+        IReadOnlyList<SurveyPlanPartyCandidate> Representatives,
+        IReadOnlyList<SurveyPlanPartyCandidate> AdjacentOwners,
+        IReadOnlyList<string> Warnings);
+
+    private sealed record SurveyPlanField(
+        string FieldName,
+        string? Value,
+        double Confidence,
+        string SourceZone,
+        string ReviewNote);
+
+    private sealed record SurveyPlanDetectedFeature(
+        string Feature,
+        bool Detected,
+        string? ApproximatePageLocation,
+        double Confidence,
+        string ReviewNote);
+
+    private sealed record SurveyPlanPointCandidate(
+        string RowId,
+        string PointId,
+        string Easting,
+        string Northing,
+        int Sequence,
+        int SourcePage,
+        string SourceZone,
+        double Confidence,
+        string SourceEvidence);
+
+    private sealed record SurveyPlanSegmentCandidate(
+        string SegmentId,
+        string BearingText,
+        string DistanceText,
+        string LengthText,
+        int Sequence,
+        int SourcePage,
+        string SourceZone,
+        double Confidence,
+        string SourceEvidence);
+
+    private sealed record SurveyPlanPartyCandidate(
+        string Name,
+        double Confidence,
+        string SourceZone);
 
     private sealed record StructuredTextExtractionEnvelope(
         string Status,

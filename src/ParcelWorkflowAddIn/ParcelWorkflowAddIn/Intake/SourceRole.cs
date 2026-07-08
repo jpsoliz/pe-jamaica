@@ -6,6 +6,7 @@ public static class SourceRole
     public const string CoordinateTextSource = "coordinate_text_source";
     public const string DwgSource = "dwg_source";
     public const string PlanMapReference = "plan_map_reference";
+    public const string SurveyPlanPdf = "survey_plan_pdf";
     public const string WorkflowResumePackage = "workflow_resume_package";
     public const string AmbiguousDocument = "ambiguous_document";
     public const string UnsupportedSource = "unsupported_source";
@@ -30,6 +31,7 @@ public static class SourceRole
             DwgReference => DwgSource,
             DwgSource => DwgSource,
             PlanMapReference => PlanMapReference,
+            SurveyPlanPdf => SurveyPlanPdf,
             WorkflowResumePackage => WorkflowResumePackage,
             AmbiguousDocument => AmbiguousDocument,
             UnsupportedSource => UnsupportedSource,
@@ -65,6 +67,7 @@ public static class SourceRole
             CoordinateTextSource => "structured survey points",
             DwgSource => "AutoCAD survey file",
             PlanMapReference => "survey plan / map reference",
+            SurveyPlanPdf => "survey plan PDF",
             WorkflowResumePackage => "workflow package",
             AmbiguousDocument => "unclassified source",
             UnsupportedSource => "unsupported source",

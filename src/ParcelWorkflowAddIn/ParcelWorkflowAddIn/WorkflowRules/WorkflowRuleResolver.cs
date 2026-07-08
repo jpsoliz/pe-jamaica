@@ -32,12 +32,13 @@ public sealed class WorkflowRuleResolver
     {
         var rules = registry.Load().Rules
             .Where(rule => MatchesProcessStep(rule, context.ProcessStep))
+            .Where(rule => MatchesProfileScope(rule, context))
             .Where(rule => MatchesSources(rule, context.SourceFiles))
             .ToArray();
 
         if (rules.Length == 0)
         {
-            return WorkflowRuleResolutionResult.NoMatch("No workflow rule matches the transaction type and copied source files.");
+            return WorkflowRuleResolutionResult.NoMatch(BuildNoMatchMessage(context));
         }
 
         var selected = rules
@@ -126,6 +127,20 @@ public sealed class WorkflowRuleResolver
             || rule.ProcessSteps.Any(step => step.Equals(processStep, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool MatchesProfileScope(WorkflowRule rule, WorkflowRuleResolutionContext context)
+    {
+        return MatchesAny(rule.TransactionTypeProfiles, context.TransactionTypeProfileId)
+            && MatchesAny(rule.DocumentProfiles, context.DocumentProfile);
+    }
+
+    private static bool MatchesAny(IReadOnlyList<string>? candidates, string? value)
+    {
+        return candidates is null
+            || candidates.Count == 0
+            || (!string.IsNullOrWhiteSpace(value)
+                && candidates.Any(candidate => candidate.Equals(value, StringComparison.OrdinalIgnoreCase)));
+    }
+
     private static bool MatchesSources(WorkflowRule rule, IReadOnlyList<ManifestSourceFile> sources)
     {
         foreach (var required in rule.RequiredSources)
@@ -156,6 +171,24 @@ public sealed class WorkflowRuleResolver
             && rule.DetectedProfiles?.Any(profile => profile.Equals(context.DetectedProfile.ProfileCode, StringComparison.OrdinalIgnoreCase)) == true)
         {
             score += 3;
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.TransactionTypeProfileId)
+            && rule.TransactionTypeProfiles?.Any(profile => profile.Equals(context.TransactionTypeProfileId, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            score += 5;
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.DocumentProfile)
+            && rule.DocumentProfiles?.Any(profile => profile.Equals(context.DocumentProfile, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            score += 3;
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.WorkflowProfile)
+            && rule.WorkflowProfile.Equals(context.WorkflowProfile, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 4;
         }
 
         if (rule.ProcessSteps?.Any(step => step.Equals(context.ProcessStep, StringComparison.OrdinalIgnoreCase)) == true)
@@ -223,5 +256,19 @@ public sealed class WorkflowRuleResolver
     private static string RelativeOrFileName(string path)
     {
         return string.IsNullOrWhiteSpace(path) ? string.Empty : Path.GetFileName(path);
+    }
+
+    private static string BuildNoMatchMessage(WorkflowRuleResolutionContext context)
+    {
+        var sourceRoles = context.SourceFiles
+            .Select(source => SourceRole.Normalize(source.SourceRole) ?? source.SourceRole ?? "unknown")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(role => role, StringComparer.OrdinalIgnoreCase);
+        return "No workflow rule matches the transaction type/profile and copied source files. "
+            + $"transaction_type={context.TransactionType ?? "unknown"}; "
+            + $"transaction_profile={context.TransactionTypeProfileId ?? "unknown"}; "
+            + $"workflow_profile={context.WorkflowProfile ?? "unknown"}; "
+            + $"document_profile={context.DocumentProfile ?? "unknown"}; "
+            + $"source_roles={string.Join(", ", sourceRoles)}.";
     }
 }

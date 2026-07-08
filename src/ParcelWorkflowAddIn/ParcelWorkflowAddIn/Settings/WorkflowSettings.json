@@ -65,7 +65,9 @@
   "supported_transaction_types": [
     "Plan Examination",
     "Cadastral Plan Examination",
-    "Compute Survey Plan"
+    "Compute Survey Plan",
+    "Plan Examination by Area",
+    "PXA"
   ],
   "compute_workflow_stages": [
     "Compute Survey Plan",
@@ -86,6 +88,14 @@
       "workflow_role": "computation_sheet",
       "display_name": "Survey / computation sheet",
       "required": true,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_survey_plan_pdf",
+      "workflow_role": "survey_plan_pdf",
+      "display_name": "Survey plan PDF",
+      "required": false,
       "internal_only": false,
       "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
     },
@@ -112,6 +122,50 @@
       "required": false,
       "internal_only": true,
       "extensions": [".zip"]
+    }
+  ],
+  "compute_transaction_type_profiles": [
+    {
+      "profile_id": "pe_computation_review",
+      "enabled": true,
+      "transaction_type_codes": ["PE"],
+      "transaction_type_names": [
+        "Plan Examination",
+        "Cadastral Plan Examination",
+        "Compute Survey Plan",
+        "Assign Computation Task",
+        "Computation Check"
+      ],
+      "workflow_profile": "pe_computation_sheet_review",
+      "required_source_roles": [
+        "computation_sheet",
+        "plan_map_reference"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "computation_sheet",
+      "document_profile": "computation_sheet_multi_or_single_parcel"
+    },
+    {
+      "profile_id": "pxa_single_parcel_survey_plan",
+      "enabled": true,
+      "transaction_type_codes": ["PXA"],
+      "transaction_type_names": [
+        "PXA",
+        "Plan Examination by Area"
+      ],
+      "workflow_profile": "pxa_single_parcel_survey_plan",
+      "required_source_roles": [
+        "survey_plan_pdf"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "survey_plan_pdf",
+      "document_profile": "scanned_single_parcel_survey_plan_pdf"
     }
   ],
   "innola_attachment_upload_route": "source/sources/attach",

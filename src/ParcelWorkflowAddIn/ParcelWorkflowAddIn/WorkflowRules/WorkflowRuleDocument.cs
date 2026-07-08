@@ -11,6 +11,8 @@ public sealed record WorkflowRule(
     [property: JsonPropertyName("rule_version")] string RuleVersion,
     [property: JsonPropertyName("workflow_profile")] string WorkflowProfile,
     [property: JsonPropertyName("detected_profiles")] IReadOnlyList<string>? DetectedProfiles,
+    [property: JsonPropertyName("transaction_type_profiles")] IReadOnlyList<string>? TransactionTypeProfiles,
+    [property: JsonPropertyName("document_profiles")] IReadOnlyList<string>? DocumentProfiles,
     [property: JsonPropertyName("transaction_types")] IReadOnlyList<string>? TransactionTypes,
     [property: JsonPropertyName("process_steps")] IReadOnlyList<string>? ProcessSteps,
     [property: JsonPropertyName("required_sources")] IReadOnlyList<WorkflowRuleRequiredSource> RequiredSources,

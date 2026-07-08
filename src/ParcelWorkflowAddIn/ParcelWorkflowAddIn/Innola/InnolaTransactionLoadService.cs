@@ -108,6 +108,15 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure("Loaded transaction details did not match the selected transaction.");
         }
 
+        var transactionSettings = InnolaTransactionSettings.Load();
+        var transactionProfile = ResolveTransactionProfile(transactionSettings, detail, selected);
+        if (transactionProfile is null)
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure(
+                $"Unsupported transaction profile: no enabled compute transaction type profile matches '{detail.CaseType ?? selected.TransactionType ?? detail.TaskName}'.");
+        }
+
         var resumeAttachments = detail.Attachments
             .Where(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber))
             .ToArray();
@@ -209,18 +218,22 @@ public sealed class InnolaTransactionLoadService
                 attachment.SourceType));
         }
 
-        sourceFiles = DeduplicateSourceFiles(sourceFiles).ToList();
-        provenance = DeduplicateAttachmentProvenance(provenance).ToList();
+        sourceFiles = DeduplicateSourceFiles(ApplyTransactionProfilePrimaryRole(sourceFiles, transactionProfile)).ToList();
+        provenance = DeduplicateAttachmentProvenance(ApplyTransactionProfilePrimaryRole(provenance, transactionProfile)).ToList();
 
         var supportingDocumentOptions = manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
         var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(sourceFiles, supportingDocumentOptions);
         var detectedProfile = profileDetector.Detect(effectiveSourceFiles);
+        var resolvedTransactionProfile = ComputeTransactionTypeProfileCatalog.ToResolved(transactionProfile);
         var ruleResolution = workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
-            detail.CaseType,
+            detail.CaseType ?? selected.TransactionType,
             detail.ProcessStep,
             detectedProfile,
             effectiveSourceFiles,
-            getWorkflowRuleSettings()));
+            getWorkflowRuleSettings(),
+            transactionProfile.ProfileId,
+            transactionProfile.WorkflowProfile,
+            transactionProfile.DocumentProfile));
         var updatedManifest = manifest with
         {
             Payload = manifest.Payload with
@@ -244,6 +257,7 @@ public sealed class InnolaTransactionLoadService
                     loadedAt),
                 AttachmentProvenance = provenance,
                 WorkflowProfile = ruleResolution.ScriptPlan?.WorkflowProfile,
+                TransactionTypeProfile = resolvedTransactionProfile,
                 WorkflowRuleId = ruleResolution.ScriptPlan?.RuleId,
                 WorkflowRuleVersion = ruleResolution.ScriptPlan?.RuleVersion,
                 ScriptPlan = ruleResolution.ScriptPlan
@@ -271,6 +285,31 @@ public sealed class InnolaTransactionLoadService
             ? $"{loadModePrefix} {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
             : $"{loadModePrefix} {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}";
         return InnolaTransactionLoadResult.Succeeded(layout, detectedProfile, wasRestoredFromResumePackage, status);
+    }
+
+    private static ComputeTransactionTypeProfileDefinition? ResolveTransactionProfile(
+        InnolaTransactionSettings settings,
+        InnolaTransactionDetail detail,
+        SelectedInnolaTransaction selected)
+    {
+        var candidates = new[]
+        {
+            selected.TransactionType,
+            detail.CaseType,
+            detail.TaskName,
+            detail.ProfileHint
+        };
+
+        foreach (var candidate in candidates.Where(value => !string.IsNullOrWhiteSpace(value)))
+        {
+            var profile = settings.ResolveComputeTransactionTypeProfile(candidate, detail.TaskName, detail.ProfileHint);
+            if (profile is not null)
+            {
+                return profile;
+            }
+        }
+
+        return null;
     }
 
     private async Task<ResumePackageRestoreResult> RestoreCaseFolderFromResumePackageAsync(
@@ -460,6 +499,29 @@ public sealed class InnolaTransactionLoadService
             .ToArray();
     }
 
+    private static IReadOnlyList<ManifestSourceFile> ApplyTransactionProfilePrimaryRole(
+        IReadOnlyList<ManifestSourceFile> sourceFiles,
+        ComputeTransactionTypeProfileDefinition transactionProfile)
+    {
+        if (!SourceRole.Matches(transactionProfile.PrimaryExtractionRole, SourceRole.SurveyPlanPdf)
+            || sourceFiles.Any(source => SourceRole.Matches(source.SourceRole, SourceRole.SurveyPlanPdf)))
+        {
+            return sourceFiles;
+        }
+
+        var candidate = sourceFiles.FirstOrDefault(IsSurveyPlanPdfPrimaryCandidate);
+        if (candidate is null)
+        {
+            return sourceFiles;
+        }
+
+        return sourceFiles
+            .Select(source => ReferenceEquals(source, candidate)
+                ? source with { SourceRole = SourceRole.SurveyPlanPdf }
+                : source)
+            .ToArray();
+    }
+
     private static IReadOnlyList<ManifestAttachmentProvenance> DeduplicateAttachmentProvenance(IReadOnlyList<ManifestAttachmentProvenance> provenance)
     {
         return provenance
@@ -473,6 +535,58 @@ public sealed class InnolaTransactionLoadService
             .OrderBy(item => SourceRole.Normalize(item.SourceRole) ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.CopiedPath, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static IReadOnlyList<ManifestAttachmentProvenance> ApplyTransactionProfilePrimaryRole(
+        IReadOnlyList<ManifestAttachmentProvenance> provenance,
+        ComputeTransactionTypeProfileDefinition transactionProfile)
+    {
+        if (!SourceRole.Matches(transactionProfile.PrimaryExtractionRole, SourceRole.SurveyPlanPdf)
+            || provenance.Any(item => SourceRole.Matches(item.SourceRole, SourceRole.SurveyPlanPdf)))
+        {
+            return provenance;
+        }
+
+        var candidate = provenance.FirstOrDefault(IsSurveyPlanPdfPrimaryCandidate);
+        if (candidate is null)
+        {
+            return provenance;
+        }
+
+        return provenance
+            .Select(item => ReferenceEquals(item, candidate)
+                ? item with { SourceRole = SourceRole.SurveyPlanPdf }
+                : item)
+            .ToArray();
+    }
+
+    private static bool IsSurveyPlanPdfPrimaryCandidate(ManifestSourceFile source)
+    {
+        return IsImageDocument(source.FileType)
+            && (SourceRole.Matches(source.SourceRole, SourceRole.PlanMapReference)
+                || SourceRole.Matches(source.SourceRole, SourceRole.AmbiguousDocument)
+                || string.Equals(source.SourceType, "st_surveyplan", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source.SourceType, "st_survey_plan_pdf", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsSurveyPlanPdfPrimaryCandidate(ManifestAttachmentProvenance source)
+    {
+        return IsImageDocument(source.Extension)
+            && (SourceRole.Matches(source.SourceRole, SourceRole.PlanMapReference)
+                || SourceRole.Matches(source.SourceRole, SourceRole.AmbiguousDocument)
+                || string.Equals(source.SourceType, "st_surveyplan", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source.SourceType, "st_survey_plan_pdf", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsImageDocument(string? extension)
+    {
+        return extension is not null
+            && (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".tif", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase));
     }
 
     private static DateTimeOffset TryParseCopiedAt(string? value)

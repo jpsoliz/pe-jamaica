@@ -107,6 +107,67 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal(null, settings.ComputeWorkflowStagesWarning, "Valid compute stage list should not produce a warning.");
     }
 
+    public static void MissingTransactionTypeProfilesFallBackToSafeDefaults()
+    {
+        using var settingsFile = WriteSettingsFile("{}");
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+        var pe = settings.ResolveComputeTransactionTypeProfile("Compute Survey Plan", "Assign Computation Task");
+        var pxa = settings.ResolveComputeTransactionTypeProfile("PXA");
+
+        TestAssert.True(settings.ComputeTransactionTypeProfilesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Missing profiles should warn about safe defaults.");
+        TestAssert.Equal("pe_computation_review", pe?.ProfileId, "PE safe default profile mismatch.");
+        TestAssert.True(pe!.RequiredSourceRoles.Contains("computation_sheet"), "PE should require computation sheet.");
+        TestAssert.True(pe.RequiredSourceRoles.Contains("plan_map_reference"), "PE should require plan/map reference.");
+        TestAssert.Equal("pxa_single_parcel_survey_plan", pxa?.ProfileId, "PXA safe default profile mismatch.");
+        TestAssert.True(pxa!.RequiredSourceRoles.Contains("survey_plan_pdf"), "PXA should require survey plan PDF.");
+        TestAssert.True(!pxa.RequiredSourceRoles.Contains("computation_sheet"), "PXA should not require computation sheet.");
+    }
+
+    public static void ProfileHintBeatsBroadTransactionTypeName()
+    {
+        using var settingsFile = WriteSettingsFile("{}");
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+        var profile = settings.ResolveComputeTransactionTypeProfile(
+            "Plan Examination",
+            "Assign Computation Task",
+            "PXA");
+
+        TestAssert.Equal("pxa_single_parcel_survey_plan", profile?.ProfileId, "Exact PXA profile hint should beat broad PE transaction/task labels.");
+        TestAssert.True(profile!.RequiredSourceRoles.Contains("survey_plan_pdf"), "PXA hint should select survey-plan source requirements.");
+    }
+
+    public static void TransactionTypeProfilesLoadFromConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "compute_transaction_type_profiles": [
+                {
+                  "profile_id": "custom_pxa",
+                  "enabled": true,
+                  "transaction_type_codes": ["PXA"],
+                  "transaction_type_names": ["Survey Plan Approval"],
+                  "workflow_profile": "pxa_single_parcel_survey_plan",
+                  "required_source_roles": ["survey_plan_pdf"],
+                  "optional_source_roles": ["coordinate_text_source", "dwg_source"],
+                  "primary_extraction_role": "survey_plan_pdf",
+                  "document_profile": "scanned_single_parcel_survey_plan_pdf"
+                }
+              ]
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+        var profile = settings.ResolveComputeTransactionTypeProfile("Survey Plan Approval");
+
+        TestAssert.Equal(null, settings.ComputeTransactionTypeProfilesWarning, "Valid profile configuration should not warn.");
+        TestAssert.Equal("custom_pxa", profile?.ProfileId, "Configured profile id mismatch.");
+        TestAssert.Equal("survey_plan_pdf", profile?.PrimaryExtractionRole, "Primary extraction role mismatch.");
+        TestAssert.Equal("scanned_single_parcel_survey_plan_pdf", profile?.DocumentProfile, "Document profile mismatch.");
+    }
+
     public static void ManualReviewRetryThresholdLoadsFromConfiguration()
     {
         using var settingsFile = WriteSettingsFile(

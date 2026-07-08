@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
@@ -153,6 +154,99 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "georeference"), "Georeference Check should include georeference rules.");
         TestAssert.True(!summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).Any(check => check.Category == "dimension"), "Georeference Check must not include Dimension Check rules.");
         TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).All(check => !string.IsNullOrWhiteSpace(check.WorkflowEffect)), "Reportable findings should include workflow_effect.");
+    }
+
+    public static void GeoreferenceCheckConsumesSurveyPlanExtractionEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        WriteSurveyPlanSummary(layout, pointCount: 4, segmentCount: 4);
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-pxa-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.Equal("georeference_check", summary.StageId, "PXA Georeference Check summary should expose its stage id.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "georeference_spatial_validation_readiness"
+            && check.Evidence?["coordinate_system"].Contains("JAD 2001") == true
+            && check.Evidence?["parish"].Contains("Clarendon") == true), "Survey-plan georeference evidence should pass and preserve JAD2001/parish details.");
+        TestAssert.True(summary.Payload.Warnings.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Concrete survey-plan evidence should suppress the generic georeference warning.");
+    }
+
+    public static void DimensionCheckConsumesSurveyPlanExtractionEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        WriteSurveyPlanSummary(layout, pointCount: 4, segmentCount: 4);
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "dimension-pxa-run")
+            .RunDimensionCheck(layout, "tester");
+
+        TestAssert.Equal("dimension_check", summary.StageId, "PXA Dimension Check summary should expose its stage id.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "dimension_geometry_construction_readiness"
+            && check.Evidence?["point_count"].Contains("4") == true
+            && check.Evidence?["segment_count"].Contains("4") == true
+            && check.Evidence?["document_area"].Contains("854.807 sq. metres") == true), "Survey-plan dimension evidence should pass and preserve point/segment/area details.");
+        TestAssert.True(summary.Payload.Warnings.All(check => check.CheckId != "dimension_geometry_construction_readiness"), "Concrete survey-plan evidence should suppress the generic dimension warning.");
+    }
+
+    public static void GeoreferenceCheckDoesNotPassOnParishOnlySurveyPlanEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        WriteSurveyPlanSummary(layout, pointCount: 0, segmentCount: 0, coordinateSystem: null, parish: "Clarendon");
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-pxa-weak-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Parish-only survey-plan evidence must not pass Georeference Check.");
+        TestAssert.True(summary.Payload.Warnings.Concat(summary.Payload.Blockers).Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Weak survey-plan georeference evidence should remain reportable.");
+    }
+
+    public static void DimensionCheckDoesNotPassOnAreaOnlySurveyPlanEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        WriteSurveyPlanSummary(layout, pointCount: 0, segmentCount: 0, documentArea: "854.807 sq. metres");
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "dimension-pxa-weak-run")
+            .RunDimensionCheck(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.All(check => check.CheckId != "dimension_geometry_construction_readiness"), "Area-only survey-plan evidence must not pass Dimension Check.");
+        TestAssert.True(summary.Payload.Warnings.Concat(summary.Payload.Blockers).Any(check => check.CheckId == "dimension_geometry_construction_readiness"), "Weak survey-plan dimension evidence should remain reportable.");
     }
 
     public static void ManifestPreflightBlocksEmptyDwg()
@@ -617,19 +711,59 @@ internal static class ManifestPreflightServiceTests
         {
             "scenario_a" => new DetectedSourceInputProfile("scenario_a", SourceInputProfile.ScenarioALabel, "matched", "2026-06-09T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
             "scenario_b" => new DetectedSourceInputProfile("scenario_b", SourceInputProfile.ScenarioBLabel, "matched", "2026-06-09T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
+            "pxa_survey_plan_pdf" => new DetectedSourceInputProfile("pxa_survey_plan_pdf", SourceInputProfile.PxaSurveyPlanLabel, "matched", "2026-07-08T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
             "unsupported_intake" => new DetectedSourceInputProfile("unsupported_intake", SourceInputProfile.UnsupportedIntakeLabel, "unsupported", "2026-06-09T02:00:00Z", Array.Empty<string>(), new[] { "Unsupported intake." }),
             _ => new DetectedSourceInputProfile("incomplete_intake", SourceInputProfile.IncompleteIntakeLabel, "incomplete", "2026-06-09T02:00:00Z", new[] { "plan_map_reference" }, new[] { "Missing: plan/map reference." })
         };
+        var transactionProfile = profileCode == "pxa_survey_plan_pdf"
+            ? ComputeTransactionTypeProfileCatalog.ToResolved(ComputeTransactionTypeProfileCatalog.SafeDefaults.First(item => item.ProfileId == "pxa_single_parcel_survey_plan"))
+            : null;
 
         ManifestSerializer.Write(
             created.Layout.ManifestPath,
-            manifest with { Payload = manifest.Payload with { SourceFiles = sources, DetectedProfile = profile } });
+            manifest with { Payload = manifest.Payload with { SourceFiles = sources, DetectedProfile = profile, TransactionTypeProfile = transactionProfile } });
         return (created.Layout, sources);
     }
 
     internal static SourceSeed Source(string fileName, string extension, string role)
     {
         return new SourceSeed(fileName, extension, role, CopiedPath: null, CreateFile: true);
+    }
+
+    private static void WriteSurveyPlanSummary(
+        CaseFolderLayout layout,
+        int pointCount,
+        int segmentCount,
+        string? coordinateSystem = "JAD 2001",
+        string? parish = "Clarendon",
+        string? documentArea = "854.807 sq. metres")
+    {
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json"),
+            $$"""
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000492",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "point_count": {{pointCount}},
+              "segment_count": {{segmentCount}},
+              "coordinate_system": {
+                "value": {{JsonSerializer.Serialize(coordinateSystem)}},
+                "confidence": 0.95
+              },
+              "survey_metadata": {
+                "parish": {
+                  "value": {{JsonSerializer.Serialize(parish)}},
+                  "confidence": 0.85
+                },
+                "document_area": {
+                  "value": {{JsonSerializer.Serialize(documentArea)}},
+                  "confidence": 0.85
+                }
+              }
+            }
+            """);
     }
 
     private sealed class FakeDwgReferenceReadinessInspector : IDwgReferenceReadinessInspector

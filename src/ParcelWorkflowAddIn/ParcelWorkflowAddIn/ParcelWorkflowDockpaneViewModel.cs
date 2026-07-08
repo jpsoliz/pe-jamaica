@@ -34,6 +34,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly ParcelScopedManualPointService manualPointService = new();
     private readonly ParcelScopedReviewValidationService reviewValidationService = new();
+    private readonly SurveyPlanBoundarySolver surveyPlanBoundarySolver = new();
     private readonly RelayCommand createCaseCommand;
     private readonly RelayCommand browseOutputLocationCommand;
     private readonly RelayCommand addSourceFilesCommand;
@@ -164,6 +165,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     }
 
     public ObservableCollection<ExtractionReviewRowViewModel> ReviewRows { get; } = [];
+
+    public ObservableCollection<ExtractionReviewSegmentViewModel> ReviewSegments { get; } = [];
 
     public string? TransactionId
     {
@@ -957,7 +960,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? "Selected row has no active validation blocker."
             : SelectedReviewRow.ValidationIssueSummary;
 
-    public bool ReviewHasBlockers => HasLoadedReviewData && ReviewValidationResult.HasBlockers;
+    public bool ReviewHasSegmentSolverBlockers =>
+        string.Equals(ReadBoundarySolverStatus(), "blocked", StringComparison.OrdinalIgnoreCase);
+
+    public bool ReviewHasBlockers => HasLoadedReviewData && (ReviewValidationResult.HasBlockers || ReviewHasSegmentSolverBlockers);
 
     public ExtractionReviewSummary ReviewSummary =>
         loadedReviewDocument is null
@@ -1006,6 +1012,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 ? "Validate Points is approved. Points Validation Tool stays available for verification, and the next steps are Create Spatial Units followed by Final Review."
             : IsManualReviewEditMode
                 ? "Manual point edit is in progress. Save review or discard the pending row before switching parcels or approving."
+                : ReviewHasSegmentSolverBlockers
+                    ? BuildBoundarySolverSummaryText()
                 : ReviewValidationResult.HasBlockers
                     ? ReviewValidationResult.SummaryText
                     : "Validate Points is complete for this stage. Continue in Points Validation Tool when you need parcel-by-parcel verification before Create Spatial Units.";
@@ -1389,9 +1397,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         pendingManualRowId = null;
         reviewContentVersion = 0;
         ReviewRows.Clear();
+        ReviewSegments.Clear();
         foreach (var row in document.Rows)
         {
             ReviewRows.Add(new ExtractionReviewRowViewModel(row, OnReviewRowChanged));
+        }
+
+        foreach (var segment in document.Segments.OrderBy(segment => segment.EffectiveSequence))
+        {
+            ReviewSegments.Add(new ExtractionReviewSegmentViewModel(segment, OnReviewSegmentChanged));
         }
 
         SelectedReviewRow = ReviewRows.FirstOrDefault();
@@ -1410,6 +1424,159 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         RefreshWorkflowProperties();
+    }
+
+    private void OnReviewSegmentChanged()
+    {
+        reviewDirty = true;
+        reviewContentVersion++;
+        if (loadedReviewDocument is not null)
+        {
+            foreach (var segment in ReviewSegments)
+            {
+                segment.SyncBackToModel();
+            }
+        }
+
+        RefreshWorkflowProperties();
+    }
+
+    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable()
+    {
+        if (loadedReviewDocument is null || loadedReviewDocument.Segments.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var segment in ReviewSegments)
+        {
+            segment.SyncBackToModel();
+        }
+
+        var beforeRowCount = loadedReviewDocument.Rows.Count;
+        var result = surveyPlanBoundarySolver.Apply(loadedReviewDocument, ResolveReviewDocumentAreaSqM(loadedReviewDocument));
+        SyncReviewRowViewModelsFromDocument();
+        if (loadedReviewDocument.Rows.Count != beforeRowCount)
+        {
+            reviewContentVersion++;
+        }
+
+        return result;
+    }
+
+    private void SyncReviewRowViewModelsFromDocument()
+    {
+        if (loadedReviewDocument is null)
+        {
+            return;
+        }
+
+        var knownRowIds = ReviewRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.RowId))
+            .Select(row => row.RowId)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var row in loadedReviewDocument.Rows)
+        {
+            if (!string.IsNullOrWhiteSpace(row.RowId) && knownRowIds.Contains(row.RowId))
+            {
+                continue;
+            }
+
+            ReviewRows.Add(new ExtractionReviewRowViewModel(row, OnReviewRowChanged));
+        }
+    }
+
+    private static double? ResolveReviewDocumentAreaSqM(ExtractionReviewDocument document)
+    {
+        if (TryReadAreaValue(document.RootMetadata["survey_metadata"] as JsonObject, "document_area", out var area))
+        {
+            return area;
+        }
+
+        return TryReadAreaValue(document.RootMetadata, "document_area", out area)
+            || TryReadAreaValue(document.RootMetadata, "area", out area)
+            ? area
+            : null;
+    }
+
+    private static bool TryReadAreaValue(JsonObject? node, string propertyName, out double area)
+    {
+        area = 0d;
+        if (node is null || node[propertyName] is null)
+        {
+            return false;
+        }
+
+        var valueNode = node[propertyName];
+        if (valueNode is JsonObject objectNode)
+        {
+            valueNode = objectNode["value"];
+        }
+
+        if (valueNode is null)
+        {
+            return false;
+        }
+
+        var text = valueNode switch
+        {
+            JsonValue jsonValue when jsonValue.TryGetValue<double>(out var doubleValue) => doubleValue.ToString(CultureInfo.InvariantCulture),
+            JsonValue jsonValue when jsonValue.TryGetValue<string>(out var stringValue) => stringValue,
+            _ => valueNode.ToJsonString()
+        };
+
+        return TryParseFirstReviewNumber(text, out area);
+    }
+
+    private static bool TryParseFirstReviewNumber(string? value, out double number)
+    {
+        number = 0d;
+        var text = value ?? string.Empty;
+        var normalized = new string(text
+            .Select(character => char.IsDigit(character) || character is '.' or ',' or '-' ? character : ' ')
+            .ToArray());
+        foreach (var token in normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (double.TryParse(token, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out number))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private string? ReadBoundarySolverStatus()
+    {
+        return loadedReviewDocument?.RootMetadata["boundary_solver"] is JsonObject solver
+            ? ReadReviewJsonString(solver, "status")
+            : null;
+    }
+
+    private string BuildBoundarySolverSummaryText()
+    {
+        if (loadedReviewDocument?.RootMetadata["boundary_solver"] is not JsonObject solver)
+        {
+            return "Reviewed segments have not produced boundary solver diagnostics yet.";
+        }
+
+        var status = ReadReviewJsonString(solver, "status") ?? "unknown";
+        var findings = solver["findings"] as JsonArray;
+        var findingText = findings is null
+            ? string.Empty
+            : string.Join(" ", findings
+                .Select(item => item is JsonValue value && value.TryGetValue<string>(out var text) ? text : null)
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        return string.IsNullOrWhiteSpace(findingText)
+            ? $"Reviewed segment solver status: {status}."
+            : $"Reviewed segment solver status: {status}. {findingText}";
+    }
+
+    private static string? ReadReviewJsonString(JsonObject node, string propertyName)
+    {
+        return node[propertyName] is JsonValue value && value.TryGetValue<string>(out var text)
+            ? text
+            : null;
     }
 
     internal void SetReviewWorkspaceParcelContext(string? parcelGroupId, string? parcelName, string? traverseId, bool refreshProperties = true)
@@ -1778,12 +1945,20 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             row.SyncBackToModel();
         }
 
+        foreach (var segment in ReviewSegments)
+        {
+            segment.SyncBackToModel();
+        }
+
+        ApplyBoundarySolverIfAvailable();
+
         var saveResult = workflowSession.SaveExtractionReview(loadedReviewDocument, Environment.UserName);
         if (saveResult.Success && saveResult.Document is not null)
         {
             loadedReviewDocument = saveResult.Document;
             reviewDirty = false;
             pendingManualRowId = null;
+            LoadReviewDocumentIntoPane(loadedReviewDocument);
             if (!string.IsNullOrWhiteSpace(successMessage))
             {
                 workflowSession.SetValidationFailure(successMessage);
@@ -1846,6 +2021,19 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         foreach (var row in ReviewRows)
         {
             row.SyncBackToModel();
+        }
+
+        foreach (var segment in ReviewSegments)
+        {
+            segment.SyncBackToModel();
+        }
+
+        var solverResult = ApplyBoundarySolverIfAvailable();
+        if (solverResult is not null && string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            workflowSession.SetValidationFailure(BuildBoundarySolverSummaryText());
+            RefreshWorkflowProperties();
+            return false;
         }
 
         var reviewIssues = reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId);
@@ -2972,6 +3160,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewSummary));
         NotifyPropertyChanged(nameof(ReviewSummaryText));
         NotifyPropertyChanged(nameof(ReviewValidationResult));
+        NotifyPropertyChanged(nameof(ReviewSegments));
+        NotifyPropertyChanged(nameof(ReviewHasSegmentSolverBlockers));
         NotifyPropertyChanged(nameof(ReviewHasBlockers));
         NotifyPropertyChanged(nameof(ReviewGateText));
         NotifyPropertyChanged(nameof(ReviewBadgeText));
@@ -3545,6 +3735,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewViewerLoadCancellation = null;
         reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         ReviewRows.Clear();
+        ReviewSegments.Clear();
         RefreshWorkflowProperties();
     }
 

@@ -42,6 +42,12 @@ public sealed class SourceInputProfileDetector
         var hasPoints = HasRoleWithExtension(classified, SourceRole.CoordinateTextSource, PointsComputationExtensions);
         var hasDwg = HasRoleWithExtension(classified, SourceRole.DwgSource, new[] { ".dwg" });
         var hasPlan = HasRoleWithExtension(classified, SourceRole.PlanMapReference, ImageDocumentExtensions);
+        var hasSurveyPlanPdf = HasRoleWithExtension(classified, SourceRole.SurveyPlanPdf, ImageDocumentExtensions);
+
+        if (hasSurveyPlanPdf)
+        {
+            return Profile(SourceInputProfile.PxaSurveyPlan, SourceInputProfile.PxaSurveyPlanLabel, "matched", Array.Empty<string>(), Array.Empty<string>());
+        }
 
         if (hasComputation && hasPlan && hasPoints)
         {

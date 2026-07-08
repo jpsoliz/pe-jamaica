@@ -17,6 +17,14 @@ public sealed record DocumentTypeCatalog(
                ?? DocumentTypes.First(definition => !string.IsNullOrWhiteSpace(definition.DocTypeId));
     }
 
+    public DocumentTypeDefinition? ResolveById(string docTypeId)
+    {
+        return string.IsNullOrWhiteSpace(docTypeId)
+            ? null
+            : DocumentTypes.FirstOrDefault(definition =>
+                string.Equals(definition.DocTypeId, docTypeId, StringComparison.OrdinalIgnoreCase));
+    }
+
     public DocumentTypeMatchResult ResolveBestMatch(params DocumentTypeMatchCandidate[] candidates)
     {
         DocumentTypeScoredMatch? bestMatch = null;

@@ -24,6 +24,28 @@ public sealed class DocumentTypeCatalogLoader
             new DocumentTypeReviewDefinition("point_review", "embedded_or_external", true, true, true, true),
             new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "parcel_fabric", "enterprise_working_layers", "enterprise_parcel_fabric" }, "normal_fgdb")),
         new DocumentTypeDefinition(
+            "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+            "Single Parcel Survey Plan PDF",
+            "survey_plan_pdf",
+            220,
+            new DocumentTypeMatchDefinition(
+                new[] { ".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg" },
+                new[] { "SURVEY", "PLAN", "DOC_PLAN", "Cadastral", "Parcel" },
+                Array.Empty<string>(),
+                new[] { "JAD 2001", "Surveyed by", "Instrument", "Area", "Parish", "Grid North" },
+                Array.Empty<string>(),
+                20),
+            new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
+            new DocumentTypeExtractionDefinition("survey_plan_ocr_vision", "single_parcel_survey_plan", false, true, "single_parcel_survey_plan_vision_v1", new[] { "manual_survey_plan_review" }, new[] { "metadata", "points", "segments", "parties", "adjacent_owners" }),
+            new DocumentTypeSchemaDefinition(
+                new[] { "parish", "document_area", "survey_date", "instrument", "surveyed_by", "coordinate_system", "north_arrow" },
+                new[] { "parcel_name", "lot_number", "owner_names", "representatives", "adjacent_owners" },
+                new[] { "point_id", "northing", "easting", "bearing_txt", "distance_txt", "source_page", "source_zone", "confidence" }),
+            new DocumentTypeGeometryDefinition("single_parcel_survey_plan", "coordinate_table", "bearing_distance_segments", "single_closed_ring", false, true, true, "single_parcel_closure"),
+            new DocumentTypeValidationDefinition("single_parcel_survey_plan_v1", new[] { "parish", "coordinate_system" }, new[] { "point_id", "northing", "easting" }, 1, 1, new[] { "missing_survey_plan_pdf", "missing_coordinates" }, new[] { "low_confidence_ocr", "missing_optional_metadata" }),
+            new DocumentTypeReviewDefinition("point_line_review", "embedded_or_external", true, true, true, true),
+            new DocumentTypeOutputDefinition(new[] { "normal_fgdb", "enterprise_working_layers" }, "normal_fgdb")),
+        new DocumentTypeDefinition(
             "GEOLAND_COMPUTATION_TABLE_V2",
             "GeoLand Computation Table",
             "computation_sheet",

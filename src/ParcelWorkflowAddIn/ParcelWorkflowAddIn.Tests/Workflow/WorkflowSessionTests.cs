@@ -1114,6 +1114,33 @@ internal static class WorkflowSessionTests
         TestAssert.True(session.CanChooseManualCogoReview, "Manual review should be selectable after repeated weak extraction even when no review artifact was produced.");
     }
 
+    public static void ExtractionDecisionGateExplainsImageOnlyPxaSurveyPlanZeroRows()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000562",
+            ExtractionSource = "survey_plan_ocr_vision",
+            RootMetadata = new JsonObject
+            {
+                ["source_profile"] = "scanned_single_parcel_survey_plan_pdf",
+                ["doc_type_id"] = "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+                ["active_extractor_id"] = "survey_plan_ocr_vision",
+                ["extraction_method"] = "survey_plan_ocr_vision",
+                ["primary_source_role"] = "survey_plan_pdf",
+                ["text_layer_available"] = false,
+                ["text_layer_probe_status"] = "no_embedded_text_layer_or_unreadable_image_pdf"
+            }
+        };
+        var gate = new ExtractionDecisionGateService(() => 1);
+
+        var result = gate.Evaluate(document, ExtractionDecisionGateState.Empty);
+
+        TestAssert.True(result.RequiresDecision, "Image-only PXA survey plans with zero rows should require a decision.");
+        TestAssert.True(
+            result.Issues.Any(issue => issue.Contains("PXA survey plan PDF appears to be image-only", StringComparison.Ordinal)),
+            "Decision gate should explain that a real OCR/vision provider is needed for image-only PXA survey plans.");
+    }
+
     public static void WorkflowSessionManualCogoReviewRecordsDecisionGateRoute()
     {
         using var tempRoot = new TempDirectory();

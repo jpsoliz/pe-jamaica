@@ -21,6 +21,8 @@ public sealed record InnolaTransactionSettings(
     string? ComputeWorkflowStagesWarning,
     IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
     string? ComputeAttachmentSourceTypesWarning,
+    IReadOnlyList<ComputeTransactionTypeProfileDefinition> ComputeTransactionTypeProfiles,
+    string? ComputeTransactionTypeProfilesWarning,
     string AttachmentUploadRoute,
     string AttachmentUploadBindingMode,
     string AttachmentUploadMode,
@@ -69,6 +71,8 @@ public sealed record InnolaTransactionSettings(
         null,
         ComputeAttachmentSourceTypeCatalog.SafeDefaults,
         null,
+        ComputeTransactionTypeProfileCatalog.SafeDefaults,
+        null,
         "source/sources/attach",
         "query_only",
         "attach_then_register_source",
@@ -94,7 +98,8 @@ public sealed record InnolaTransactionSettings(
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json was not found.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json was not found.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json was not found.",
-                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json was not found."
+                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json was not found.",
+                ComputeTransactionTypeProfilesWarning = "Compute transaction type profiles are using safe defaults because WorkflowSettings.json was not found."
             };
         }
 
@@ -109,6 +114,7 @@ public sealed record InnolaTransactionSettings(
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var computeAttachmentSourceTypes = ResolveComputeAttachmentSourceTypes(root);
+            var computeTransactionTypeProfiles = ResolveComputeTransactionTypeProfiles(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
             var mode = ReadString(root, "innola_transaction_mode") ?? Default.Mode;
             var processStep = ReadString(root, "innola_process_step") ?? Default.ProcessStep;
@@ -140,6 +146,8 @@ public sealed record InnolaTransactionSettings(
                 computeWorkflowStages.Warning,
                 computeAttachmentSourceTypes.Values,
                 computeAttachmentSourceTypes.Warning,
+                computeTransactionTypeProfiles.Values,
+                computeTransactionTypeProfiles.Warning,
                 string.IsNullOrWhiteSpace(attachmentUploadRoute) ? Default.AttachmentUploadRoute : attachmentUploadRoute,
                 string.IsNullOrWhiteSpace(attachmentUploadBindingMode) ? Default.AttachmentUploadBindingMode : attachmentUploadBindingMode,
                 string.IsNullOrWhiteSpace(attachmentUploadMode) ? Default.AttachmentUploadMode : attachmentUploadMode,
@@ -157,9 +165,24 @@ public sealed record InnolaTransactionSettings(
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json could not be parsed.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json could not be parsed.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json could not be parsed.",
-                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json could not be parsed."
+                ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json could not be parsed.",
+                ComputeTransactionTypeProfilesWarning = "Compute transaction type profiles are using safe defaults because WorkflowSettings.json could not be parsed."
             };
         }
+    }
+
+    public ComputeTransactionTypeProfileDefinition? ResolveComputeTransactionTypeProfile(
+        string? transactionType,
+        string? taskName = null,
+        string? profileHint = null)
+    {
+        return ComputeTransactionTypeProfiles
+            .Where(profile => profile.Enabled)
+            .Select(profile => new { Profile = profile, Score = profile.MatchScore(transactionType, taskName, profileHint) })
+            .Where(match => match.Score > 0)
+            .OrderByDescending(match => match.Score)
+            .Select(match => match.Profile)
+            .FirstOrDefault();
     }
 
     public static string SettingsPath => Path.Combine(GetAssemblyDirectory(), "Settings", "WorkflowSettings.json");
@@ -346,6 +369,83 @@ public sealed record InnolaTransactionSettings(
             : new ComputeAttachmentSourceTypeResolution(definitions, null);
     }
 
+    private static ComputeTransactionTypeProfileResolution ResolveComputeTransactionTypeProfiles(JsonElement root)
+    {
+        if (!root.TryGetProperty("compute_transaction_type_profiles", out var value))
+        {
+            return new ComputeTransactionTypeProfileResolution(
+                ComputeTransactionTypeProfileCatalog.SafeDefaults,
+                "Compute transaction type profiles are using safe defaults because compute_transaction_type_profiles is missing.");
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return new ComputeTransactionTypeProfileResolution(
+                ComputeTransactionTypeProfileCatalog.SafeDefaults,
+                "Compute transaction type profiles are using safe defaults because compute_transaction_type_profiles is not a valid list.");
+        }
+
+        var profiles = new List<ComputeTransactionTypeProfileDefinition>();
+        var ignoredEntries = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            var profileId = ReadString(item, "profile_id")?.Trim();
+            var enabled = !item.TryGetProperty("enabled", out var enabledValue) || enabledValue.ValueKind != JsonValueKind.False;
+            var transactionTypeCodes = ReadPlainStringArray(item, "transaction_type_codes");
+            var transactionTypeNames = ReadPlainStringArray(item, "transaction_type_names");
+            var workflowProfile = ReadString(item, "workflow_profile")?.Trim();
+            var requiredSourceRoles = NormalizeSourceRoleArray(ReadPlainStringArray(item, "required_source_roles"));
+            var optionalSourceRoles = NormalizeSourceRoleArray(ReadPlainStringArray(item, "optional_source_roles"));
+            var primaryExtractionRole = Intake.SourceRole.Normalize(ReadString(item, "primary_extraction_role"));
+            var documentProfile = ReadString(item, "document_profile")?.Trim();
+
+            if (string.IsNullOrWhiteSpace(profileId)
+                || string.IsNullOrWhiteSpace(workflowProfile)
+                || string.IsNullOrWhiteSpace(primaryExtractionRole)
+                || string.IsNullOrWhiteSpace(documentProfile)
+                || transactionTypeCodes.Count + transactionTypeNames.Count == 0
+                || requiredSourceRoles.Count == 0)
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            if (profiles.Any(existing => existing.ProfileId.Equals(profileId, StringComparison.OrdinalIgnoreCase)))
+            {
+                ignoredEntries++;
+                continue;
+            }
+
+            profiles.Add(new ComputeTransactionTypeProfileDefinition(
+                profileId,
+                enabled,
+                transactionTypeCodes,
+                transactionTypeNames,
+                workflowProfile,
+                requiredSourceRoles,
+                optionalSourceRoles,
+                primaryExtractionRole,
+                documentProfile));
+        }
+
+        if (profiles.Count == 0)
+        {
+            return new ComputeTransactionTypeProfileResolution(
+                ComputeTransactionTypeProfileCatalog.SafeDefaults,
+                "Compute transaction type profiles are using safe defaults because compute_transaction_type_profiles is empty or invalid.");
+        }
+
+        return ignoredEntries > 0
+            ? new ComputeTransactionTypeProfileResolution(profiles, "Some compute transaction type profile entries were invalid and were ignored.")
+            : new ComputeTransactionTypeProfileResolution(profiles, null);
+    }
+
     private static NamedStringListResolution ResolveNamedStringList(
         JsonElement root,
         string propertyName,
@@ -491,6 +591,46 @@ public sealed record InnolaTransactionSettings(
         return values;
     }
 
+    private static IReadOnlyList<string> ReadPlainStringArray(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        var values = new List<string>();
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var resolved = item.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(resolved))
+            {
+                continue;
+            }
+
+            if (!values.Any(existing => existing.Equals(resolved, StringComparison.OrdinalIgnoreCase)))
+            {
+                values.Add(resolved);
+            }
+        }
+
+        return values;
+    }
+
+    private static IReadOnlyList<string> NormalizeSourceRoleArray(IReadOnlyList<string> values)
+    {
+        return values
+            .Select(Intake.SourceRole.Normalize)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Select(role => role!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     internal static string FormatSupportedTransactionTypesDisplay(IReadOnlyList<string> supportedTransactionTypes)
     {
         return supportedTransactionTypes.Count == 0
@@ -568,6 +708,10 @@ public sealed record InnolaTransactionSettings(
 
     private sealed record ComputeAttachmentSourceTypeResolution(
         IReadOnlyList<ComputeAttachmentSourceTypeDefinition> Values,
+        string? Warning);
+
+    private sealed record ComputeTransactionTypeProfileResolution(
+        IReadOnlyList<ComputeTransactionTypeProfileDefinition> Values,
         string? Warning);
 }
 

@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-07
+# last_updated: 2026-07-08
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-07
+last_updated: 2026-07-08
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -70,6 +70,9 @@ development_status:
   2-16-apply-document-type-catalog-v2-to-multi-source-extraction-pipelines: review
   2-16b-add-embedded-pdf-text-first-structured-computation-extraction: review
   2-17-stabilize-transaction-return-and-refresh-after-workflow-exit: review
+  2-18a-add-transaction-type-workflow-profiles-for-pe-and-pxa-source-requirements: review
+  2-18-add-single-parcel-survey-plan-pdf-metadata-and-geometry-extraction: review
+  2-19-implement-pxa-survey-plan-segment-review-and-deterministic-boundary-solver: review
   epic-2-retrospective: optional
 
   epic-3: backlog

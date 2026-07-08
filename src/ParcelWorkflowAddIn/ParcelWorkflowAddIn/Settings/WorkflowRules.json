@@ -10,6 +10,8 @@
       ],
       "transaction_types": [
         "Plan Examination",
+        "Compute Survey Plan",
+        "Assign Computation Task",
         "Computation Check"
       ],
       "process_steps": [
@@ -89,6 +91,8 @@
       ],
       "transaction_types": [
         "Plan Examination",
+        "Compute Survey Plan",
+        "Assign Computation Task",
         "Computation Check"
       ],
       "process_steps": [
@@ -177,6 +181,63 @@
             "credential_profile": "{settings.credential_profile}"
           },
           "timeout_seconds": 300
+        }
+      ]
+    },
+    {
+      "rule_id": "pxa_single_parcel_survey_plan_v1",
+      "rule_version": "0.1.0",
+      "workflow_profile": "pxa_single_parcel_survey_plan",
+      "detected_profiles": [
+        "pxa_survey_plan_pdf"
+      ],
+      "transaction_type_profiles": [
+        "pxa_single_parcel_survey_plan"
+      ],
+      "document_profiles": [
+        "scanned_single_parcel_survey_plan_pdf"
+      ],
+      "transaction_types": [
+        "PXA"
+      ],
+      "process_steps": [
+        "parcel_workflow"
+      ],
+      "required_sources": [
+        {
+          "role": "survey_plan_pdf",
+          "extensions": [
+            ".pdf",
+            ".tif",
+            ".tiff",
+            ".png",
+            ".jpg",
+            ".jpeg"
+          ]
+        }
+      ],
+      "script_plan": [
+        {
+          "step_name": "extract_single_parcel_survey_plan_pdf",
+          "adapter": "extraction_adapter",
+          "script": "extract_single_parcel_survey_plan_pdf",
+          "input_roles": [
+            "survey_plan_pdf"
+          ],
+          "output_artifacts": [
+            "working/survey_plan_extraction_summary.json",
+            "working/extraction_review_data.json",
+            "working/extraction_route.json"
+          ],
+          "parameters": {
+            "provider": "local_or_openai_ocr",
+            "document_profile": "scanned_single_parcel_survey_plan_pdf",
+            "ocr_engine": "{settings.ocr_engine}",
+            "openai_model": "{settings.openai_model}",
+            "openai_key_env": "{settings.openai_api_key_environment_variable}",
+            "credential_profile": "{settings.credential_profile}"
+          },
+          "timeout_seconds": 600
         }
       ]
     }

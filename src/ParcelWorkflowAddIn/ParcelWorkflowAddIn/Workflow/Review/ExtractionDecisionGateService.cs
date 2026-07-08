@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.Innola;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn.Workflow.Review;
 
@@ -99,6 +100,12 @@ public sealed class ExtractionDecisionGateService
         var invalidCoordinateRatio = totalRows == 0 ? 0d : (double)invalidCoordinateRows / totalRows;
         var allGroupingUnknown = totalRows > 0 && missingParcelGroupingRows == totalRows;
         var lowConfidenceMatch = document.RootMetadata["match_low_confidence"]?.GetValue<bool?>() == true;
+        var extractionMethod = ReadString(document.RootMetadata, "extraction_method")
+            ?? ReadString(document.RootMetadata, "active_extractor_id")
+            ?? ReadString(document.RootMetadata, "provider_used");
+        var sourceProfile = ReadString(document.RootMetadata, "source_profile");
+        var textLayerAvailable = ReadBool(document.RootMetadata, "text_layer_available");
+        var textLayerProbeStatus = ReadString(document.RootMetadata, "text_layer_probe_status");
         var documentErrors = document.Errors
             .Where(error => !string.IsNullOrWhiteSpace(error))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -112,6 +119,10 @@ public sealed class ExtractionDecisionGateService
         if (totalRows == 0)
         {
             issues.Add("Extraction produced zero review rows.");
+            if (IsImageOnlyPxaSurveyPlan(document, sourceProfile, extractionMethod, textLayerAvailable, textLayerProbeStatus))
+            {
+                issues.Add("PXA survey plan PDF appears to be image-only. The configured OCR/vision extractor did not return parcel points or bearing/distance rows; use manual review or configure a real vision extraction provider for scanned survey plans.");
+            }
         }
 
         if (usableRows == 0)
@@ -218,6 +229,43 @@ public sealed class ExtractionDecisionGateService
         return !string.Equals(normalized, "Parcel ?", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(normalized, "unknown", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(normalized, "ungrouped", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsImageOnlyPxaSurveyPlan(
+        ExtractionReviewDocument document,
+        string? sourceProfile,
+        string? extractionMethod,
+        bool? textLayerAvailable,
+        string? textLayerProbeStatus)
+    {
+        var isPxaSurveyPlan = string.Equals(sourceProfile, "scanned_single_parcel_survey_plan_pdf", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ReadString(document.RootMetadata, "doc_type_id"), "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ReadString(document.RootMetadata, "primary_source_role"), "survey_plan_pdf", StringComparison.OrdinalIgnoreCase);
+        if (!isPxaSurveyPlan)
+        {
+            return false;
+        }
+
+        var imageOnly = textLayerAvailable == false
+            || string.Equals(textLayerProbeStatus, "no_embedded_text_layer_or_unreadable_image_pdf", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(textLayerProbeStatus, "no_usable_text_layer", StringComparison.OrdinalIgnoreCase);
+        var ocrVisionRoute = string.Equals(extractionMethod, "survey_plan_ocr_vision", StringComparison.OrdinalIgnoreCase);
+
+        return imageOnly && ocrVisionRoute && document.SegmentRowCount == 0;
+    }
+
+    private static string? ReadString(JsonObject root, string propertyName)
+    {
+        return root.TryGetPropertyValue(propertyName, out var value) && value is JsonValue jsonValue
+            ? jsonValue.GetValue<string?>()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonObject root, string propertyName)
+    {
+        return root.TryGetPropertyValue(propertyName, out var value) && value is JsonValue jsonValue
+            ? jsonValue.GetValue<bool?>()
+            : null;
     }
 }
 

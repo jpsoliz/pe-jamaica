@@ -394,6 +394,7 @@ public partial class ConfigurationWindow : ProWindow
         SupportedTransactionTypesTextBox.Text = string.Join(Environment.NewLine, document.SupportedTransactionTypes);
         ComputeWorkflowStagesTextBox.Text = string.Join(Environment.NewLine, document.ComputeWorkflowStages);
         ComputeAttachmentSourceTypesTextBox.Text = document.ComputeAttachmentSourceTypesJson;
+        ComputeTransactionTypeProfilesTextBox.Text = document.ComputeTransactionTypeProfilesJson;
         InnolaAttachmentUploadRouteTextBox.Text = document.InnolaAttachmentUploadRoute;
         InnolaAttachmentUploadBindingModeTextBox.Text = document.InnolaAttachmentUploadBindingMode;
         InnolaAttachmentUploadModeTextBox.Text = document.InnolaAttachmentUploadMode;
@@ -511,6 +512,7 @@ public partial class ConfigurationWindow : ProWindow
         document.SupportedTransactionTypes = SplitLines(SupportedTransactionTypesTextBox.Text);
         document.ComputeWorkflowStages = SplitLines(ComputeWorkflowStagesTextBox.Text);
         document.ComputeAttachmentSourceTypesJson = ComputeAttachmentSourceTypesTextBox.Text.Trim();
+        document.ComputeTransactionTypeProfilesJson = ComputeTransactionTypeProfilesTextBox.Text.Trim();
         document.InnolaAttachmentUploadRoute = InnolaAttachmentUploadRouteTextBox.Text.Trim();
         document.InnolaAttachmentUploadBindingMode = InnolaAttachmentUploadBindingModeTextBox.Text.Trim();
         document.InnolaAttachmentUploadMode = InnolaAttachmentUploadModeTextBox.Text.Trim();
