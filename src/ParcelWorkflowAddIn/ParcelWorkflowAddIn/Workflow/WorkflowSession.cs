@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.Reports;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -636,6 +637,7 @@ public sealed class WorkflowSession
             computeReviewDispositionPersistenceService.GetDispositionPath(layout)));
         UpsertCloseoutArtifact(layout, disposition.EnterpriseDispositionRef);
         UpsertCloseoutArtifact(layout, disposition.ComputeExaminationReportRef);
+        UpsertCloseoutArtifact(layout, Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName));
 
         if (outputSummary is not null
             && !string.IsNullOrWhiteSpace(disposition.PublishRunId)
@@ -2509,6 +2511,12 @@ public sealed class WorkflowSession
 
     private void RemoveSpatialReviewArtifacts(CaseFolderLayout layout)
     {
+        if (IsCompletedCloseout(layout))
+        {
+            intakeIssues.Add("Completed closeout evidence was preserved; stale spatial-review cleanup was skipped.");
+            return;
+        }
+
         var approvalPath = spatialReviewApprovalPersistenceService.GetApprovalPath(layout);
         RemoveGeneratedArtifact(approvalPath, "Spatial review approval");
         RemoveGeneratedArtifact(
@@ -2518,8 +2526,32 @@ public sealed class WorkflowSession
             Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json"),
             "Enterprise working disposition");
         RemoveGeneratedArtifact(
-            Path.Combine(layout.ReportsDirectory, "compute_examination_report.json"),
+            Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.ReportFileName),
             "Compute examination report");
+        RemoveGeneratedArtifact(
+            Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName),
+            "Compute examination PDF report");
+    }
+
+    private static bool IsCompletedCloseout(CaseFolderLayout layout)
+    {
+        if (!File.Exists(layout.ManifestPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            return string.Equals(manifest.Payload.InnolaLifecycle?.Status, "completed", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or JsonException
+            or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private void RemoveGeneratedArtifact(string artifactPath, string displayName)

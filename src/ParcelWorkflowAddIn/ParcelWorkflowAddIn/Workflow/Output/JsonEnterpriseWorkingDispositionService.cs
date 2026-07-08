@@ -833,10 +833,15 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
 
     private static string? GetPortalToken()
     {
-        return FirstNonBlank(
+        return SelectPortalToken(
             Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Process),
             Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.User),
             Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Machine));
+    }
+
+    private static string? SelectPortalToken(string? processToken, string? userToken, string? machineToken)
+    {
+        return FirstNonBlank(userToken, processToken, machineToken);
     }
 
     private static string? FirstNonBlank(params string?[] values)

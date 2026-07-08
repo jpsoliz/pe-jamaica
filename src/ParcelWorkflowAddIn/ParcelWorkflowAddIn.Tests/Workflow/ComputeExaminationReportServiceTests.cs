@@ -65,6 +65,8 @@ internal static class ComputeExaminationReportServiceTests
 
         TestAssert.True(result.Success, result.Message);
         TestAssert.True(File.Exists(result.ReportPath), "Report file should be written.");
+        TestAssert.True(File.Exists(result.PdfReportPath), "High-level PDF report should be written.");
+        TestAssert.True(File.ReadAllText(result.PdfReportPath!)[..8] == "%PDF-1.4", "PDF report should use a PDF header.");
 
         using var report = JsonDocument.Parse(File.ReadAllText(result.ReportPath!));
         var root = report.RootElement;

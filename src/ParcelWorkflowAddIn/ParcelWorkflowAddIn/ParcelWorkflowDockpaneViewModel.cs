@@ -2990,6 +2990,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CanRunDimensionCheck));
         NotifyPropertyChanged(nameof(CanRunExtractionReview));
         NotifyPropertyChanged(nameof(CanReprocessExtractionReview));
+        NotifyPropertyChanged(nameof(CanUseManualCogoFallback));
         NotifyPropertyChanged(nameof(CanOpenExperimentalReviewWorkspace));
         NotifyPropertyChanged(nameof(CanRunValidation));
         NotifyPropertyChanged(nameof(CanRunOutputs));

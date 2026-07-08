@@ -322,6 +322,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(content.Content), System.IO.Compression.ZipArchiveMode.Read);
         var reportEntry = archive.GetEntry("output/reports/compute_examination_report.json");
         TestAssert.True(reportEntry is not null, "Completed package should include the Compute examination report.");
+        var pdfReportEntry = archive.GetEntry("output/reports/compute_examination_report.pdf");
+        TestAssert.True(pdfReportEntry is not null, "Completed package should include the high-level Compute examination PDF report.");
         TestAssert.True(archive.GetEntry("output/local_parcel_fabric.gdb/a00000001.gdbtable") is not null, "Completed package should include generated GDB contents.");
         TestAssert.True(archive.GetEntry("output/extracted_geometry.geojson") is not null, "Completed package should include generated output artifacts.");
         using (var reportStream = reportEntry!.Open())
@@ -679,7 +681,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
                 }
             };
             File.WriteAllText(reportPath, JsonSerializer.Serialize(report));
-            return Task.FromResult(ComputeExaminationReportResult.Succeeded(reportPath));
+            var pdfReportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName);
+            File.WriteAllText(pdfReportPath, "%PDF-1.4\n% test pdf\n");
+            return Task.FromResult(ComputeExaminationReportResult.Succeeded(reportPath, pdfReportPath));
         }
     }
 

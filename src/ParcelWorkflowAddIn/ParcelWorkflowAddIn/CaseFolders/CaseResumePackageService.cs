@@ -251,7 +251,8 @@ public sealed class CaseResumePackageService
         }
 
         if (normalized.StartsWith("output/reports/", StringComparison.OrdinalIgnoreCase)
-            && normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            && (normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                || normalized.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }

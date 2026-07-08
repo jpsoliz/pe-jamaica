@@ -159,6 +159,8 @@ var tests = new (string Name, Action Run)[]
     ("workflow session enterprise case index records spatial unit reference", () => WorkflowSessionTests.WorkflowSessionEnterpriseCaseIndexRecordsSpatialUnitReference().GetAwaiter().GetResult()),
     ("workflow session enterprise polygons record spatial unit suid in SUID field", () => WorkflowSessionTests.WorkflowSessionEnterprisePolygonsRecordSpatialUnitSuidInSuidField().GetAwaiter().GetResult()),
     ("workflow session enterprise publish filters point attributes to enterprise schema", WorkflowSessionTests.WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema),
+    ("workflow session enterprise publish prefers user portal token over stale process token", WorkflowSessionTests.WorkflowSessionEnterprisePublishPrefersUserPortalTokenOverStaleProcessToken),
+    ("workflow session enterprise disposition prefers user portal token over stale process token", WorkflowSessionTests.WorkflowSessionEnterpriseDispositionPrefersUserPortalTokenOverStaleProcessToken),
     ("workflow session enterprise publish reports ArcGIS add feature row errors", WorkflowSessionTests.WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors),
     ("workflow session enterprise publish rejects mismatched layer target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRejectsMismatchedLayerTarget),
     ("workflow session enterprise publish requires case index target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRequiresCaseIndexTarget),

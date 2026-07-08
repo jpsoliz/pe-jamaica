@@ -33,11 +33,11 @@ PARCEL_BLOCK_RE = re.compile(r"^Parcel:\s*(?P<parcel>\d[\dA-Z_-]*)$", re.IGNOREC
 PARCEL_NAME_LABEL_RE = re.compile(r"^Parcel\s+Name:\s*(?P<parcel>.+?)\s*$", re.IGNORECASE)
 SEGMENT_HEADER_RE = re.compile(r"^Segment\s*#\s*(?P<segment>\d+)\s*:\s*(?P<segment_type>.+)?$", re.IGNORECASE)
 COURSE_LENGTH_RE = re.compile(
-    rf"^Course:\s*(?P<course>.+?)\s+Length:\s*(?P<length>{NUMBER_TOKEN})m?$",
+    rf"^(?:Line\s+)?Course\s*:\s*(?P<course>.+?)\s+Length\s*:\s*(?P<length>{NUMBER_TOKEN})m?$",
     re.IGNORECASE,
 )
 NORTH_EAST_RE = re.compile(
-    rf"^North:\s*(?P<north>{NUMBER_TOKEN})m?\s+East:\s*(?P<east>{NUMBER_TOKEN})m?$",
+    rf"^North\s*:\s*(?P<north>{NUMBER_TOKEN})m?\s+East\s*:\s*(?P<east>{NUMBER_TOKEN})m?$",
     re.IGNORECASE,
 )
 
@@ -67,11 +67,36 @@ def _load_pages(pdf_path: Path) -> list[str]:
 
 
 def _normalize_line(value: str) -> str:
-    return " ".join(value.strip().replace("\t", " ").split())
+    normalized = " ".join(value.strip().replace("\t", " ").split())
+    normalized = re.sub(r"\bCour\s+se\b", "Course", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bCou\s+rse\b", "Course", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bCours\s+e\b", "Course", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bLen\s+gth\b", "Length", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bE\s+ast\b", "East", normalized, flags=re.IGNORECASE)
+    return normalized
 
 
 def _clean_numeric_text(value: str) -> str:
     return value.replace(" ", "")
+
+
+def _normalize_course_text(value: str) -> str:
+    normalized = _normalize_line(value)
+    match = re.match(
+        r"^(?P<ns>[NS])\s*(?P<deg>\d{1,2})\s*[-°º]\s*(?P<minute>\d{1,2})\s*[-']\s*(?P<second>\d{1,2})\"?\s*(?P<ew>[EW])$",
+        normalized,
+        re.IGNORECASE,
+    )
+    if not match:
+        return normalized
+
+    return (
+        f"{match.group('ns').upper()}"
+        f"{int(match.group('deg')):02d}°"
+        f"{int(match.group('minute')):02d}'"
+        f"{int(match.group('second')):02d}\""
+        f"{match.group('ew').upper()}"
+    )
 
 
 def _append_structured_row(
@@ -231,8 +256,10 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
 
             course_length_match = COURSE_LENGTH_RE.match(line)
             if course_length_match and current_group is not None:
-                pending_course = _normalize_line(course_length_match.group("course"))
+                pending_course = _normalize_course_text(course_length_match.group("course"))
                 pending_length = _clean_numeric_text(course_length_match.group("length"))
+                if pending_segment_no is None:
+                    pending_segment_no = point_order + 1
                 continue
 
             north_east_match = NORTH_EAST_RE.match(line)

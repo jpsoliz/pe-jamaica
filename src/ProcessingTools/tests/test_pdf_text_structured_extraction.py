@@ -71,6 +71,35 @@ class PdfTextStructuredExtractionTests(unittest.TestCase):
         self.assertEqual("639208.761", rows[2]["northing"])
         self.assertEqual("680912.453", rows[2]["easting"])
 
+    def test_line_course_blocks_parse_bull_savannah_computation_sheet_text(self):
+        pages = [
+            "\n".join(
+                [
+                    "Parcel name: 113201101",
+                    "North: 636791.9524 East : 686979.3920",
+                    "Line Course: N 84 -02-29 W Length: 21.468",
+                    "North: 636794.1810 East : 686958.0400",
+                    "Line Cour se: N 72 -55-59 W Length: 22.005",
+                    "North: 636800.6392 East : 686937.0040",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000492")
+
+        self.assertEqual("success", result["status"])
+        rows = result["rows"]
+        self.assertEqual(3, len(rows))
+        self.assertEqual("113201101_P0", rows[0]["point_identifier"])
+        self.assertEqual("686979.3920", rows[0]["easting"])
+        self.assertEqual("636791.9524", rows[0]["northing"])
+        self.assertEqual("113201101_P1", rows[1]["point_identifier"])
+        self.assertEqual("N84°02'29\"W", rows[1]["course_from_previous"])
+        self.assertEqual("21.468", rows[1]["length_from_previous_m"])
+        self.assertEqual("113201101_P2", rows[2]["point_identifier"])
+        self.assertEqual("N72°55'59\"W", rows[2]["course_from_previous"])
+        self.assertEqual("22.005", rows[2]["length_from_previous_m"])
+
 
 if __name__ == "__main__":
     unittest.main()

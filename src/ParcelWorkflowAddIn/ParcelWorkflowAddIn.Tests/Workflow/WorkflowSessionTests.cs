@@ -8,6 +8,7 @@ using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Reports;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
@@ -1681,6 +1682,28 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(3448, spatialReference["wkid"]!.GetValue<int>(), "Enterprise geometry should include JAD2001 spatial reference.");
     }
 
+    public static void WorkflowSessionEnterprisePublishPrefersUserPortalTokenOverStaleProcessToken()
+    {
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "SelectPortalToken",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var token = (string?)method?.Invoke(null, new object?[] { "stale-process-token", "fresh-user-token", "machine-token" });
+
+        TestAssert.Equal("fresh-user-token", token, "Enterprise publish should prefer the current user token over a stale process token.");
+    }
+
+    public static void WorkflowSessionEnterpriseDispositionPrefersUserPortalTokenOverStaleProcessToken()
+    {
+        var method = typeof(JsonEnterpriseWorkingDispositionService).GetMethod(
+            "SelectPortalToken",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var token = (string?)method?.Invoke(null, new object?[] { "stale-process-token", "fresh-user-token", "machine-token" });
+
+        TestAssert.Equal("fresh-user-token", token, "Enterprise disposition should prefer the current user token over a stale process token.");
+    }
+
     public static void WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors()
     {
         var response = new JsonObject
@@ -1840,8 +1863,10 @@ internal static class WorkflowSessionTests
         session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
         var dispositionResult = session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Looks correct.", "tester").GetAwaiter().GetResult();
         Directory.CreateDirectory(layout.ReportsDirectory);
-        var reportPath = Path.Combine(layout.ReportsDirectory, "compute_examination_report.json");
+        var reportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.ReportFileName);
+        var pdfReportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName);
         File.WriteAllText(reportPath, "{}");
+        File.WriteAllText(pdfReportPath, "%PDF-1.4\n% test pdf\n");
         new ComputeReviewDispositionPersistenceService().Save(layout, dispositionResult.Document! with
         {
             ComputeExaminationReportRef = reportPath
@@ -1856,6 +1881,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "compute_review_disposition.json"), "Reopen should expose Compute disposition artifact.");
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "enterprise_working_disposition.json"), "Reopen should expose Enterprise disposition artifact.");
         TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "compute_examination_report.json"), "Reopen should expose Compute examination report artifact.");
+        TestAssert.True(reopenSession.AvailableArtifacts.Any(artifact => artifact.ArtifactName == "compute_examination_report.pdf"), "Reopen should expose high-level Compute examination PDF report artifact.");
     }
 
     public static void WorkflowSessionRegeneratingOutputsInvalidatesComputeDisposition()
@@ -1873,13 +1899,16 @@ internal static class WorkflowSessionTests
         session.PublishEnterpriseWorkingReviewAsync("tester").GetAwaiter().GetResult();
         session.RecordComputeDispositionAsync(ComputeReviewDecision.Approved, "Looks correct.", "tester").GetAwaiter().GetResult();
         Directory.CreateDirectory(layout.ReportsDirectory);
-        var reportPath = Path.Combine(layout.ReportsDirectory, "compute_examination_report.json");
+        var reportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.ReportFileName);
+        var pdfReportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName);
         File.WriteAllText(reportPath, "{}");
+        File.WriteAllText(pdfReportPath, "%PDF-1.4\n% test pdf\n");
 
         TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json")), "Spatial review approval should exist before regeneration.");
         TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "compute_review_disposition.json")), "Compute disposition should exist before regeneration.");
         TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json")), "Enterprise disposition should exist before regeneration.");
         TestAssert.True(File.Exists(reportPath), "Compute examination report should exist before regeneration.");
+        TestAssert.True(File.Exists(pdfReportPath), "Compute examination PDF report should exist before regeneration.");
 
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ValidationPassed.ToContractValue() } });
@@ -1893,6 +1922,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "compute_review_disposition.json")), "Output regeneration should clear stale Compute disposition.");
         TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json")), "Output regeneration should clear stale Enterprise disposition.");
         TestAssert.True(!File.Exists(reportPath), "Output regeneration should clear stale Compute examination report.");
+        TestAssert.True(!File.Exists(pdfReportPath), "Output regeneration should clear stale Compute examination PDF report.");
     }
 
     public static void WorkflowSessionDispositionWritebackUpdatesScopedEnterpriseRows()
