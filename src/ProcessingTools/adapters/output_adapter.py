@@ -497,6 +497,18 @@ def _reviewed_boundary_segments(review_data: dict[str, Any], point_groups: list[
     return sorted(segments, key=lambda segment: int(segment.get("segment_order") or 0))
 
 
+def _is_pxa_survey_plan_review(review_data: dict[str, Any]) -> bool:
+    source_values = [
+        review_data.get("extraction_source"),
+        review_data.get("extractor_id"),
+        review_data.get("active_extractor_id"),
+        review_data.get("source_profile"),
+        review_data.get("primary_source_role"),
+    ]
+    text = " ".join(str(value or "") for value in source_values).lower()
+    return "survey_plan" in text or "ocr_vision" in text
+
+
 def _rounded_coord_key(coord: Any) -> tuple[float, float]:
     return (round(float(coord[0]), 6), round(float(coord[1]), 6))
 
@@ -565,6 +577,10 @@ def _polygon_points(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
         return []
 
     coords = [(float(point["easting"]), float(point["northing"])) for point in points]
+    return _polygon_ring_from_coords(coords)
+
+
+def _polygon_ring_from_coords(coords: list[tuple[float, float]]) -> list[tuple[float, float]]:
     cleaned = _dedupe_consecutive_points(coords)
     if len(cleaned) < 3:
         return []
@@ -580,6 +596,68 @@ def _polygon_points(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
         return []
 
     return cleaned
+
+
+def _polygon_rings_from_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not segments:
+        return []
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for segment in segments:
+        group_key = str(segment.get("parcel_group_id") or segment.get("parcel_id") or "parcel-001").strip()
+        grouped.setdefault(group_key, []).append(segment)
+
+    polygons: list[dict[str, Any]] = []
+    for index, (group_key, group_segments) in enumerate(grouped.items(), start=1):
+        ordered = sorted(group_segments, key=lambda segment: int(segment.get("segment_order") or segment.get("segment_index") or 0))
+        if len(ordered) < 3:
+            continue
+
+        coords: list[tuple[float, float]] = []
+        first = ordered[0]
+        start = first.get("start")
+        if not start:
+            continue
+        coords.append((float(start[0]), float(start[1])))
+        for segment in ordered:
+            end = segment.get("end")
+            if not end:
+                coords = []
+                break
+            coords.append((float(end[0]), float(end[1])))
+
+        ring = _polygon_ring_from_coords(coords)
+        if not ring:
+            continue
+
+        first_segment = ordered[0]
+        parcel_id = first_segment.get("parcel_id") or group_key or f"parcel-{index:03d}"
+        polygons.append(
+            {
+                "polygon_index": index,
+                "polygon_order": index,
+                "parcel_id": parcel_id,
+                "parcel_name": first_segment.get("parcel_name") or parcel_id,
+                "name": first_segment.get("parcel_name") or parcel_id,
+                "parcel_group_id": group_key or parcel_id,
+                "coordinates": ring,
+                "point_count": max(0, len(ring) - 1),
+                "perimeter_m": _ring_perimeter(ring),
+                "area_sq_m": abs(_ring_area(ring)),
+                "closure_status": "closed",
+                "doc_type_id": first_segment.get("doc_type_id") or "",
+                "source_doc": first_segment.get("source_doc") or "",
+                "status": first_segment.get("status") or "",
+                "status_txt": first_segment.get("status_txt") or first_segment.get("status") or "",
+                "source_evidence": first_segment.get("source_evidence") or "Reviewed boundary segments",
+                "source_txt": first_segment.get("source_txt") or first_segment.get("source_evidence") or "Reviewed boundary segments",
+                "is_manual": any(bool(segment.get("is_manual")) for segment in ordered),
+                "is_edited": True,
+                "geometry_source": "reviewed_boundary_segments",
+            }
+        )
+
+    return polygons
 
 
 def _polygon_rings(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2144,8 +2222,9 @@ def main(argv: list[str] | None = None) -> int:
 
     point_groups = _apply_group_parcel_metadata(_grouped_point_sequences(points))
     points = [point for group in point_groups for point in (group.get("points") or [])]
-    segments = _reviewed_boundary_segments(review_data, point_groups) or _polyline_segments(point_groups)
-    polygons = _polygon_rings(point_groups)
+    reviewed_segments = _reviewed_boundary_segments(review_data, point_groups) if _is_pxa_survey_plan_review(review_data) else []
+    segments = reviewed_segments or _polyline_segments(point_groups)
+    polygons = _polygon_rings_from_segments(reviewed_segments) if reviewed_segments else _polygon_rings(point_groups)
     points, segments, polygons = _prepare_optional_output_cogo(
         points,
         segments,

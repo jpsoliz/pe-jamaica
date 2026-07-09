@@ -28,7 +28,116 @@ public sealed class ExtractionReviewDocument
 
     public List<ExtractionReviewSegment> Segments { get; } = [];
 
+    public List<ExtractionReviewMetadataField> SurveyMetadataFields { get; } = [];
+
+    public List<ExtractionReviewAdjacentOwner> AdjacentOwners { get; } = [];
+
+    public List<ExtractionReviewNamedParty> Parties { get; } = [];
+
+    public List<ExtractionReviewNamedParty> Representatives { get; } = [];
+
+    public List<ExtractionReviewVolumeFolio> VolumeFolios { get; } = [];
+
     public JsonObject RootMetadata { get; set; } = [];
+}
+
+public sealed class ExtractionReviewMetadataField
+{
+    public string Key { get; set; } = string.Empty;
+
+    public string Label { get; set; } = string.Empty;
+
+    public string Value { get; set; } = string.Empty;
+
+    public string RawText { get; set; } = string.Empty;
+
+    public string Confidence { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public bool? Present { get; set; }
+
+    public string OriginalValue { get; set; } = string.Empty;
+
+    public string OriginalRawText { get; set; } = string.Empty;
+
+    public bool? OriginalPresent { get; set; }
+
+    public JsonObject RawField { get; set; } = [];
+
+    public bool IsEdited =>
+        !string.Equals(Value?.Trim(), OriginalValue?.Trim(), StringComparison.Ordinal)
+        || !string.Equals(RawText?.Trim(), OriginalRawText?.Trim(), StringComparison.Ordinal)
+        || Present != OriginalPresent
+        || !string.IsNullOrWhiteSpace(ReviewStatus)
+        || !string.IsNullOrWhiteSpace(ReviewNotes);
+}
+
+public sealed class ExtractionReviewAdjacentOwner
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Role { get; set; } = string.Empty;
+
+    public string RelatedSegmentFrom { get; set; } = string.Empty;
+
+    public string RelatedSegmentTo { get; set; } = string.Empty;
+
+    public string Volume { get; set; } = string.Empty;
+
+    public string Folio { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public JsonObject RawOwner { get; set; } = [];
+}
+
+public sealed class ExtractionReviewNamedParty
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Role { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public JsonObject RawParty { get; set; } = [];
+}
+
+public sealed class ExtractionReviewVolumeFolio
+{
+    public string Volume { get; set; } = string.Empty;
+
+    public string Folio { get; set; } = string.Empty;
+
+    public string RawText { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public JsonObject RawVolumeFolio { get; set; } = [];
 }
 
 public sealed class ExtractionReviewSegment
@@ -76,6 +185,8 @@ public sealed class ExtractionReviewSegment
     public string ReviewStatus { get; set; } = string.Empty;
 
     public string ReviewNotes { get; set; } = string.Empty;
+
+    public string AdjacentOwner { get; set; } = string.Empty;
 
     public bool IsEdited { get; set; }
 

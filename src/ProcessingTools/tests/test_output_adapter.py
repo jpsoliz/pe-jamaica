@@ -144,6 +144,39 @@ class OutputAdapterTests(unittest.TestCase):
         self.assertEqual("S84°56'E", segments[0]["bearing_txt"])
         self.assertEqual("33.470", segments[0]["distance_txt"])
 
+    def test_output_adapter_uses_reviewed_pxa_segments_for_polygon_ring(self):
+        review_data = {
+            "segments": [
+                {"segment_id": "seg-1", "review_sequence": 1, "review_from_point": "18", "review_to_point": "15", "review_bearing_txt": "S84°56'E", "review_distance_txt": "33.470"},
+                {"segment_id": "seg-2", "review_sequence": 2, "review_from_point": "15", "review_to_point": "3", "review_bearing_txt": "S01°27'E", "review_distance_txt": "18.343"},
+                {"segment_id": "seg-3", "review_sequence": 3, "review_from_point": "3", "review_to_point": "16", "review_bearing_txt": "S01°39'W", "review_distance_txt": "5.230"},
+                {"segment_id": "seg-4", "review_sequence": 4, "review_from_point": "16", "review_to_point": "17", "review_bearing_txt": "N82°59'W", "review_distance_txt": "41.415"},
+                {"segment_id": "seg-5", "review_sequence": 5, "review_from_point": "17", "review_to_point": "18", "review_bearing_txt": "N19°09'E", "review_distance_txt": "22.715"},
+            ]
+        }
+        point_groups = [
+            {
+                "group_id": "parcel-001",
+                "parcel_id": "parcel-001",
+                "points": [
+                    {"point_identifier": "15", "easting": 712897.345, "northing": 670582.156, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                    {"point_identifier": "17", "easting": 712856.553, "northing": 670563.653, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                    {"point_identifier": "16", "easting": 712897.659, "northing": 670558.591, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                    {"point_identifier": "18", "easting": 712864.006, "northing": 670585.112, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                    {"point_identifier": "3", "easting": 712897.809, "northing": 670563.819, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                ],
+            }
+        ]
+
+        segments = output_adapter._reviewed_boundary_segments(review_data, point_groups)
+        polygons = output_adapter._polygon_rings_from_segments(segments)
+
+        self.assertEqual(5, len(segments))
+        self.assertEqual(1, len(polygons))
+        self.assertEqual("reviewed_boundary_segments", polygons[0]["geometry_source"])
+        self.assertAlmostEqual(854.8, polygons[0]["area_sq_m"], delta=1.0)
+        self.assertEqual((712864.006, 670585.112), polygons[0]["coordinates"][0])
+
     def test_output_adapter_writes_output_summary_and_geojson(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

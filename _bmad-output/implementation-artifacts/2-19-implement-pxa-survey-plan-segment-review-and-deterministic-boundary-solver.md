@@ -20,6 +20,7 @@ Story 2.18 adds OCR/vision extraction for scanned PXA survey plan PDFs. TR100000
 - The extracted artifact may omit boundary points that are visible or derivable from reviewed segments.
 - The Points Validation Tool is still mostly point-row centered, so examiners cannot directly correct the boundary segment chain that should drive geometry creation.
 - Create Spatial Units needs reviewed, deterministic points and segments, not raw AI guesses.
+- PXA survey plans commonly provide both printed/reference coordinate points and boundary segment calls; the reference points locate the parcel in JAD 2001 space while the reviewed segments define the construction path.
 
 For TR100000562, the OCR/vision candidate rows did not produce the expected boundary chain. The user-verified boundary sequence should be:
 
@@ -31,7 +32,7 @@ For TR100000562, the OCR/vision candidate rows did not produce the expected boun
 17 -> 18: N19°09'E, 22.715 m
 ```
 
-This story adds the missing human-in-the-loop segment table and deterministic solver layer. OCR/vision remains the candidate extractor; reviewed segments become the authoritative construction input.
+This story adds the missing human-in-the-loop segment table and deterministic solver layer. OCR/vision remains the candidate extractor; reviewed segments become the authoritative construction input, and printed/reference coordinate points become the authoritative anchors used to locate the solved boundary.
 
 ## Acceptance Criteria
 
@@ -43,6 +44,8 @@ This story adds the missing human-in-the-loop segment table and deterministic so
 
 4. Given a reviewed segment chain has enough anchored coordinates, when the deterministic boundary solver runs, then it derives missing point coordinates from the reviewed sequence, bearing, and distance values.
 
+4a. Given a PXA survey plan contains printed/reference coordinate points and reviewed boundary segments, when the parcel is solved, then the system uses printed/reference points as coordinate anchors and reviewed boundary segments as the construction path.
+
 5. Given the solver parses bearings, then it supports quadrant bearing formats used in Jamaican survey plans, including variants such as `S84°56'E`, `S84 56 E`, `S01°27'E`, `S01 39 W`, `N82°59'W`, and `N19°09'E`.
 
 6. Given a reviewed boundary chain is solved, then the solver validates endpoint continuity, missing point references, duplicate point references, closure distance, and whether the final segment returns to the start point within configured tolerance.
@@ -53,13 +56,17 @@ This story adds the missing human-in-the-loop segment table and deterministic so
 
 9. Given a point already has a printed coordinate from the plan, when a reviewed segment would derive a conflicting coordinate, then the solver does not silently overwrite the printed value; it emits a reportable finding requiring examiner review.
 
+9a. Given a reviewed segment derives a coordinate that conflicts with a printed/reference coordinate anchor beyond tolerance, then the solver blocks validation completion until an examiner resolves the conflict.
+
 10. Given TR100000562 is corrected to the verified segment chain above, when the solver runs with the known point coordinates from the plan, then it derives the missing boundary points, validates closure, and reports area close to the document area of `854.807 sq. metres` within configured tolerance.
 
-11. Given `Create Spatial Units` runs for a PXA case after validation, then it consumes the corrected/derived point rows and reviewed segment rows rather than unreviewed OCR/vision segment candidates.
+11. Given `Create Spatial Units` runs for a PXA case after validation, then it consumes the solved reviewed-segment boundary chain and its printed/derived point coordinates rather than point-row order or unreviewed OCR/vision segment candidates.
 
 12. Given the reviewed segments cannot produce a closed geometry, then `Validate Points and Lines` remains incomplete and downstream stages show a clear blocker explaining which segment or point prevents construction.
 
-13. Given automated tests run, then coverage proves segment persistence, bearing parsing, deterministic point derivation, closure/area validation, and the TR100000562-style sequence behavior.
+13. Given a user corrects segment rows and saves the review, then the save action reruns the deterministic boundary solver, updates derived point coordinates, recomputes closure/area diagnostics, and refreshes the parcel preview from the reviewed segment chain.
+
+14. Given automated tests run, then coverage proves segment persistence, bearing parsing, deterministic point derivation, closure/area validation, save-triggered solver refresh, and the TR100000562-style sequence behavior.
 
 ## Tasks / Subtasks
 
@@ -84,6 +91,7 @@ This story adds the missing human-in-the-loop segment table and deterministic so
   - [x] Walk the reviewed segment chain in sequence and derive unknown point coordinates from anchored coordinates.
   - [x] Support solving forward and backward where a later point is anchored.
   - [x] Detect conflicts between printed coordinates and derived coordinates.
+  - [x] Treat printed/reference point coordinates as authoritative anchors and reviewed segments as the construction path.
   - [x] Compute closure distance and polygon area.
   - [x] Compare computed area with document area from survey metadata.
 
@@ -92,10 +100,12 @@ This story adds the missing human-in-the-loop segment table and deterministic so
   - [x] Write solver diagnostics into `extraction_review_data.json` and/or the Dimension Check summary.
   - [x] Ensure unresolved solver findings block approval and Create Spatial Units.
   - [x] Ensure successful solver output enables the normal point/line validation completion path.
+  - [x] Ensure saving reviewed segment edits reruns the solver, updates derived point rows, and refreshes parcel preview state from the reviewed segment chain.
 
 - [x] Ensure Create Spatial Units uses reviewed PXA geometry. (AC: 11-12)
   - [x] Update the PXA path so corrected/derived point rows and reviewed segment rows are the construction source.
   - [x] Avoid using raw `segments` candidates when reviewed overrides exist.
+  - [x] Avoid using point-row order as the PXA polygon source when a solved reviewed segment chain is available.
   - [x] Preserve bearing/distance fields for downstream labels and Enterprise publishing.
 
 - [x] Add regression tests and fixtures. (AC: 1-13)
@@ -153,6 +163,24 @@ and returns:
 - blocker/warning/pass status
 
 Do not put the geometry-solving algorithm in WPF code-behind.
+
+The PXA review save behavior must treat reviewed segments as the active construction source. When the examiner edits segments and saves, the workflow should immediately persist the reviewed segment values, rerun the boundary solver, write any derived/corrected point rows, recompute closure/area diagnostics, and refresh the parcel preview. The user should not need to close and reopen the review workspace to see the corrected polygon preview.
+
+### PXA Construction Policy
+
+For PXA survey-plan geometry, the construction rule is:
+
+```text
+anchor_source = printed_reference_points
+construction_source = reviewed_boundary_segments
+derived_source = deterministic_boundary_solver
+validation_source = document_area + closure + coordinate_system
+conflict_policy = block_on_reference_point_conflict
+```
+
+Printed/reference coordinates are authoritative anchors and must not be silently overwritten. Reviewed boundary segments are authoritative for traversal order, bearings, and distances once saved by the examiner. Derived points are acceptable only where the document does not provide printed coordinates. If a derived point conflicts with a printed/reference coordinate beyond configured tolerance, the workflow must surface a blocker and require examiner correction before Create Spatial Units.
+
+Reference points and boundary segments must be treated as complementary evidence, not competing sources. Reference points anchor the solved parcel to real coordinates; reviewed segments construct the boundary shape between those anchors.
 
 ### Artifact Shape Recommendation
 
@@ -238,6 +266,8 @@ Point 17: N 670563.653, E 712856.553
 |---|---:|---|---|
 | 2026-07-08 | 0.1 | Initial story for PXA segment review, deterministic boundary solving, closure/area validation, and reviewed artifact persistence. | Codex |
 | 2026-07-08 | 1.0 | Implemented editable segment artifacts, PXA boundary solver, review UI segment grid, reviewed-segment output construction, and regression coverage. | Codex |
+| 2026-07-08 | 1.1 | Patched PXA source-of-truth behavior so reviewed boundary segments fill blank derived point rows and drive output polygon rings. | Codex |
+| 2026-07-09 | 1.2 | Clarified PXA construction policy: printed/reference points anchor geometry and reviewed boundary segments construct the parcel. | Codex |
 
 ## Dev Agent Record
 
@@ -248,6 +278,9 @@ Point 17: N 670563.653, E 712856.553
 - Added `SurveyPlanBoundarySolver` with Jamaican quadrant bearing parsing, forward/backward coordinate derivation, printed-coordinate conflict detection, closure distance, computed area, document-area comparison, and `boundary_solver` diagnostics.
 - Wired the solver into review save/approval so derived points are written back with `derived_from_reviewed_segments` provenance and solver blockers prevent completion.
 - Updated the output adapter to prefer reviewed segment rows for line construction when they resolve to reviewed/derived points, preserving bearing and distance text for downstream labels and Enterprise publishing.
+- Patched the solver to fill existing blank point rows when their coordinates are derived from reviewed boundary segments, instead of adding only new rows or leaving blank coordinates behind.
+- Patched Create Spatial Units output construction so reviewed PXA boundary segments are the source of truth for polygon rings when available; point-order polygons remain the fallback for non-PXA/legacy cases.
+- Clarified the PXA construction policy in the story: printed/reference points are authoritative coordinate anchors, reviewed boundary segments are authoritative traversal calls, and conflicts between the two block validation.
 
 ### Debug Log
 
@@ -257,12 +290,19 @@ Point 17: N 670563.653, E 712856.553
 - `python -m unittest tests.test_output_adapter` from `src/ProcessingTools`: passed 13 tests.
 - `python -m unittest discover -s tests` from `src/ProcessingTools`: passed 78 tests.
 - `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowAddIn.csproj`: succeeded with 0 warnings and 0 errors.
+- `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln`: passed with existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -- "survey plan solver solves TR100000562"`: passed 1 focused test.
+- `python -m unittest tests.test_output_adapter.OutputAdapterTests.test_output_adapter_uses_reviewed_pxa_segments_for_polygon_ring tests.test_output_adapter.OutputAdapterTests.test_output_adapter_prefers_reviewed_pxa_segments_for_lines` from `src/ProcessingTools`: passed 2 focused tests.
+- `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj`: passed 342 tests.
+- `python -m unittest discover -s tests` from `src/ProcessingTools`: passed 79 tests.
 
 ### Completion Notes
 
 - Story 2.19 is implemented and ready for review.
 - Existing PE point-review behavior remains on the existing row grid path; the segment table appears only when review artifacts contain segment candidates.
 - The output adapter falls back to point-order line construction when no reviewed segments can be resolved, preserving existing behavior for non-PXA cases.
+- For PXA, reviewed boundary segments now define the authoritative geometry chain after save/solve. The solver fills missing coordinates for existing point IDs, and Create Spatial Units builds PXA polygons from the reviewed segment chain when it resolves.
+- Printed/reference points and reviewed boundary segments are complementary inputs: the former locates the parcel, the latter constructs its shape.
 
 ## File List
 

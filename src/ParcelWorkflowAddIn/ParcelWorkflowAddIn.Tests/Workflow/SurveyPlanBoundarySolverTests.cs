@@ -40,6 +40,24 @@ internal static class SurveyPlanBoundarySolverTests
             Northing = "670563.653",
             ExtractionStatus = "printed_coordinate"
         });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-16",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "16",
+            Easting = "",
+            Northing = "",
+            ExtractionStatus = "missing_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-18",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "18",
+            Easting = "",
+            Northing = "",
+            ExtractionStatus = "missing_coordinate"
+        });
         document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "18", ToPoint = "15", BearingText = "S84°56'E", DistanceText = "33.470" });
         document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "15", ToPoint = "30", BearingText = "S01°27'E", DistanceText = "18.343" });
         document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-3", Sequence = 3, FromPoint = "30", ToPoint = "16", BearingText = "S01°39'W", DistanceText = "5.230" });
@@ -53,6 +71,8 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "18" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Point 18 should be derived.");
         TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "30" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Point 30 should be derived.");
         TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "16" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Point 16 should be derived.");
+        TestAssert.True(!string.IsNullOrWhiteSpace(document.Rows.First(row => row.PointIdentifier == "16").Easting), "Solver should fill existing blank point 16 easting.");
+        TestAssert.True(!string.IsNullOrWhiteSpace(document.Rows.First(row => row.PointIdentifier == "18").Northing), "Solver should fill existing blank point 18 northing.");
         TestAssert.True(result.ComputedAreaSqM.HasValue, "Solver should compute polygon area.");
         TestAssert.True(Math.Abs(result.ComputedAreaSqM.Value - 854.807) < 2.0, "Computed area should be close to the document area.");
         TestAssert.True(result.ClosureDistanceM.GetValueOrDefault(999d) < 1.0, "Solved boundary should close within one metre.");

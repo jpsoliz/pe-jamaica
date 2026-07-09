@@ -390,7 +390,7 @@
 
           <DockPanel Grid.Row="0"
                      LastChildFill="False">
-            <TextBlock Text="Validate Points"
+            <TextBlock Text="{Binding CenterReviewTitle}"
                        FontSize="13"
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
@@ -452,6 +452,7 @@
           <DataGrid Grid.Row="2"
                     ItemsSource="{Binding VisibleRows}"
                     SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
+                    Visibility="{Binding IsStandardPointReview, Converter={StaticResource BooleanToVisibilityConverter}}"
                     IsReadOnly="True"
                     AutoGenerateColumns="False"
                     HeadersVisibility="Column"
@@ -511,7 +512,7 @@
 
           <StackPanel Grid.Row="3"
                       Margin="0,10,0,6"
-                      Visibility="{Binding HasReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}">
+                      Visibility="{Binding HasStandardReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock Text="Review Segments"
                        FontSize="12"
                        FontWeight="SemiBold"
@@ -526,7 +527,7 @@
           <DataGrid Grid.Row="4"
                     ItemsSource="{Binding VisibleSegments}"
                     SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
-                    Visibility="{Binding HasReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    Visibility="{Binding HasStandardReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}"
                     Height="170"
                     IsReadOnly="False"
                     AutoGenerateColumns="False"
@@ -570,6 +571,9 @@
               <DataGridCheckBoxColumn Header="Use"
                                       Binding="{Binding IncludeInBoundary, UpdateSourceTrigger=PropertyChanged}"
                                       Width="54" />
+              <DataGridTextColumn Header="Adjacent Owner"
+                                  Binding="{Binding AdjacentOwner, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="120" />
               <DataGridTextColumn Header="Status"
                                   Binding="{Binding Status, UpdateSourceTrigger=PropertyChanged}"
                                   Width="86" />
@@ -578,6 +582,259 @@
                                   Width="*" />
             </DataGrid.Columns>
           </DataGrid>
+
+          <TabControl Grid.Row="2"
+                      Grid.RowSpan="3"
+                      Visibility="{Binding IsPxaSurveyPlanReview, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      Background="#FFFFFF"
+                      BorderBrush="#C9D2D8"
+                      BorderThickness="1"
+                      Padding="0"
+                      Margin="0,0,0,0">
+            <TabItem Header="Plan Metadata">
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="1.5*" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="120" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="120" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="130" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0"
+                           Text="{Binding PxaMetadataSummary}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6" />
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding VisibleMetadataFields}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Field"
+                                        Binding="{Binding Label}"
+                                        Width="150"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Value"
+                                        Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Present"
+                                        Binding="{Binding Present, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="80" />
+                    <DataGridTextColumn Header="Confidence"
+                                        Binding="{Binding Confidence}"
+                                        Width="80"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Notes"
+                                        Binding="{Binding ReviewNotes, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="140" />
+                  </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Grid.Row="2"
+                           Text="Parties / Owners / Representatives"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,6" />
+                <DataGrid Grid.Row="3"
+                          ItemsSource="{Binding VisibleNamedParties}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Group"
+                                        Binding="{Binding SourceGroup}"
+                                        Width="110"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Name"
+                                        Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Role"
+                                        Binding="{Binding Role, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="120" />
+                    <DataGridTextColumn Header="Source"
+                                        Binding="{Binding SourceLabel}"
+                                        Width="110"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                  </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Grid.Row="4"
+                           Text="Volume / Folio"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,6" />
+                <DataGrid Grid.Row="5"
+                          ItemsSource="{Binding VisibleVolumeFolios}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Volume"
+                                        Binding="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Folio"
+                                        Binding="{Binding Folio, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Raw Text"
+                                        Binding="{Binding RawText, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Source"
+                                        Binding="{Binding SourceLabel}"
+                                        Width="110"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                  </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Grid.Row="6"
+                           Text="{Binding PxaAdjacentOwnerSummary}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,10,0,6" />
+                <DataGrid Grid.Row="7"
+                          ItemsSource="{Binding VisibleAdjacentOwners}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Name"
+                                        Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Role"
+                                        Binding="{Binding Role, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="From"
+                                        Binding="{Binding RelatedSegmentFrom, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="60" />
+                    <DataGridTextColumn Header="To"
+                                        Binding="{Binding RelatedSegmentTo, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="60" />
+                    <DataGridTextColumn Header="Vol."
+                                        Binding="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="70" />
+                    <DataGridTextColumn Header="Folio"
+                                        Binding="{Binding Folio, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="70" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </TabItem>
+            <TabItem Header="Boundary Segments">
+              <DataGrid ItemsSource="{Binding VisibleSegments}"
+                        SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
+                        IsReadOnly="False"
+                        AutoGenerateColumns="False"
+                        HeadersVisibility="Column"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        RowHeaderWidth="0"
+                        GridLinesVisibility="Horizontal"
+                        FontSize="11"
+                        Margin="10">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Seq"
+                                      Binding="{Binding Sequence, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="48" />
+                  <DataGridTextColumn Header="From"
+                                      Binding="{Binding FromPoint, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="64" />
+                  <DataGridTextColumn Header="To"
+                                      Binding="{Binding ToPoint, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="64" />
+                  <DataGridTextColumn Header="Bearing"
+                                      Binding="{Binding BearingText, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="95" />
+                  <DataGridTextColumn Header="Distance"
+                                      Binding="{Binding DistanceText, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="80" />
+                  <DataGridCheckBoxColumn Header="Use"
+                                          Binding="{Binding IncludeInBoundary, UpdateSourceTrigger=PropertyChanged}"
+                                          Width="54" />
+                  <DataGridTextColumn Header="Adjacent Owner"
+                                      Binding="{Binding AdjacentOwner, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="130" />
+                  <DataGridTextColumn Header="Status"
+                                      Binding="{Binding Status, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="86" />
+                  <DataGridTextColumn Header="Notes"
+                                      Binding="{Binding ReviewNotes, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="*" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </TabItem>
+            <TabItem Header="Points">
+              <DataGrid ItemsSource="{Binding VisibleRows}"
+                        SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
+                        IsReadOnly="True"
+                        AutoGenerateColumns="False"
+                        HeadersVisibility="Column"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        RowHeaderWidth="0"
+                        GridLinesVisibility="Horizontal"
+                        FontSize="11"
+                        Margin="10">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Point"
+                                      Binding="{Binding PointIdentifier}"
+                                      Width="90" />
+                  <DataGridTextColumn Header="Easting"
+                                      Binding="{Binding Easting}"
+                                      Width="105" />
+                  <DataGridTextColumn Header="Northing"
+                                      Binding="{Binding Northing}"
+                                      Width="105" />
+                  <DataGridTextColumn Header="Status"
+                                      Binding="{Binding ExtractionStatus}"
+                                      Width="115" />
+                  <DataGridTextColumn Header="Parcel"
+                                      Binding="{Binding ParcelGroupId}"
+                                      Width="100" />
+                  <DataGridTextColumn Header="Seq"
+                                      Binding="{Binding SequenceInGroup}"
+                                      Width="55" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </TabItem>
+          </TabControl>
         </Grid>
       </Border>
 

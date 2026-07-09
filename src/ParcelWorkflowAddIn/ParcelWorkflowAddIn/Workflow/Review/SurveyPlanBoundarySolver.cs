@@ -16,6 +16,7 @@ public sealed class SurveyPlanBoundarySolver
         document.RootMetadata["boundary_solver"] = JsonSerializer.SerializeToNode(new
         {
             status = result.Status,
+            geometry_source = "reviewed_boundary_segments",
             derived_point_count = result.DerivedPointCount,
             closure_distance_m = result.ClosureDistanceM,
             computed_area_sq_m = result.ComputedAreaSqM,
@@ -233,8 +234,15 @@ public sealed class SurveyPlanBoundarySolver
 
         foreach (var point in result.DerivedPoints)
         {
-            if (document.Rows.Any(row => string.Equals(NormalizePointId(row.PointIdentifier), point.PointId, StringComparison.OrdinalIgnoreCase)))
+            var existingRow = document.Rows.FirstOrDefault(row =>
+                string.Equals(NormalizePointId(row.PointIdentifier), point.PointId, StringComparison.OrdinalIgnoreCase));
+            if (existingRow is not null)
             {
+                if (!TryParseCoordinate(existingRow.Easting, out _) || !TryParseCoordinate(existingRow.Northing, out _))
+                {
+                    ApplyDerivedCoordinateToExistingRow(existingRow, point);
+                }
+
                 continue;
             }
 
@@ -273,6 +281,28 @@ public sealed class SurveyPlanBoundarySolver
                 }
             });
         }
+    }
+
+    private static void ApplyDerivedCoordinateToExistingRow(ExtractionReviewRow row, SolverPoint point)
+    {
+        var easting = point.Easting.ToString("0.###", CultureInfo.InvariantCulture);
+        var northing = point.Northing.ToString("0.###", CultureInfo.InvariantCulture);
+        row.Easting = easting;
+        row.Northing = northing;
+        row.ExtractionStatus = "derived_from_reviewed_segments";
+        row.SourceEvidence = $"Reviewed segment {point.SourceSegment}";
+        row.RowProvenance = "derived_from_reviewed_segments";
+        row.IsEdited = true;
+        row.ReviewNotes = "Derived by deterministic boundary solver from reviewed segment sequence.";
+        row.RawRow["easting"] = point.Easting;
+        row.RawRow["northing"] = point.Northing;
+        row.RawRow["status"] = "derived_from_reviewed_segments";
+        row.RawRow["source_evidence"] = $"Reviewed segment {point.SourceSegment}";
+        row.RawRow["row_provenance"] = "derived_from_reviewed_segments";
+        row.OriginalValues.Easting ??= easting;
+        row.OriginalValues.Northing ??= northing;
+        row.OriginalValues.ExtractionStatus ??= "derived_from_reviewed_segments";
+        row.OriginalValues.SourceEvidence ??= $"Reviewed segment {point.SourceSegment}";
     }
 
     private static double? ComputeClosureDistance(IReadOnlyList<SolverSegment> segments, IReadOnlyDictionary<string, SolverPoint> coordinates)

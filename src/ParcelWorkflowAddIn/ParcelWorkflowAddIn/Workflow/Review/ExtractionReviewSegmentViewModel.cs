@@ -14,6 +14,7 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
     private bool includeInBoundary;
     private string status;
     private string reviewNotes;
+    private string adjacentOwner;
 
     public ExtractionReviewSegmentViewModel(ExtractionReviewSegment model, Action onSegmentChanged)
     {
@@ -29,6 +30,7 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         includeInBoundary = model.EffectiveIncludeInBoundary;
         status = string.IsNullOrWhiteSpace(model.ReviewStatus) ? model.Status : model.ReviewStatus;
         reviewNotes = model.ReviewNotes;
+        adjacentOwner = model.AdjacentOwner;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -96,6 +98,12 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         set => UpdateValue(ref reviewNotes, value, model => model.ReviewNotes = value?.Trim() ?? string.Empty);
     }
 
+    public string AdjacentOwner
+    {
+        get => adjacentOwner;
+        set => UpdateValue(ref adjacentOwner, value, model => model.AdjacentOwner = value?.Trim() ?? string.Empty);
+    }
+
     public string SourceLabel
     {
         get
@@ -123,6 +131,7 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         Model.ReviewIncludeInBoundary = includeInBoundary;
         Model.ReviewStatus = status.Trim();
         Model.ReviewNotes = reviewNotes.Trim();
+        Model.AdjacentOwner = adjacentOwner.Trim();
         Model.IsEdited = IsChanged();
         OnPropertyChanged(nameof(IsEdited));
         OnPropertyChanged(nameof(SegmentId));
@@ -138,7 +147,8 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
             || !string.Equals(Model.ReviewLengthText, Model.OriginalValues.LengthText, StringComparison.Ordinal)
             || Model.ReviewIncludeInBoundary != Model.OriginalValues.IncludeInBoundary
             || !string.IsNullOrWhiteSpace(Model.ReviewStatus)
-            || !string.IsNullOrWhiteSpace(Model.ReviewNotes);
+            || !string.IsNullOrWhiteSpace(Model.ReviewNotes)
+            || !string.IsNullOrWhiteSpace(Model.AdjacentOwner);
     }
 
     private void UpdateValue<T>(ref T field, T value, Action<ExtractionReviewSegment> applyToModel, [CallerMemberName] string? propertyName = null)

@@ -66,6 +66,7 @@ public sealed class ExtractionReviewPersistenceService
             }
         }
 
+        LoadSurveyMetadata(rootNode, document);
         ApplyDerivedGrouping(document.Rows);
 
         document.RowCount = document.Rows.Count > 0 ? document.Rows.Count : document.RowCount;
@@ -210,6 +211,7 @@ public sealed class ExtractionReviewPersistenceService
                 review_include_in_boundary = segment.ReviewIncludeInBoundary,
                 review_status = segment.ReviewStatus,
                 review_notes = segment.ReviewNotes,
+                adjacent_owner = segment.AdjacentOwner,
                 original_values = new
                 {
                     sequence = segment.OriginalValues.Sequence,
@@ -220,6 +222,60 @@ public sealed class ExtractionReviewPersistenceService
                     length_txt = segment.OriginalValues.LengthText,
                     include_in_boundary = segment.OriginalValues.IncludeInBoundary
                 }
+            })
+            ,
+            survey_metadata = document.SurveyMetadataFields.Select(field => new
+            {
+                key = field.Key,
+                value = field.Value,
+                raw_text = field.RawText,
+                present = field.Present,
+                confidence = field.Confidence,
+                source_page = field.SourcePage,
+                source_zone = field.SourceZone,
+                review_status = field.ReviewStatus,
+                review_notes = field.ReviewNotes
+            }),
+            adjacent_owners = document.AdjacentOwners.Select(owner => new
+            {
+                name = owner.Name,
+                role = owner.Role,
+                related_segment_from = owner.RelatedSegmentFrom,
+                related_segment_to = owner.RelatedSegmentTo,
+                volume = owner.Volume,
+                folio = owner.Folio,
+                source_page = owner.SourcePage,
+                source_zone = owner.SourceZone,
+                review_status = owner.ReviewStatus,
+                review_notes = owner.ReviewNotes
+            }),
+            parties = document.Parties.Select(party => new
+            {
+                name = party.Name,
+                role = party.Role,
+                source_page = party.SourcePage,
+                source_zone = party.SourceZone,
+                review_status = party.ReviewStatus,
+                review_notes = party.ReviewNotes
+            }),
+            representatives = document.Representatives.Select(representative => new
+            {
+                name = representative.Name,
+                role = representative.Role,
+                source_page = representative.SourcePage,
+                source_zone = representative.SourceZone,
+                review_status = representative.ReviewStatus,
+                review_notes = representative.ReviewNotes
+            }),
+            volume_folios = document.VolumeFolios.Select(volumeFolio => new
+            {
+                volume = volumeFolio.Volume,
+                folio = volumeFolio.Folio,
+                raw_text = volumeFolio.RawText,
+                source_page = volumeFolio.SourcePage,
+                source_zone = volumeFolio.SourceZone,
+                review_status = volumeFolio.ReviewStatus,
+                review_notes = volumeFolio.ReviewNotes
             })
         });
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
@@ -315,6 +371,7 @@ public sealed class ExtractionReviewPersistenceService
             ReviewIncludeInBoundary = ReadNullableBool(segmentObject, "review_include_in_boundary"),
             ReviewStatus = ReadFirstString(segmentObject, "review_status") ?? string.Empty,
             ReviewNotes = ReadFirstString(segmentObject, "review_notes", "review_note", "notes") ?? string.Empty,
+            AdjacentOwner = ReadFirstString(segmentObject, "adjacent_owner", "review_adjacent_owner", "adjoining_owner") ?? string.Empty,
             RawSegment = CloneObject(segmentObject)
         };
 
@@ -438,6 +495,7 @@ public sealed class ExtractionReviewPersistenceService
             segmentObject["review_include_in_boundary"] = segment.ReviewIncludeInBoundary;
             segmentObject["review_status"] = string.IsNullOrWhiteSpace(segment.ReviewStatus) ? null : segment.ReviewStatus;
             segmentObject["review_notes"] = string.IsNullOrWhiteSpace(segment.ReviewNotes) ? null : segment.ReviewNotes;
+            segmentObject["adjacent_owner"] = string.IsNullOrWhiteSpace(segment.AdjacentOwner) ? null : segment.AdjacentOwner;
             segmentObject["review_original_values"] = JsonSerializer.SerializeToNode(new
             {
                 sequence = segment.OriginalValues.Sequence,
@@ -453,7 +511,300 @@ public sealed class ExtractionReviewPersistenceService
         }
 
         root["segments"] = segments;
+        WriteSurveyMetadata(root, document);
         return root;
+    }
+
+    private static void LoadSurveyMetadata(JsonObject rootNode, ExtractionReviewDocument document)
+    {
+        document.SurveyMetadataFields.Clear();
+        document.AdjacentOwners.Clear();
+        document.Parties.Clear();
+        document.Representatives.Clear();
+        document.VolumeFolios.Clear();
+
+        AddMetadataField(document, "coordinate_system", "Coordinate system", rootNode["coordinate_system"]);
+        AddMetadataField(document, "north_arrow", "North arrow", rootNode["north_arrow"], isPresenceField: true);
+
+        var surveyMetadata = rootNode["survey_metadata"] as JsonObject;
+        AddMetadataField(document, "parish", "Parish", surveyMetadata?["parish"]);
+        AddMetadataField(document, "document_area", "Document area", surveyMetadata?["document_area"]);
+        AddMetadataField(document, "survey_date", "Survey date", surveyMetadata?["survey_date"]);
+        AddMetadataField(document, "survey_instrument", "Survey instrument", surveyMetadata?["survey_instrument"] ?? surveyMetadata?["instrument"]);
+        AddMetadataField(document, "surveyed_by", "Surveyed by / Surveyor", surveyMetadata?["surveyed_by"] ?? surveyMetadata?["surveyor"]);
+        AddMetadataField(document, "plan_check_date", "Plan check date", surveyMetadata?["plan_check_date"]);
+        AddMetadataField(document, "file_reference", "File reference", surveyMetadata?["file_reference"]);
+
+        if (surveyMetadata?["volume_folio"] is JsonArray volumeFolioArray)
+        {
+            foreach (var item in volumeFolioArray.OfType<JsonObject>())
+            {
+                document.VolumeFolios.Add(MapVolumeFolio(item));
+            }
+        }
+        else
+        {
+            AddMetadataField(document, "volume_folio", "Volume and folio", surveyMetadata?["volume_folio"]);
+        }
+
+        if (rootNode["parties"] is JsonArray parties)
+        {
+            foreach (var item in parties.OfType<JsonObject>())
+            {
+                document.Parties.Add(MapNamedParty(item));
+            }
+        }
+
+        if (rootNode["representatives"] is JsonArray representatives)
+        {
+            foreach (var item in representatives.OfType<JsonObject>())
+            {
+                document.Representatives.Add(MapNamedParty(item, "representative"));
+            }
+        }
+
+        if (rootNode["adjacent_owners"] is JsonArray adjacentOwners)
+        {
+            foreach (var item in adjacentOwners.OfType<JsonObject>())
+            {
+                document.AdjacentOwners.Add(MapAdjacentOwner(item));
+            }
+        }
+    }
+
+    private static void AddMetadataField(
+        ExtractionReviewDocument document,
+        string key,
+        string label,
+        JsonNode? sourceNode,
+        bool isPresenceField = false)
+    {
+        var source = sourceNode as JsonObject;
+        var value = isPresenceField
+            ? ReadPresenceText(sourceNode)
+            : ReadFieldValue(sourceNode);
+        var present = ReadPresence(sourceNode);
+        var rawText = ReadFirstString(source, "raw_text", "source_text", "evidence", "ReviewNote", "review_note") ?? string.Empty;
+        var field = new ExtractionReviewMetadataField
+        {
+            Key = key,
+            Label = label,
+            Value = value,
+            RawText = rawText,
+            Confidence = ReadFirstString(source, "confidence", "Confidence") ?? string.Empty,
+            SourcePage = ReadFirstString(source, "source_page", "page") ?? string.Empty,
+            SourceZone = ReadFirstString(source, "source_zone", "ApproximatePageLocation", "approximate_page_location") ?? string.Empty,
+            ReviewStatus = ReadFirstString(source, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(source, "review_notes", "review_note", "ReviewNote") ?? string.Empty,
+            Present = present,
+            OriginalValue = value,
+            OriginalRawText = rawText,
+            OriginalPresent = present,
+            RawField = CloneObject(source)
+        };
+
+        if (!string.IsNullOrWhiteSpace(field.Value)
+            || !string.IsNullOrWhiteSpace(field.RawText)
+            || field.Present.HasValue
+            || IsCoreSurveyMetadataKey(key))
+        {
+            document.SurveyMetadataFields.Add(field);
+        }
+    }
+
+    private static bool IsCoreSurveyMetadataKey(string key) =>
+        key is "coordinate_system"
+            or "north_arrow"
+            or "parish"
+            or "document_area"
+            or "survey_date"
+            or "survey_instrument"
+            or "surveyed_by"
+            or "volume_folio";
+
+    private static ExtractionReviewNamedParty MapNamedParty(JsonObject item, string defaultRole = "")
+    {
+        return new ExtractionReviewNamedParty
+        {
+            Name = ReadFirstString(item, "name", "value", "party", "owner") ?? string.Empty,
+            Role = ReadFirstString(item, "role", "type") ?? defaultRole,
+            SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
+            SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
+            ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            RawParty = CloneObject(item)
+        };
+    }
+
+    private static ExtractionReviewAdjacentOwner MapAdjacentOwner(JsonObject item)
+    {
+        return new ExtractionReviewAdjacentOwner
+        {
+            Name = ReadFirstString(item, "name", "value", "owner", "adjacent_owner") ?? string.Empty,
+            Role = ReadFirstString(item, "role", "type") ?? string.Empty,
+            RelatedSegmentFrom = ReadFirstString(item, "related_segment_from", "segment_from", "from_point") ?? string.Empty,
+            RelatedSegmentTo = ReadFirstString(item, "related_segment_to", "segment_to", "to_point") ?? string.Empty,
+            Volume = ReadFirstString(item, "volume", "vol") ?? string.Empty,
+            Folio = ReadFirstString(item, "folio", "fol") ?? string.Empty,
+            SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
+            SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
+            ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            RawOwner = CloneObject(item)
+        };
+    }
+
+    private static ExtractionReviewVolumeFolio MapVolumeFolio(JsonObject item)
+    {
+        return new ExtractionReviewVolumeFolio
+        {
+            Volume = ReadFirstString(item, "volume", "vol") ?? string.Empty,
+            Folio = ReadFirstString(item, "folio", "fol") ?? string.Empty,
+            RawText = ReadFirstString(item, "raw_text", "value") ?? string.Empty,
+            SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
+            SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
+            ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            RawVolumeFolio = CloneObject(item)
+        };
+    }
+
+    private static void WriteSurveyMetadata(JsonObject root, ExtractionReviewDocument document)
+    {
+        var metadata = root["survey_metadata"] as JsonObject ?? [];
+        foreach (var field in document.SurveyMetadataFields)
+        {
+            var fieldObject = CloneObject(field.RawField);
+            if (field.Present.HasValue)
+            {
+                fieldObject["present"] = field.Present;
+                fieldObject["Detected"] = field.Present;
+            }
+
+            if (!string.IsNullOrWhiteSpace(field.Value))
+            {
+                fieldObject["value"] = field.Value;
+            }
+
+            fieldObject["raw_text"] = string.IsNullOrWhiteSpace(field.RawText) ? null : field.RawText;
+            fieldObject["confidence"] = string.IsNullOrWhiteSpace(field.Confidence) ? null : field.Confidence;
+            fieldObject["source_page"] = string.IsNullOrWhiteSpace(field.SourcePage) ? null : field.SourcePage;
+            fieldObject["source_zone"] = string.IsNullOrWhiteSpace(field.SourceZone) ? null : field.SourceZone;
+            fieldObject["review_status"] = string.IsNullOrWhiteSpace(field.ReviewStatus) ? null : field.ReviewStatus;
+            fieldObject["review_notes"] = string.IsNullOrWhiteSpace(field.ReviewNotes) ? null : field.ReviewNotes;
+
+            switch (field.Key)
+            {
+                case "coordinate_system":
+                    root["coordinate_system"] = fieldObject;
+                    break;
+                case "north_arrow":
+                    root["north_arrow"] = fieldObject;
+                    break;
+                case "survey_instrument":
+                    metadata["instrument"] = fieldObject;
+                    metadata["survey_instrument"] = fieldObject.DeepClone();
+                    break;
+                case "surveyed_by":
+                    metadata["surveyed_by"] = fieldObject;
+                    metadata["surveyor"] = fieldObject.DeepClone();
+                    break;
+                default:
+                    metadata[field.Key] = fieldObject;
+                    break;
+            }
+        }
+
+        if (document.VolumeFolios.Count > 0)
+        {
+            metadata["volume_folio"] = new JsonArray(document.VolumeFolios.Select(item =>
+            {
+                var node = CloneObject(item.RawVolumeFolio);
+                node["volume"] = string.IsNullOrWhiteSpace(item.Volume) ? null : item.Volume;
+                node["folio"] = string.IsNullOrWhiteSpace(item.Folio) ? null : item.Folio;
+                node["raw_text"] = string.IsNullOrWhiteSpace(item.RawText) ? null : item.RawText;
+                node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
+                node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
+                node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
+                node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+                return node;
+            }).ToArray());
+        }
+
+        root["survey_metadata"] = metadata;
+        root["parties"] = new JsonArray(document.Parties.Select(item =>
+        {
+            var node = CloneObject(item.RawParty);
+            node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
+            node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
+            node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
+            node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
+            node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+            return node;
+        }).ToArray());
+        root["representatives"] = new JsonArray(document.Representatives.Select(item =>
+        {
+            var node = CloneObject(item.RawParty);
+            node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
+            node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
+            node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
+            node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
+            node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+            return node;
+        }).ToArray());
+        root["adjacent_owners"] = new JsonArray(document.AdjacentOwners.Select(item =>
+        {
+            var node = CloneObject(item.RawOwner);
+            node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
+            node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["related_segment_from"] = string.IsNullOrWhiteSpace(item.RelatedSegmentFrom) ? null : item.RelatedSegmentFrom;
+            node["related_segment_to"] = string.IsNullOrWhiteSpace(item.RelatedSegmentTo) ? null : item.RelatedSegmentTo;
+            node["volume"] = string.IsNullOrWhiteSpace(item.Volume) ? null : item.Volume;
+            node["folio"] = string.IsNullOrWhiteSpace(item.Folio) ? null : item.Folio;
+            node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
+            node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
+            node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
+            node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+            return node;
+        }).ToArray());
+    }
+
+    private static string ReadFieldValue(JsonNode? sourceNode)
+    {
+        if (sourceNode is JsonObject source)
+        {
+            return ReadFirstString(source, "review_value", "value", "Value", "text", "raw_text") ?? string.Empty;
+        }
+
+        return ReadScalarString(sourceNode) ?? string.Empty;
+    }
+
+    private static string ReadPresenceText(JsonNode? sourceNode)
+    {
+        var present = ReadPresence(sourceNode);
+        if (present.HasValue)
+        {
+            return present.Value ? "Present" : "Not present";
+        }
+
+        return ReadFieldValue(sourceNode);
+    }
+
+    private static bool? ReadPresence(JsonNode? sourceNode)
+    {
+        if (sourceNode is JsonObject source)
+        {
+            return ReadNullableBool(source, "present", "detected", "Detected");
+        }
+
+        if (sourceNode is JsonValue value && value.TryGetValue<bool>(out var boolValue))
+        {
+            return boolValue;
+        }
+
+        return null;
     }
 
     private static void InvalidateApprovedArtifact(CaseFolderLayout layout, string currentReviewHash)

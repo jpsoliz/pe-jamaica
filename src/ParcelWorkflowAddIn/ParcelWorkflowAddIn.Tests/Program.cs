@@ -234,6 +234,8 @@ var tests = new (string Name, Action Run)[]
     ("review persistence saves manual row", ExtractionReviewPersistenceServiceTests.ManualPointSavePersistsAsManualRow),
     ("review persistence accepts numeric survey plan fields", ExtractionReviewPersistenceServiceTests.LoadAcceptsNumericSurveyPlanReviewFields),
     ("review persistence saves editable segment rows", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsSegments),
+    ("review persistence saves pxa metadata and adjacent owners", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsSurveyMetadataAndAdjacentOwners),
+    ("review routing requires pxa survey plan metadata not just segments", ExtractionReviewPersistenceServiceTests.PxaReviewRoutingRequiresSurveyPlanMetadataNotJustSegments),
     ("review approval blocks unresolved rows", ExtractionReviewPersistenceServiceTests.ApprovalIsBlockedWhenUnresolvedRowsRemain),
     ("review approval writes hash and later edits invalidate it", ExtractionReviewPersistenceServiceTests.ApprovalWritesHashAndIsInvalidatedByLaterEdit),
     ("innola session starts logged out with safe gates", InnolaSessionManagerTests.SessionStartsLoggedOutWithSafeGates),

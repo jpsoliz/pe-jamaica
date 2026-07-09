@@ -179,6 +179,128 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.True(!string.Equals(originalHash, editedHash, StringComparison.OrdinalIgnoreCase), "Segment edits should change the review hash.");
     }
 
+    public static void LoadEditAndSaveReviewArtifactPersistsSurveyMetadataAndAdjacentOwners()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.20.0",
+              "transaction_number": "100000562",
+              "extraction_source": "survey_plan_ocr_vision",
+              "coordinate_system": { "value": "JAD 2001", "present": true, "confidence": 0.91 },
+              "north_arrow": { "present": true, "confidence": 0.88 },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon", "confidence": 0.87 },
+                "document_area": { "value": "854.807", "unit": "sq. metres", "confidence": 0.84 },
+                "survey_date": "2024-09-03",
+                "instrument": "TOPCON GM-52 #1Y013971",
+                "surveyor": "Michael D. Isaacs",
+                "volume_folio": [
+                  { "volume": "313", "folio": "71", "raw_text": "Vol.313 Fol.71" }
+                ]
+              },
+              "parties": [
+                { "name": "Clayon Smith", "role": "party_at_instance" }
+              ],
+              "representatives": [
+                { "name": "P.D.J.", "role": "drawn_by" }
+              ],
+              "adjacent_owners": [
+                {
+                  "name": "Rayon Smith",
+                  "role": "adjacent_owner",
+                  "related_segment_from": "16",
+                  "related_segment_to": "17",
+                  "volume": "313",
+                  "folio": "71"
+                }
+              ],
+              "segments": [
+                {
+                  "segment_no": 4,
+                  "from_point": "16",
+                  "to_point": "17",
+                  "bearing_txt": "N82°59'W",
+                  "distance_txt": "41.415",
+                  "adjacent_owner": "Rayon Smith"
+                }
+              ],
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" },
+                { "point_id": "17", "easting": "712856.553", "northing": "670563.653" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var originalHash = service.ComputeReviewHash(document);
+
+        TestAssert.True(document.SurveyMetadataFields.Count >= 6, "PXA survey metadata fields should load.");
+        TestAssert.Equal("JAD 2001", document.SurveyMetadataFields.First(field => field.Key == "coordinate_system").Value, "Coordinate system should load.");
+        TestAssert.Equal<bool?>(true, document.SurveyMetadataFields.First(field => field.Key == "north_arrow").Present, "North arrow presence should load.");
+        TestAssert.Equal("Clayon Smith", document.Parties[0].Name, "Party / owner should load.");
+        TestAssert.Equal("P.D.J.", document.Representatives[0].Name, "Representative should load.");
+        TestAssert.Equal("313", document.VolumeFolios[0].Volume, "Volume row should load.");
+        TestAssert.Equal("71", document.VolumeFolios[0].Folio, "Folio row should load.");
+        TestAssert.Equal("Rayon Smith", document.AdjacentOwners[0].Name, "Adjacent owner should load.");
+        TestAssert.Equal("Rayon Smith", document.Segments[0].AdjacentOwner, "Segment adjacent owner should load.");
+
+        document.SurveyMetadataFields.First(field => field.Key == "parish").Value = "St Andrew";
+        document.SurveyMetadataFields.First(field => field.Key == "parish").ReviewStatus = "accepted";
+        document.Parties[0].ReviewStatus = "accepted";
+        document.Representatives[0].ReviewNotes = "Confirmed from plan title block.";
+        document.VolumeFolios[0].ReviewStatus = "accepted";
+        document.AdjacentOwners[0].RelatedSegmentFrom = "17";
+        document.AdjacentOwners[0].RelatedSegmentTo = "18";
+        document.AdjacentOwners[0].ReviewStatus = "accepted";
+        document.Segments[0].AdjacentOwner = "Rayon Smith (occ.)";
+
+        service.Save(layout, document, "tester");
+        var reloaded = service.Load(layout)!;
+        var editedHash = service.ComputeReviewHash(reloaded);
+
+        TestAssert.Equal("St Andrew", reloaded.SurveyMetadataFields.First(field => field.Key == "parish").Value, "Edited parish should persist.");
+        TestAssert.Equal("accepted", reloaded.SurveyMetadataFields.First(field => field.Key == "parish").ReviewStatus, "Metadata review status should persist.");
+        TestAssert.Equal("accepted", reloaded.Parties[0].ReviewStatus, "Party review status should persist.");
+        TestAssert.Equal("Confirmed from plan title block.", reloaded.Representatives[0].ReviewNotes, "Representative review notes should persist.");
+        TestAssert.Equal("accepted", reloaded.VolumeFolios[0].ReviewStatus, "Volume / folio review status should persist.");
+        TestAssert.Equal("17", reloaded.AdjacentOwners[0].RelatedSegmentFrom, "Edited owner segment start should persist.");
+        TestAssert.Equal("18", reloaded.AdjacentOwners[0].RelatedSegmentTo, "Edited owner segment end should persist.");
+        TestAssert.Equal("Rayon Smith (occ.)", reloaded.Segments[0].AdjacentOwner, "Edited segment adjacent owner should persist.");
+        TestAssert.True(!string.Equals(originalHash, editedHash, StringComparison.OrdinalIgnoreCase), "PXA metadata edits should change the review hash.");
+    }
+
+    public static void PxaReviewRoutingRequiresSurveyPlanMetadataNotJustSegments()
+    {
+        var segmentedPeDocument = new ExtractionReviewDocument
+        {
+            ExtractionSource = "pdf_text_structured"
+        };
+        segmentedPeDocument.Segments.Add(new ExtractionReviewSegment
+        {
+            FromPoint = "1",
+            ToPoint = "2",
+            BearingText = "N01°00'E",
+            DistanceText = "10.000"
+        });
+
+        var surveyPlanDocument = new ExtractionReviewDocument
+        {
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+
+        var profiledSurveyPlanDocument = new ExtractionReviewDocument();
+        profiledSurveyPlanDocument.RootMetadata["source_profile"] = "scanned_single_parcel_survey_plan_pdf";
+
+        TestAssert.True(!PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(segmentedPeDocument), "Segment rows alone should not route a PE artifact into the PXA survey-plan UX.");
+        TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(surveyPlanDocument), "Survey-plan extraction source should route into the PXA survey-plan UX.");
+        TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(profiledSurveyPlanDocument), "Survey-plan source profile should route into the PXA survey-plan UX.");
+    }
+
     public static void ApprovalIsBlockedWhenUnresolvedRowsRemain()
     {
         using var tempRoot = new TempDirectory();

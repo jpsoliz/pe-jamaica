@@ -29,8 +29,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.PropertyChanged += OnParentPropertyChanged;
         parent.ReviewRows.CollectionChanged += OnReviewRowsCollectionChanged;
         parent.ReviewSegments.CollectionChanged += OnReviewSegmentsCollectionChanged;
+        parent.ReviewMetadataFields.CollectionChanged += OnReviewMetadataCollectionChanged;
+        parent.ReviewAdjacentOwners.CollectionChanged += OnReviewMetadataCollectionChanged;
+        parent.ReviewNamedParties.CollectionChanged += OnReviewMetadataCollectionChanged;
+        parent.ReviewVolumeFolios.CollectionChanged += OnReviewMetadataCollectionChanged;
         VisibleRows = [];
         VisibleSegments = [];
+        VisibleMetadataFields = [];
+        VisibleAdjacentOwners = [];
+        VisibleNamedParties = [];
+        VisibleVolumeFolios = [];
         ParcelGroups = [];
         RefreshProjection();
     }
@@ -42,6 +50,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<ExtractionReviewRowViewModel> VisibleRows { get; }
 
     public ObservableCollection<ExtractionReviewSegmentViewModel> VisibleSegments { get; }
+
+    public ObservableCollection<ExtractionReviewMetadataFieldViewModel> VisibleMetadataFields { get; }
+
+    public ObservableCollection<ExtractionReviewAdjacentOwnerViewModel> VisibleAdjacentOwners { get; }
+
+    public ObservableCollection<ExtractionReviewNamedPartyViewModel> VisibleNamedParties { get; }
+
+    public ObservableCollection<ExtractionReviewVolumeFolioViewModel> VisibleVolumeFolios { get; }
 
     public string WindowTitle => "Points Validation Tool";
 
@@ -123,10 +139,33 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool HasReviewSegments => parent.ReviewSegments.Count > 0;
 
+    public bool IsPxaSurveyPlanReview => parent.IsPxaSurveyPlanReview;
+
+    public bool IsStandardPointReview => !IsPxaSurveyPlanReview;
+
+    public bool HasStandardReviewSegments => IsStandardPointReview && HasReviewSegments;
+
+    public string CenterReviewTitle => IsPxaSurveyPlanReview
+        ? "PXA Survey Plan Review"
+        : "Validate Points";
+
     public string SegmentReviewSummary =>
         HasReviewSegments
             ? $"{parent.ReviewSegments.Count} reviewed segment candidate(s). Edit the boundary chain before saving or completing validation."
             : "No segment candidates are available for this review artifact.";
+
+    public bool HasPxaMetadata => VisibleMetadataFields.Count > 0
+        || VisibleAdjacentOwners.Count > 0
+        || VisibleNamedParties.Count > 0
+        || VisibleVolumeFolios.Count > 0;
+
+    public string PxaMetadataSummary => VisibleMetadataFields.Count > 0
+        ? $"{VisibleMetadataFields.Count} survey metadata value(s), {VisibleNamedParties.Count} party / representative row(s), {VisibleVolumeFolios.Count} volume-folio row(s). Confirm extracted values before completing validation."
+        : "No PXA survey metadata values were extracted yet.";
+
+    public string PxaAdjacentOwnerSummary => VisibleAdjacentOwners.Count > 0
+        ? $"{VisibleAdjacentOwners.Count} adjacent owner / party reference(s). Link owners to reviewed boundary segments when visible on the plan."
+        : "No adjacent owner / party references were extracted yet.";
 
     public string ViewerFileTitle => parent.ReviewViewerFileTitle;
 
@@ -484,6 +523,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.PropertyChanged -= OnParentPropertyChanged;
         parent.ReviewRows.CollectionChanged -= OnReviewRowsCollectionChanged;
         parent.ReviewSegments.CollectionChanged -= OnReviewSegmentsCollectionChanged;
+        parent.ReviewMetadataFields.CollectionChanged -= OnReviewMetadataCollectionChanged;
+        parent.ReviewAdjacentOwners.CollectionChanged -= OnReviewMetadataCollectionChanged;
+        parent.ReviewNamedParties.CollectionChanged -= OnReviewMetadataCollectionChanged;
+        parent.ReviewVolumeFolios.CollectionChanged -= OnReviewMetadataCollectionChanged;
     }
 
     public bool SaveReviewChanges()
@@ -575,8 +618,19 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     {
         RebuildVisibleSegments();
         OnPropertyChanged(nameof(HasReviewSegments));
+        OnPropertyChanged(nameof(HasStandardReviewSegments));
         OnPropertyChanged(nameof(SegmentReviewSummary));
+        OnPropertyChanged(nameof(ParcelPreviewPoints));
+        OnPropertyChanged(nameof(SelectedPointPreview));
         OnPropertyChanged(nameof(CanCompleteValidation));
+    }
+
+    private void OnReviewMetadataCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RebuildVisibleMetadata();
+        OnPropertyChanged(nameof(HasPxaMetadata));
+        OnPropertyChanged(nameof(PxaMetadataSummary));
+        OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
     }
 
     private void OnParentPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -619,11 +673,23 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewRows):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewSegments):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewMetadataFields):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewAdjacentOwners):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewNamedParties):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewVolumeFolios):
+            case nameof(ParcelWorkflowDockpaneViewModel.IsPxaSurveyPlanReview):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
             case nameof(ParcelWorkflowDockpaneViewModel.HasSingleReviewParcelGroup):
                 RefreshProjection();
                 OnPropertyChanged(nameof(HasReviewSegments));
+                OnPropertyChanged(nameof(HasStandardReviewSegments));
                 OnPropertyChanged(nameof(SegmentReviewSummary));
+                OnPropertyChanged(nameof(HasPxaMetadata));
+                OnPropertyChanged(nameof(PxaMetadataSummary));
+                OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+                OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
+                OnPropertyChanged(nameof(IsStandardPointReview));
+                OnPropertyChanged(nameof(CenterReviewTitle));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
                 break;
@@ -672,7 +738,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SelectedPointPreview));
                 OnPropertyChanged(nameof(SelectedRowSummary));
                 OnPropertyChanged(nameof(HasReviewSegments));
+                OnPropertyChanged(nameof(HasStandardReviewSegments));
                 OnPropertyChanged(nameof(SegmentReviewSummary));
+                OnPropertyChanged(nameof(HasPxaMetadata));
+                OnPropertyChanged(nameof(PxaMetadataSummary));
+                OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
                 OnPropertyChanged(nameof(CanCompleteValidation));
@@ -735,6 +805,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             RebuildVisibleRows();
             RebuildVisibleSegments();
+            RebuildVisibleMetadata();
             OnPropertyChanged(nameof(UsesLiveArtifacts));
             OnPropertyChanged(nameof(WorkspaceStatus));
             OnPropertyChanged(nameof(DataBindingModeText));
@@ -749,7 +820,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CanSaveReview));
             OnPropertyChanged(nameof(CanCompleteValidation));
             OnPropertyChanged(nameof(HasReviewSegments));
+            OnPropertyChanged(nameof(HasStandardReviewSegments));
             OnPropertyChanged(nameof(SegmentReviewSummary));
+            OnPropertyChanged(nameof(HasPxaMetadata));
+            OnPropertyChanged(nameof(PxaMetadataSummary));
+            OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+            OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
+            OnPropertyChanged(nameof(IsStandardPointReview));
+            OnPropertyChanged(nameof(CenterReviewTitle));
         }
         finally
         {
@@ -803,9 +881,46 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                                  ?? segments.FirstOrDefault();
     }
 
+    private void RebuildVisibleMetadata()
+    {
+        VisibleMetadataFields.Clear();
+        foreach (var field in parent.ReviewMetadataFields
+                     .OrderBy(field => field.Label, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(field => field.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            VisibleMetadataFields.Add(field);
+        }
+
+        VisibleAdjacentOwners.Clear();
+        foreach (var owner in parent.ReviewAdjacentOwners
+                     .OrderBy(owner => owner.RelatedSegmentFrom, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(owner => owner.RelatedSegmentTo, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(owner => owner.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            VisibleAdjacentOwners.Add(owner);
+        }
+
+        VisibleNamedParties.Clear();
+        foreach (var party in parent.ReviewNamedParties
+                     .OrderBy(party => party.SourceGroup, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(party => party.Role, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(party => party.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            VisibleNamedParties.Add(party);
+        }
+
+        VisibleVolumeFolios.Clear();
+        foreach (var volumeFolio in parent.ReviewVolumeFolios
+                     .OrderBy(item => item.Volume, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(item => item.Folio, StringComparer.OrdinalIgnoreCase))
+        {
+            VisibleVolumeFolios.Add(volumeFolio);
+        }
+    }
+
     private PointCollection BuildPreviewPoints()
     {
-        var rows = VisibleRows.ToArray();
+        var rows = BuildPreviewRowsInReviewedSegmentOrder();
         if (rows.Length == 0)
         {
             return [];
@@ -831,13 +946,66 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
 
         var points = ParcelPreviewPoints;
-        var index = VisibleRows.IndexOf(SelectedVisibleRow);
+        var rows = BuildPreviewRowsInReviewedSegmentOrder();
+        var index = Array.IndexOf(rows, SelectedVisibleRow);
         if (index < 0 || index >= points.Count)
         {
             return null;
         }
 
         return new PreviewMarker(points[index].X, points[index].Y, BlankIfEmpty(SelectedVisibleRow.PointIdentifier));
+    }
+
+    private ExtractionReviewRowViewModel[] BuildPreviewRowsInReviewedSegmentOrder()
+    {
+        var visibleRows = VisibleRows.ToArray();
+        if (visibleRows.Length == 0 || VisibleSegments.Count == 0 || !IsPxaSurveyPlanReview)
+        {
+            return visibleRows;
+        }
+
+        var rowsByPoint = visibleRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
+            .GroupBy(row => row.PointIdentifier.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var orderedPointIds = new List<string>();
+        foreach (var segment in VisibleSegments
+                     .Where(segment => segment.IncludeInBoundary)
+                     .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+                     .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase))
+        {
+            AddPointIfKnown(segment.FromPoint);
+            AddPointIfKnown(segment.ToPoint);
+        }
+
+        var orderedRows = orderedPointIds
+            .Select(pointId => rowsByPoint[pointId])
+            .ToList();
+
+        foreach (var row in visibleRows)
+        {
+            if (!orderedRows.Contains(row))
+            {
+                orderedRows.Add(row);
+            }
+        }
+
+        return orderedRows.ToArray();
+
+        void AddPointIfKnown(string? pointId)
+        {
+            var key = (pointId ?? string.Empty).Trim();
+            if (key.Length == 0
+                || !rowsByPoint.ContainsKey(key)
+                || orderedPointIds.Any(existing => string.Equals(existing, key, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            orderedPointIds.Add(key);
+        }
     }
 
     private IReadOnlyList<PreviewPath> BuildPreviewPaths()

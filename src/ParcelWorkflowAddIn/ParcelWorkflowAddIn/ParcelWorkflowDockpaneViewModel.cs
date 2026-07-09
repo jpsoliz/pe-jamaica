@@ -168,6 +168,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ObservableCollection<ExtractionReviewSegmentViewModel> ReviewSegments { get; } = [];
 
+    public ObservableCollection<ExtractionReviewMetadataFieldViewModel> ReviewMetadataFields { get; } = [];
+
+    public ObservableCollection<ExtractionReviewAdjacentOwnerViewModel> ReviewAdjacentOwners { get; } = [];
+
+    public ObservableCollection<ExtractionReviewNamedPartyViewModel> ReviewNamedParties { get; } = [];
+
+    public ObservableCollection<ExtractionReviewVolumeFolioViewModel> ReviewVolumeFolios { get; } = [];
+
     public string? TransactionId
     {
         get => transactionId ?? workflowSession.TransactionId;
@@ -1037,6 +1045,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public int ReviewContentVersion => reviewContentVersion;
 
+    public bool IsPxaSurveyPlanReview { get; private set; }
+
     public bool ExtractionSummaryExpanded
     {
         get => extractionSummaryExpanded;
@@ -1398,6 +1408,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewContentVersion = 0;
         ReviewRows.Clear();
         ReviewSegments.Clear();
+        ReviewMetadataFields.Clear();
+        ReviewAdjacentOwners.Clear();
+        ReviewNamedParties.Clear();
+        ReviewVolumeFolios.Clear();
         foreach (var row in document.Rows)
         {
             ReviewRows.Add(new ExtractionReviewRowViewModel(row, OnReviewRowChanged));
@@ -1408,6 +1422,32 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ReviewSegments.Add(new ExtractionReviewSegmentViewModel(segment, OnReviewSegmentChanged));
         }
 
+        foreach (var field in document.SurveyMetadataFields)
+        {
+            ReviewMetadataFields.Add(new ExtractionReviewMetadataFieldViewModel(field, OnReviewMetadataChanged));
+        }
+
+        foreach (var owner in document.AdjacentOwners)
+        {
+            ReviewAdjacentOwners.Add(new ExtractionReviewAdjacentOwnerViewModel(owner, OnReviewMetadataChanged));
+        }
+
+        foreach (var party in document.Parties)
+        {
+            ReviewNamedParties.Add(new ExtractionReviewNamedPartyViewModel(party, "Party / Owner", OnReviewMetadataChanged));
+        }
+
+        foreach (var representative in document.Representatives)
+        {
+            ReviewNamedParties.Add(new ExtractionReviewNamedPartyViewModel(representative, "Representative", OnReviewMetadataChanged));
+        }
+
+        foreach (var volumeFolio in document.VolumeFolios)
+        {
+            ReviewVolumeFolios.Add(new ExtractionReviewVolumeFolioViewModel(volumeFolio, OnReviewMetadataChanged));
+        }
+
+        IsPxaSurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(document);
         SelectedReviewRow = ReviewRows.FirstOrDefault();
     }
 
@@ -1441,6 +1481,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    private void OnReviewMetadataChanged()
+    {
+        reviewDirty = true;
+        reviewContentVersion++;
+        SyncReviewMetadataBackToDocument();
+        RefreshWorkflowProperties();
+    }
+
     private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable()
     {
         if (loadedReviewDocument is null || loadedReviewDocument.Segments.Count == 0)
@@ -1453,6 +1501,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             segment.SyncBackToModel();
         }
 
+        SyncReviewMetadataBackToDocument();
         var beforeRowCount = loadedReviewDocument.Rows.Count;
         var result = surveyPlanBoundarySolver.Apply(loadedReviewDocument, ResolveReviewDocumentAreaSqM(loadedReviewDocument));
         SyncReviewRowViewModelsFromDocument();
@@ -1497,6 +1546,34 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             || TryReadAreaValue(document.RootMetadata, "area", out area)
             ? area
             : null;
+    }
+
+    private void SyncReviewMetadataBackToDocument()
+    {
+        if (loadedReviewDocument is null)
+        {
+            return;
+        }
+
+        foreach (var field in ReviewMetadataFields)
+        {
+            field.SyncBackToModel();
+        }
+
+        foreach (var owner in ReviewAdjacentOwners)
+        {
+            owner.SyncBackToModel();
+        }
+
+        foreach (var party in ReviewNamedParties)
+        {
+            party.SyncBackToModel();
+        }
+
+        foreach (var volumeFolio in ReviewVolumeFolios)
+        {
+            volumeFolio.SyncBackToModel();
+        }
     }
 
     private static bool TryReadAreaValue(JsonObject? node, string propertyName, out double area)
@@ -1950,6 +2027,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             segment.SyncBackToModel();
         }
 
+        SyncReviewMetadataBackToDocument();
         ApplyBoundarySolverIfAvailable();
 
         var saveResult = workflowSession.SaveExtractionReview(loadedReviewDocument, Environment.UserName);
@@ -2028,6 +2106,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             segment.SyncBackToModel();
         }
 
+        SyncReviewMetadataBackToDocument();
         var solverResult = ApplyBoundarySolverIfAvailable();
         if (solverResult is not null && string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase))
         {
@@ -3161,6 +3240,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewSummaryText));
         NotifyPropertyChanged(nameof(ReviewValidationResult));
         NotifyPropertyChanged(nameof(ReviewSegments));
+        NotifyPropertyChanged(nameof(ReviewMetadataFields));
+        NotifyPropertyChanged(nameof(ReviewAdjacentOwners));
+        NotifyPropertyChanged(nameof(ReviewNamedParties));
+        NotifyPropertyChanged(nameof(ReviewVolumeFolios));
+        NotifyPropertyChanged(nameof(IsPxaSurveyPlanReview));
         NotifyPropertyChanged(nameof(ReviewHasSegmentSolverBlockers));
         NotifyPropertyChanged(nameof(ReviewHasBlockers));
         NotifyPropertyChanged(nameof(ReviewGateText));
