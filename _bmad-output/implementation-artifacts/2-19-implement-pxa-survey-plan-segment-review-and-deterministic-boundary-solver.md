@@ -54,11 +54,13 @@ This story adds the missing human-in-the-loop segment table and deterministic so
 
 8. Given a coordinate is derived by the solver, then the resulting point row is marked with a clear provenance/status such as `derived_from_reviewed_segments`, carries source segment references, and remains reviewable before approval.
 
-9. Given a point already has a printed coordinate from the plan, when a reviewed segment would derive a conflicting coordinate, then the solver does not silently overwrite the printed value; it emits a reportable finding requiring examiner review.
+9. Given a point already has a printed/reference coordinate from the plan or OCR, when a reviewed segment would derive a conflicting coordinate, then the solver distinguishes true examiner-confirmed anchors from unconfirmed OCR/reference candidates and records the conflict with clear provenance.
 
-9a. Given a reviewed segment derives a coordinate that conflicts with a printed/reference coordinate anchor beyond tolerance, then the solver blocks validation completion until an examiner resolves the conflict.
+9a. Given the reviewed segment chain is continuous, closes within tolerance, and matches the captured document area within tolerance, when unconfirmed OCR/reference point coordinates conflict with the segment-derived coordinates, then the reviewed segment chain becomes the geometry source of truth, the conflicting point coordinates are superseded/recalculated with warning findings, and validation is not blocked solely by those stale coordinate conflicts.
 
-10. Given TR100000562 is corrected to the verified segment chain above, when the solver runs with the known point coordinates from the plan, then it derives the missing boundary points, validates closure, and reports area close to the document area of `854.807 sq. metres` within configured tolerance.
+9b. Given a reviewed segment derives a coordinate that conflicts with an examiner-confirmed anchor beyond tolerance, then the solver blocks validation completion until the examiner explicitly resolves whether the anchor or the segment call is wrong.
+
+10. Given TR100000562/TR100000568-style PXA cases are corrected to verified segment chains, when the solver runs, then it derives/recalculates boundary points from reviewed segment calls, validates closure, compares computed area to document area, preserves original OCR/reference coordinates as evidence, and reports only true closure/area/confirmed-anchor failures as blockers.
 
 11. Given `Create Spatial Units` runs for a PXA case after validation, then it consumes the solved reviewed-segment boundary chain and its printed/derived point coordinates rather than point-row order or unreviewed OCR/vision segment candidates.
 
@@ -175,12 +177,17 @@ anchor_source = printed_reference_points
 construction_source = reviewed_boundary_segments
 derived_source = deterministic_boundary_solver
 validation_source = document_area + closure + coordinate_system
-conflict_policy = block_on_reference_point_conflict
+conflict_policy = block_on_confirmed_anchor_conflict
+unconfirmed_reference_conflict_policy = supersede_with_segment_derived_coordinate_when_chain_closes_and_area_matches
 ```
 
-Printed/reference coordinates are authoritative anchors and must not be silently overwritten. Reviewed boundary segments are authoritative for traversal order, bearings, and distances once saved by the examiner. Derived points are acceptable only where the document does not provide printed coordinates. If a derived point conflicts with a printed/reference coordinate beyond configured tolerance, the workflow must surface a blocker and require examiner correction before Create Spatial Units.
+Printed/reference coordinates are candidate anchors until the examiner confirms them. Reviewed boundary segments are authoritative for traversal order, bearings, and distances once saved by the examiner. If the reviewed segment chain is continuous, closes within configured tolerance, and matches the document area within configured tolerance, then the solver may supersede unconfirmed OCR/reference point coordinates with segment-derived coordinates and record non-blocking warning findings. The original values must remain in the artifact as source evidence.
+
+If a derived point conflicts with an examiner-confirmed anchor beyond configured tolerance, the workflow must surface a blocker and require examiner correction before Create Spatial Units.
 
 Reference points and boundary segments must be treated as complementary evidence, not competing sources. Reference points anchor the solved parcel to real coordinates; reviewed segments construct the boundary shape between those anchors.
+
+For cases like TR100000568, where the reviewed boundary calls form a valid closed chain and the segment-derived area is close to the document area, the solver should not block only because stale OCR point coordinates disagree with the reviewed chain. The expected behavior is to recalculate/supersede the affected point rows, show a warning that point coordinates were resolved from reviewed segments, and enable Validation Complete when no closure, area, missing-reference, or confirmed-anchor blocker remains.
 
 ### Artifact Shape Recommendation
 
@@ -268,6 +275,7 @@ Point 17: N 670563.653, E 712856.553
 | 2026-07-08 | 1.0 | Implemented editable segment artifacts, PXA boundary solver, review UI segment grid, reviewed-segment output construction, and regression coverage. | Codex |
 | 2026-07-08 | 1.1 | Patched PXA source-of-truth behavior so reviewed boundary segments fill blank derived point rows and drive output polygon rings. | Codex |
 | 2026-07-09 | 1.2 | Clarified PXA construction policy: printed/reference points anchor geometry and reviewed boundary segments construct the parcel. | Codex |
+| 2026-07-12 | 1.3 | Patched conflict policy so closed, area-matched reviewed segment chains can supersede unconfirmed OCR/reference coordinate conflicts while confirmed-anchor conflicts still block. | Codex |
 
 ## Dev Agent Record
 

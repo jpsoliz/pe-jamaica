@@ -645,6 +645,11 @@ def _compute_closure_results(
         profile_enabled = bool(profile.get("enabled", True))
         allow_open_boundary = bool(profile.get("allow_open_boundary", False))
         severity = str(profile.get("severity") or "blocker")
+        boundary_solver = review_data.get("boundary_solver") if isinstance(review_data.get("boundary_solver"), dict) else {}
+        solver_passed = (
+            str(boundary_solver.get("status") or "").strip().lower() == "passed"
+            and str(boundary_solver.get("geometry_source") or "").strip().lower() == "reviewed_boundary_segments"
+        )
 
         coordinates: list[tuple[float, float]] = []
         coordinate_rows = 0
@@ -655,6 +660,36 @@ def _compute_closure_results(
                 continue
             coordinate_rows += 1
             coordinates.append((float(str(easting).strip()), float(str(northing).strip())))
+
+        if solver_passed:
+            closure_distance = boundary_solver.get("closure_distance_m")
+            results.append(
+                {
+                    "parcel_group_id": group_id,
+                    "parcel_name": parcel_name,
+                    "parcel_type": parcel_type,
+                    "profile_rule_id": profile.get("rule_id") or default_profile.get("rule_id") or "closure_default_standard",
+                    "profile_title": profile.get("title") or "Closure tolerance profile",
+                    "severity": severity,
+                    "status": "pass",
+                    "evaluation_status": "passed",
+                    "message": "PXA reviewed boundary segment solver passed; point-row closure was superseded.",
+                    "allow_open_boundary": allow_open_boundary,
+                    "coordinate_row_count": coordinate_rows,
+                    "implicit_closure_used": True,
+                    "closure_distance_m": round(float(closure_distance), 6) if _is_number(closure_distance) else 0.0,
+                    "misclose_ratio_denominator": None,
+                    "max_closure_distance_m": profile.get("max_closure_distance_m"),
+                    "warning_closure_distance_m": profile.get("warning_closure_distance_m"),
+                    "min_misclose_ratio_denominator": profile.get("min_misclose_ratio_denominator"),
+                    "warning_misclose_ratio_denominator": profile.get("warning_misclose_ratio_denominator"),
+                    "geometry_source": boundary_solver.get("geometry_source"),
+                    "computed_area_sq_m": boundary_solver.get("computed_area_sq_m"),
+                    "document_area_sq_m": boundary_solver.get("document_area_sq_m"),
+                    "area_delta_percent": boundary_solver.get("area_delta_percent"),
+                }
+            )
+            continue
 
         closure_distance = None
         misclose_ratio_denominator = None

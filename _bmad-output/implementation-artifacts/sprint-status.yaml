@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-08
+# last_updated: 2026-07-12
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -140,4 +140,5 @@ development_status:
   7-10-add-enterprise-working-layer-default-visualization-labeling: review
   7-11-write-innola-plan-check-list-on-compute-finalize: done
   7-12-create-innola-compute-review-web-map-view-for-completed-transactions: in-progress
+  7-13-add-internal-arcgis-portal-auth-provider-for-enterprise-operations: review
   epic-7-retrospective: optional

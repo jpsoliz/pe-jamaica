@@ -37,6 +37,11 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         ExecuteValidationCompleteFlow(triggerClose: true);
     }
 
+    private void SegmentGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        viewModel.EditSelectedSegment();
+    }
+
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Close();

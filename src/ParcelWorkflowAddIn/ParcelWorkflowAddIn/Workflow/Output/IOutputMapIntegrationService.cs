@@ -9,6 +9,8 @@ namespace ParcelWorkflowAddIn.Workflow.Output;
 public interface IOutputMapIntegrationService
 {
     Task<OutputMapIntegrationResult> AddOutputsToActiveMapAsync(OutputSummaryDocument? summary, CancellationToken cancellationToken = default);
+
+    Task<OutputMapCleanupResult> RemoveTransactionOutputsFromActiveMapAsync(string? transactionNumber, CancellationToken cancellationToken = default);
 }
 
 public sealed record OutputMapIntegrationResult(
@@ -20,6 +22,14 @@ public sealed record OutputMapIntegrationResult(
     public static OutputMapIntegrationResult Skipped(string message)
     {
         return new OutputMapIntegrationResult(false, message, Array.Empty<string>(), null);
+    }
+}
+
+public sealed record OutputMapCleanupResult(bool Success, string Message, int RemovedLayerCount)
+{
+    public static OutputMapCleanupResult Skipped(string message)
+    {
+        return new OutputMapCleanupResult(false, message, 0);
     }
 }
 
@@ -146,6 +156,43 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
             BuildResultMessage(summary, stylingWarnings, OutputMapReviewStyling.BuildSuccessMessage(summary)),
             layerPaths,
             groupLayerName);
+    }
+
+    public async Task<OutputMapCleanupResult> RemoveTransactionOutputsFromActiveMapAsync(
+        string? transactionNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(transactionNumber))
+        {
+            return OutputMapCleanupResult.Skipped("No transaction number was available for map cleanup.");
+        }
+
+        var mapView = MapView.Active;
+        if (mapView?.Map is null)
+        {
+            return OutputMapCleanupResult.Skipped("No active ArcGIS Pro map was available for map cleanup.");
+        }
+
+        var groupLayerName = OutputMapReviewStyling.BuildTransactionGroupLayerName(transactionNumber);
+        var removedCount = 0;
+        await QueuedTask.Run(() =>
+        {
+            foreach (var layer in FlattenLayers(mapView.Map.Layers).ToArray())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!string.Equals(layer.Name, groupLayerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                mapView.Map.RemoveLayer(layer);
+                removedCount++;
+            }
+        }).ConfigureAwait(false);
+
+        return removedCount == 0
+            ? OutputMapCleanupResult.Skipped($"No active map review group named '{groupLayerName}' was found.")
+            : new OutputMapCleanupResult(true, $"Removed active map review group '{groupLayerName}'.", removedCount);
     }
 
     private static GroupLayer EnsureTransactionReviewGroup(Map map, string groupLayerName)
@@ -325,7 +372,12 @@ internal static class OutputMapReviewStyling
     public static string BuildTransactionGroupLayerName(OutputSummaryDocument summary)
     {
         var transactionNumber = string.IsNullOrWhiteSpace(summary.TransactionId) ? "Unknown" : summary.TransactionId.Trim();
-        return $"TR {transactionNumber} - Review";
+        return BuildTransactionGroupLayerName(transactionNumber);
+    }
+
+    public static string BuildTransactionGroupLayerName(string transactionNumber)
+    {
+        return $"TR {transactionNumber.Trim()} - Review";
     }
 
     public static string GetLayerGroupName(string path)

@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Tests.CaseFolders;
+using ParcelWorkflowAddIn.Tests.Enterprise;
 using ParcelWorkflowAddIn.Tests.Innola;
 using ParcelWorkflowAddIn.Tests.Intake;
 using ParcelWorkflowAddIn.Tests.Preflight;
@@ -165,8 +166,17 @@ var tests = new (string Name, Action Run)[]
     ("workflow session enterprise case index records spatial unit reference", () => WorkflowSessionTests.WorkflowSessionEnterpriseCaseIndexRecordsSpatialUnitReference().GetAwaiter().GetResult()),
     ("workflow session enterprise polygons record spatial unit suid in SUID field", () => WorkflowSessionTests.WorkflowSessionEnterprisePolygonsRecordSpatialUnitSuidInSuidField().GetAwaiter().GetResult()),
     ("workflow session enterprise publish filters point attributes to enterprise schema", WorkflowSessionTests.WorkflowSessionEnterprisePublishFiltersPointAttributesToEnterpriseSchema),
-    ("workflow session enterprise publish prefers user portal token over stale process token", WorkflowSessionTests.WorkflowSessionEnterprisePublishPrefersUserPortalTokenOverStaleProcessToken),
-    ("workflow session enterprise disposition prefers user portal token over stale process token", WorkflowSessionTests.WorkflowSessionEnterpriseDispositionPrefersUserPortalTokenOverStaleProcessToken),
+    ("portal auth environment provider prefers user token over stale process token", PortalAuthProviderTests.EnvironmentProviderPrefersUserTokenOverStaleProcessToken),
+    ("portal auth environment provider rejects truncated token", PortalAuthProviderTests.EnvironmentProviderRejectsTruncatedToken),
+    ("portal auth environment provider skips truncated token when fallback is available", PortalAuthProviderTests.EnvironmentProviderSkipsTruncatedTokenWhenFallbackIsAvailable),
+    ("portal auth arcgis pro provider returns unavailable outside pro", PortalAuthProviderTests.ArcGisProProviderReturnsUnavailableOutsidePro),
+    ("portal auth arcgis pro provider uses active portal token when available", PortalAuthProviderTests.ArcGisProProviderUsesActivePortalTokenWhenAvailable),
+    ("portal auth arcgis pro provider falls back when token method throws", PortalAuthProviderTests.ArcGisProProviderFallsBackWhenTokenMethodThrows),
+    ("portal auth arcgis pro provider rejects sibling portal path", PortalAuthProviderTests.ArcGisProProviderDoesNotMatchSiblingPortalPath),
+    ("portal auth composite provider uses first successful provider and tracks attempts", PortalAuthProviderTests.CompositeProviderUsesFirstSuccessfulProviderAndTracksAttempts),
+    ("portal auth composite provider failure includes attempted sources without secrets", PortalAuthProviderTests.CompositeProviderFailureIncludesAttemptedSourcesWithoutSecrets),
+    ("portal auth working layer publish service uses provider", PortalAuthProviderTests.WorkingLayerPublishServiceUsesPortalAuthProvider),
+    ("portal auth working disposition service uses provider", PortalAuthProviderTests.WorkingDispositionServiceUsesPortalAuthProvider),
     ("workflow session enterprise publish reports ArcGIS add feature row errors", WorkflowSessionTests.WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors),
     ("workflow session enterprise publish rejects mismatched layer target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRejectsMismatchedLayerTarget),
     ("workflow session enterprise publish requires case index target", WorkflowSessionTests.WorkflowSessionEnterprisePublishRequiresCaseIndexTarget),
@@ -230,6 +240,7 @@ var tests = new (string Name, Action Run)[]
     ("survey plan solver solves TR100000562 reviewed segments", SurveyPlanBoundarySolverTests.SolvesTr100000562ReviewedBoundarySegments),
     ("survey plan solver detects printed coordinate conflicts", SurveyPlanBoundarySolverTests.DetectsPrintedCoordinateConflicts),
     ("survey plan solver blocks incomplete boundary chains", SurveyPlanBoundarySolverTests.BlocksIncompleteReviewedBoundaryChains),
+    ("survey plan solver recalculates stale derived rows", SurveyPlanBoundarySolverTests.RecalculatesPreviouslyDerivedRowsWhenSegmentsChange),
     ("review persistence saves edited row and preserves originals", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsOverrides),
     ("review persistence saves manual row", ExtractionReviewPersistenceServiceTests.ManualPointSavePersistsAsManualRow),
     ("review persistence accepts numeric survey plan fields", ExtractionReviewPersistenceServiceTests.LoadAcceptsNumericSurveyPlanReviewFields),

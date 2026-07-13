@@ -19,7 +19,8 @@ Story 2.18 introduced PXA survey-plan PDF extraction, and Story 2.19 added segme
 - The scanned survey plan PDF is the primary source.
 - Printed/reference points should anchor the parcel in real coordinates.
 - Reviewed boundary segments should drive derived point coordinates and parcel preview.
-- Metadata from the survey plan must be captured and reviewed, not hidden in raw OCR output.
+- General survey-plan metadata from the survey plan must be captured and reviewed, not hidden in raw OCR output.
+- Owner, representative, and adjacent-neighbor information should be reviewed in a dedicated people/context tab instead of being mixed with document facts.
 - PXA should not overload the PE point-review layout with unrelated metadata and segment controls.
 
 For PXA, the examiner needs one review workspace that keeps the PDF visible while separating metadata review, segment correction, point coordinates, and parcel preview.
@@ -36,25 +37,25 @@ The wireframe shows the intended PXA-only workspace pattern:
 
 ## Acceptance Criteria
 
-1. Given a transaction resolves to the PXA workflow profile, when the Points Validation Tool opens, then the center review area uses PXA-specific tabs: `Plan Metadata`, `Boundary Segments`, and `Points`.
+1. Given a transaction resolves to the PXA workflow profile, when the Points Validation Tool opens, then the center review area uses PXA-specific tabs: `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points`.
 
 2. Given a transaction is not PXA, when the Points Validation Tool opens, then existing PE point-review behavior remains unchanged.
 
-3. Given the `Plan Metadata` tab is selected, then the workspace displays editable/reviewable fields for:
+3. Given the `General Info` tab is selected, then the workspace displays editable/reviewable document and survey fields for:
    - coordinate system / `JAD 2001` present
    - north arrow present
    - parish
    - document area value and unit
-   - survey date
-   - survey instrument
+   - document dates, including survey date and plan check date where available
+   - make and number of instrument / survey instrument
    - surveyed by / surveyor
-   - parties / owners / representatives
-   - adjacent owners
-   - volume and folio values
+   - volume and folio values as two editable/reviewable values
+
+3a. Given the `Owners / Neighbors` tab is selected, then the workspace displays editable/reviewable people and neighboring-parcel context for parties, owners, representatives, adjacent owners, and optional segment associations.
 
 4. Given metadata values are extracted from OCR/vision, when the metadata form is shown, then each field preserves value, raw/source text where available, confidence/status where available, and examiner review state.
 
-5. Given adjacent owners are reviewed, then the UI supports associating an adjacent owner with a boundary segment where possible.
+5. Given adjacent owners are reviewed in `Owners / Neighbors`, then the UI supports associating an adjacent owner with a boundary segment where possible.
 
 6. Given the `Boundary Segments` tab is selected, then the workspace displays reviewed segment rows with editable sequence, from point, to point, bearing, distance, adjacent owner, include/use flag, status, and notes.
 
@@ -63,6 +64,10 @@ The wireframe shows the intended PXA-only workspace pattern:
 8. Given a reviewed segment chain is valid, when save/solve completes, then the parcel preview redraws from the reviewed segment chain rather than stale point order.
 
 9. Given a reviewed segment chain is blocked, when save/solve completes, then the UI keeps validation incomplete and shows the exact blocker, including missing point references, duplicate point misuse, endpoint conflict, closure failure, or area mismatch.
+
+9a. Given a reviewed segment chain closes within tolerance and matches document area within tolerance, when unconfirmed OCR/reference point coordinates conflict with segment-derived coordinates, then the UI treats those coordinate conflicts as resolved warnings instead of blockers and explains that reviewed segments were used as the geometry source of truth.
+
+9b. Given the review still has an active blocker, then the UI must identify the blocking rule and the row/point/segment involved; it must not show only generic copy such as `Needs attention`, `Selected row has no active validation blocker`, or `Parcel exceeds tolerance` without the actionable reason.
 
 10. Given derived points are created from reviewed segments, when the `Points` tab is selected, then derived rows appear with clear provenance/status and remain reviewable.
 
@@ -83,7 +88,9 @@ The wireframe shows the intended PXA-only workspace pattern:
   - [x] Support adjacent-owner records with optional segment association.
 
 - [x] Add PXA-specific review tabs. (AC: 1-6, 10)
-  - [x] Add `Plan Metadata`, `Boundary Segments`, and `Points` tabs for PXA.
+  - [x] Add `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points` tabs for PXA.
+  - [x] Keep document/survey facts such as Volume/Folio, document dates, instrument make/no., and surveyor in `General Info`.
+  - [x] Keep parties, owners, representatives, adjacent owners, and neighbor-to-segment associations in `Owners / Neighbors`.
   - [x] Keep source PDF viewer visible beside the tabs.
   - [x] Keep parcel preview and validation findings visible in the right panel.
   - [x] Distinguish printed/reference anchor points, derived points, reviewed boundary segments, and solver conflicts in the PXA review surface.
@@ -211,16 +218,19 @@ Exact field names may follow code conventions, but raw/extracted and reviewed va
 Use tabs instead of stacking every PXA control in one panel:
 
 ```text
-Plan Metadata | Boundary Segments | Points
+General Info | Owners / Neighbors | Boundary Segments | Points
 ```
 
 The tab labels may show badges such as:
 
 ```text
-Plan Metadata (2 missing)
+General Info (2 missing)
+Owners / Neighbors (1 needs review)
 Boundary Segments (blocked)
 Points (4 rows)
 ```
+
+`General Info` is for document and survey facts: coordinate system, north arrow, parish, document area, document dates, survey date, instrument make/no., surveyor, and Volume/Folio. `Owners / Neighbors` is for parties, owners, representatives, adjacent owners, and optional boundary-segment associations. Do not place Volume/Folio in `Owners / Neighbors`; it belongs with `General Info` as two reviewable values.
 
 Keep the PDF visible on the left because the examiner needs to compare field values directly against the plan. Keep the preview visible on the right because segment edits should have immediate spatial feedback.
 
@@ -229,9 +239,39 @@ The PXA review surface must make the construction roles clear:
 - Printed/reference points are coordinate anchors.
 - Reviewed boundary segments are the construction path.
 - Derived points are solver outputs.
-- Solver conflicts are blockers requiring examiner correction.
+- Confirmed-anchor conflicts, closure failures, area mismatches, broken chains, and missing segment references are blockers requiring examiner correction.
+- Unconfirmed OCR/reference point conflicts that are resolved by a closed, area-matched reviewed segment chain are warnings, not blockers.
 
 The parcel preview should reflect the solved reviewed segment chain, not stale point-row order.
+
+### Validation Message Wording
+
+Replace generic `Needs attention` messaging with three distinct message groups:
+
+```text
+Blocking
+Reviewed boundary segments cannot complete because {specific rule} failed.
+Fix {segment/point/row id} before completing validation.
+
+Warnings
+Reviewed boundary segments close and area is within tolerance, but extracted point
+coordinates for {point ids} conflicted with the segment-derived coordinates.
+Those points were recalculated from reviewed segments.
+
+Resolved by Reviewed Segments
+Geometry source: reviewed boundary segments.
+Point coordinates updated: {point ids}.
+Original OCR/reference coordinates were preserved as source evidence.
+```
+
+When the user selects a row that has no row-level blocker but the parcel has a parcel-level blocker, show both facts together, for example:
+
+```text
+Selected row has no row-level blocker.
+Parcel blocker: closure distance is {value} m, above the configured tolerance of {tolerance} m.
+```
+
+Validation Complete is enabled when the `Blocking` group is empty. Warnings and `Resolved by Reviewed Segments` messages remain visible for audit/reporting but do not prevent completion.
 
 ### Files To Review
 
@@ -259,6 +299,9 @@ The parcel preview should reflect the solved reviewed segment chain, not stale p
 | 2026-07-08 | 1.1 | Patched review findings for party/representative and volume-folio metadata projection plus stricter PXA routing. | Codex |
 | 2026-07-08 | 1.2 | Patched UX so PXA uses only the three-tab review workspace and segment-driven preview remains PXA-scoped. | Codex |
 | 2026-07-09 | 1.3 | Clarified PXA UX roles for printed/reference anchor points, reviewed boundary segments, derived points, and solver blockers. | Codex |
+| 2026-07-12 | 1.4 | Revised PXA review tabs to split `General Info` from `Owners / Neighbors`, with Volume/Folio and survey facts moved to General Info. | Codex |
+| 2026-07-12 | 1.5 | Implemented the four-tab PXA review UX split in WPF and added separate General Info / Owners-Neighborhood summaries. | Codex |
+| 2026-07-12 | 1.6 | Patched UX wording so validation details separate blockers, warnings, and reviewed-segment resolutions, with Validation Complete gated only by active blockers. | Codex |
 
 ## Dev Agent Record
 
@@ -274,19 +317,25 @@ The parcel preview should reflect the solved reviewed segment chain, not stale p
 - Ran `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln` after PXA tab visibility correction: passed with existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -- "survey plan solver" "review persistence saves pxa metadata" "review routing requires pxa"`: passed 6 targeted tests.
 - Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj`: passed 342 tests.
+- Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -- "review persistence saves pxa metadata" "review routing requires pxa"` after General Info / Owners-Neighborhood split: passed 2 targeted tests.
+- Ran `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln`: first attempt hit a transient `VBCSCompiler` file lock, rerun passed with the existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj`: passed 342 tests.
 
 ### Completion Notes
 
 - Added typed PXA survey metadata, party, volume/folio, and adjacent-owner review records to the extraction review document.
 - Extended extraction review persistence to load, hash, save, and reload `survey_metadata`, `parties`, `adjacent_owners`, and segment `adjacent_owner` values while preserving raw/source fields.
-- Added PXA-only `Plan Metadata`, `Boundary Segments`, and `Points` tabs in the Points Validation Tool, keeping the existing non-PXA stacked point-review layout in place.
+- Added PXA-only review tabs in the Points Validation Tool, keeping the existing non-PXA stacked point-review layout in place.
 - Updated review workspace preview logic so reviewed boundary segment order drives the parcel preview when a reviewed segment chain is available.
 - Added persistence regression coverage for PXA metadata and adjacent-owner segment association.
 - Patched review finding so the PXA Plan Metadata tab now projects and saves parties/owners, representatives, and array volume/folio records.
 - Patched review finding so PXA routing is based on survey-plan source/profile metadata and no longer treats segment presence alone as PXA.
-- Corrected the PXA review UX so the center workspace presents only `Plan Metadata`, `Boundary Segments`, and `Points`; the legacy PE/PA point grid and legacy segment block are hidden while PXA tabs are active.
+- Corrected the PXA review UX so the center workspace presents only the PXA review tabs; the legacy PE/PA point grid and legacy segment block are hidden while PXA tabs are active.
 - Confirmed the save path syncs segment edits, runs the deterministic boundary solver, saves/reloads `extraction_review_data.json`, and refreshes preview bindings. Segment-order preview is now scoped to PXA review only.
 - Clarified the PXA review UX requirement so printed/reference coordinate anchors, reviewed boundary segments, derived solver points, and blockers are visually distinct.
+- Updated the target PXA tab model to `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points`; Volume/Folio, document dates, instrument make/no., and surveyor belong in `General Info`, while parties/owners/representatives/adjacent owners belong in `Owners / Neighbors`.
+- Implemented the WPF tab split so PXA review now presents `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points`.
+- Added separate review workspace summaries for `General Info` and `Owners / Neighbors`; Volume/Folio remains with general survey facts, while parties/representatives/adjacent owners are isolated in the people/neighborhood tab.
 
 ### File List
 

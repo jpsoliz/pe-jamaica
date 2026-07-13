@@ -1,4 +1,5 @@
 using ArcGIS.Desktop.Framework.Controls;
+using ParcelWorkflowAddIn.Enterprise.PortalAuth;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Settings;
@@ -15,6 +16,7 @@ namespace ParcelWorkflowAddIn;
 public partial class ConfigurationWindow : ProWindow
 {
     private readonly SettingsWorkspaceService settingsWorkspaceService = new();
+    private readonly IPortalAuthProvider portalAuthProvider = CompositePortalAuthProvider.CreateDefault();
     private readonly Dictionary<string, PreflightRuleEditorControls> preflightRuleEditors = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ReadinessRuleEditorControls> readinessRuleEditors = new(StringComparer.OrdinalIgnoreCase);
     private SettingsWorkspaceDocument? currentDocument;
@@ -135,7 +137,7 @@ public partial class ConfigurationWindow : ProWindow
             Directory.CreateDirectory(Path.GetDirectoryName(auditJson) ?? ".");
         }
 
-        EnterpriseAdminStatusTextBlock.Text = $"Running Enterprise admin {mode} with configured ArcGIS Python. Credentials are read from runtime environment variables only.";
+        EnterpriseAdminStatusTextBlock.Text = $"Running Enterprise admin {mode} with configured ArcGIS Python. Credentials are resolved from the active ArcGIS Pro portal session or configured fallback environment.";
 
         try
         {
@@ -166,7 +168,7 @@ public partial class ConfigurationWindow : ProWindow
         }
     }
 
-    private static async Task<EnterpriseAdminProcessResult> RunEnterpriseAdminScriptAsync(
+    private async Task<EnterpriseAdminProcessResult> RunEnterpriseAdminScriptAsync(
         SettingsWorkspaceDocument document,
         string mode,
         string cleanupScope,
@@ -206,6 +208,25 @@ public partial class ConfigurationWindow : ProWindow
         startInfo.ArgumentList.Add("--require-cleanup-scope");
         AddArgument(startInfo, "--output-json", outputJson);
         AddArgument(startInfo, "--audit-json", auditJson);
+
+        var authResult = await portalAuthProvider.GetTokenAsync(
+            new PortalAuthRequest(
+                document.EnterpriseWorkingAdminPortalUrl,
+                document.EnterpriseWorkingServiceRoot,
+                $"enterprise_admin_{mode}"),
+            CancellationToken.None).ConfigureAwait(false);
+        if (!authResult.Success || string.IsNullOrWhiteSpace(authResult.Token))
+        {
+            var attemptedSources = authResult.AttemptedSources is { Count: > 0 }
+                ? string.Join(", ", authResult.AttemptedSources)
+                : authResult.Source;
+            var message = authResult.ErrorMessage ?? "ArcGIS Enterprise authentication failed.";
+            throw new InvalidOperationException(
+                $"ArcGIS Enterprise authentication failed for Enterprise admin {mode} against portal '{document.EnterpriseWorkingAdminPortalUrl}'. " +
+                $"Auth source: {authResult.Source}. Attempted sources: {attemptedSources}. {message}");
+        }
+
+        startInfo.Environment[EnvironmentPortalAuthProvider.DefaultTokenVariableName] = authResult.Token;
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start Enterprise admin provisioning script.");

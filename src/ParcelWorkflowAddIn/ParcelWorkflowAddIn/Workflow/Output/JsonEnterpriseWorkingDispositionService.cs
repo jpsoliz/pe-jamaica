@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Enterprise.PortalAuth;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 
@@ -41,15 +42,24 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
     ];
 
     private readonly Func<InnolaTransactionSettings> getSettings;
+    private readonly IPortalAuthProvider portalAuthProvider;
 
     public JsonEnterpriseWorkingDispositionService()
-        : this(InnolaTransactionSettings.Load)
+        : this(InnolaTransactionSettings.Load, CompositePortalAuthProvider.CreateDefault())
     {
     }
 
     internal JsonEnterpriseWorkingDispositionService(Func<InnolaTransactionSettings> getSettings)
+        : this(getSettings, CompositePortalAuthProvider.CreateDefault())
+    {
+    }
+
+    internal JsonEnterpriseWorkingDispositionService(
+        Func<InnolaTransactionSettings> getSettings,
+        IPortalAuthProvider portalAuthProvider)
     {
         this.getSettings = getSettings;
+        this.portalAuthProvider = portalAuthProvider;
     }
 
     public async Task<EnterpriseWorkingDispositionResult> RecordDispositionAsync(
@@ -328,7 +338,7 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         }
     }
 
-    private static async Task UpdateFeatureServiceLayerAsync(
+    private async Task UpdateFeatureServiceLayerAsync(
         string targetUrl,
         string layerRole,
         string scopeField,
@@ -337,11 +347,13 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         string decidedAtUtc,
         CancellationToken cancellationToken)
     {
-        var token = GetPortalToken();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("ArcGIS Enterprise disposition writeback requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
-        }
+        var token = await portalAuthProvider.GetRequiredTokenAsync(
+            new PortalAuthRequest(
+                GetArcGisPortalUrl(targetUrl),
+                targetUrl,
+                "enterprise_disposition_writeback",
+                layerRole),
+            cancellationToken).ConfigureAwait(false);
 
         var referer = GetArcGisReferer(targetUrl);
         var metadataForm = new Dictionary<string, string>
@@ -405,7 +417,7 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         EnsureArcGisDispositionSuccess(updateResponse, "updateFeatures", layerRole);
     }
 
-    private static async Task UpdateFeatureServiceSpatialUnitReferenceAsync(
+    private async Task UpdateFeatureServiceSpatialUnitReferenceAsync(
         string targetUrl,
         string scopeField,
         string scopeValue,
@@ -413,11 +425,13 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         string spatialUnitApiStatus,
         CancellationToken cancellationToken)
     {
-        var token = GetPortalToken();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("ArcGIS Enterprise Spatial Unit reference writeback requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
-        }
+        var token = await portalAuthProvider.GetRequiredTokenAsync(
+            new PortalAuthRequest(
+                GetArcGisPortalUrl(targetUrl),
+                targetUrl,
+                "enterprise_spatial_unit_reference_writeback",
+                "case_index"),
+            cancellationToken).ConfigureAwait(false);
 
         var referer = GetArcGisReferer(targetUrl);
         var metadataForm = new Dictionary<string, string>
@@ -481,18 +495,20 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         EnsureArcGisDispositionSuccess(updateResponse, "updateFeatures", "case_index");
     }
 
-    private static async Task UpdateFeatureServicePolygonSpatialUnitReferencesAsync(
+    private async Task UpdateFeatureServicePolygonSpatialUnitReferencesAsync(
         string targetUrl,
         string scopeField,
         string scopeValue,
         IReadOnlyList<InnolaSpatialUnitPolygonReference> references,
         CancellationToken cancellationToken)
     {
-        var token = GetPortalToken();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("ArcGIS Enterprise polygon Spatial Unit SUID writeback requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
-        }
+        var token = await portalAuthProvider.GetRequiredTokenAsync(
+            new PortalAuthRequest(
+                GetArcGisPortalUrl(targetUrl),
+                targetUrl,
+                "enterprise_polygon_suid_writeback",
+                "polygons"),
+            cancellationToken).ConfigureAwait(false);
 
         var referer = GetArcGisReferer(targetUrl);
         var metadataForm = new Dictionary<string, string>
@@ -831,30 +847,10 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
         return new Uri(uri.GetLeftPart(UriPartial.Authority));
     }
 
-    private static string? GetPortalToken()
+    private static string GetArcGisPortalUrl(string targetUrl)
     {
-        return SelectPortalToken(
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Process),
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.User),
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Machine));
-    }
-
-    private static string? SelectPortalToken(string? processToken, string? userToken, string? machineToken)
-    {
-        return FirstNonBlank(userToken, processToken, machineToken);
-    }
-
-    private static string? FirstNonBlank(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
+        var referer = GetArcGisReferer(targetUrl);
+        return referer?.ToString().TrimEnd('/') ?? string.Empty;
     }
 
     private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken, Uri? referer = null)
@@ -883,7 +879,7 @@ public sealed class JsonEnterpriseWorkingDispositionService : IEnterpriseWorking
             var details = ReadJsonStringArray(error, "details");
             if (IsArcGisTokenError(error, message, details))
             {
-                throw new InvalidOperationException($"{operation} failed for {layerRole}: ArcGIS token is invalid or expired. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: ArcGIS token is invalid or expired. Sign into or refresh the configured ArcGIS Pro portal session, or provide a fresh fallback ARCGIS_PORTAL_TOKEN, then retry Finalize.");
             }
 
             var detailSuffix = details.Count == 0

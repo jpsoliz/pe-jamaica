@@ -1709,28 +1709,6 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(3448, spatialReference["wkid"]!.GetValue<int>(), "Enterprise geometry should include JAD2001 spatial reference.");
     }
 
-    public static void WorkflowSessionEnterprisePublishPrefersUserPortalTokenOverStaleProcessToken()
-    {
-        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
-            "SelectPortalToken",
-            BindingFlags.NonPublic | BindingFlags.Static);
-
-        var token = (string?)method?.Invoke(null, new object?[] { "stale-process-token", "fresh-user-token", "machine-token" });
-
-        TestAssert.Equal("fresh-user-token", token, "Enterprise publish should prefer the current user token over a stale process token.");
-    }
-
-    public static void WorkflowSessionEnterpriseDispositionPrefersUserPortalTokenOverStaleProcessToken()
-    {
-        var method = typeof(JsonEnterpriseWorkingDispositionService).GetMethod(
-            "SelectPortalToken",
-            BindingFlags.NonPublic | BindingFlags.Static);
-
-        var token = (string?)method?.Invoke(null, new object?[] { "stale-process-token", "fresh-user-token", "machine-token" });
-
-        TestAssert.Equal("fresh-user-token", token, "Enterprise disposition should prefer the current user token over a stale process token.");
-    }
-
     public static void WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors()
     {
         var response = new JsonObject

@@ -175,6 +175,11 @@ public sealed class SurveyPlanBoundarySolver
         var coordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
         {
+            if (IsDerivedFromReviewedSegments(row))
+            {
+                continue;
+            }
+
             var pointId = NormalizePointId(row.PointIdentifier);
             if (string.IsNullOrWhiteSpace(pointId))
             {
@@ -238,7 +243,9 @@ public sealed class SurveyPlanBoundarySolver
                 string.Equals(NormalizePointId(row.PointIdentifier), point.PointId, StringComparison.OrdinalIgnoreCase));
             if (existingRow is not null)
             {
-                if (!TryParseCoordinate(existingRow.Easting, out _) || !TryParseCoordinate(existingRow.Northing, out _))
+                if (IsDerivedFromReviewedSegments(existingRow)
+                    || !TryParseCoordinate(existingRow.Easting, out _)
+                    || !TryParseCoordinate(existingRow.Northing, out _))
                 {
                     ApplyDerivedCoordinateToExistingRow(existingRow, point);
                 }
@@ -281,6 +288,91 @@ public sealed class SurveyPlanBoundarySolver
                 }
             });
         }
+
+        ApplyReviewedBoundarySequence(document);
+    }
+
+    private static void ApplyReviewedBoundarySequence(ExtractionReviewDocument document)
+    {
+        var orderedPointIds = BuildReviewedBoundaryPointOrder(document);
+        if (orderedPointIds.Count == 0)
+        {
+            return;
+        }
+
+        var sequence = 1;
+        foreach (var pointId in orderedPointIds)
+        {
+            var row = document.Rows.FirstOrDefault(item =>
+                string.Equals(NormalizePointId(item.PointIdentifier), pointId, StringComparison.OrdinalIgnoreCase));
+            if (row is null)
+            {
+                continue;
+            }
+
+            row.SequenceInGroup = sequence++;
+            row.IsEdited = true;
+            row.RawRow["sequence"] = row.SequenceInGroup;
+            row.RawRow["seq"] = row.SequenceInGroup;
+            row.RawRow["review_sequence"] = row.SequenceInGroup;
+        }
+    }
+
+    private static bool IsDerivedFromReviewedSegments(ExtractionReviewRow row)
+    {
+        return string.Equals(row.ExtractionStatus, "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(row.RowProvenance, "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ReadRawString(row.RawRow, "status"), "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ReadRawString(row.RawRow, "row_provenance"), "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ReadRawString(JsonObject node, string propertyName)
+    {
+        return node[propertyName] is JsonValue value && value.TryGetValue<string>(out var text)
+            ? text
+            : null;
+    }
+
+    private static IReadOnlyList<string> BuildReviewedBoundaryPointOrder(ExtractionReviewDocument document)
+    {
+        var segments = document.Segments
+            .Where(segment => segment.EffectiveIncludeInBoundary)
+            .OrderBy(segment => segment.EffectiveSequence)
+            .ToArray();
+        if (segments.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var orderedPointIds = new List<string>();
+        var firstPoint = NormalizePointId(segments[0].EffectiveFromPoint);
+        if (!string.IsNullOrWhiteSpace(firstPoint))
+        {
+            orderedPointIds.Add(firstPoint);
+        }
+
+        foreach (var segment in segments)
+        {
+            var toPoint = NormalizePointId(segment.EffectiveToPoint);
+            if (string.IsNullOrWhiteSpace(toPoint))
+            {
+                continue;
+            }
+
+            if (orderedPointIds.Count > 0
+                && string.Equals(orderedPointIds[0], toPoint, StringComparison.OrdinalIgnoreCase)
+                && ReferenceEquals(segment, segments[^1]))
+            {
+                continue;
+            }
+
+            orderedPointIds.Add(toPoint);
+        }
+
+        return orderedPointIds
+            .Where(pointId => !string.IsNullOrWhiteSpace(pointId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static void ApplyDerivedCoordinateToExistingRow(ExtractionReviewRow row, SolverPoint point)

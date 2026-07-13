@@ -1,0 +1,222 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.SegmentEditDialogWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    x:ClassModifier="internal"
+                    Title="{Binding DialogTitle}"
+                    Width="520"
+                    Height="600"
+                    MinWidth="480"
+                    MinHeight="560"
+                    WindowStartupLocation="CenterOwner"
+                    Background="#F7F8FA">
+  <controls:ProWindow.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+  </controls:ProWindow.Resources>
+  <Grid Margin="14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Border Background="#EEF3F8"
+            BorderBrush="#C9D2D8"
+            BorderThickness="1"
+            CornerRadius="4"
+            Padding="12">
+      <StackPanel>
+        <TextBlock Text="{Binding DialogTitle}"
+                   FontSize="15"
+                   FontWeight="SemiBold"
+                   Foreground="#1F2933" />
+        <TextBlock Text="{Binding DialogSummary}"
+                   Margin="0,6,0,0"
+                   FontSize="12"
+                   Foreground="#52616B"
+                   TextWrapping="Wrap" />
+        <WrapPanel Margin="0,10,0,0">
+          <Border Background="#F3F6F7"
+                  BorderBrush="#C9D2D8"
+                  BorderThickness="1"
+                  CornerRadius="2"
+                  Padding="6,2"
+                  Margin="0,0,6,0">
+            <TextBlock Text="{Binding SegmentLabel}"
+                       FontSize="11"
+                       Foreground="#1F2933" />
+          </Border>
+          <Border Background="#F3F6F7"
+                  BorderBrush="#C9D2D8"
+                  BorderThickness="1"
+                  CornerRadius="2"
+                  Padding="6,2">
+            <TextBlock Text="{Binding Confidence, StringFormat=Confidence {0}}"
+                       FontSize="11"
+                       Foreground="#1F2933" />
+          </Border>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Grid.Row="1"
+                  Margin="0,12,0,12"
+                  VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <Border Background="#FFF1F1"
+                BorderBrush="#E7B5B5"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="8,6"
+                Margin="0,0,0,12"
+                Visibility="{Binding HasValidationSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <TextBlock Text="{Binding ValidationSummary}"
+                     Foreground="#B42318"
+                     TextWrapping="Wrap" />
+        </Border>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Sequence"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding Sequence, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="From point"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding FromPoint, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="To point"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding ToPoint, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Bearing"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding BearingText, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Distance"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding DistanceText, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <CheckBox Content="Use in boundary solver"
+                  IsChecked="{Binding IncludeInBoundary}"
+                  Margin="0,0,0,10" />
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Adjacent owner"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding AdjacentOwner, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Status"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding Status, UpdateSourceTrigger=PropertyChanged}" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Review notes"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBox Grid.Column="1"
+                   Text="{Binding ReviewNotes, UpdateSourceTrigger=PropertyChanged}"
+                   AcceptsReturn="True"
+                   TextWrapping="Wrap"
+                   VerticalScrollBarVisibility="Auto"
+                   MinHeight="96" />
+        </Grid>
+
+        <Grid Margin="0,0,0,10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Source"
+                     FontWeight="SemiBold"
+                     Margin="0,6,8,6" />
+          <TextBlock Grid.Column="1"
+                     Text="{Binding SourceLabel}"
+                     Margin="0,6,0,6"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap" />
+        </Grid>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <TextBlock Text="Save recalculates the reviewed boundary chain and preview."
+                 VerticalAlignment="Center"
+                 Foreground="#52616B"
+                 TextWrapping="Wrap"
+                 Margin="0,0,12,0" />
+      <StackPanel Grid.Column="1"
+                  Orientation="Horizontal">
+        <Button Content="Cancel"
+                Width="88"
+                Margin="0,0,8,0"
+                Click="CancelButton_Click" />
+        <Button Content="Save segment"
+                Width="112"
+                IsDefault="True"
+                Click="SaveButton_Click" />
+      </StackPanel>
+    </Grid>
+  </Grid>
+</controls:ProWindow>

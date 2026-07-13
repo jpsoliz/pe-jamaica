@@ -522,6 +522,12 @@
                        FontSize="11"
                        Foreground="#52616B"
                        TextWrapping="Wrap" />
+            <Button Content="Edit selected segment"
+                    Command="{Binding EditReviewSegmentCommand}"
+                    CommandParameter="{Binding SelectedVisibleSegment}"
+                    HorizontalAlignment="Left"
+                    Margin="0,6,0,0"
+                    Padding="8,2" />
           </StackPanel>
 
           <DataGrid Grid.Row="4"
@@ -529,7 +535,8 @@
                     SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
                     Visibility="{Binding HasStandardReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}"
                     Height="170"
-                    IsReadOnly="False"
+                    IsReadOnly="True"
+                    MouseDoubleClick="SegmentGrid_MouseDoubleClick"
                     AutoGenerateColumns="False"
                     HeadersVisibility="Column"
                     CanUserAddRows="False"
@@ -591,20 +598,16 @@
                       BorderThickness="1"
                       Padding="0"
                       Margin="0,0,0,0">
-            <TabItem Header="Plan Metadata">
+            <TabItem Header="General Info">
               <Grid Margin="10">
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto" />
                   <RowDefinition Height="1.5*" />
                   <RowDefinition Height="Auto" />
                   <RowDefinition Height="120" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="120" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="130" />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0"
-                           Text="{Binding PxaMetadataSummary}"
+                           Text="{Binding PxaGeneralInfoSummary}"
                            FontSize="11"
                            Foreground="#52616B"
                            TextWrapping="Wrap"
@@ -643,13 +646,58 @@
                   </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock Grid.Row="2"
-                           Text="Parties / Owners / Representatives"
+                           Text="Volume / Folio"
                            FontSize="11"
                            FontWeight="SemiBold"
                            Foreground="#1F2933"
                            TextWrapping="Wrap"
                            Margin="0,10,0,6" />
                 <DataGrid Grid.Row="3"
+                          ItemsSource="{Binding VisibleVolumeFolios}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Volume"
+                                        Binding="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Folio"
+                                        Binding="{Binding Folio, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Raw Text"
+                                        Binding="{Binding RawText, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="*" />
+                    <DataGridTextColumn Header="Source"
+                                        Binding="{Binding SourceLabel}"
+                                        Width="110"
+                                        IsReadOnly="True" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </TabItem>
+            <TabItem Header="Owners / Neighbors">
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="1.2*" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="1.2*" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0"
+                           Text="{Binding PxaOwnersNeighborsSummary}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6" />
+                <DataGrid Grid.Row="1"
                           ItemsSource="{Binding VisibleNamedParties}"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
@@ -679,49 +727,14 @@
                                         Width="90" />
                   </DataGrid.Columns>
                 </DataGrid>
-                <TextBlock Grid.Row="4"
-                           Text="Volume / Folio"
+                <TextBlock Grid.Row="2"
+                           Text="Adjacent Owners / Neighbors"
                            FontSize="11"
                            FontWeight="SemiBold"
                            Foreground="#1F2933"
                            TextWrapping="Wrap"
                            Margin="0,10,0,6" />
-                <DataGrid Grid.Row="5"
-                          ItemsSource="{Binding VisibleVolumeFolios}"
-                          IsReadOnly="False"
-                          AutoGenerateColumns="False"
-                          HeadersVisibility="Column"
-                          CanUserAddRows="False"
-                          CanUserDeleteRows="False"
-                          RowHeaderWidth="0"
-                          GridLinesVisibility="Horizontal"
-                          FontSize="11">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Volume"
-                                        Binding="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
-                    <DataGridTextColumn Header="Folio"
-                                        Binding="{Binding Folio, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
-                    <DataGridTextColumn Header="Raw Text"
-                                        Binding="{Binding RawText, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="*" />
-                    <DataGridTextColumn Header="Source"
-                                        Binding="{Binding SourceLabel}"
-                                        Width="110"
-                                        IsReadOnly="True" />
-                    <DataGridTextColumn Header="Status"
-                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
-                  </DataGrid.Columns>
-                </DataGrid>
-                <TextBlock Grid.Row="6"
-                           Text="{Binding PxaAdjacentOwnerSummary}"
-                           FontSize="11"
-                           Foreground="#52616B"
-                           TextWrapping="Wrap"
-                           Margin="0,10,0,6" />
-                <DataGrid Grid.Row="7"
+                <DataGrid Grid.Row="3"
                           ItemsSource="{Binding VisibleAdjacentOwners}"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
@@ -758,47 +771,68 @@
               </Grid>
             </TabItem>
             <TabItem Header="Boundary Segments">
-              <DataGrid ItemsSource="{Binding VisibleSegments}"
-                        SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
-                        IsReadOnly="False"
-                        AutoGenerateColumns="False"
-                        HeadersVisibility="Column"
-                        CanUserAddRows="False"
-                        CanUserDeleteRows="False"
-                        RowHeaderWidth="0"
-                        GridLinesVisibility="Horizontal"
-                        FontSize="11"
-                        Margin="10">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="Seq"
-                                      Binding="{Binding Sequence, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="48" />
-                  <DataGridTextColumn Header="From"
-                                      Binding="{Binding FromPoint, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="64" />
-                  <DataGridTextColumn Header="To"
-                                      Binding="{Binding ToPoint, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="64" />
-                  <DataGridTextColumn Header="Bearing"
-                                      Binding="{Binding BearingText, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="95" />
-                  <DataGridTextColumn Header="Distance"
-                                      Binding="{Binding DistanceText, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="80" />
-                  <DataGridCheckBoxColumn Header="Use"
-                                          Binding="{Binding IncludeInBoundary, UpdateSourceTrigger=PropertyChanged}"
-                                          Width="54" />
-                  <DataGridTextColumn Header="Adjacent Owner"
-                                      Binding="{Binding AdjacentOwner, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="130" />
-                  <DataGridTextColumn Header="Status"
-                                      Binding="{Binding Status, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="86" />
-                  <DataGridTextColumn Header="Notes"
-                                      Binding="{Binding ReviewNotes, UpdateSourceTrigger=PropertyChanged}"
-                                      Width="*" />
-                </DataGrid.Columns>
-              </DataGrid>
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel Grid.Row="0"
+                           LastChildFill="False"
+                           Margin="0,0,0,8">
+                  <TextBlock Text="Select a segment and edit it in the form. Double-click a row to open the same editor."
+                             FontSize="11"
+                             Foreground="#52616B"
+                             TextWrapping="Wrap" />
+                  <Button DockPanel.Dock="Right"
+                          Content="Edit segment"
+                          Command="{Binding EditReviewSegmentCommand}"
+                          CommandParameter="{Binding SelectedVisibleSegment}"
+                          Padding="8,2"
+                          Margin="8,0,0,0" />
+                </DockPanel>
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding VisibleSegments}"
+                          SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
+                          IsReadOnly="True"
+                          MouseDoubleClick="SegmentGrid_MouseDoubleClick"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Seq"
+                                        Binding="{Binding Sequence}"
+                                        Width="48" />
+                    <DataGridTextColumn Header="From"
+                                        Binding="{Binding FromPoint}"
+                                        Width="64" />
+                    <DataGridTextColumn Header="To"
+                                        Binding="{Binding ToPoint}"
+                                        Width="64" />
+                    <DataGridTextColumn Header="Bearing"
+                                        Binding="{Binding BearingText}"
+                                        Width="95" />
+                    <DataGridTextColumn Header="Distance"
+                                        Binding="{Binding DistanceText}"
+                                        Width="80" />
+                    <DataGridCheckBoxColumn Header="Use"
+                                            Binding="{Binding IncludeInBoundary}"
+                                            Width="54" />
+                    <DataGridTextColumn Header="Adjacent Owner"
+                                        Binding="{Binding AdjacentOwner}"
+                                        Width="130" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding Status}"
+                                        Width="86" />
+                    <DataGridTextColumn Header="Notes"
+                                        Binding="{Binding ReviewNotes}"
+                                        Width="*" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
             </TabItem>
             <TabItem Header="Points">
               <DataGrid ItemsSource="{Binding VisibleRows}"

@@ -117,6 +117,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand EditReviewPointCommand => parent.EditReviewPointCommand;
 
+    public ICommand EditReviewSegmentCommand => parent.EditReviewSegmentCommand;
+
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
     public ICommand CancelPendingManualPointCommand => parent.CancelPendingManualPointCommand;
@@ -162,6 +164,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public string PxaMetadataSummary => VisibleMetadataFields.Count > 0
         ? $"{VisibleMetadataFields.Count} survey metadata value(s), {VisibleNamedParties.Count} party / representative row(s), {VisibleVolumeFolios.Count} volume-folio row(s). Confirm extracted values before completing validation."
         : "No PXA survey metadata values were extracted yet.";
+
+    public string PxaGeneralInfoSummary => VisibleMetadataFields.Count > 0 || VisibleVolumeFolios.Count > 0
+        ? $"{VisibleMetadataFields.Count} general survey value(s), {VisibleVolumeFolios.Count} volume / folio row(s). Confirm document dates, instrument, surveyor, and registration details."
+        : "No PXA general survey information was extracted yet.";
+
+    public string PxaOwnersNeighborsSummary => VisibleNamedParties.Count > 0 || VisibleAdjacentOwners.Count > 0
+        ? $"{VisibleNamedParties.Count} party / representative row(s), {VisibleAdjacentOwners.Count} adjacent owner / neighbor reference(s). Link neighbors to reviewed boundary segments when visible on the plan."
+        : "No owner, representative, or neighbor references were extracted yet.";
 
     public string PxaAdjacentOwnerSummary => VisibleAdjacentOwners.Count > 0
         ? $"{VisibleAdjacentOwners.Count} adjacent owner / party reference(s). Link owners to reviewed boundary segments when visible on the plan."
@@ -330,6 +340,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             selectedVisibleSegment = value;
             OnPropertyChanged(nameof(SelectedVisibleSegment));
+            if (EditReviewSegmentCommand is RelayCommand command)
+            {
+                command.RaiseCanExecuteChanged();
+            }
         }
     }
 
@@ -539,6 +553,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         return parent.ContinueToCreateSpatialUnitsFromWorkspace();
     }
 
+    internal void EditSelectedSegment()
+    {
+        if (SelectedVisibleSegment is not null && EditReviewSegmentCommand.CanExecute(SelectedVisibleSegment))
+        {
+            EditReviewSegmentCommand.Execute(SelectedVisibleSegment);
+        }
+    }
+
     public bool DiscardUnsavedReviewChanges()
     {
         return parent.DiscardUnsavedReviewChangesFromWorkspace();
@@ -630,6 +652,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         RebuildVisibleMetadata();
         OnPropertyChanged(nameof(HasPxaMetadata));
         OnPropertyChanged(nameof(PxaMetadataSummary));
+        OnPropertyChanged(nameof(PxaGeneralInfoSummary));
+        OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
         OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
     }
 
@@ -686,6 +710,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SegmentReviewSummary));
                 OnPropertyChanged(nameof(HasPxaMetadata));
                 OnPropertyChanged(nameof(PxaMetadataSummary));
+                OnPropertyChanged(nameof(PxaGeneralInfoSummary));
+                OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
                 OnPropertyChanged(nameof(IsStandardPointReview));
@@ -742,6 +768,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SegmentReviewSummary));
                 OnPropertyChanged(nameof(HasPxaMetadata));
                 OnPropertyChanged(nameof(PxaMetadataSummary));
+                OnPropertyChanged(nameof(PxaGeneralInfoSummary));
+                OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
@@ -824,6 +852,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SegmentReviewSummary));
             OnPropertyChanged(nameof(HasPxaMetadata));
             OnPropertyChanged(nameof(PxaMetadataSummary));
+            OnPropertyChanged(nameof(PxaGeneralInfoSummary));
+            OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
             OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
             OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
             OnPropertyChanged(nameof(IsStandardPointReview));

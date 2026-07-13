@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
+using ParcelWorkflowAddIn.Enterprise.PortalAuth;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.Review;
 
@@ -61,15 +62,24 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
     private static readonly HttpClient HttpClient = new();
 
     private readonly Func<InnolaTransactionSettings> getSettings;
+    private readonly IPortalAuthProvider portalAuthProvider;
 
     public JsonEnterpriseWorkingLayerPublishService()
-        : this(InnolaTransactionSettings.Load)
+        : this(InnolaTransactionSettings.Load, CompositePortalAuthProvider.CreateDefault())
     {
     }
 
     internal JsonEnterpriseWorkingLayerPublishService(Func<InnolaTransactionSettings> getSettings)
+        : this(getSettings, CompositePortalAuthProvider.CreateDefault())
+    {
+    }
+
+    internal JsonEnterpriseWorkingLayerPublishService(
+        Func<InnolaTransactionSettings> getSettings,
+        IPortalAuthProvider portalAuthProvider)
     {
         this.getSettings = getSettings;
+        this.portalAuthProvider = portalAuthProvider;
     }
 
     public async Task<EnterpriseWorkingLayerPublishResult> PublishAsync(
@@ -389,7 +399,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return warnings;
     }
 
-    private static async Task<EnterpriseWorkingPublishedLayer> PublishLayerAsync(
+    private async Task<EnterpriseWorkingPublishedLayer> PublishLayerAsync(
         string targetPath,
         string layerRole,
         string transactionScopeField,
@@ -436,7 +446,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return new EnterpriseWorkingPublishedLayer(layerRole, targetPath, recordCount, removedExisting > 0);
     }
 
-    private static async Task<EnterpriseWorkingPublishedLayer> PublishFeatureServiceLayerAsync(
+    private async Task<EnterpriseWorkingPublishedLayer> PublishFeatureServiceLayerAsync(
         string targetUrl,
         string layerRole,
         string transactionScopeField,
@@ -444,11 +454,13 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         JsonObject payload,
         CancellationToken cancellationToken)
     {
-        var token = GetPortalToken();
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("ArcGIS Enterprise publish requires ARCGIS_PORTAL_TOKEN. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the current user or ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
-        }
+        var token = await portalAuthProvider.GetRequiredTokenAsync(
+            new PortalAuthRequest(
+                GetArcGisPortalUrl(targetUrl),
+                targetUrl,
+                "enterprise_working_publish",
+                layerRole),
+            cancellationToken).ConfigureAwait(false);
 
         var referer = GetArcGisReferer(targetUrl);
         var metadataForm = new Dictionary<string, string>
@@ -493,32 +505,6 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return new Uri(uri.GetLeftPart(UriPartial.Authority));
     }
 
-    private static string? GetPortalToken()
-    {
-        return SelectPortalToken(
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Process),
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.User),
-            Environment.GetEnvironmentVariable("ARCGIS_PORTAL_TOKEN", EnvironmentVariableTarget.Machine));
-    }
-
-    private static string? SelectPortalToken(string? processToken, string? userToken, string? machineToken)
-    {
-        return FirstNonBlank(userToken, processToken, machineToken);
-    }
-
-    private static string? FirstNonBlank(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
     private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken, Uri? referer = null)
     {
         using var content = new FormUrlEncodedContent(form);
@@ -535,6 +521,12 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return JsonNode.Parse(text)?.AsObject() ?? [];
+    }
+
+    private static string GetArcGisPortalUrl(string targetUrl)
+    {
+        var referer = GetArcGisReferer(targetUrl);
+        return referer?.ToString().TrimEnd('/') ?? string.Empty;
     }
 
     private static JsonArray BuildArcGisFeatures(JsonObject payload, string layerRole)
@@ -684,7 +676,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             var details = ReadJsonStringArray(error, "details");
             if (IsArcGisTokenError(error, message, details))
             {
-                throw new InvalidOperationException($"{operation} failed for {layerRole}: ArcGIS token is invalid or expired. Generate a fresh portal token, set ARCGIS_PORTAL_TOKEN for the ArcGIS Pro process, restart ArcGIS Pro if needed, then retry Finalize.");
+                throw new InvalidOperationException($"{operation} failed for {layerRole}: ArcGIS token is invalid or expired. Sign into or refresh the configured ArcGIS Pro portal session, or provide a fresh fallback ARCGIS_PORTAL_TOKEN, then retry Finalize.");
             }
 
             var detailSuffix = details.Count == 0

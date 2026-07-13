@@ -425,6 +425,91 @@ class ValidationAdapterTests(unittest.TestCase):
                 )
             )
 
+    def test_validation_adapter_uses_passed_pxa_boundary_solver_for_closure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "approved_review.json"
+            review_path = temp_path / "extraction_review_data.json"
+            output_path = temp_path / "validation_summary.json"
+            rules_path = temp_path / "rules.yaml"
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_id": "100000562",
+                        "payload": {"source_files": [{"file_type": ".pdf"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            approved_path.write_text(json.dumps({"review_hash": "hash-review"}), encoding="utf-8")
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100000562",
+                        "review_hash": "hash-review",
+                        "validation_profile": "single_parcel_survey_plan_v1",
+                        "boundary_solver": {
+                            "status": "passed",
+                            "geometry_source": "reviewed_boundary_segments",
+                            "closure_distance_m": 0,
+                            "computed_area_sq_m": 854.8521118164062,
+                            "document_area_sq_m": 854.807,
+                            "area_delta_percent": 0.005277427115855817,
+                        },
+                        "rows": [
+                            {"row_id": "15", "parcel_group_id": "parcel-001", "sequence_in_group": 2, "point_identifier": "15", "easting": "712897.345", "northing": "670582.156"},
+                            {"row_id": "17", "parcel_group_id": "parcel-001", "sequence_in_group": 5, "point_identifier": "17", "easting": "712856.553", "northing": "670563.653"},
+                            {"row_id": "16", "parcel_group_id": "parcel-001", "sequence_in_group": 4, "point_identifier": "16", "easting": "712897.659", "northing": "670558.591"},
+                            {"row_id": "18", "parcel_group_id": "parcel-001", "sequence_in_group": 1, "point_identifier": "18", "easting": "712864.006", "northing": "670585.112"},
+                            {"row_id": "derived-3", "parcel_group_id": "parcel-001", "sequence_in_group": 3, "point_identifier": "3", "easting": "712897.809", "northing": "670563.819"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rules_path.write_text(
+                "\n".join(
+                    [
+                        "rule_profile: sidwell_validation_v1",
+                        "rule_version: 1.0.0",
+                        "closure_tolerance_defaults:",
+                        "  rule_id: closure_standard_plan_exam",
+                        "  parcel_type: standard_closed",
+                        "  enabled: true",
+                        "  severity: blocker",
+                        "  allow_open_boundary: false",
+                        "  max_closure_distance_m: 0.3",
+                        "  min_misclose_ratio_denominator: 2500",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code = validation_adapter.main(
+                [
+                    "--manifest",
+                    str(manifest_path),
+                    "--approved-review",
+                    str(approved_path),
+                    "--review-data",
+                    str(review_path),
+                    "--output",
+                    str(output_path),
+                    "--rules",
+                    str(rules_path),
+                ]
+            )
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual("passed", summary["payload"]["status"])
+            self.assertEqual(0, summary["payload"]["closure_summary"]["blocker"])
+            self.assertEqual(1, summary["payload"]["closure_summary"]["passed"])
+            self.assertEqual("reviewed_boundary_segments", summary["payload"]["closure_results"][0]["geometry_source"])
+            self.assertIn("superseded", summary["payload"]["closure_results"][0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
