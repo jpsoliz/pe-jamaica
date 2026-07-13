@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-12
+# last_updated: 2026-07-13
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -73,7 +73,7 @@ development_status:
   2-18a-add-transaction-type-workflow-profiles-for-pe-and-pxa-source-requirements: review
   2-18-add-single-parcel-survey-plan-pdf-metadata-and-geometry-extraction: review
   2-19-implement-pxa-survey-plan-segment-review-and-deterministic-boundary-solver: review
-  2-20-add-pxa-survey-plan-metadata-review-model-and-ux: review
+  2-20-add-pxa-survey-plan-metadata-review-model-and-ux: done
   epic-2-retrospective: optional
 
   epic-3: backlog

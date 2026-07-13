@@ -33,6 +33,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly PreflightRuleCatalog preflightRuleCatalog = new PreflightRuleCatalogLoader().Load();
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly ParcelScopedManualPointService manualPointService = new();
+    private readonly ManualBoundarySegmentService manualBoundarySegmentService = new();
     private readonly ParcelScopedReviewValidationService reviewValidationService = new();
     private readonly SurveyPlanBoundarySolver surveyPlanBoundarySolver = new();
     private readonly RelayCommand createCaseCommand;
@@ -56,7 +57,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
     private readonly RelayCommand editReviewPointCommand;
+    private readonly RelayCommand addReviewSegmentCommand;
     private readonly RelayCommand editReviewSegmentCommand;
+    private readonly RelayCommand excludeReviewSegmentCommand;
     private readonly RelayCommand removeManualPointCommand;
     private readonly RelayCommand cancelPendingManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
@@ -136,7 +139,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode && !pointEditorOpen);
         editReviewPointCommand = new RelayCommand(EditSelectedReviewPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !IsManualReviewEditMode && !pointEditorOpen);
+        addReviewSegmentCommand = new RelayCommand(AddReviewSegment, () => HasLoadedReviewData && !IsReviewLocked && IsPxaSurveyPlanReview && !pointEditorOpen);
         editReviewSegmentCommand = new RelayCommand(EditReviewSegment, parameter => HasLoadedReviewData && !IsReviewLocked && parameter is ExtractionReviewSegmentViewModel && !pointEditorOpen);
+        excludeReviewSegmentCommand = new RelayCommand(ExcludeReviewSegment, parameter => HasLoadedReviewData && !IsReviewLocked && parameter is ExtractionReviewSegmentViewModel && !pointEditorOpen);
         removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !pointEditorOpen);
         cancelPendingManualPointCommand = new RelayCommand(CancelPendingManualPointEdit, () => CanCancelPendingManualPointEdit);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => CanSaveReviewChangesFromWorkspace);
@@ -461,7 +466,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand EditReviewPointCommand => editReviewPointCommand;
 
+    public ICommand AddReviewSegmentCommand => addReviewSegmentCommand;
+
     public ICommand EditReviewSegmentCommand => editReviewSegmentCommand;
+
+    public ICommand ExcludeReviewSegmentCommand => excludeReviewSegmentCommand;
 
     public ICommand RemoveManualPointCommand => removeManualPointCommand;
 
@@ -1552,8 +1561,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         SyncReviewMetadataBackToDocument();
         var beforeRowCount = loadedReviewDocument.Rows.Count;
         var result = surveyPlanBoundarySolver.Apply(loadedReviewDocument, ResolveReviewDocumentAreaSqM(loadedReviewDocument));
-        SyncReviewRowViewModelsFromDocument();
-        if (loadedReviewDocument.Rows.Count != beforeRowCount)
+        var rowsChanged = SyncReviewRowViewModelsFromDocument();
+        if (rowsChanged)
+        {
+            NotifyPropertyChanged(nameof(ReviewRows));
+        }
+
+        if (loadedReviewDocument.Rows.Count != beforeRowCount || rowsChanged)
         {
             reviewContentVersion++;
         }
@@ -1561,26 +1575,30 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         return result;
     }
 
-    private void SyncReviewRowViewModelsFromDocument()
+    private bool SyncReviewRowViewModelsFromDocument()
     {
         if (loadedReviewDocument is null)
         {
-            return;
+            return false;
         }
 
-        var knownRowIds = ReviewRows
+        var rowsChanged = false;
+        var knownRowsById = ReviewRows
             .Where(row => !string.IsNullOrWhiteSpace(row.RowId))
-            .Select(row => row.RowId)
-            .ToHashSet(StringComparer.Ordinal);
+            .ToDictionary(row => row.RowId, StringComparer.Ordinal);
         foreach (var row in loadedReviewDocument.Rows)
         {
-            if (!string.IsNullOrWhiteSpace(row.RowId) && knownRowIds.Contains(row.RowId))
+            if (!string.IsNullOrWhiteSpace(row.RowId) && knownRowsById.TryGetValue(row.RowId, out var existingRow))
             {
+                rowsChanged = existingRow.RefreshFromModel() || rowsChanged;
                 continue;
             }
 
             ReviewRows.Add(new ExtractionReviewRowViewModel(row, OnReviewRowChanged));
+            rowsChanged = true;
         }
+
+        return rowsChanged;
     }
 
     private static double? ResolveReviewDocumentAreaSqM(ExtractionReviewDocument document)
@@ -1912,6 +1930,56 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    private void AddReviewSegment()
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (!IsPxaSurveyPlanReview)
+        {
+            workflowSession.SetValidationFailure("Boundary segment add is available for PXA survey-plan review.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (loadedReviewDocument is null)
+        {
+            return;
+        }
+
+        var manualSegment = manualBoundarySegmentService.CreateManualSegment(loadedReviewDocument);
+        var reviewSegment = new ExtractionReviewSegmentViewModel(manualSegment, OnReviewSegmentChanged);
+        pointEditorOpen = true;
+        RefreshWorkflowProperties();
+        try
+        {
+            var dialogViewModel = new SegmentEditDialogViewModel(reviewSegment, isNewSegment: true);
+            var dialog = new SegmentEditDialogWindow(dialogViewModel);
+            if (dialog.ShowDialog() != true)
+            {
+                workflowSession.SetValidationFailure("Boundary segment add cancelled.");
+                return;
+            }
+
+            reviewSegment.SyncBackToModel();
+            loadedReviewDocument.Segments.Add(manualSegment);
+            ReviewSegments.Add(reviewSegment);
+            ApplyBoundarySolverIfAvailable();
+            reviewDirty = true;
+            reviewContentVersion++;
+            workflowSession.SetValidationFailure($"Boundary segment {reviewSegment.FromPoint}->{reviewSegment.ToPoint} added. Save review to persist the change.");
+        }
+        finally
+        {
+            pointEditorOpen = false;
+            RefreshWorkflowProperties();
+        }
+    }
+
     private void EditReviewSegment(object? parameter)
     {
         if (IsReviewLocked)
@@ -1951,6 +2019,37 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             pointEditorOpen = false;
             RefreshWorkflowProperties();
         }
+    }
+
+    private void ExcludeReviewSegment(object? parameter)
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (parameter is not ExtractionReviewSegmentViewModel targetSegment)
+        {
+            workflowSession.SetValidationFailure("Select a boundary segment before excluding it.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        targetSegment.IncludeInBoundary = false;
+        targetSegment.Status = "Excluded from boundary";
+        if (string.IsNullOrWhiteSpace(targetSegment.ReviewNotes))
+        {
+            targetSegment.ReviewNotes = "Excluded by examiner during segment review.";
+        }
+
+        targetSegment.SyncBackToModel();
+        ApplyBoundarySolverIfAvailable();
+        reviewDirty = true;
+        reviewContentVersion++;
+        workflowSession.SetValidationFailure($"Boundary segment {targetSegment.FromPoint}->{targetSegment.ToPoint} excluded from boundary. Save review to persist the change.");
+        RefreshWorkflowProperties();
     }
 
     private void CancelPendingManualPointEdit()
@@ -3330,6 +3429,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewSummary));
         NotifyPropertyChanged(nameof(ReviewSummaryText));
         NotifyPropertyChanged(nameof(ReviewValidationResult));
+        NotifyPropertyChanged(nameof(ReviewRows));
         NotifyPropertyChanged(nameof(ReviewSegments));
         NotifyPropertyChanged(nameof(ReviewMetadataFields));
         NotifyPropertyChanged(nameof(ReviewAdjacentOwners));
@@ -3474,7 +3574,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
         editReviewPointCommand.RaiseCanExecuteChanged();
+        addReviewSegmentCommand.RaiseCanExecuteChanged();
         editReviewSegmentCommand.RaiseCanExecuteChanged();
+        excludeReviewSegmentCommand.RaiseCanExecuteChanged();
         removeManualPointCommand.RaiseCanExecuteChanged();
         cancelPendingManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();

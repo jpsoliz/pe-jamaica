@@ -183,6 +183,58 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SequenceInGroup));
     }
 
+    public bool RefreshFromModel()
+    {
+        var previousPointIdentifier = pointIdentifier;
+        var previousEasting = easting;
+        var previousNorthing = northing;
+        var previousLength = length;
+        var previousExtractionStatus = extractionStatus;
+        var previousSourceEvidence = sourceEvidence;
+        var previousUnresolved = unresolved;
+        var previousUnresolvedReason = unresolvedReason;
+        var previousReviewNotes = reviewNotes;
+        var previousSequenceInGroup = SequenceInGroup;
+        var previousIsEdited = IsEdited;
+        var previousHasMissingRequiredValues = HasMissingRequiredValues;
+
+        pointIdentifier = Model.PointIdentifier;
+        easting = Model.Easting;
+        northing = Model.Northing;
+        length = Model.Length;
+        extractionStatus = Model.ExtractionStatus;
+        sourceEvidence = Model.SourceEvidence;
+        unresolved = Model.Unresolved;
+        unresolvedReason = Model.UnresolvedReason;
+        reviewNotes = Model.ReviewNotes;
+
+        NotifyIfChanged(previousPointIdentifier, pointIdentifier, nameof(PointIdentifier));
+        NotifyIfChanged(previousEasting, easting, nameof(Easting));
+        NotifyIfChanged(previousNorthing, northing, nameof(Northing));
+        NotifyIfChanged(previousLength, length, nameof(Length));
+        NotifyIfChanged(previousExtractionStatus, extractionStatus, nameof(ExtractionStatus));
+        NotifyIfChanged(previousSourceEvidence, sourceEvidence, nameof(SourceEvidence));
+        NotifyIfChanged(previousUnresolved, unresolved, nameof(Unresolved));
+        NotifyIfChanged(previousUnresolvedReason, unresolvedReason, nameof(UnresolvedReason));
+        NotifyIfChanged(previousReviewNotes, reviewNotes, nameof(ReviewNotes));
+        NotifyIfChanged(previousSequenceInGroup, SequenceInGroup, nameof(SequenceInGroup));
+        NotifyIfChanged(previousIsEdited, IsEdited, nameof(IsEdited));
+        NotifyIfChanged(previousHasMissingRequiredValues, HasMissingRequiredValues, nameof(HasMissingRequiredValues));
+
+        return !string.Equals(previousPointIdentifier, pointIdentifier, StringComparison.Ordinal)
+            || !string.Equals(previousEasting, easting, StringComparison.Ordinal)
+            || !string.Equals(previousNorthing, northing, StringComparison.Ordinal)
+            || !string.Equals(previousLength, length, StringComparison.Ordinal)
+            || !string.Equals(previousExtractionStatus, extractionStatus, StringComparison.Ordinal)
+            || !string.Equals(previousSourceEvidence, sourceEvidence, StringComparison.Ordinal)
+            || previousUnresolved != unresolved
+            || !string.Equals(previousUnresolvedReason, unresolvedReason, StringComparison.Ordinal)
+            || !string.Equals(previousReviewNotes, reviewNotes, StringComparison.Ordinal)
+            || previousSequenceInGroup != SequenceInGroup
+            || previousIsEdited != IsEdited
+            || previousHasMissingRequiredValues != HasMissingRequiredValues;
+    }
+
     public void ApplyCommittedEdit(PointEditDraft draft)
     {
         pointIdentifier = draft.PointIdentifier;
@@ -225,5 +277,13 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private void NotifyIfChanged<T>(T previous, T current, string propertyName)
+    {
+        if (!EqualityComparer<T>.Default.Equals(previous, current))
+        {
+            OnPropertyChanged(propertyName);
+        }
     }
 }

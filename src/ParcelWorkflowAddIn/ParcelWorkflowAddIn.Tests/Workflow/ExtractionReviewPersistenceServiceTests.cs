@@ -179,6 +179,49 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.True(!string.Equals(originalHash, editedHash, StringComparison.OrdinalIgnoreCase), "Segment edits should change the review hash.");
     }
 
+    public static void ManualSegmentSavePersistsAsManualSegment()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000674");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.20.0",
+              "transaction_number": "100000674",
+              "extraction_source": "survey_plan_ocr_vision",
+              "rows": [
+                { "point_id": "1", "easting": "1", "northing": "1" }
+              ],
+              "segments": []
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var manualSegment = new ManualBoundarySegmentService().CreateManualSegment(document);
+        manualSegment.ReviewFromPoint = "1";
+        manualSegment.ReviewToPoint = "2";
+        manualSegment.ReviewBearingText = "N07 54E";
+        manualSegment.ReviewDistanceText = "44.969";
+        manualSegment.ReviewLengthText = "44.969";
+        manualSegment.AdjacentOwner = "Road reservation";
+        manualSegment.ReviewNotes = "Added by examiner from source plan.";
+        document.Segments.Add(manualSegment);
+
+        service.Save(layout, document, "tester");
+        var reloaded = service.Load(layout)!;
+
+        TestAssert.Equal(1, reloaded.Segments.Count, "Manual segment should persist.");
+        TestAssert.True(reloaded.Segments[0].SegmentId.StartsWith("manual-segment-", StringComparison.Ordinal), "Manual segment id should persist.");
+        TestAssert.Equal("1", reloaded.Segments[0].ReviewFromPoint, "Manual segment from point should persist as reviewed value.");
+        TestAssert.Equal("2", reloaded.Segments[0].ReviewToPoint, "Manual segment to point should persist as reviewed value.");
+        TestAssert.Equal("N07 54E", reloaded.Segments[0].ReviewBearingText, "Manual segment bearing should persist as reviewed value.");
+        TestAssert.Equal("44.969", reloaded.Segments[0].ReviewDistanceText, "Manual segment distance should persist as reviewed value.");
+        TestAssert.Equal("Road reservation", reloaded.Segments[0].AdjacentOwner, "Manual segment adjacent owner should persist.");
+        TestAssert.True(reloaded.Segments[0].IsEdited, "Manual segment should reload as edited.");
+    }
+
     public static void LoadEditAndSaveReviewArtifactPersistsSurveyMetadataAndAdjacentOwners()
     {
         using var tempRoot = new TempDirectory();

@@ -8,6 +8,7 @@ namespace ParcelWorkflowAddIn;
 internal sealed class SegmentEditDialogViewModel : INotifyPropertyChanged
 {
     private readonly ExtractionReviewSegmentViewModel targetSegment;
+    private readonly bool isNewSegment;
     private string sequence;
     private string fromPoint;
     private string toPoint;
@@ -19,9 +20,10 @@ internal sealed class SegmentEditDialogViewModel : INotifyPropertyChanged
     private string reviewNotes;
     private string validationSummary = string.Empty;
 
-    internal SegmentEditDialogViewModel(ExtractionReviewSegmentViewModel targetSegment)
+    internal SegmentEditDialogViewModel(ExtractionReviewSegmentViewModel targetSegment, bool isNewSegment = false)
     {
         this.targetSegment = targetSegment;
+        this.isNewSegment = isNewSegment;
         sequence = targetSegment.Sequence?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
         fromPoint = targetSegment.FromPoint;
         toPoint = targetSegment.ToPoint;
@@ -35,9 +37,11 @@ internal sealed class SegmentEditDialogViewModel : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public string DialogTitle => "Edit Boundary Segment";
+    public string DialogTitle => isNewSegment ? "Add Boundary Segment" : "Edit Boundary Segment";
 
-    public string DialogSummary => "Update the reviewed boundary segment values. These values drive the PXA boundary solver and parcel preview.";
+    public string DialogSummary => isNewSegment
+        ? "Add a reviewed boundary segment from the source plan. Save Review persists it and reruns the boundary solver."
+        : "Update the reviewed boundary segment values. These values drive the PXA boundary solver and parcel preview.";
 
     public string SegmentLabel => $"{FromPoint} -> {ToPoint}";
 

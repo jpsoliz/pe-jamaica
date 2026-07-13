@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-07-08
 
 # Story 2.20: Add PXA Survey Plan Metadata Review Model And UX
 
-Status: review
+Status: done
 
 ## Story
 
@@ -79,6 +79,14 @@ The wireframe shows the intended PXA-only workspace pattern:
 
 13. Given automated tests run, then coverage proves PXA metadata persistence, segment-save solve/refresh behavior, adjacent-owner segment association, and non-PXA behavior preservation.
 
+14. Given the `Boundary Segments` tab is selected for a PXA review, then the user can add a new boundary segment from the segment tab using the same interaction standard already available for adding point rows.
+
+15. Given a user adds a boundary segment, then the form supports sequence, from point, to point, bearing, distance, adjacent owner, include/use flag, status, and notes, and the new segment is inserted into the reviewed segment collection before save/solve runs.
+
+16. Given a PXA review workspace is active, then PE-only global row action icons must not appear as a floating top toolbar above the PXA tabs.
+
+17. Given a PXA review workspace is active, then row actions are scoped to the active tab: segment actions appear in the `Boundary Segments` tab command area, point actions appear in the `Points` tab command area, and PE/non-PXA keeps its existing point-review controls unchanged.
+
 ## Tasks / Subtasks
 
 - [x] Add PXA metadata model and persistence. (AC: 3-5, 11-12)
@@ -114,6 +122,22 @@ The wireframe shows the intended PXA-only workspace pattern:
   - [x] Test save action runs solver and updates derived points.
   - [x] Test parcel preview refresh uses reviewed segments.
   - [x] Test PE/non-PXA review UI remains unchanged.
+
+- [x] Add PXA Boundary Segments row creation. (AC: 14-15)
+  - [x] Add an `Add segment` command in the `Boundary Segments` tab command area.
+  - [x] Reuse the existing segment edit dialog/form pattern so add and edit share field validation and review-state behavior.
+  - [x] Default the new segment sequence to the next available segment order and allow the examiner to revise it.
+  - [x] Persist newly added segments into `extraction_review_data.json`.
+  - [x] Run the deterministic boundary solver after saving added segments and refresh points, blockers, diagnostics, and preview.
+  - [x] Add coverage proving an added segment round-trips through save/reload and participates in solve/preview refresh.
+
+- [x] Clean up PXA row-action UX and PE-only toolbar leakage. (AC: 16-17)
+  - [x] Hide the current PE/global top row-action icons when the PXA tabbed review workspace is active.
+  - [x] Put segment actions inside the `Boundary Segments` tab as a compact tab-local command row: add, edit, delete/exclude as supported.
+  - [x] Put point actions inside the `Points` tab as a compact tab-local command row: add, edit, delete/exclude as supported.
+  - [x] Keep PE/non-PXA toolbar behavior unchanged.
+  - [x] Add tooltips/accessibility labels for icon-only commands and disable commands with clear status text when no row is selected.
+  - [x] Add a UI regression test or view-model test proving PXA does not expose the PE global action toolbar.
 
 ### Review Findings
 
@@ -244,6 +268,30 @@ The PXA review surface must make the construction roles clear:
 
 The parcel preview should reflect the solved reviewed segment chain, not stale point-row order.
 
+### Sally UX Recommendation: Tab-Scoped Commands
+
+The three floating action icons above the PXA tabs read as PE point-review controls leaking into the PXA workflow. For a cleaner PXA experience, remove that global icon cluster while the PXA review tabs are active and make commands live where the examiner's attention already is.
+
+Recommended command placement:
+
+```text
+Boundary Segments tab
+  + Add segment | Edit segment | Exclude/Delete segment
+
+Points tab
+  + Add point | Edit point | Exclude/Delete point
+```
+
+Keep these as compact icon buttons with tooltips and accessible names, but place them in the active tab header/command strip instead of above the tab set. The visible text button `Edit segment` can be replaced by the same command strip once `Add segment` exists, so the tab has one consistent action model.
+
+Behavior guidance:
+
+- `Add segment` should open the same editor shell as `Edit segment`, with blank/default values and the next sequence number prefilled.
+- Disable `Edit` and `Delete/Exclude` until a row is selected.
+- Prefer `Exclude from boundary` over destructive delete when the segment came from OCR/source evidence; allow delete only for examiner-added unsaved rows or clearly mark deletion as removing the review row, not the source evidence.
+- Keep `Save Review` as the commit point that persists changes and reruns the solver, matching the current segment-edit flow.
+- Preserve PE toolbar behavior for non-PXA review so this cleanup does not disrupt the existing PE transaction workflow.
+
 ### Validation Message Wording
 
 Replace generic `Needs attention` messaging with three distinct message groups:
@@ -302,6 +350,8 @@ Validation Complete is enabled when the `Blocking` group is empty. Warnings and 
 | 2026-07-12 | 1.4 | Revised PXA review tabs to split `General Info` from `Owners / Neighbors`, with Volume/Folio and survey facts moved to General Info. | Codex |
 | 2026-07-12 | 1.5 | Implemented the four-tab PXA review UX split in WPF and added separate General Info / Owners-Neighborhood summaries. | Codex |
 | 2026-07-12 | 1.6 | Patched UX wording so validation details separate blockers, warnings, and reviewed-segment resolutions, with Validation Complete gated only by active blockers. | Codex |
+| 2026-07-13 | 1.7 | Added follow-up dev requirements for PXA Boundary Segments `Add segment` and Sally UX guidance to remove PE-only global toolbar icons from the PXA tabbed workspace. | Mary / Sally / Codex |
+| 2026-07-13 | 1.8 | Implemented PXA tab-scoped segment/point commands, including Add segment and Exclude segment, with regression coverage. | Codex |
 
 ## Dev Agent Record
 
@@ -320,6 +370,9 @@ Validation Complete is enabled when the `Blocking` group is empty. Warnings and 
 - Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -- "review persistence saves pxa metadata" "review routing requires pxa"` after General Info / Owners-Neighborhood split: passed 2 targeted tests.
 - Ran `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln`: first attempt hit a transient `VBCSCompiler` file lock, rerun passed with the existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj`: passed 342 tests.
+- Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -- "manual boundary segment" "review persistence saves manual segment" "pxa review xaml"`: passed 3 targeted tests.
+- Ran `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln`: passed.
+- Ran `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj`: passed 355 tests.
 
 ### Completion Notes
 
@@ -336,6 +389,9 @@ Validation Complete is enabled when the `Blocking` group is empty. Warnings and 
 - Updated the target PXA tab model to `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points`; Volume/Folio, document dates, instrument make/no., and surveyor belong in `General Info`, while parties/owners/representatives/adjacent owners belong in `Owners / Neighbors`.
 - Implemented the WPF tab split so PXA review now presents `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points`.
 - Added separate review workspace summaries for `General Info` and `Owners / Neighbors`; Volume/Folio remains with general survey facts, while parties/representatives/adjacent owners are isolated in the people/neighborhood tab.
+- Added a manual boundary segment factory and PXA `Add segment` command that reuses the segment editor, defaults to the next segment sequence, and persists added segments through `extraction_review_data.json`.
+- Added PXA tab-scoped command strips: `Boundary Segments` owns add/edit/exclude segment actions, `Points` owns add/edit/remove point actions, and the PE/global point toolbar is hidden while PXA tabs are active.
+- Added regression coverage for manual segment defaults, manual segment save/reload, and PXA XAML command scoping.
 
 ### File List
 
@@ -344,12 +400,16 @@ Validation Complete is enabled when the `Blocking` group is empty. Warnings and 
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `_bmad-output/ux-artifacts/pxa-points-validation-metadata-segments-wireframe.png`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/JamaicaReviewWorkspaceXamlTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ExtractionReviewPersistenceServiceTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ManualBoundarySegmentServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceViewModel.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceWindow.xaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/SegmentEditDialogViewModel.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewMetadataViewModels.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewSegmentViewModel.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ManualBoundarySegmentService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/PxaSurveyPlanReviewRouting.cs`

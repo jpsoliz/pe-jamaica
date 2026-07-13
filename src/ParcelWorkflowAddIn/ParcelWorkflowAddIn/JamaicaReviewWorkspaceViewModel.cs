@@ -117,7 +117,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand EditReviewPointCommand => parent.EditReviewPointCommand;
 
+    public ICommand AddReviewSegmentCommand => parent.AddReviewSegmentCommand;
+
     public ICommand EditReviewSegmentCommand => parent.EditReviewSegmentCommand;
+
+    public ICommand ExcludeReviewSegmentCommand => parent.ExcludeReviewSegmentCommand;
 
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
@@ -325,6 +329,15 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedRowSummary));
             OnPropertyChanged(nameof(ParcelPreviewPoints));
             OnPropertyChanged(nameof(ParcelContextPreviewPaths));
+            if (EditReviewPointCommand is RelayCommand editCommand)
+            {
+                editCommand.RaiseCanExecuteChanged();
+            }
+
+            if (RemoveManualPointCommand is RelayCommand removeCommand)
+            {
+                removeCommand.RaiseCanExecuteChanged();
+            }
         }
     }
 
@@ -343,6 +356,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             if (EditReviewSegmentCommand is RelayCommand command)
             {
                 command.RaiseCanExecuteChanged();
+            }
+
+            if (ExcludeReviewSegmentCommand is RelayCommand excludeCommand)
+            {
+                excludeCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -962,7 +980,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
         if (actualPoints.All(item => item.HasValue))
         {
-            return ScaleToPreview(ClosePreviewRingIfNeeded(actualPoints.Select(item => item!.Value).ToArray()));
+            var source = actualPoints.Select(item => item!.Value).ToArray();
+            return ScaleToPreview(IsPxaSurveyPlanReview && VisibleSegments.Count > 0
+                ? source
+                : ClosePreviewRingIfNeeded(source));
         }
 
         return BuildSyntheticPreview(rows.Length);
@@ -999,20 +1020,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             .GroupBy(row => row.PointIdentifier.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        var orderedPointIds = new List<string>();
+        var orderedRows = new List<ExtractionReviewRowViewModel>();
         foreach (var segment in VisibleSegments
                      .Where(segment => segment.IncludeInBoundary)
                      .OrderBy(segment => segment.Sequence ?? int.MaxValue)
                      .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
                      .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase))
         {
-            AddPointIfKnown(segment.FromPoint);
-            AddPointIfKnown(segment.ToPoint);
+            AddSegmentPointIfKnown(segment.FromPoint);
+            AddSegmentPointIfKnown(segment.ToPoint);
         }
-
-        var orderedRows = orderedPointIds
-            .Select(pointId => rowsByPoint[pointId])
-            .ToList();
 
         foreach (var row in visibleRows)
         {
@@ -1024,17 +1041,20 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
         return orderedRows.ToArray();
 
-        void AddPointIfKnown(string? pointId)
+        void AddSegmentPointIfKnown(string? pointId)
         {
             var key = (pointId ?? string.Empty).Trim();
-            if (key.Length == 0
-                || !rowsByPoint.ContainsKey(key)
-                || orderedPointIds.Any(existing => string.Equals(existing, key, StringComparison.OrdinalIgnoreCase)))
+            if (key.Length == 0 || !rowsByPoint.TryGetValue(key, out var row))
             {
                 return;
             }
 
-            orderedPointIds.Add(key);
+            if (orderedRows.LastOrDefault() == row)
+            {
+                return;
+            }
+
+            orderedRows.Add(row);
         }
     }
 

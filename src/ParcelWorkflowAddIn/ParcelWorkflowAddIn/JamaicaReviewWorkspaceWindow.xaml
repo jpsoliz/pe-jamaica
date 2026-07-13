@@ -395,9 +395,11 @@
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
             <StackPanel DockPanel.Dock="Right"
-                        Orientation="Horizontal">
+                        Orientation="Horizontal"
+                        Visibility="{Binding IsStandardPointReview, Converter={StaticResource BooleanToVisibilityConverter}}">
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
                       Command="{Binding AddManualPointCommand}"
+                      AutomationProperties.Name="Add point"
                       ToolTip="Add point in editor">
                 <Viewbox Width="16" Height="16">
                   <Path Style="{StaticResource VectorIconPathStyle}"
@@ -406,6 +408,7 @@
               </Button>
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
                       Command="{Binding EditReviewPointCommand}"
+                      AutomationProperties.Name="Edit selected point"
                       ToolTip="Edit selected point in editor">
                 <Viewbox Width="16" Height="16">
                   <Path Style="{StaticResource VectorIconPathStyle}"
@@ -414,6 +417,7 @@
               </Button>
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
                       Command="{Binding RemoveManualPointCommand}"
+                      AutomationProperties.Name="Remove selected point"
                       ToolTip="Remove selected point">
                 <Viewbox Width="16" Height="16">
                   <Path Style="{StaticResource VectorIconPathStyle}"
@@ -783,12 +787,39 @@
                              FontSize="11"
                              Foreground="#52616B"
                              TextWrapping="Wrap" />
-                  <Button DockPanel.Dock="Right"
-                          Content="Edit segment"
-                          Command="{Binding EditReviewSegmentCommand}"
-                          CommandParameter="{Binding SelectedVisibleSegment}"
-                          Padding="8,2"
-                          Margin="8,0,0,0" />
+                  <StackPanel DockPanel.Dock="Right"
+                              Orientation="Horizontal"
+                              Margin="8,0,0,0">
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding AddReviewSegmentCommand}"
+                            AutomationProperties.Name="Add boundary segment"
+                            ToolTip="Add boundary segment">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource AddPointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding EditReviewSegmentCommand}"
+                            CommandParameter="{Binding SelectedVisibleSegment}"
+                            AutomationProperties.Name="Edit selected boundary segment"
+                            ToolTip="Edit selected boundary segment">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource EditPointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding ExcludeReviewSegmentCommand}"
+                            CommandParameter="{Binding SelectedVisibleSegment}"
+                            AutomationProperties.Name="Exclude selected boundary segment"
+                            ToolTip="Exclude selected boundary segment from boundary">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource RemovePointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                  </StackPanel>
                 </DockPanel>
                 <DataGrid Grid.Row="1"
                           ItemsSource="{Binding VisibleSegments}"
@@ -835,38 +866,83 @@
               </Grid>
             </TabItem>
             <TabItem Header="Points">
-              <DataGrid ItemsSource="{Binding VisibleRows}"
-                        SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
-                        IsReadOnly="True"
-                        AutoGenerateColumns="False"
-                        HeadersVisibility="Column"
-                        CanUserAddRows="False"
-                        CanUserDeleteRows="False"
-                        RowHeaderWidth="0"
-                        GridLinesVisibility="Horizontal"
-                        FontSize="11"
-                        Margin="10">
-                <DataGrid.Columns>
-                  <DataGridTextColumn Header="Point"
-                                      Binding="{Binding PointIdentifier}"
-                                      Width="90" />
-                  <DataGridTextColumn Header="Easting"
-                                      Binding="{Binding Easting}"
-                                      Width="105" />
-                  <DataGridTextColumn Header="Northing"
-                                      Binding="{Binding Northing}"
-                                      Width="105" />
-                  <DataGridTextColumn Header="Status"
-                                      Binding="{Binding ExtractionStatus}"
-                                      Width="115" />
-                  <DataGridTextColumn Header="Parcel"
-                                      Binding="{Binding ParcelGroupId}"
-                                      Width="100" />
-                  <DataGridTextColumn Header="Seq"
-                                      Binding="{Binding SequenceInGroup}"
-                                      Width="55" />
-                </DataGrid.Columns>
-              </DataGrid>
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel Grid.Row="0"
+                           LastChildFill="False"
+                           Margin="0,0,0,8">
+                  <TextBlock Text="Review printed, derived, and manually added points for this parcel."
+                             FontSize="11"
+                             Foreground="#52616B"
+                             TextWrapping="Wrap" />
+                  <StackPanel DockPanel.Dock="Right"
+                              Orientation="Horizontal"
+                              Margin="8,0,0,0">
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding AddManualPointCommand}"
+                            AutomationProperties.Name="Add point"
+                            ToolTip="Add point in editor">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource AddPointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding EditReviewPointCommand}"
+                            AutomationProperties.Name="Edit selected point"
+                            ToolTip="Edit selected point in editor">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource EditPointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                    <Button Style="{StaticResource ReviewActionIconButtonStyle}"
+                            Command="{Binding RemoveManualPointCommand}"
+                            AutomationProperties.Name="Remove selected point"
+                            ToolTip="Remove selected point">
+                      <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource VectorIconPathStyle}"
+                              Data="{StaticResource RemovePointIconGeometry}" />
+                      </Viewbox>
+                    </Button>
+                  </StackPanel>
+                </DockPanel>
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding VisibleRows}"
+                          SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
+                          IsReadOnly="True"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Point"
+                                        Binding="{Binding PointIdentifier}"
+                                        Width="90" />
+                    <DataGridTextColumn Header="Easting"
+                                        Binding="{Binding Easting}"
+                                        Width="105" />
+                    <DataGridTextColumn Header="Northing"
+                                        Binding="{Binding Northing}"
+                                        Width="105" />
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding ExtractionStatus}"
+                                        Width="115" />
+                    <DataGridTextColumn Header="Parcel"
+                                        Binding="{Binding ParcelGroupId}"
+                                        Width="100" />
+                    <DataGridTextColumn Header="Seq"
+                                        Binding="{Binding SequenceInGroup}"
+                                        Width="55" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
             </TabItem>
           </TabControl>
         </Grid>
