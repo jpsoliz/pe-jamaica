@@ -4,7 +4,7 @@ status: final
 sources:
   - _bmad-output/planning-artifacts/prds/prd-Sid-jamaica-2026-06-08/prd.md
   - _bmad-output/planning-artifacts/prds/prd-Sid-jamaica-2026-06-08/addendum.md
-updated: 2026-06-16
+updated: 2026-07-14
 ---
 
 # NLA Parcel Workflow Add-in - Experience Spine
@@ -28,9 +28,10 @@ Visual tokens live in `DESIGN.md`. Behavioral references use the visual token na
 | Preflight | After valid intake | Check required files, extensions, DWG readability, write access, ArcGIS/Python environment, coordinate/profile settings |
 | Extraction Review | After preflight passes | Run extraction, review extracted points/lines/segments/metadata, edit values, add missing data, approve review data |
 | Jamaica Review Workspace | Open from Extraction Review | Large examiner workspace for source verification, parcel grouping review, OCR/AI result correction, and parcel interpretation before spatial editing |
+| Compare Workspace | Open from transaction list when current task is Compare | Evidence reconciliation workspace for attached documents, transaction-scoped working geometry, legal owner records, fiscal neighbor records, and Compare decision |
 | Validation | After review approval | Run rules, inspect severity findings, see score/percentage where available, decide whether to continue or route to Manual Process |
 | Outputs | After validation path allows completion | Generate local GDB, GeoJSON, reports, logs, annotations where possible, and add outputs to ArcGIS Pro map |
-| Sync Readiness | After output creation | Show CADINDEX Sync Facade metadata and confirm no live Enterprise update is performed in v1 |
+| Commit / Sync Readiness | After Compare approval and output readiness | Show final-layer handoff metadata and confirm whether the transaction is ready to promote/commit into the authoritative layer |
 | Reports and Logs Viewer | Output links / status strip | Open HTML/PDF/JSON reports and processing logs from the Case Folder |
 | Settings/Profile | Pane menu | Configure optional AI/OCR, local-only mode, coordinate/profile defaults, and plaintext v1 credential profile warning |
 
@@ -66,6 +67,10 @@ Use "case", "transaction", "source files", "review data", "validation", "output"
 | Parcel group switcher | Jamaica Review Workspace | Shows parcel tabs or parcel chips when one source contains multiple parcels. Switching parcels updates the review grid, interpretation panel, and preview together. |
 | Parcel interpretation panel | Jamaica Review Workspace | Summarizes the active parcel, line sequence, closure/misclose, suspicious transitions, and unresolved row counts. It does not perform map edits. |
 | Parcel preview inset | Jamaica Review Workspace | Displays a compact traverse/parcel sketch for the active parcel and the currently selected row. It is only an orientation aid, not the authoritative spatial editor. |
+| Compare workspace shell | Compare Workspace | Preferred as a large floating workspace with three persistent regions: attached documents on the left, transaction-scoped map/geometry in the center, and ownership evidence plus decision controls on the right. |
+| Compare source document pane | Compare Workspace | Reuses the embedded source viewer pattern from Compute. Document switching must not clear query results or decision notes. |
+| Compare map panel | Compare Workspace | Loads working_review geometry filtered by the selected transaction scope, zooms to that extent, and presents geometry as read-only evidence. It must not expose COGO editing, add segment, point edit, or boundary correction actions. |
+| Ownership evidence panel | Compare Workspace | Groups survey plan interpretation, legal cadaster results, fiscal cadaster neighbor results, open discrepancies, and the final Compare decision. Query actions are explicit and evidence returned from each source remains separately labeled. |
 | Validation findings list | Validation | Groups by Critical, High, Warning, Info, Passed. Critical/high findings appear first. Each finding can open evidence/details. |
 | Manual Process decision panel | Validation | Appears when zero usable extraction/validation occurs or when user chooses manual path. Requires explicit user confirmation and records decision. |
 | Output artifact list | Outputs | Lists GDB, feature classes, GeoJSON, reports, and logs. Each artifact has open/reveal/add-to-map actions where applicable. |
@@ -88,6 +93,10 @@ Use "case", "transaction", "source files", "review data", "validation", "output"
 | Jamaica workspace approved | Jamaica Review Workspace | Review grid becomes read-only by default, parcel interpretation stays visible, and the handoff message points the user to `Map Review` for final spatial correction. |
 | Unsupported source type | Jamaica Review Workspace | The workspace keeps the extracted table active but replaces the embedded viewer with a fallback panel that explains why external opening is required. |
 | Review approved | Extraction Review | Lock approved data for validation unless user chooses Reopen Review. Record timestamp/operator when available. |
+| Compare loading | Compare Workspace | Attached documents, working geometry, and legal/fiscal evidence load independently. Each region shows its own loading or failure state so the examiner can keep context. |
+| Compare geometry unavailable | Compare Workspace | Show a blocker that names the missing working_review scope and disables Approve Compare. Document viewing and cadaster query fields remain available for investigation. |
+| Compare discrepancy open | Compare Workspace | Keep Approve Compare disabled or guarded by policy. The right evidence panel lists unresolved owner, volume/folio, parcel ID, or neighbor mismatches. |
+| Compare approved | Compare Workspace | Persist the Compare decision, reviewer, timestamp, queried evidence references, notes, and transaction scope. Commit becomes available only after this state is recorded. |
 | Critical validation failure | Validation | Automated output completion disabled. User may explicitly route to Manual Process. |
 | Output complete | Outputs | Show generated GDB, GeoJSON, HTML/PDF/JSON reports, logs, counts, and Add to Map option. |
 | Sync facade ready | Sync Readiness | Show result GDB and CADINDEX future target metadata. No publish/sync button in v1. |
@@ -141,6 +150,9 @@ For the Jamaica review workspace specifically:
 - Plaintext credential configuration is a v1 constraint. The UX should not expose raw secrets in logs, reports, or ordinary status views.
 - The Jamaica review workspace owns document verification, extracted-row correction, parcel grouping review, and review approval. It does not own parcel-fabric editing, snapping, or final map edits.
 - When one source document contains multiple parcels, parcel switching must be explicit. The UI cannot assume the next row always belongs to the next segment of the current parcel.
+- The Compare workspace owns evidence reconciliation only: plan evidence, working_review geometry context, legal ownership records, fiscal neighbor records, discrepancies, and the Compare decision.
+- Compare geometry is read-only by default. If the examiner finds a geometry problem, the UX should route back to Compute or a named correction route rather than silently allowing map edits inside Compare.
+- Legal cadaster and fiscal cadaster query results must remain visually distinct. A fiscal-neighbor match cannot be presented as legal owner confirmation.
 
 ## Key Flows
 
@@ -192,6 +204,17 @@ For the Jamaica review workspace specifically:
 5. **Climax:** ArcGIS Pro map receives the generated layers, and the Sync Readiness panel shows the result GDB as the future CADINDEX sync package.
 6. Failure: output GDB generation fails. The pane preserves prior artifacts, shows the failed step, and links to the process log.
 
+### Flow 6 - Compare ownership evidence reconciliation
+
+1. Nadia refreshes the transaction list and selects transaction `TR100000674`, whose current task is `Compare`.
+2. The add-in assigns or starts the task for Nadia according to Innola ownership rules, then opens the Compare workspace.
+3. The left pane loads attached transaction documents. The center pane loads `working_review` geometry filtered to the transaction number and zooms to the transaction extent.
+4. Nadia selects the survey plan PDF and checks the plan owner, parcel ID, and volume/folio against the legal cadaster query results.
+5. She runs fiscal cadaster neighbor lookup from the working polygon and reviews boundary neighbors against the plan labels.
+6. **Climax:** One fiscal neighbor is unresolved, so Nadia records a note and blocks Compare until the boundary-rights discrepancy is resolved.
+7. Success path: all owner and neighbor evidence aligns. Nadia selects `Approve Compare`, the add-in records the Compare decision artifact, and Commit becomes available.
+8. Failure: no working_review polygon is returned for the transaction scope. The workspace disables `Approve Compare`, keeps documents visible, and shows the exact missing scope field/value.
+
 ## Mock Coverage
 
 | Surface | Coverage |
@@ -202,6 +225,7 @@ For the Jamaica review workspace specifically:
 | Extraction Review | Mocked in `mockups/dock-pane-workflow.html` and `mockups/dock-pane-review-before-output.html` |
 | Jamaica Review Workspace - preferred floating layout | Mocked in `mockups/jamaica-cogo-review-workspace-floating.html` |
 | Jamaica Review Workspace - docked fallback layout | Mocked in `mockups/jamaica-cogo-review-workspace-docked.html` |
+| Compare Workspace - evidence reconciliation layout | Mocked in `mockups/compare-workspace-evidence-reconciliation.html` |
 | Zero-result extraction failure | Mocked in `mockups/dock-pane-failed-extraction-manual-process.html` |
 | Manual Process decision | Mocked in `mockups/dock-pane-failed-extraction-manual-process.html` |
 | Review-before-geometry lock | Mocked in `mockups/dock-pane-review-before-output.html` |

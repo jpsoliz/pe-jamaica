@@ -1,3 +1,4 @@
+using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Innola;
 using System.IO;
 using System.Text.Json;
@@ -69,6 +70,8 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Fallback review workspace mode warning mismatch.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback warning mismatch.");
         TestAssert.True(settings.ComputeWorkflowStagesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback compute workflow stage warning mismatch.");
+        TestAssert.Equal(0, settings.CompareWorkflowStages.Count, "Fallback compare workflow stages should be empty until configured.");
+        TestAssert.True(settings.CompareWorkflowStagesWarning?.Contains("not configured", StringComparison.OrdinalIgnoreCase) == true, "Fallback compare workflow stage warning mismatch.");
     }
 
     public static void InvalidSupportedTransactionTypesFallBackToSafeDefaults()
@@ -105,6 +108,66 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal("Compute Survey Plan", settings.ComputeWorkflowStages[0], "First compute workflow stage mismatch.");
         TestAssert.Equal("Compare Survey Plan", settings.ComputeWorkflowStages[1], "Second compute workflow stage mismatch.");
         TestAssert.Equal(null, settings.ComputeWorkflowStagesWarning, "Valid compute stage list should not produce a warning.");
+    }
+
+    public static void CompareWorkflowStagesLoadFromConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "compare_workflow_stages": [
+                "Compare",
+                "Compare Survey Plan",
+                "Compare"
+              ]
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(2, settings.CompareWorkflowStages.Count, "Compare workflow stage count mismatch.");
+        TestAssert.Equal("Compare", settings.CompareWorkflowStages[0], "First compare workflow stage mismatch.");
+        TestAssert.Equal("Compare Survey Plan", settings.CompareWorkflowStages[1], "Second compare workflow stage mismatch.");
+        TestAssert.Equal(null, settings.CompareWorkflowStagesWarning, "Valid compare stage list should not produce a warning.");
+    }
+
+    public static void CompareCadasterSettingsLoadFromConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "compare_cadaster_query_timeout_seconds": 45,
+              "compare_legal_cadaster": {
+                "enabled": true,
+                "source_name": "Legal cadaster",
+                "service_url": "https://example.test/legal/FeatureServer/0",
+                "parcel_id_field": "parcel_no",
+                "volume_field": "vol",
+                "folio_field": "fol",
+                "owner_field": "registered_owner"
+              },
+              "compare_fiscal_cadaster": {
+                "enabled": true,
+                "source_name": "Fiscal cadaster",
+                "service_url": "https://example.test/fiscal/FeatureServer/0",
+                "parcel_id_field": "pin",
+                "neighbor_relationship_field": "relation",
+                "boundary_side_field": "side",
+                "owner_field": "taxpayer"
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.Equal(45, settings.CompareCadaster.TimeoutSeconds, "Cadaster timeout mismatch.");
+        TestAssert.True(settings.CompareCadaster.Legal.Enabled, "Legal cadaster should be enabled.");
+        TestAssert.Equal("parcel_no", settings.CompareCadaster.Legal.ParcelIdField, "Legal parcel field mismatch.");
+        TestAssert.Equal("registered_owner", settings.CompareCadaster.Legal.OwnerField, "Legal owner field mismatch.");
+        TestAssert.True(settings.CompareCadaster.Fiscal.Enabled, "Fiscal cadaster should be enabled.");
+        TestAssert.Equal("relation", settings.CompareCadaster.Fiscal.NeighborRelationshipField, "Fiscal relationship field mismatch.");
+        TestAssert.Equal("taxpayer", settings.CompareCadaster.Fiscal.OwnerField, "Fiscal owner display field mismatch.");
+        TestAssert.Equal(null, settings.CompareCadaster.Warning, "Complete cadaster config should not warn.");
     }
 
     public static void MissingTransactionTypeProfilesFallBackToSafeDefaults()
@@ -241,8 +304,17 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.EnterpriseWorkingReview.Enabled, "Enterprise working review should be enabled.");
         TestAssert.Equal("jamaica_review", settings.EnterpriseWorkingReview.WorkspaceName, "Workspace name mismatch.");
         TestAssert.Equal(EnterpriseWorkingReviewSettings.PublishTimingOnComplete, settings.EnterpriseWorkingReview.PublishTiming, "Publish timing mismatch.");
+        TestAssert.Equal("transaction_number", settings.EnterpriseWorkingReview.TransactionScopeField, "Transaction scope field mismatch.");
         TestAssert.Equal("https://example/points", settings.EnterpriseWorkingReview.Layers.Points, "Points layer mismatch.");
         TestAssert.True(settings.EnterpriseWorkingReview.Warning?.Contains("issues layer", StringComparison.OrdinalIgnoreCase) == true, "Missing optional issues layer warning mismatch.");
+    }
+
+    public static void CheckedInEnterpriseWorkingConfigScopesCompareByTransactionId()
+    {
+        var settings = InnolaTransactionSettings.Load();
+
+        TestAssert.Equal("transaction_id", settings.EnterpriseWorkingReview.TransactionScopeField, "Compare working review should scope geometry by transaction_id for the configured Jamaica working_review layers.");
+        TestAssert.Equal("https://jm-gis.innola-solutions.com/portal", CompareWorkingGeometryService.ResolvePortalUrl(settings.EnterpriseWorkingReview.ServiceRoot), "Compare geometry auth should derive the Jamaica portal URL from the configured service root.");
     }
 
     public static void EnterpriseWorkingPublishTimingDefaultsToOnComplete()

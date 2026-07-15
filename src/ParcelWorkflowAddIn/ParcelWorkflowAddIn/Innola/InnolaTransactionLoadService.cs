@@ -122,20 +122,21 @@ public sealed class InnolaTransactionLoadService
             .ToArray();
         var resumeAttachment = await ResolveLatestResumeAttachmentAsync(session, selected, detail, resumeAttachments, cancellationToken);
         var sourceAttachments = detail.Attachments
-            .Where(attachment => !InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber))
+            .Where(attachment => !InnolaResumePackageConventions.IsSystemPackageAttachment(attachment, detail.TransactionNumber))
             .ToArray();
-        if ((sourceAttachments.Length == 0 && resumeAttachment is null)
-            || sourceAttachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
-        {
-            sessionManager.ClearLoadedTransaction();
-            return InnolaTransactionLoadResult.Failure("Transaction attachments are incomplete. Try again after Innola metadata is refreshed.");
-        }
-
         var outputRoot = getOutputRoot();
         if (string.IsNullOrWhiteSpace(outputRoot))
         {
             sessionManager.ClearLoadedTransaction();
             return InnolaTransactionLoadResult.Failure("Case Folder output location is not configured.");
+        }
+
+        var hasExistingCaseFolder = Directory.Exists(CaseFolderLayout.For(outputRoot, detail.TransactionNumber).RootDirectory);
+        if ((sourceAttachments.Length == 0 && resumeAttachment is null && !hasExistingCaseFolder)
+            || sourceAttachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure("Transaction attachments are incomplete. Try again after Innola metadata is refreshed.");
         }
 
         ResumePackageManifest? restoredResumeManifest = null;
@@ -350,11 +351,6 @@ public sealed class InnolaTransactionLoadService
             return null;
         }
 
-        if (resumeAttachments.Count == 1)
-        {
-            return resumeAttachments[0];
-        }
-
         var rankedCandidates = new List<(InnolaAttachmentMetadata Attachment, DateTimeOffset SavedAt)>();
         foreach (var attachment in resumeAttachments)
         {
@@ -375,11 +371,10 @@ public sealed class InnolaTransactionLoadService
                     continue;
                 }
 
-                if (!resumeManifest.TransactionNumber.Equals(selected.TransactionNumber, StringComparison.OrdinalIgnoreCase)
-                    || !resumeManifest.TaskId.Equals(selected.TaskId, StringComparison.OrdinalIgnoreCase))
+                if (!ResumeManifestMatchesSelectedTransaction(resumeManifest, selected))
                 {
                     Debug.WriteLine(
-                        $"Innola resume package candidate skipped due to transaction mismatch. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; ManifestTransaction={resumeManifest.TransactionNumber}; ManifestTask={resumeManifest.TaskId}.");
+                        $"Innola resume package candidate skipped due to transaction mismatch. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; ManifestTransaction={resumeManifest.TransactionNumber}; ManifestTask={resumeManifest.TaskId}; ManifestTransactionId={resumeManifest.TransactionId}.");
                     continue;
                 }
 
@@ -407,8 +402,8 @@ public sealed class InnolaTransactionLoadService
         if (rankedCandidates.Count == 0)
         {
             Debug.WriteLine(
-                $"Innola resume package selection fell back to first attachment. TransactionNumber={detail.TransactionNumber}; CandidateCount={resumeAttachments.Count}.");
-            return resumeAttachments[0];
+                $"Innola resume package selection skipped all candidates. TransactionNumber={detail.TransactionNumber}; CandidateCount={resumeAttachments.Count}.");
+            return null;
         }
 
         var selectedAttachment = rankedCandidates
@@ -419,6 +414,20 @@ public sealed class InnolaTransactionLoadService
         Debug.WriteLine(
             $"Innola resume package selected latest saved state. TransactionNumber={detail.TransactionNumber}; CandidateCount={rankedCandidates.Count}; Attachment={selectedAttachment.FileName}; AttachmentId={selectedAttachment.AttachmentId}.");
         return selectedAttachment;
+    }
+
+    private static bool ResumeManifestMatchesSelectedTransaction(
+        ResumePackageManifest resumeManifest,
+        SelectedInnolaTransaction selected)
+    {
+        if (!resumeManifest.TransactionNumber.Equals(selected.TransactionNumber, StringComparison.OrdinalIgnoreCase)
+            || !resumeManifest.TaskId.Equals(selected.TaskId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(selected.TransactionId)
+            || resumeManifest.TransactionId.Equals(selected.TransactionId, StringComparison.OrdinalIgnoreCase);
     }
 
     private CaseFolderPreparationResult CreateOrReopenCaseFolder(
@@ -472,9 +481,19 @@ public sealed class InnolaTransactionLoadService
         }
 
         var existing = manifest.Payload.InnolaTransaction;
-        return existing is null
-            || (existing.TaskId.Equals(detail.TaskId, StringComparison.OrdinalIgnoreCase)
-                && existing.TransactionNumber.Equals(detail.TransactionNumber, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            return true;
+        }
+
+        if (!existing.TransactionNumber.Equals(detail.TransactionNumber, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(existing.TransactionId)
+            || string.IsNullOrWhiteSpace(detail.TransactionId)
+            || existing.TransactionId.Equals(detail.TransactionId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool MatchesSelectedTransaction(SelectedInnolaTransaction selected, InnolaTransactionDetail detail)

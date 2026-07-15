@@ -19,6 +19,8 @@ public sealed record InnolaTransactionSettings(
     string? SupportedTransactionTypesWarning,
     IReadOnlyList<string> ComputeWorkflowStages,
     string? ComputeWorkflowStagesWarning,
+    IReadOnlyList<string> CompareWorkflowStages,
+    string? CompareWorkflowStagesWarning,
     IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
     string? ComputeAttachmentSourceTypesWarning,
     IReadOnlyList<ComputeTransactionTypeProfileDefinition> ComputeTransactionTypeProfiles,
@@ -31,6 +33,7 @@ public sealed record InnolaTransactionSettings(
     string ResumeAttachmentRegisteredType,
     string CompletedAttachmentRegisteredType,
     string? AttachmentRegisteredSpatialUnitId,
+    CompareCadasterQuerySettings CompareCadaster,
     InnolaClientCertificateSettings ClientCertificate)
 {
     public static IReadOnlyList<string> SafeDefaultSupportedTransactionTypes { get; } = new[]
@@ -45,6 +48,8 @@ public sealed record InnolaTransactionSettings(
         "Assign Computation Task",
         "Computation Check"
     };
+
+    public static IReadOnlyList<string> SafeDefaultCompareWorkflowStages { get; } = Array.Empty<string>();
 
     public const string ReviewWorkspaceModeNormal = "normal";
     public const string ReviewWorkspaceModeParcelFabricLocal = "parcel_fabric_local";
@@ -69,6 +74,8 @@ public sealed record InnolaTransactionSettings(
         null,
         SafeDefaultComputeWorkflowStages,
         null,
+        SafeDefaultCompareWorkflowStages,
+        "Compare workflow stages are not configured. Set compare_workflow_stages before enabling Compare transactions.",
         ComputeAttachmentSourceTypeCatalog.SafeDefaults,
         null,
         ComputeTransactionTypeProfileCatalog.SafeDefaults,
@@ -81,6 +88,7 @@ public sealed record InnolaTransactionSettings(
         "st_surveyplan",
         "st_surveyplan",
         null,
+        CompareCadasterQuerySettings.Default,
         InnolaClientCertificateSettings.Default);
 
     public static InnolaTransactionSettings Load()
@@ -98,6 +106,7 @@ public sealed record InnolaTransactionSettings(
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json was not found.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json was not found.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json was not found.",
+                CompareWorkflowStagesWarning = "Compare workflow stages are not configured because WorkflowSettings.json was not found.",
                 ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json was not found.",
                 ComputeTransactionTypeProfilesWarning = "Compute transaction type profiles are using safe defaults because WorkflowSettings.json was not found."
             };
@@ -113,6 +122,7 @@ public sealed record InnolaTransactionSettings(
             var enterpriseParcelFabricReview = EnterpriseParcelFabricReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
+            var compareWorkflowStages = ResolveCompareWorkflowStages(root);
             var computeAttachmentSourceTypes = ResolveComputeAttachmentSourceTypes(root);
             var computeTransactionTypeProfiles = ResolveComputeTransactionTypeProfiles(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
@@ -128,6 +138,7 @@ public sealed record InnolaTransactionSettings(
             var resumeAttachmentRegisteredType = ReadString(root, "innola_resume_attachment_registered_type") ?? Default.ResumeAttachmentRegisteredType;
             var completedAttachmentRegisteredType = ReadString(root, "innola_completed_attachment_registered_type") ?? Default.CompletedAttachmentRegisteredType;
             var attachmentRegisteredSpatialUnitId = ReadString(root, "innola_attachment_registered_spatial_unit_id");
+            var compareCadaster = CompareCadasterQuerySettings.FromJson(root);
             var certificate = InnolaClientCertificateSettings.FromJson(root);
             return new InnolaTransactionSettings(
                 InnolaHttp.NormalizeServerUrl(serverUrl),
@@ -144,6 +155,8 @@ public sealed record InnolaTransactionSettings(
                 supportedTypes.Warning,
                 computeWorkflowStages.Values,
                 computeWorkflowStages.Warning,
+                compareWorkflowStages.Values,
+                compareWorkflowStages.Warning,
                 computeAttachmentSourceTypes.Values,
                 computeAttachmentSourceTypes.Warning,
                 computeTransactionTypeProfiles.Values,
@@ -156,6 +169,7 @@ public sealed record InnolaTransactionSettings(
                 string.IsNullOrWhiteSpace(resumeAttachmentRegisteredType) ? Default.ResumeAttachmentRegisteredType : resumeAttachmentRegisteredType,
                 string.IsNullOrWhiteSpace(completedAttachmentRegisteredType) ? Default.CompletedAttachmentRegisteredType : completedAttachmentRegisteredType,
                 string.IsNullOrWhiteSpace(attachmentRegisteredSpatialUnitId) ? Default.AttachmentRegisteredSpatialUnitId : attachmentRegisteredSpatialUnitId,
+                compareCadaster,
                 certificate);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or UriFormatException)
@@ -165,6 +179,7 @@ public sealed record InnolaTransactionSettings(
                 ReviewWorkspaceModeWarning = "Review workspace mode is using the safe default because WorkflowSettings.json could not be parsed.",
                 SupportedTransactionTypesWarning = "Supported transaction types are using safe defaults because WorkflowSettings.json could not be parsed.",
                 ComputeWorkflowStagesWarning = "Compute workflow stages are using safe defaults because WorkflowSettings.json could not be parsed.",
+                CompareWorkflowStagesWarning = "Compare workflow stages are not configured because WorkflowSettings.json could not be parsed.",
                 ComputeAttachmentSourceTypesWarning = "Compute attachment source types are using safe defaults because WorkflowSettings.json could not be parsed.",
                 ComputeTransactionTypeProfilesWarning = "Compute transaction type profiles are using safe defaults because WorkflowSettings.json could not be parsed."
             };
@@ -298,6 +313,28 @@ public sealed record InnolaTransactionSettings(
             "compute_workflow_stages",
             SafeDefaultComputeWorkflowStages,
             "Compute workflow stages");
+    }
+
+    private static NamedStringListResolution ResolveCompareWorkflowStages(JsonElement root)
+    {
+        if (!root.TryGetProperty("compare_workflow_stages", out var value))
+        {
+            return new NamedStringListResolution(
+                SafeDefaultCompareWorkflowStages,
+                "Compare workflow stages are not configured because compare_workflow_stages is missing.");
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return new NamedStringListResolution(
+                SafeDefaultCompareWorkflowStages,
+                "Compare workflow stages are not configured because compare_workflow_stages is not a valid list.");
+        }
+
+        var resolution = ResolveNamedStringList(root, "compare_workflow_stages", SafeDefaultCompareWorkflowStages, "Compare workflow stages");
+        return resolution.Values.Count == 0
+            ? resolution with { Warning = resolution.Warning ?? "Compare workflow stages are not configured." }
+            : resolution;
     }
 
     private static ComputeAttachmentSourceTypeResolution ResolveComputeAttachmentSourceTypes(JsonElement root)
@@ -1065,6 +1102,118 @@ public sealed record EnterpriseWorkingLayerTargets(
     {
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
+            : null;
+    }
+}
+
+public sealed record CompareCadasterQuerySettings(
+    CadasterSourceSettings Legal,
+    CadasterSourceSettings Fiscal,
+    int TimeoutSeconds,
+    string? Warning)
+{
+    public static CompareCadasterQuerySettings Default { get; } = new(
+        CadasterSourceSettings.Disabled("legal_cadaster", "parcel_id", "volume", "folio", "owner_name"),
+        CadasterSourceSettings.Disabled("fiscal_cadaster", "parcel_id", null, null, "taxpayer_display"),
+        30,
+        null);
+
+    public static CompareCadasterQuerySettings FromJson(JsonElement root)
+    {
+        var timeout = ReadPositiveInt(root, "compare_cadaster_query_timeout_seconds") ?? Default.TimeoutSeconds;
+        var legal = CadasterSourceSettings.FromJson(root, "compare_legal_cadaster", Default.Legal);
+        var fiscal = CadasterSourceSettings.FromJson(root, "compare_fiscal_cadaster", Default.Fiscal);
+        return new CompareCadasterQuerySettings(
+            legal with { Warning = null },
+            fiscal with { Warning = null },
+            timeout,
+            legal.Warning ?? fiscal.Warning);
+    }
+
+    private static int? ReadPositiveInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var number)
+            && number > 0
+                ? number
+                : null;
+    }
+}
+
+public sealed record CadasterSourceSettings(
+    bool Enabled,
+    string SourceName,
+    string? ServiceUrl,
+    string ParcelIdField,
+    string? VolumeField,
+    string? FolioField,
+    string? OwnerField,
+    string? NeighborRelationshipField,
+    string? BoundarySideField,
+    string? Warning)
+{
+    public static CadasterSourceSettings Disabled(
+        string sourceName,
+        string parcelIdField,
+        string? volumeField,
+        string? folioField,
+        string? ownerField)
+    {
+        return new CadasterSourceSettings(
+            false,
+            sourceName,
+            null,
+            parcelIdField,
+            volumeField,
+            folioField,
+            ownerField,
+            null,
+            null,
+            null);
+    }
+
+    public static CadasterSourceSettings FromJson(JsonElement root, string propertyName, CadasterSourceSettings fallback)
+    {
+        if (!root.TryGetProperty(propertyName, out var value))
+        {
+            return fallback;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return fallback with { Warning = $"{propertyName} is not a valid object." };
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? fallback.Enabled;
+        var serviceUrl = ReadString(value, "service_url") ?? fallback.ServiceUrl;
+        var warning = enabled && string.IsNullOrWhiteSpace(serviceUrl)
+            ? $"{propertyName} is enabled but service_url is not configured."
+            : null;
+        return new CadasterSourceSettings(
+            enabled,
+            ReadString(value, "source_name") ?? fallback.SourceName,
+            serviceUrl,
+            ReadString(value, "parcel_id_field") ?? fallback.ParcelIdField,
+            ReadString(value, "volume_field") ?? fallback.VolumeField,
+            ReadString(value, "folio_field") ?? fallback.FolioField,
+            ReadString(value, "owner_field") ?? fallback.OwnerField,
+            ReadString(value, "neighbor_relationship_field") ?? fallback.NeighborRelationshipField,
+            ReadString(value, "boundary_side_field") ?? fallback.BoundarySideField,
+            warning);
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
             : null;
     }
 }

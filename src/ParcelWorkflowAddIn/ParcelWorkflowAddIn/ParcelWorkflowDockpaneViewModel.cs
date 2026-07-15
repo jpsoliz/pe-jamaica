@@ -158,9 +158,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         previousReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(-1), () => CanGoToPreviousReviewViewerPage);
         nextReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(1), () => CanGoToNextReviewViewerPage);
         openExperimentalReviewWorkspaceCommand = new RelayCommand(async () => await OpenExperimentalReviewWorkspaceAsync(), () => CanOpenExperimentalReviewWorkspace);
-        startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => ShellState.Session.CanStartOrClaimTransaction);
-        suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => ShellState.Session.CanSaveProgress);
-        cancelProcessCommand = new RelayCommand(async () => await CancelProcessAsync(), () => ShellState.Session.CanCancelActiveProcess);
+        startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => CanUseWorkflowActions && ShellState.Session.CanStartOrClaimTransaction);
+        suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => CanUseWorkflowActions && ShellState.Session.CanSaveProgress);
+        cancelProcessCommand = new RelayCommand(async () => await CancelProcessAsync(), () => CanUseWorkflowActions && ShellState.Session.CanCancelActiveProcess);
         completeTransactionCommand = new RelayCommand(async () => await CompleteTransactionAsync(), () => CanCompleteTransaction);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
@@ -396,7 +396,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool ShowOutputsSummary => (HasOutputArtifacts || CurrentWorkflowState is WorkflowState.ValidationPassed or WorkflowState.OutputRunning or WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved) && !IsOutputsStageActive;
 
-    public bool CanUseWorkflowActions => ShellState.Session.CanOpenParcelWorkflow;
+    public bool CanUseWorkflowActions => ShellState.CanOpenComputeWorkflow;
 
     public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunStructureCheck;
 
@@ -422,7 +422,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanApproveSpatialReview => CanUseWorkflowActions && workflowSession.CanApproveSpatialReview;
 
-    public bool CanCompleteTransaction => ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
+    public bool CanCompleteTransaction => CanUseWorkflowActions && ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
 
     public ICommand CreateCaseCommand => createCaseCommand;
 
@@ -2684,6 +2684,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public async Task StartOrClaimTransactionAsync()
     {
+        if (!CanUseWorkflowActions)
+        {
+            workflowSession.SetValidationFailure("Selected transaction belongs to Compare stage. Use Compare workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
         var result = await ShellState.LifecycleCoordinator.StartOrClaimAsync();
         if (!result.Success)
         {
@@ -2695,6 +2702,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public async Task SuspendTransactionAsync()
     {
+        if (!CanUseWorkflowActions)
+        {
+            workflowSession.SetValidationFailure("Selected transaction belongs to Compare stage. Use Compare workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
         if (MessageBox.Show(
                 "Suspend this case and save the current state back to Innola so it can be resumed later?",
                 "Suspend Transaction",
@@ -2723,6 +2737,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public async Task SaveProgressAsync()
     {
+        if (!CanUseWorkflowActions)
+        {
+            workflowSession.SetValidationFailure("Selected transaction belongs to Compare stage. Use Compare workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
         var result = await ShellState.LifecycleCoordinator.SaveProgressAsync();
         if (!result.Success)
         {
@@ -2734,6 +2755,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public async Task CancelProcessAsync()
     {
+        if (!CanUseWorkflowActions)
+        {
+            workflowSession.SetValidationFailure("Selected transaction belongs to Compare stage. Use Compare workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
         if (MessageBox.Show(
                 "Discard the current local session and close this transaction without creating a new resume package?",
                 "Cancel Transaction",
@@ -2764,6 +2792,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         ComputeReviewDecision decision = ComputeReviewDecision.Approved,
         string? comment = null)
     {
+        if (!CanUseWorkflowActions)
+        {
+            workflowSession.SetValidationFailure("Selected transaction belongs to Compare stage. Use Compare workspace.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
         if (MessageBox.Show(
                 "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
                 "Finalize Compute Review",
@@ -3901,6 +3936,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 ResetWorkflowView(ShellState.Session.LifecycleStatusText ?? "No active case");
             }
 
+            return;
+        }
+
+        if (!ShellState.IsSelectedTransactionComputeWorkflow)
+        {
+            ResetWorkflowView("Selected transaction belongs to Compare stage. Use Compare workspace.");
             return;
         }
 

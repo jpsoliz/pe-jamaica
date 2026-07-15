@@ -249,7 +249,8 @@ internal static class TransactionPanelStateTests
             null,
             clock,
             supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
-            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" });
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: Array.Empty<string>());
 
         await panel.RefreshAsync();
         panel.SelectedRow = panel.Rows[0];
@@ -259,6 +260,125 @@ internal static class TransactionPanelStateTests
         TestAssert.True(!manager.IsTransactionLoaded, "Unsupported workflow stage should not load a case folder.");
         TestAssert.Equal("Transaction TR100000004 cannot be opened because task 'Compare Survey Plan' is not configured for Parcel Workflow [Compute]. Supported tasks: Assign Computation Task, Computation Check, Compute Survey Plan.", panel.StatusText, "Unsupported workflow stage status mismatch.");
         TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported workflow stage should surface a matching blocking error.");
+    }
+
+    public static async Task CompareWorkflowStageLoadsSelectedTransaction()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" });
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.LoadSelectedTransactionAsync();
+
+        TestAssert.Equal("TR100000004", manager.SelectedTransaction?.TransactionNumber, "Compare workflow stage should become selected in session state.");
+        TestAssert.True(manager.IsTransactionLoaded, "Compare workflow stage should load a case folder.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "Compare load should not enable workflow actions before start.");
+        TestAssert.True(panel.CanStartTransaction, "Compare workflow stage should be startable after load.");
+    }
+
+    public static async Task CompareWorkflowStageStartsAndLaunchesCompareWorkspace()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var launchedTransactions = new List<string>();
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
+            compareWorkspaceLauncher: transactionNumber => launchedTransactions.Add(transactionNumber));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Compare start should claim the transaction before launch.");
+        TestAssert.Equal(1, launchedTransactions.Count, "Compare workspace should launch once.");
+        TestAssert.Equal("TR100000004", launchedTransactions[0], "Compare workspace launch transaction mismatch.");
+        TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed Compare transaction should keep active transaction gates enabled.");
+    }
+
+    public static void CompareWorkflowStageDoesNotResolveAsComputeWorkspace()
+    {
+        var computeStages = new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" };
+        var compareStages = new[] { "Compare", "Compare Survey Plan" };
+
+        var compareRoute = ParcelWorkflowStageRouter.Resolve("Compare Survey Plan", computeStages, compareStages);
+        var computeRoute = ParcelWorkflowStageRouter.Resolve("Computation Check", computeStages, compareStages);
+
+        TestAssert.Equal(ParcelWorkflowStageRoute.Compare, compareRoute, "Compare Survey Plan must route to Compare.");
+        TestAssert.Equal(ParcelWorkflowStageRoute.Compute, computeRoute, "Computation Check must route to Compute.");
+        TestAssert.True(!ParcelWorkflowStageRouter.IsComputeStage("Compare Survey Plan", computeStages, compareStages), "Compare stages must not enable the Compute workspace.");
+    }
+
+    public static async Task CompareWorkflowStageDoesNotLaunchWhenOwnershipStartFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var launchedTransactions = new List<string>();
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock, lifecycleService: new FailingClaimLifecycleService()),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
+            compareWorkspaceLauncher: transactionNumber => launchedTransactions.Add(transactionNumber));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(0, launchedTransactions.Count, "Compare workspace must not launch when ownership/start fails.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.Loaded, manager.LifecycleStatus, "Failed Compare claim should preserve the loaded transaction state.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "Failed Compare claim should not enable active workflow gates.");
+        TestAssert.True(panel.StatusText.Contains("already in progress", StringComparison.OrdinalIgnoreCase), "Ownership failure should surface a retryable ownership message.");
     }
 
     public static async Task StartActionLoadsAndClaimsTransaction()
@@ -736,12 +856,13 @@ internal static class TransactionPanelStateTests
     private static InnolaTransactionLifecycleCoordinator LifecycleCoordinator(
         InnolaSessionManager manager,
         Func<DateTimeOffset> clock,
-        ITransactionCompletionReadinessService? readinessService = null)
+        ITransactionCompletionReadinessService? readinessService = null,
+        IInnolaTransactionLifecycleService? lifecycleService = null)
     {
         return new InnolaTransactionLifecycleCoordinator(
             manager,
             new MockInnolaTransactionDetailService(),
-            new MockInnolaTransactionLifecycleService(),
+            lifecycleService ?? new MockInnolaTransactionLifecycleService(),
             new MockInnolaSpatialUnitService(),
             readinessService ?? new DefaultTransactionCompletionReadinessService(),
             new WorkflowLifecycleAuditService(clock),
@@ -840,6 +961,26 @@ internal static class TransactionPanelStateTests
         public ActiveTransactionSwitchDecision Decide(SelectedInnolaTransaction activeTransaction, InnolaTransactionRow requestedTransaction)
         {
             return decision;
+        }
+    }
+
+    private sealed class FailingClaimLifecycleService : IInnolaTransactionLifecycleService
+    {
+        public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Failure(
+                "Transaction is already in progress by another user.",
+                "ownership_conflict"));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Failure("Not claimed.", "ownership_conflict"));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Failure("Not claimed.", "ownership_conflict"));
         }
     }
 

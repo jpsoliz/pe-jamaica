@@ -114,6 +114,17 @@ public static class PortalAuthProviderTests
         TestAssert.True(!result.ToString().Contains("pro-session-token", StringComparison.Ordinal), "Diagnostics should not expose active portal token.");
     }
 
+    public static void ArcGisProProviderAcceptsActiveRootForConfiguredPortalPath()
+    {
+        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeRootPortalManager));
+
+        var result = provider.GetTokenAsync(new PortalAuthRequest("https://portal.example/portal", null, "publish")).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Provider should accept an active same-host root portal for a configured /portal URL.");
+        TestAssert.Equal("pro-session-token", result.Token, "Provider should return active portal token after root-vs-portal normalization.");
+        TestAssert.Equal(ArcGisProPortalAuthProvider.SourceName, result.Source, "Success source should identify ArcGIS Pro session auth.");
+    }
+
     public static void ArcGisProProviderFallsBackWhenTokenMethodThrows()
     {
         var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeThrowingTokenPortalManager));
@@ -308,6 +319,26 @@ public static class PortalAuthProviderTests
     private sealed class FakePortal
     {
         public Uri PortalUri { get; } = new("https://portal.example/portal");
+
+        public string GetToken()
+        {
+            return "pro-session-token";
+        }
+    }
+
+    private sealed class FakeRootPortalManager
+    {
+        public static FakeRootPortalManager Current { get; } = new();
+
+        public FakeRootPortal GetActivePortal()
+        {
+            return new FakeRootPortal();
+        }
+    }
+
+    private sealed class FakeRootPortal
+    {
+        public Uri PortalUri { get; } = new("https://portal.example");
 
         public string GetToken()
         {

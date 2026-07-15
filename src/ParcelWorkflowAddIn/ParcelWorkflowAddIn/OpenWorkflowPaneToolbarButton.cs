@@ -12,6 +12,9 @@ internal sealed class OpenWorkflowPaneToolbarButton : Button
 
     protected override void OnClick()
     {
-        ParcelWorkflowDockpaneViewModel.Show();
+        if (MapReviewToolbarContext.TryGetWorkflowPane()?.CanUseWorkflowActions == true)
+        {
+            ParcelWorkflowDockpaneViewModel.Show();
+        }
     }
 }

@@ -39,6 +39,35 @@ internal static class InnolaResumePackageConventions
 
         return attachment.FileName.StartsWith(ResumeAttachmentPrefix, StringComparison.OrdinalIgnoreCase);
     }
+
+    public static bool IsCompletedPackageAttachment(InnolaAttachmentMetadata attachment, string transactionNumber)
+    {
+        if (!".zip".Equals(attachment.Extension, StringComparison.OrdinalIgnoreCase)
+            && !attachment.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var expectedName = BuildCompletedAttachmentFileName(transactionNumber);
+        if (attachment.FileName.Equals(expectedName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(attachment.Category)
+            && attachment.Category.Contains(CompletedSourceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return attachment.FileName.StartsWith(CompletedAttachmentPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsSystemPackageAttachment(InnolaAttachmentMetadata attachment, string transactionNumber)
+    {
+        return IsResumePackageAttachment(attachment, transactionNumber)
+            || IsCompletedPackageAttachment(attachment, transactionNumber);
+    }
 }
 
 public sealed record InnolaAttachmentUploadResult(

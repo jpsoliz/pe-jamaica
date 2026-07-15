@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compare Workspace - Evidence Reconciliation</title>
+  <style>
+    :root {
+      --surface-base: #F7F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF2F4;
+      --surface-inset: #F3F6F7;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --success: #2F7D4F;
+      --warning: #B7791F;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #D6DEE4;
+      color: var(--text-primary);
+      padding: 22px;
+      font-size: 12px;
+    }
+    .window {
+      width: 1500px;
+      min-height: 880px;
+      margin: 0 auto;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 18px 40px rgba(31, 41, 51, 0.18);
+      display: flex;
+      flex-direction: column;
+    }
+    .titlebar {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 13px 16px 12px;
+    }
+    .title-row, .meta-row, .stage-row, .action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .title-row h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .meta-row {
+      margin-top: 6px;
+      color: var(--text-secondary);
+    }
+    .stage-row {
+      margin-top: 11px;
+      justify-content: flex-start;
+    }
+    .stage {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 4px;
+      padding: 5px 10px;
+      color: var(--text-secondary);
+    }
+    .stage.done {
+      background: #EAF5EE;
+      border-color: #B8D4C2;
+      color: #1F5D3B;
+    }
+    .stage.active {
+      background: #E7F3F5;
+      border-color: var(--primary);
+      color: #154F57;
+      font-weight: 600;
+    }
+    .stage.locked {
+      color: var(--text-muted);
+      background: #F1F3F5;
+    }
+    .pill {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 2px;
+      padding: 2px 7px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pill.success { background: #EAF5EE; border-color: #B8D4C2; color: #1F5D3B; }
+    .pill.warning { background: #F7E7C2; border-color: #D8B46D; color: #6B4A00; }
+    .pill.danger { background: #FDECEC; border-color: #D8A4A1; color: #8D1E13; }
+    .pill.info { background: #E9F1FA; border-color: #AFC4DE; color: #1F4E83; }
+    .btn {
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      color: var(--text-primary);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 12px;
+      min-height: 28px;
+    }
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+    .btn.danger {
+      color: var(--danger);
+      border-color: #D8A4A1;
+      background: #FFF8F8;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: 355px 10px minmax(0, 1fr) 10px 390px;
+      gap: 0;
+      padding: 14px;
+      flex: 1;
+      min-height: 0;
+    }
+    .splitter {
+      background: #E1E8ED;
+      border-left: 1px solid #D5DDE3;
+      border-right: 1px solid #F7F8FA;
+      margin: 0 8px;
+      border-radius: 4px;
+    }
+    .panel {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 11px 12px 9px;
+      border-bottom: 1px solid var(--border-default);
+      background: #FCFDFE;
+    }
+    .panel-header h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .panel-header p {
+      margin: 4px 0 0;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+    .panel-body {
+      padding: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+    .doc-select {
+      width: 100%;
+      border: 1px solid var(--border-default);
+      border-radius: 3px;
+      height: 28px;
+      padding: 0 8px;
+      background: white;
+      color: var(--text-primary);
+      margin-bottom: 10px;
+    }
+    .doc-tools, .map-tools, .query-tools {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 9px;
+    }
+    .icon-btn {
+      width: 30px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .pdf-page {
+      height: 520px;
+      border: 1px solid var(--border-strong);
+      background:
+        linear-gradient(90deg, transparent 0 72%, rgba(255, 215, 0, 0.42) 72% 76%, transparent 76%),
+        #FAFAFA;
+      position: relative;
+      overflow: hidden;
+    }
+    .pdf-page:before {
+      content: "";
+      position: absolute;
+      left: 28px;
+      right: 28px;
+      top: 64px;
+      height: 1px;
+      background: #2F353B;
+      box-shadow: 0 82px 0 #2F353B, 0 164px 0 #2F353B, 0 246px 0 #2F353B, 0 328px 0 #2F353B;
+      opacity: .5;
+    }
+    .plan-shape {
+      position: absolute;
+      left: 42px;
+      top: 170px;
+      width: 190px;
+      height: 140px;
+      border-left: 3px solid #9B1C1C;
+      border-bottom: 3px solid #9B1C1C;
+      transform: skew(-8deg);
+    }
+    .pdf-label {
+      position: absolute;
+      font-size: 10px;
+      color: #2B2F33;
+      background: rgba(255,255,255,.72);
+      padding: 1px 3px;
+    }
+    .pdf-label.one { left: 48px; top: 152px; }
+    .pdf-label.two { left: 196px; top: 304px; }
+    .source-note {
+      margin-top: 10px;
+      padding: 10px;
+      background: var(--surface-inset);
+      border: 1px solid #DCE4E8;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+    .map-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) 180px;
+      gap: 10px;
+      height: 100%;
+      min-height: 0;
+    }
+    .scope-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #EDF6F7;
+      border: 1px solid #C6DDE1;
+      border-radius: 4px;
+    }
+    .map-area {
+      border: 1px solid var(--border-default);
+      background: #E8ECE8;
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .map-area svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .map-chip {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 78%;
+    }
+    .zoom-box {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      display: grid;
+      gap: 4px;
+    }
+    .geometry-note {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      right: 12px;
+      padding: 8px 10px;
+      background: rgba(255,255,255,.88);
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+    .review-table {
+      border: 1px solid var(--border-default);
+      overflow: hidden;
+      background: white;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 12px;
+    }
+    th {
+      text-align: left;
+      background: #F2F5F7;
+      color: var(--text-secondary);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-default);
+      padding: 6px 7px;
+    }
+    td {
+      border-bottom: 1px solid #E4EAEE;
+      padding: 6px 7px;
+      white-space: nowrap;
+    }
+    tr.selected td {
+      background: #E9F3F5;
+      outline: 1px solid #A8CAD0;
+      outline-offset: -1px;
+    }
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      border-radius: 50%;
+      margin-right: 5px;
+      background: var(--success);
+    }
+    .status-dot.warn { background: var(--warning); }
+    .evidence-card {
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      background: #FFFFFF;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .evidence-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px 10px;
+      border-bottom: 1px solid #E3E9ED;
+      background: #FCFDFE;
+    }
+    .evidence-head strong {
+      font-size: 12px;
+    }
+    .evidence-body {
+      padding: 9px 10px;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+    .field-grid {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 6px 8px;
+      margin-top: 8px;
+    }
+    .field-label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .compare-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .compare-row {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 6px;
+      padding: 6px;
+      background: var(--surface-inset);
+      border: 1px solid #DCE4E8;
+      border-radius: 4px;
+    }
+    .decision-panel {
+      border: 1px solid #C6DDE1;
+      background: #EDF6F7;
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 8px;
+    }
+    .decision-panel h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 76px;
+      resize: vertical;
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      padding: 7px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 12px;
+    }
+    .footer {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .footer .left {
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="Compare workspace mockup">
+    <header class="titlebar">
+      <div class="title-row">
+        <h1>Compare Workspace</h1>
+        <div>
+          <span class="pill success">Signed in: examiner.jm</span>
+          <span class="pill info">Assigned to me</span>
+          <span class="pill">Transaction TR100000674</span>
+        </div>
+      </div>
+      <div class="meta-row">
+        <div>Transaction type: Compute Survey Plan · Current task: Compare · Working layer scope: transaction_number = 100000674</div>
+        <div>Last loaded: 14/Jul/2026 10:42</div>
+      </div>
+      <div class="stage-row" aria-label="Workflow stages">
+        <span class="stage done">1 Compute complete</span>
+        <span class="stage active">2 Compare active</span>
+        <span class="stage locked">3 Commit locked</span>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Attached Documents</h2>
+          <p>Survey plan evidence and transaction files stay visible while ownership records are checked.</p>
+        </div>
+        <div class="panel-body">
+          <select class="doc-select" aria-label="Attached document">
+            <option>DOC_PLAN_492318.pdf</option>
+            <option>Survey worksheet.pdf</option>
+            <option>Transaction memo.pdf</option>
+          </select>
+          <div class="doc-tools">
+            <div>
+              <button class="icon-btn" title="Previous page">‹</button>
+              <button class="icon-btn" title="Next page">›</button>
+              <button class="icon-btn" title="Zoom in">+</button>
+              <button class="icon-btn" title="Zoom out">−</button>
+            </div>
+            <button class="btn">Open externally</button>
+          </div>
+          <div class="pdf-page" aria-label="PDF preview placeholder">
+            <div class="plan-shape"></div>
+            <span class="pdf-label one">Vol. 1051 Fol. 505</span>
+            <span class="pdf-label two">Lot 33 · Joseph Palmer</span>
+          </div>
+          <div class="source-note">
+            Source focus: compare the plan owner, volume/folio, parcel ID, and neighbor labels against legal and fiscal cadaster records.
+          </div>
+        </div>
+      </aside>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div class="title-row">
+            <div>
+              <h2>Working Review Geometry</h2>
+              <p>Read-only transaction geometry loaded from Enterprise working_review and zoomed to the selected transaction extent.</p>
+            </div>
+            <div>
+              <button class="btn">Reload geometry</button>
+              <button class="btn">Zoom to transaction</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel-body map-shell">
+          <div class="scope-bar">
+            <div>
+              <strong>Loaded scope:</strong> 1 polygon · 11 boundary segments · 10 points
+            </div>
+            <div>
+              <span class="pill success">Geometry ready</span>
+              <span class="pill info">Read-only</span>
+            </div>
+          </div>
+          <div class="map-area">
+            <div class="map-chip">
+              <span class="pill">Working polygon</span>
+              <span class="pill">Legal cadaster overlay</span>
+              <span class="pill">Fiscal neighbors</span>
+            </div>
+            <div class="zoom-box">
+              <button class="icon-btn" title="Zoom in">+</button>
+              <button class="icon-btn" title="Zoom out">−</button>
+              <button class="icon-btn" title="Full transaction extent">□</button>
+            </div>
+            <svg viewBox="0 0 760 430" role="img" aria-label="Transaction map preview">
+              <rect x="0" y="0" width="760" height="430" fill="#E8ECE8"/>
+              <path d="M38 122 L188 118 L194 256 L58 278 Z" fill="#CFE7D6" stroke="#8AA99A" stroke-width="2"/>
+              <path d="M568 104 L694 118 L682 268 L540 250 Z" fill="#CFE7D6" stroke="#8AA99A" stroke-width="2"/>
+              <path d="M214 92 L486 132 L462 318 L176 286 Z" fill="rgba(31,107,117,.18)" stroke="#1F6B75" stroke-width="4"/>
+              <path d="M462 318 L628 182 L676 174 L704 264 Z" fill="rgba(31,107,117,.12)" stroke="#1F6B75" stroke-width="4"/>
+              <path d="M486 132 L628 182" fill="none" stroke="#1F6B75" stroke-width="4"/>
+              <circle cx="214" cy="92" r="5" fill="#B42318"/>
+              <circle cx="486" cy="132" r="5" fill="#B42318"/>
+              <circle cx="462" cy="318" r="5" fill="#B42318"/>
+              <circle cx="176" cy="286" r="5" fill="#B42318"/>
+              <circle cx="628" cy="182" r="5" fill="#B42318"/>
+              <text x="226" y="86" font-size="12" fill="#1F2933">parcel 100000674</text>
+              <text x="262" y="122" font-size="11" fill="#1F2933">N93 49W · 85.173m</text>
+              <text x="328" y="316" font-size="11" fill="#1F2933">Boundary 44-2 · 38.099m</text>
+              <text x="48" y="110" font-size="11" fill="#52616B">Fiscal neighbor</text>
+              <text x="580" y="94" font-size="11" fill="#52616B">Legal cadaster</text>
+            </svg>
+            <div class="geometry-note">
+              Geometry is for context and feature selection only in Compare. Boundary edits belong to Compute or an explicit correction route.
+            </div>
+          </div>
+          <div class="review-table">
+            <table aria-label="Boundary and neighbor evidence table">
+              <thead>
+                <tr>
+                  <th>Boundary</th>
+                  <th>Plan owner / neighbor</th>
+                  <th>Legal record</th>
+                  <th>Fiscal record</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td>1-2</td>
+                  <td>Joseph Palmer</td>
+                  <td>Vol.1051 Fol.505</td>
+                  <td>Parcel 110900205</td>
+                  <td><span class="status-dot"></span>Matched</td>
+                </tr>
+                <tr>
+                  <td>2-9</td>
+                  <td>Road reservation</td>
+                  <td>Public road</td>
+                  <td>Road corridor</td>
+                  <td><span class="status-dot"></span>Matched</td>
+                </tr>
+                <tr>
+                  <td>9-10</td>
+                  <td>Unknown note</td>
+                  <td>No owner returned</td>
+                  <td>Parcel 110900211</td>
+                  <td><span class="status-dot warn"></span>Needs review</td>
+                </tr>
+                <tr>
+                  <td>44-2</td>
+                  <td>Added closing boundary</td>
+                  <td>Vol.1051 Fol.505</td>
+                  <td>Parcel 110900206</td>
+                  <td><span class="status-dot"></span>Matched</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Ownership Evidence</h2>
+          <p>Query legal and fiscal cadaster records, compare results, then record the Compare decision.</p>
+        </div>
+        <div class="panel-body">
+          <div class="query-tools">
+            <button class="btn primary">Query parcel ID</button>
+            <button class="btn">Query volume/folio</button>
+            <button class="btn">Find neighbors</button>
+          </div>
+
+          <div class="evidence-card">
+            <div class="evidence-head">
+              <strong>Survey plan interpretation</strong>
+              <span class="pill info">From Compute</span>
+            </div>
+            <div class="evidence-body">
+              <div class="field-grid">
+                <div class="field-label">Owner</div><div>Joseph Palmer</div>
+                <div class="field-label">Parcel ID</div><div>110900206</div>
+                <div class="field-label">Volume/Folio</div><div>1051 / 505</div>
+                <div class="field-label">Plan ref.</div><div>PE:492318</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="evidence-card">
+            <div class="evidence-head">
+              <strong>Legal cadaster</strong>
+              <span class="pill success">2 matches</span>
+            </div>
+            <div class="evidence-body">
+              Registered owner returned for parcel ID and volume/folio.
+              <div class="compare-list">
+                <div class="compare-row"><span class="status-dot"></span><span>Owner name aligns with survey plan</span><span>Pass</span></div>
+                <div class="compare-row"><span class="status-dot"></span><span>Volume/Folio aligns with plan note</span><span>Pass</span></div>
+                <div class="compare-row"><span class="status-dot warn"></span><span>One boundary neighbor lacks legal owner return</span><span>Review</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="evidence-card">
+            <div class="evidence-head">
+              <strong>Fiscal cadaster neighbors</strong>
+              <span class="pill warning">1 open item</span>
+            </div>
+            <div class="evidence-body">
+              Adjacent fiscal parcels intersect the working polygon extent. One neighbor requires examiner confirmation.
+              <div class="field-grid">
+                <div class="field-label">North</div><div>Parcel 110900205 · matched</div>
+                <div class="field-label">East</div><div>Road corridor · matched</div>
+                <div class="field-label">South</div><div>Parcel 110900211 · needs review</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="decision-panel">
+            <h3>Compare Decision</h3>
+            <div class="compare-list">
+              <div class="compare-row"><span class="status-dot"></span><span>Working geometry loaded from Enterprise</span><span>Done</span></div>
+              <div class="compare-row"><span class="status-dot"></span><span>Legal owner checked</span><span>Done</span></div>
+              <div class="compare-row"><span class="status-dot warn"></span><span>Neighbor evidence reviewed</span><span>Open</span></div>
+            </div>
+            <textarea aria-label="Decision notes">Confirm fiscal neighbor for boundary 9-10 before approving Compare.</textarea>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="footer">
+      <div class="left">
+        Compare is scoped to ownership, boundary-rights, and neighbor evidence. Geometry correction is a separate route.
+      </div>
+      <div class="action-row">
+        <button class="btn">Save progress</button>
+        <button class="btn danger">Return to Compute</button>
+        <button class="btn">Block Compare</button>
+        <button class="btn primary">Approve Compare</button>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

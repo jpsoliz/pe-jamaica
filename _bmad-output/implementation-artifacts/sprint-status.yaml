@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-13
+# last_updated: 2026-07-15
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -142,3 +142,13 @@ development_status:
   7-12-create-innola-compute-review-web-map-view-for-completed-transactions: in-progress
   7-13-add-internal-arcgis-portal-auth-provider-for-enterprise-operations: review
   epic-7-retrospective: optional
+
+  epic-8: in-progress
+  8-1-add-compare-stage-gating-and-transaction-launch: review
+  8-2-load-compare-documents-and-transaction-scoped-working-review-geometry: review
+  8-3-build-compare-workspace-evidence-reconciliation-ux: review
+  8-4-add-legal-and-fiscal-cadaster-query-services-for-compare: review
+  8-4a-add-manual-compare-evidence-search-and-result-curation-ui: review
+  8-5-persist-compare-decision-and-unlock-commit-stage: review
+  8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
+  epic-8-retrospective: optional

@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Net.Http;
@@ -49,6 +50,13 @@ internal static class ShellState
         ResumePackages,
         planCheckService: PlanChecks);
 
+    public static CompareWorkspaceLoadService CompareWorkspaceLoader { get; } = new(
+        Session,
+        TransactionLoader,
+        new CompareWorkingGeometryService(
+            InnolaTransactionSettings.Load,
+            new ArcGisCompareMapIntegrationService()));
+
     public static string TransactionProcessStep { get; } = Settings.ProcessStep;
 
     public static string ConfiguredServerUrl { get; } = Settings.ServerUrl;
@@ -62,6 +70,17 @@ internal static class ShellState
     public static IReadOnlyList<string> ComputeWorkflowStages { get; } = Settings.ComputeWorkflowStages;
 
     public static string? ComputeWorkflowStagesWarning { get; } = Settings.ComputeWorkflowStagesWarning;
+
+    public static IReadOnlyList<string> CompareWorkflowStages { get; } = Settings.CompareWorkflowStages;
+
+    public static string? CompareWorkflowStagesWarning { get; } = Settings.CompareWorkflowStagesWarning;
+
+    public static bool CanOpenComputeWorkflow => Session.CanOpenParcelWorkflow && IsSelectedTransactionComputeWorkflow;
+
+    public static bool IsSelectedTransactionComputeWorkflow => ParcelWorkflowStageRouter.IsComputeStage(
+        Session.SelectedTransaction?.TaskName,
+        ComputeWorkflowStages,
+        CompareWorkflowStages);
 
     public static string AttachmentUploadRoute { get; } = Settings.AttachmentUploadRoute;
 
@@ -82,6 +101,51 @@ internal static class ShellState
     public static string ClientCertificateStatus => Settings.ClientCertificate.Enabled
         ? $"Client certificate: {Settings.ClientCertificate.SubjectName ?? Settings.ClientCertificate.Thumbprint ?? "configured"}"
         : "Client certificate: disabled";
+
+    public static void OpenCompareWorkspace(string transactionNumber)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(() => OpenCompareWorkspace(transactionNumber));
+            return;
+        }
+
+        try
+        {
+            OpenCompareWorkspaceCore(transactionNumber);
+        }
+        catch (Exception exception)
+        {
+            System.Windows.MessageBox.Show(
+                $"Compare workspace could not be opened for transaction {transactionNumber}. {exception.Message}",
+                "Compare Workspace",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Warning);
+        }
+    }
+
+    private static void OpenCompareWorkspaceCore(string transactionNumber)
+    {
+        if (Session.SelectedTransaction is null
+            || !Session.SelectedTransaction.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var viewModel = new CompareWorkspaceViewModel(
+            Session.SelectedTransaction,
+            CompareWorkspaceLoader,
+            legalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateLegal(Settings),
+            fiscalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateFiscal(Settings),
+            reviewerId: Session.CurrentUser?.Username,
+            reviewerDisplayName: Session.CurrentUser?.DisplayName);
+        var window = new CompareWorkspaceWindow(viewModel)
+        {
+            Owner = System.Windows.Application.Current?.MainWindow
+        };
+        window.Show();
+    }
 
     private static IInnolaAuthService CreateAuthService()
     {

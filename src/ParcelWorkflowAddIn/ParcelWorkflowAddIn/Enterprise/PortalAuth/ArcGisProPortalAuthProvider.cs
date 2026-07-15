@@ -357,6 +357,12 @@ public sealed class ArcGisProPortalAuthProvider : IPortalAuthProvider
             return true;
         }
 
+        if (string.Equals(activePath, "/", StringComparison.Ordinal)
+            && string.Equals(configuredPath, "/portal", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         return string.Equals(activePath, configuredPath, StringComparison.OrdinalIgnoreCase)
             || activePath.StartsWith(configuredPath + "/", StringComparison.OrdinalIgnoreCase);
     }

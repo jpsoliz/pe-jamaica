@@ -587,7 +587,7 @@ internal static class OutputMapReviewStyling
     private static CIMSymbolReference BuildPoiStyleLineLabelSymbol()
     {
         var textSymbol = SymbolFactory.Instance.ConstructTextSymbol(
-            ColorFactory.Instance.CreateRGBColor(255, 255, 255, 75),
+            ColorFactory.Instance.CreateRGBColor(31, 41, 55, 100),
             9.0,
             "Landform",
             "Physical Region");
@@ -645,7 +645,7 @@ internal static class OutputMapReviewStyling
                 1.25,
                 SimpleLineStyle.Solid);
             var polygonSymbol = SymbolFactory.Instance.ConstructPolygonSymbol(
-                ColorFactory.Instance.CreateRGBColor(222, 228, 232, 35),
+                ColorFactory.Instance.CreateRGBColor(222, 228, 232, 18),
                 SimpleFillStyle.Solid,
                 outline);
             featureLayer.SetRenderer(new CIMSimpleRenderer

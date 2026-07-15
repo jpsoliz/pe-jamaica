@@ -17,7 +17,7 @@
     "publish_timing": "on_complete",
     "restore_behavior": "prefer_local_then_enterprise",
     "allow_cross_machine_restore": true,
-    "transaction_scope_field": "transaction_number",
+    "transaction_scope_field": "transaction_id",
     "layers": {
       "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
       "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
@@ -74,6 +74,29 @@
     "Assign Computation Task",
     "Computation Check"
   ],
+  "compare_workflow_stages": [
+    "Compare",
+    "Compare Survey Plan"
+  ],
+  "compare_cadaster_query_timeout_seconds": 30,
+  "compare_legal_cadaster": {
+    "enabled": false,
+    "source_name": "Legal cadaster",
+    "service_url": "",
+    "parcel_id_field": "parcel_id",
+    "volume_field": "volume",
+    "folio_field": "folio",
+    "owner_field": "owner_name"
+  },
+  "compare_fiscal_cadaster": {
+    "enabled": false,
+    "source_name": "Fiscal cadaster",
+    "service_url": "",
+    "parcel_id_field": "parcel_id",
+    "neighbor_relationship_field": "spatial_relationship",
+    "boundary_side_field": "boundary_side",
+    "owner_field": "taxpayer_display"
+  },
   "compute_attachment_source_types": [
     {
       "source_type": "st_surveyplan",

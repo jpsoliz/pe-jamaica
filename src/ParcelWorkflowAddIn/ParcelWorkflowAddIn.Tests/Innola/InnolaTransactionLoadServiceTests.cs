@@ -276,6 +276,62 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(!File.Exists(Path.Combine(result.Layout.WorkingDirectory, "old.txt")), "Older resume package artifacts should not be restored.");
     }
 
+    public static async Task ResumePackageMismatchLoadsFreshCase()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var currentRow = Row("task-current", "transaction-current", "TR100000004", "Compare");
+        var staleTransaction = new SelectedInnolaTransaction(
+            "task-current",
+            "transaction-old",
+            "TR100000004",
+            "Compare",
+            "parcel_workflow",
+            FixedNow(),
+            TransactionType: "Plan Examination");
+        manager.SelectTransaction(currentRow, FixedNow());
+
+        var staleLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "review_approved", "stale", FixedNow());
+        var stalePackage = BuildResumePackage(staleLayout, staleTransaction, FixedNow());
+        Directory.Delete(staleLayout.RootDirectory, recursive: true);
+
+        var sourceAttachment = DefaultAttachments()[0];
+        var resumeAttachment = new InnolaAttachmentMetadata(
+            "resume-stale",
+            "sidwell-case-state-TR100000004.zip",
+            ".zip",
+            "application/zip",
+            null,
+            InnolaResumePackageConventions.ResumeSourceType,
+            null,
+            null,
+            "mock-attachment:resume-stale",
+            true);
+        var detail = Detail(
+            currentRow.TaskId,
+            currentRow.TransactionId,
+            currentRow.TransactionNumber,
+            currentRow.TaskName,
+            new[] { resumeAttachment, sourceAttachment });
+        var service = LoadService(
+            manager,
+            new MultiResumeAttachmentDetailService(
+                detail,
+                new Dictionary<string, byte[]>
+                {
+                    ["resume-stale"] = stalePackage,
+                    ["att-plan"] = "PDF fixture".Select(ch => (byte)ch).ToArray()
+                }),
+            tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"Mismatched resume package should be skipped. Error: {result.ErrorMessage}");
+        TestAssert.True(result.WasRestoredFromResumePackage == false, "Stale resume package must not be treated as restored state.");
+        TestAssert.True(result.StatusMessage!.Contains("Opened new case", StringComparison.OrdinalIgnoreCase), "Load should continue as a fresh case.");
+        TestAssert.True(!File.Exists(Path.Combine(result.Layout!.WorkingDirectory, "stale.txt")), "Stale resume artifacts must not be restored.");
+    }
+
     public static async Task ResumePackageExcludesHeavyOutputArtifactsButKeepsWorkingState()
     {
         using var tempRoot = new TempDirectory();
@@ -376,6 +432,97 @@ internal static class InnolaTransactionLoadServiceTests
 
         TestAssert.True(!result.Success, "Existing mismatched Case Folder should block load.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled.");
+    }
+
+    public static async Task ExistingCaseFolderReopensAfterTaskTransition()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => FixedNow(), () => "run-existing");
+        var created = store.CreateCase(tempRoot.Path, "TR100000004", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with
+        {
+            Payload = manifest.Payload with
+            {
+                InnolaTransaction = new ManifestInnolaTransaction(
+                    "100000004",
+                    "TR100000004",
+                    "task-compute",
+                    "Compute Survey Plan",
+                    "parcel_workflow",
+                    "PXA",
+                    "PXA",
+                    "tester",
+                    "tester",
+                    "survey",
+                    "tester",
+                    null,
+                    FixedNow().UtcDateTime.ToString("O"))
+            }
+        });
+
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-compare", "100000004", "TR100000004", "Compare Survey Plan"), FixedNow());
+        var detail = Detail("task-compare", "100000004", "TR100000004", "Compare Survey Plan", DefaultAttachments());
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"Existing case folder should reopen after same transaction changes tasks. Error: {result.ErrorMessage}");
+        var updatedManifest = ManifestSerializer.Read(result.Layout!.ManifestPath);
+        TestAssert.Equal("task-compare", updatedManifest.Payload.InnolaTransaction!.TaskId, "Reopened case should record the current task id.");
+        TestAssert.Equal("Compare Survey Plan", updatedManifest.Payload.InnolaTransaction.TaskName, "Reopened case should record the current task name.");
+    }
+
+    public static async Task ExistingCaseFolderIgnoresCompletedPackageAttachment()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => FixedNow(), () => "run-existing");
+        var created = store.CreateCase(tempRoot.Path, "TR100000004", "tester");
+        var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
+        ManifestSerializer.Write(created.Layout.ManifestPath, manifest with
+        {
+            Payload = manifest.Payload with
+            {
+                InnolaTransaction = new ManifestInnolaTransaction(
+                    "100000004",
+                    "TR100000004",
+                    "task-compute",
+                    "Compute Survey Plan",
+                    "parcel_workflow",
+                    "PXA",
+                    "PXA",
+                    "tester",
+                    "tester",
+                    "survey",
+                    "tester",
+                    null,
+                    FixedNow().UtcDateTime.ToString("O"))
+            }
+        });
+
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-compare", "100000004", "TR100000004", "Compare Survey Plan"), FixedNow());
+        var completedPackage = new InnolaAttachmentMetadata(
+            "completed-package",
+            InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"),
+            ".zip",
+            "application/zip",
+            null,
+            InnolaResumePackageConventions.CompletedSourceType,
+            4,
+            null,
+            "mock-attachment:completed-package",
+            true);
+        var detail = Detail("task-compare", "100000004", "TR100000004", "Compare Survey Plan", new[] { completedPackage });
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"Completed package should be ignored for source intake when reopening an existing case. Error: {result.ErrorMessage}");
+        TestAssert.True(!File.Exists(Path.Combine(result.Layout!.SourceDirectory, completedPackage.FileName)), "Completed package should not be copied as a source document.");
+        var updatedManifest = ManifestSerializer.Read(result.Layout.ManifestPath);
+        TestAssert.Equal("task-compare", updatedManifest.Payload.InnolaTransaction!.TaskId, "Reopened case should record the current compare task id.");
     }
 
     public static async Task SuccessfulLoadPersistsWorkflowRuleAndScriptPlan()

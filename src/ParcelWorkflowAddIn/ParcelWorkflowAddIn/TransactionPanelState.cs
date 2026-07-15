@@ -23,6 +23,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly IActiveTransactionSwitchDecisionProvider switchDecisionProvider;
     private readonly HashSet<string> supportedTransactionTypes;
     private readonly HashSet<string> computeWorkflowStages;
+    private readonly HashSet<string> compareWorkflowStages;
+    private readonly Action<string>? compareWorkspaceLauncher;
     private readonly Func<DateTimeOffset> clock;
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
@@ -46,8 +48,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         string processStep,
         Func<DateTimeOffset>? clock,
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
-        IReadOnlyCollection<string>? computeWorkflowStages = null)
-        : this(session, transactionService, processStep, null, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages)
+        IReadOnlyCollection<string>? computeWorkflowStages = null,
+        IReadOnlyCollection<string>? compareWorkflowStages = null,
+        Action<string>? compareWorkspaceLauncher = null)
+        : this(session, transactionService, processStep, null, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher)
     {
     }
 
@@ -58,8 +62,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         InnolaTransactionLoadService? transactionLoadService = null,
         Func<DateTimeOffset>? clock = null,
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
-        IReadOnlyCollection<string>? computeWorkflowStages = null)
-        : this(session, transactionService, processStep, transactionLoadService, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages)
+        IReadOnlyCollection<string>? computeWorkflowStages = null,
+        IReadOnlyCollection<string>? compareWorkflowStages = null,
+        Action<string>? compareWorkspaceLauncher = null)
+        : this(session, transactionService, processStep, transactionLoadService, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher)
     {
     }
 
@@ -73,7 +79,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         Func<DateTimeOffset>? clock = null,
         bool autoRefreshOnLogin = false,
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
-        IReadOnlyCollection<string>? computeWorkflowStages = null)
+        IReadOnlyCollection<string>? computeWorkflowStages = null,
+        IReadOnlyCollection<string>? compareWorkflowStages = null,
+        Action<string>? compareWorkspaceLauncher = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -90,6 +98,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 ? computeWorkflowStages
                 : ShellState.ComputeWorkflowStages),
             StringComparer.OrdinalIgnoreCase);
+        this.compareWorkflowStages = new HashSet<string>(
+            compareWorkflowStages ?? ShellState.CompareWorkflowStages,
+            StringComparer.OrdinalIgnoreCase);
+        this.compareWorkspaceLauncher = compareWorkspaceLauncher;
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
         this.autoRefreshOnLogin = autoRefreshOnLogin;
@@ -522,7 +534,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
-        if (!ValidateComputeWorkflowStage(requestedRow))
+        if (!ValidateWorkflowStage(requestedRow, out _))
         {
             return;
         }
@@ -631,7 +643,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
-        if (!ValidateComputeWorkflowStage(SelectedRow))
+        if (!ValidateWorkflowStage(SelectedRow, out var workflowRoute))
         {
             return;
         }
@@ -656,7 +668,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             {
                 SavedTransactionNumber = null;
                 RestoreSelectedRow(requestedTransactionNumber);
-                OpenParcelWorkflowDockpane(requestedTransactionNumber);
+                OpenWorkflowWorkspace(requestedTransactionNumber, workflowRoute);
             }
         }
         finally
@@ -671,6 +683,28 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         const string autoOpenFailureMessage = "Transaction {0} loaded. Open Parcel Workflow manually from Transactions if required.";
         OpenParcelWorkflowDockpane(requestedTransactionNumber, autoOpenFailureMessage, 1);
+    }
+
+    private void OpenWorkflowWorkspace(string requestedTransactionNumber, ParcelWorkflowStageRoute workflowRoute)
+    {
+        if (workflowRoute == ParcelWorkflowStageRoute.Compare)
+        {
+            OpenCompareWorkspace(requestedTransactionNumber);
+            return;
+        }
+
+        OpenParcelWorkflowDockpane(requestedTransactionNumber);
+    }
+
+    private void OpenCompareWorkspace(string requestedTransactionNumber)
+    {
+        if (compareWorkspaceLauncher is not null)
+        {
+            compareWorkspaceLauncher(requestedTransactionNumber);
+            return;
+        }
+
+        StatusText = $"Transaction {requestedTransactionNumber} is in progress. Compare workspace is not implemented yet.";
     }
 
     private void OpenParcelWorkflowDockpane(string requestedTransactionNumber, string? notFoundMessage = null, int attempt = 1)
@@ -1246,22 +1280,38 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return false;
     }
 
-    private bool ValidateComputeWorkflowStage(InnolaTransactionRow row)
+    private bool ValidateWorkflowStage(InnolaTransactionRow row, out ParcelWorkflowStageRoute route)
     {
-        var normalizedStage = row.TaskName?.Trim();
-        if (!string.IsNullOrWhiteSpace(normalizedStage) && computeWorkflowStages.Contains(normalizedStage))
+        route = ResolveWorkflowStageRoute(row);
+        if (route != ParcelWorkflowStageRoute.Unsupported)
         {
             return true;
         }
 
+        var normalizedStage = row.TaskName?.Trim();
         var visibleStage = string.IsNullOrWhiteSpace(normalizedStage) ? "(blank)" : normalizedStage;
-        var supported = computeWorkflowStages.Count == 0
-            ? "none configured"
-            : string.Join(", ", computeWorkflowStages.OrderBy(stage => stage, StringComparer.OrdinalIgnoreCase));
-        var message = $"Transaction {row.TransactionNumber} cannot be opened because task '{visibleStage}' is not configured for Parcel Workflow [Compute]. Supported tasks: {supported}.";
+        var supported = BuildSupportedWorkflowStageMessage();
+        var workflowLabel = compareWorkflowStages.Count == 0 ? "Compute" : "Compute/Compare";
+        var message = $"Transaction {row.TransactionNumber} cannot be opened because task '{visibleStage}' is not configured for Parcel Workflow [{workflowLabel}]. Supported tasks: {supported}.";
         ErrorText = message;
         StatusText = message;
         RestoreSelectedRow(row.TransactionNumber);
         return false;
+    }
+
+    private ParcelWorkflowStageRoute ResolveWorkflowStageRoute(InnolaTransactionRow row) =>
+        ParcelWorkflowStageRouter.Resolve(row.TaskName, computeWorkflowStages, compareWorkflowStages);
+
+    private string BuildSupportedWorkflowStageMessage()
+    {
+        var supportedStages = computeWorkflowStages
+            .Concat(compareWorkflowStages)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(stage => stage, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return supportedStages.Length == 0
+            ? "none configured"
+            : string.Join(", ", supportedStages);
     }
 }

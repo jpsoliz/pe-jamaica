@@ -8,12 +8,12 @@ internal sealed class ShowParcelWorkflowDockpaneButton : Button
 {
     protected override void OnUpdate()
     {
-        Enabled = ShellState.Session.CanOpenParcelWorkflow;
+        Enabled = ShellState.CanOpenComputeWorkflow;
     }
 
     protected override void OnClick()
     {
-        if (!ShellState.Session.CanOpenParcelWorkflow)
+        if (!ShellState.CanOpenComputeWorkflow)
         {
             return;
         }
