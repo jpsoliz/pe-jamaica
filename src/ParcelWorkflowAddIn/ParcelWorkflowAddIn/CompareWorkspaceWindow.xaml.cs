@@ -11,9 +11,17 @@ namespace ParcelWorkflowAddIn;
 
 public partial class CompareWorkspaceWindow : ProWindow
 {
+    private static readonly GridLength VisiblePdfPanelWidth = new(390);
+    private static readonly GridLength VisiblePdfPanelSpacerWidth = new(8);
+    private static readonly GridLength CollapsedPanelWidth = new(0);
+    private const double ExpandedCompareWindowMinWidth = 880;
+    private const double CompactCompareWindowMinWidth = 620;
+    private const double CompactCompareWindowWidth = 640;
     private readonly Compare.CompareWorkspaceViewModel viewModel;
     private WebView2? documentWebView;
     private string? lastNavigationKey;
+    private double expandedWidthBeforePdfCollapse = 1040;
+    private bool wasPdfPanelVisible = true;
     private bool webViewUnavailable;
 
     public CompareWorkspaceWindow(Compare.CompareWorkspaceViewModel viewModel)
@@ -24,6 +32,7 @@ public partial class CompareWorkspaceWindow : ProWindow
         Loaded += OnLoaded;
         Closed += OnClosed;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ApplyPdfPanelLayout();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -47,6 +56,12 @@ public partial class CompareWorkspaceWindow : ProWindow
 
     private async void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(Compare.CompareWorkspaceViewModel.IsPdfPanelVisible))
+        {
+            ApplyPdfPanelLayout();
+            return;
+        }
+
         if (e.PropertyName is nameof(Compare.CompareWorkspaceViewModel.ViewerNavigationKey)
             or nameof(Compare.CompareWorkspaceViewModel.ViewerBrowserUri)
             or nameof(Compare.CompareWorkspaceViewModel.ViewerImagePath))
@@ -73,6 +88,41 @@ public partial class CompareWorkspaceWindow : ProWindow
         WindowState = WindowState.Minimized;
         Owner?.Activate();
         Application.Current?.MainWindow?.Activate();
+    }
+
+    private void ApplyPdfPanelLayout()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(ApplyPdfPanelLayout);
+            return;
+        }
+
+        var isVisible = viewModel.IsPdfPanelVisible;
+        PdfPanel.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+        PdfPanelColumn.Width = isVisible ? VisiblePdfPanelWidth : CollapsedPanelWidth;
+        PdfPanelSpacerColumn.Width = isVisible ? VisiblePdfPanelSpacerWidth : CollapsedPanelWidth;
+
+        if (isVisible)
+        {
+            MinWidth = ExpandedCompareWindowMinWidth;
+            if (!wasPdfPanelVisible)
+            {
+                Width = Math.Max(expandedWidthBeforePdfCollapse, ExpandedCompareWindowMinWidth);
+            }
+        }
+        else
+        {
+            if (wasPdfPanelVisible)
+            {
+                expandedWidthBeforePdfCollapse = Math.Max(Width, ExpandedCompareWindowMinWidth);
+            }
+
+            MinWidth = CompactCompareWindowMinWidth;
+            Width = CompactCompareWindowWidth;
+        }
+
+        wasPdfPanelVisible = isVisible;
     }
 
     private async Task RefreshViewerAsync()

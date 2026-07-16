@@ -136,8 +136,12 @@ internal static class ShellState
         var viewModel = new CompareWorkspaceViewModel(
             Session.SelectedTransaction,
             CompareWorkspaceLoader,
-            legalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateLegal(Settings),
+            legalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateLegal(
+                Settings,
+                () => Session.CurrentSession,
+                SharedInnolaHttpClient),
             fiscalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateFiscal(Settings),
+            enterpriseCadasterEvidenceService: new CompareEnterpriseCadasterEvidenceService(InnolaTransactionSettings.Load),
             reviewerId: Session.CurrentUser?.Username,
             reviewerDisplayName: Session.CurrentUser?.DisplayName);
         var window = new CompareWorkspaceWindow(viewModel)

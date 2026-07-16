@@ -3,10 +3,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     Title="Compare Workspace"
-                    Width="1500"
-                    Height="860"
-                    MinWidth="1180"
-                    MinHeight="700"
+                    Width="1040"
+                    Height="760"
+                    MinWidth="880"
+                    MinHeight="640"
                     WindowStartupLocation="CenterOwner">
   <controls:ProWindow.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -18,7 +18,7 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <Border Grid.Row="0" Background="#EAF2F7" BorderBrush="#C8D6DF" BorderThickness="0,0,0,1" Padding="14,10">
+    <Border Grid.Row="0" Background="#EAF2F7" BorderBrush="#C8D6DF" BorderThickness="0,0,0,1" Padding="10,8">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
@@ -34,14 +34,14 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1" Margin="10">
+    <Grid Grid.Row="1" Margin="8">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="520" />
-        <ColumnDefinition Width="10" />
+        <ColumnDefinition x:Name="PdfPanelColumn" Width="390" />
+        <ColumnDefinition x:Name="PdfPanelSpacerColumn" Width="8" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
 
-      <Border Grid.Column="0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="10">
+      <Border x:Name="PdfPanel" Grid.Column="0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -49,7 +49,14 @@
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
           <StackPanel>
-            <TextBlock FontWeight="SemiBold" Text="Attached Documents" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right"
+                      Width="78"
+                      Height="24"
+                      Content="{Binding PdfPanelToggleText}"
+                      Command="{Binding TogglePdfPanelCommand}" />
+              <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Attached Documents" />
+            </DockPanel>
             <TextBlock Margin="0,3,0,8" Foreground="#53636A" Text="{Binding DocumentStatus}" TextWrapping="Wrap" />
             <ComboBox ItemsSource="{Binding PdfDocuments}"
                       SelectedValue="{Binding SelectedDocument, Mode=TwoWay}"
@@ -72,23 +79,25 @@
         </Grid>
       </Border>
 
-      <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="10">
+      <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="160" />
-            <RowDefinition Height="125" />
-            <RowDefinition Height="105" />
-            <RowDefinition Height="105" />
+            <RowDefinition Height="92" />
+            <RowDefinition Height="78" />
+            <RowDefinition Height="112" />
+            <RowDefinition Height="78" />
+            <RowDefinition Height="78" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="145" />
+            <RowDefinition Height="112" />
           </Grid.RowDefinitions>
 
           <Border Background="#EEF5F3" BorderBrush="#C9D8D4" BorderThickness="1" Padding="8">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-              <Button Width="120" Height="28" Content="Show active map" Click="ShowActiveMapButton_Click" />
-              <Button Width="100" Height="28" Margin="8,0,0,0" Content="Refresh" Command="{Binding ReloadGeometryCommand}" />
+              <Button Width="82" Height="26" Margin="0,0,8,0" Content="{Binding PdfPanelToggleText}" Command="{Binding TogglePdfPanelCommand}" />
+              <Button Width="116" Height="26" Content="Show active map" Click="ShowActiveMapButton_Click" />
+              <Button Width="88" Height="26" Margin="8,0,0,0" Content="Refresh" Command="{Binding ReloadGeometryCommand}" />
             </StackPanel>
           </Border>
 
@@ -97,10 +106,10 @@
             <TextBlock Margin="0,3,0,8" Foreground="#53636A" Text="Survey plan evidence is reconciled against legal owner records and fiscal neighbor context." TextWrapping="Wrap" />
             <Grid>
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="130" />
+                <ColumnDefinition Width="118" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="92" />
-                <ColumnDefinition Width="92" />
+                <ColumnDefinition Width="78" />
+                <ColumnDefinition Width="78" />
               </Grid.ColumnDefinitions>
               <ComboBox ItemsSource="{Binding EvidenceSearchModes}" SelectedItem="{Binding SelectedEvidenceSearchMode, Mode=TwoWay}" />
               <StackPanel Grid.Column="1" Margin="8,0,8,0">
@@ -150,11 +159,12 @@
               <Button Grid.Column="2" Margin="0,0,6,0" Content="Search" Command="{Binding RunEvidenceSearchCommand}" />
               <Button Grid.Column="3" Content="Clear" Command="{Binding ClearEvidenceSearchFieldsCommand}" />
             </Grid>
-            <Button Margin="0,6,0,0"
-                    Height="26"
-                    Content="Find fiscal neighbors"
-                    Command="{Binding FindNeighborsCommand}" />
-            <TextBlock Margin="0,5,0,0" Foreground="#8A3328" Text="{Binding SearchValidationMessage}" TextWrapping="Wrap" />
+            <Button Margin="0,5,0,0"
+                    Height="24"
+                    Content="Refresh Legal/Fiscal spatial evidence"
+                    Command="{Binding RefreshEnterpriseCadasterEvidenceCommand}" />
+            <TextBlock Margin="0,4,0,0" Foreground="#315C6B" Text="{Binding EvidenceSearchStatusMessage}" TextWrapping="Wrap" />
+            <TextBlock Margin="0,4,0,0" Foreground="#8A3328" Text="{Binding SearchValidationMessage}" TextWrapping="Wrap" />
           </StackPanel>
 
           <ListView Grid.Row="2" Margin="0,10,0,0" ItemsSource="{Binding QueryResults}" BorderBrush="#D5E0E7" BorderThickness="1">
@@ -164,9 +174,9 @@
                   <DockPanel>
                     <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
                     <Button DockPanel.Dock="Right"
-                            Width="110"
+                            Width="96"
                             Height="24"
-                            Content="Mark valuable"
+                            Content="Valuable"
                             Command="{Binding DataContext.MarkEvidenceResultValuableCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}" />
                   </DockPanel>
@@ -199,7 +209,36 @@
             </ListView.ItemTemplate>
           </ListView>
 
-          <ListView Grid.Row="4" Margin="0,10,0,0" ItemsSource="{Binding EvidenceItems}" BorderBrush="#D5E0E7" BorderThickness="1">
+          <ListView Grid.Row="4" Margin="0,10,0,0" ItemsSource="{Binding EnterpriseCadasterEvidenceRows}" BorderBrush="#D5E0E7" BorderThickness="1">
+            <ListView.ItemTemplate>
+              <DataTemplate>
+                <Grid Margin="4">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="98" />
+                  </Grid.ColumnDefinitions>
+                  <CheckBox VerticalAlignment="Center" IsChecked="{Binding IsIncluded, Mode=TwoWay}" />
+                  <StackPanel Grid.Column="1" Margin="8,0">
+                    <DockPanel>
+                      <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
+                      <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" Foreground="#53636A" Text="{Binding SpatialRelationship}" />
+                    </DockPanel>
+                    <TextBlock Foreground="#53636A" Text="{Binding SourceLabel}" />
+                    <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button Grid.Column="2"
+                          Height="24"
+                          VerticalAlignment="Center"
+                          Content="Use values"
+                          Command="{Binding DataContext.SeedSearchFromEnterpriseEvidenceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}" />
+                </Grid>
+              </DataTemplate>
+            </ListView.ItemTemplate>
+          </ListView>
+
+          <ListView Grid.Row="5" Margin="0,10,0,0" ItemsSource="{Binding EvidenceItems}" BorderBrush="#D5E0E7" BorderThickness="1">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4">
@@ -211,7 +250,7 @@
             </ListView.ItemTemplate>
           </ListView>
 
-          <ListView Grid.Row="5" Margin="0,10,0,0" ItemsSource="{Binding Discrepancies}" BorderBrush="#E7B0A8" BorderThickness="1">
+          <ListView Grid.Row="6" Margin="0,10,0,0" ItemsSource="{Binding Discrepancies}" BorderBrush="#E7B0A8" BorderThickness="1">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4">
@@ -223,7 +262,7 @@
             </ListView.ItemTemplate>
           </ListView>
 
-          <Grid Grid.Row="6" Margin="0,10,0,0">
+          <Grid Grid.Row="7" Margin="0,10,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
@@ -232,7 +271,7 @@
             <TextBox Grid.Row="1" Margin="0,6,0,0" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
           </Grid>
 
-          <StackPanel Grid.Row="7" Margin="0,10,0,0">
+          <StackPanel Grid.Row="8" Margin="0,10,0,0">
             <TextBlock Foreground="#53636A" Text="{Binding DecisionStatus, StringFormat=Decision: {0}}" />
             <TextBlock Margin="0,3,0,8" Foreground="#53636A" Text="{Binding StatusText}" TextWrapping="Wrap" />
             <UniformGrid Columns="2">
@@ -252,8 +291,8 @@
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
       <TextBlock Margin="8" Foreground="#53636A" VerticalAlignment="Center" Text="Compare is an evidence reconciliation workspace. Geometry is read-only context." />
-      <Button Grid.Column="1" Width="130" Margin="0,8,8,8" Content="Return to Compute" Command="{Binding ReturnToComputeCommand}" />
-      <Button Grid.Column="2" Width="90" Margin="0,8,8,8" Content="Close" Click="CloseButton_Click" />
+      <Button Grid.Column="1" Width="130" Margin="0,6,8,6" Content="Return to Compute" Command="{Binding ReturnToComputeCommand}" />
+      <Button Grid.Column="2" Width="90" Margin="0,6,8,6" Content="Close" Click="CloseButton_Click" />
     </Grid>
   </Grid>
 </controls:ProWindow>

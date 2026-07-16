@@ -139,8 +139,17 @@ internal static class InnolaTransactionSettingsTests
               "compare_cadaster_query_timeout_seconds": 45,
               "compare_legal_cadaster": {
                 "enabled": true,
-                "source_name": "Legal cadaster",
-                "service_url": "https://example.test/legal/FeatureServer/0",
+                "source_name": "Innola BA Unit",
+                "adapter": "innola_baunit_search",
+                "service_url": "search/",
+                "datamap": "BaUnitSearchDM",
+                "search_kind": "baunit",
+                "baunit_type": "bu_type_land",
+                "baunit_status": "reg_status_current",
+                "status_latest": true,
+                "page": 1,
+                "start": 0,
+                "limit": 25,
                 "parcel_id_field": "parcel_no",
                 "volume_field": "vol",
                 "folio_field": "fol",
@@ -162,6 +171,16 @@ internal static class InnolaTransactionSettingsTests
 
         TestAssert.Equal(45, settings.CompareCadaster.TimeoutSeconds, "Cadaster timeout mismatch.");
         TestAssert.True(settings.CompareCadaster.Legal.Enabled, "Legal cadaster should be enabled.");
+        TestAssert.Equal("innola_baunit_search", settings.CompareCadaster.Legal.Adapter, "Legal adapter mismatch.");
+        TestAssert.Equal("search/", settings.CompareCadaster.Legal.ServiceUrl, "Legal BA Unit search path mismatch.");
+        TestAssert.Equal("BaUnitSearchDM", settings.CompareCadaster.Legal.Datamap, "Legal datamap mismatch.");
+        TestAssert.Equal("baunit", settings.CompareCadaster.Legal.SearchKind, "Legal search kind mismatch.");
+        TestAssert.Equal("bu_type_land", settings.CompareCadaster.Legal.BaUnitType, "Legal BA Unit type mismatch.");
+        TestAssert.Equal("reg_status_current", settings.CompareCadaster.Legal.BaUnitStatus, "Legal BA Unit status mismatch.");
+        TestAssert.True(settings.CompareCadaster.Legal.StatusLatest, "Legal status latest mismatch.");
+        TestAssert.Equal(1, settings.CompareCadaster.Legal.Page, "Legal page mismatch.");
+        TestAssert.Equal(0, settings.CompareCadaster.Legal.Start, "Legal start mismatch.");
+        TestAssert.Equal(25, settings.CompareCadaster.Legal.Limit, "Legal limit mismatch.");
         TestAssert.Equal("parcel_no", settings.CompareCadaster.Legal.ParcelIdField, "Legal parcel field mismatch.");
         TestAssert.Equal("registered_owner", settings.CompareCadaster.Legal.OwnerField, "Legal owner field mismatch.");
         TestAssert.True(settings.CompareCadaster.Fiscal.Enabled, "Fiscal cadaster should be enabled.");

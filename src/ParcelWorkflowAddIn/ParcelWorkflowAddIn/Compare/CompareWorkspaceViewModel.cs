@@ -18,6 +18,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly CompareSurveyPlanEvidenceService surveyPlanEvidenceService;
     private readonly ILegalCadasterQueryService legalCadasterQueryService;
     private readonly IFiscalCadasterQueryService fiscalCadasterQueryService;
+    private readonly ICompareEnterpriseCadasterEvidenceService enterpriseCadasterEvidenceService;
+    private readonly CompareLegalQueryTracePersistenceService legalQueryTracePersistence;
     private readonly CompareEvidenceComparisonService evidenceComparisonService;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly string? reviewerId;
@@ -44,7 +46,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private string searchName = string.Empty;
     private string searchParish = string.Empty;
     private string searchValidationMessage = string.Empty;
+    private string evidenceSearchStatusMessage = "No legal cadaster search has been run.";
     private bool isLoading;
+    private bool isPdfPanelVisible = true;
     private bool documentsAvailable;
     private bool geometryAvailable;
     private bool geometryRetryable;
@@ -62,6 +66,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         CompareSurveyPlanEvidenceService? surveyPlanEvidenceService = null,
         ILegalCadasterQueryService? legalCadasterQueryService = null,
         IFiscalCadasterQueryService? fiscalCadasterQueryService = null,
+        ICompareEnterpriseCadasterEvidenceService? enterpriseCadasterEvidenceService = null,
+        CompareLegalQueryTracePersistenceService? legalQueryTracePersistence = null,
         CompareEvidenceComparisonService? evidenceComparisonService = null,
         Func<DateTimeOffset>? getUtcNow = null,
         string? reviewerId = null,
@@ -75,6 +81,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.surveyPlanEvidenceService = surveyPlanEvidenceService ?? new CompareSurveyPlanEvidenceService();
         this.legalCadasterQueryService = legalCadasterQueryService ?? new UnsupportedLegalCadasterQueryService();
         this.fiscalCadasterQueryService = fiscalCadasterQueryService ?? new UnsupportedFiscalCadasterQueryService();
+        this.enterpriseCadasterEvidenceService = enterpriseCadasterEvidenceService ?? new CompareEnterpriseCadasterEvidenceService();
+        this.legalQueryTracePersistence = legalQueryTracePersistence ?? new CompareLegalQueryTracePersistenceService();
         this.evidenceComparisonService = evidenceComparisonService ?? new CompareEvidenceComparisonService();
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
         this.reviewerId = reviewerId;
@@ -84,6 +92,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         QueryParcelIdCommand = new RelayCommand(() => _ = QueryParcelIdAsync(), () => CanQueryLegalEvidence);
         QueryVolumeFolioCommand = new RelayCommand(() => _ = QueryVolumeFolioAsync(), () => CanQueryLegalEvidence);
         FindNeighborsCommand = new RelayCommand(() => _ = QueryFiscalNeighborsAsync(), () => CanQueryFiscalEvidence);
+        RefreshEnterpriseCadasterEvidenceCommand = new RelayCommand(() => _ = QueryEnterpriseCadasterEvidenceAsync(), () => CanQueryFiscalEvidence);
+        SeedSearchFromEnterpriseEvidenceCommand = new RelayCommand(
+            parameter => SeedSearchFromEnterpriseEvidence(parameter as CompareEnterpriseCadasterEvidenceRowItem),
+            parameter => parameter is CompareEnterpriseCadasterEvidenceRowItem && !IsLoading);
         RunEvidenceSearchCommand = new RelayCommand(() => _ = RunEvidenceSearchAsync(), () => CanRunEvidenceSearch);
         ClearEvidenceSearchFieldsCommand = new RelayCommand(ClearEvidenceSearchFields, () => !IsLoading);
         MarkEvidenceResultValuableCommand = new RelayCommand(
@@ -92,6 +104,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         RemoveValuableEvidenceCommand = new RelayCommand(
             parameter => RemoveValuableEvidence(parameter as CompareValuableEvidenceItem),
             parameter => parameter is CompareValuableEvidenceItem && !IsLoading);
+        TogglePdfPanelCommand = new RelayCommand(TogglePdfPanel);
         SaveProgressCommand = new RelayCommand(SaveProgress, () => CanSaveProgress);
         BlockCompareCommand = new RelayCommand(BlockCompare, () => CanBlockCompare);
         ApproveCompareCommand = new RelayCommand(ApproveCompare, () => CanApproveCompare);
@@ -113,6 +126,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<CompareEvidenceSearchResultItem> QueryResults { get; } = new();
 
     public ObservableCollection<CompareValuableEvidenceItem> ValuableEvidenceItems { get; } = new();
+
+    public ObservableCollection<CompareEnterpriseCadasterEvidenceRowItem> EnterpriseCadasterEvidenceRows { get; } = new();
 
     public ObservableCollection<CompareDiscrepancyItem> Discrepancies { get; } = new();
 
@@ -141,6 +156,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand FindNeighborsCommand { get; }
 
+    public ICommand RefreshEnterpriseCadasterEvidenceCommand { get; }
+
+    public ICommand SeedSearchFromEnterpriseEvidenceCommand { get; }
+
     public ICommand RunEvidenceSearchCommand { get; }
 
     public ICommand ClearEvidenceSearchFieldsCommand { get; }
@@ -148,6 +167,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ICommand MarkEvidenceResultValuableCommand { get; }
 
     public ICommand RemoveValuableEvidenceCommand { get; }
+
+    public ICommand TogglePdfPanelCommand { get; }
 
     public ICommand SaveProgressCommand { get; }
 
@@ -163,6 +184,25 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         private set => SetField(ref isLoading, value, nameof(IsLoading));
     }
 
+    public bool IsPdfPanelVisible
+    {
+        get => isPdfPanelVisible;
+        private set
+        {
+            if (!SetField(ref isPdfPanelVisible, value, nameof(IsPdfPanelVisible)))
+            {
+                return;
+            }
+
+            NotifyPropertyChanged(nameof(IsPdfPanelHidden));
+            NotifyPropertyChanged(nameof(PdfPanelToggleText));
+        }
+    }
+
+    public bool IsPdfPanelHidden => !IsPdfPanelVisible;
+
+    public string PdfPanelToggleText => IsPdfPanelVisible ? "Hide PDF" : "Show PDF";
+
     public SourceFileCopyResult? SelectedDocument
     {
         get => selectedDocument;
@@ -177,6 +217,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             ViewerState = ReviewSourceViewerStateProjector.Build(value, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
             NotifyPropertyChanged(nameof(SelectedDocument));
         }
+    }
+
+    private void TogglePdfPanel()
+    {
+        IsPdfPanelVisible = !IsPdfPanelVisible;
     }
 
     private ReviewSourceViewerState ViewerState
@@ -389,6 +434,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     {
         get => searchValidationMessage;
         private set => SetField(ref searchValidationMessage, value, nameof(SearchValidationMessage));
+    }
+
+    public string EvidenceSearchStatusMessage
+    {
+        get => evidenceSearchStatusMessage;
+        private set => SetField(ref evidenceSearchStatusMessage, value, nameof(EvidenceSearchStatusMessage));
     }
 
     public bool DocumentsAvailable
@@ -640,6 +691,23 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task QueryEnterpriseCadasterEvidenceAsync(CancellationToken cancellationToken = default)
+    {
+        IsLoading = true;
+        FiscalEvidenceStatus = "Refreshing Legal/Fiscal cadaster neighbor evidence.";
+        try
+        {
+            ApplyEnterpriseCadasterEvidenceResult(await enterpriseCadasterEvidenceService
+                .QueryAsync(transaction, currentGeometryPlan, cancellationToken)
+                .ConfigureAwait(false));
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
+    }
+
     public async Task RunEvidenceSearchAsync(CancellationToken cancellationToken = default)
     {
         if (!TryBuildManualSearchRequest(out var request, out var validationMessage))
@@ -652,6 +720,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         SearchValidationMessage = string.Empty;
         IsLoading = true;
         LegalEvidenceStatus = $"Querying legal cadaster by {SelectedEvidenceSearchMode}.";
+        EvidenceSearchStatusMessage = $"Searching legal cadaster by {SelectedEvidenceSearchMode}...";
         try
         {
             var result = request.QueryKind switch
@@ -696,6 +765,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             if (string.IsNullOrWhiteSpace(SearchVolume) || string.IsNullOrWhiteSpace(SearchFolio))
             {
                 validationMessage = "Volume and folio are required before searching.";
+                return false;
+            }
+
+            if (!int.TryParse(SearchVolume.Trim(), out _) || !int.TryParse(SearchFolio.Trim(), out _))
+            {
+                validationMessage = "Volume and folio must be numeric before searching.";
                 return false;
             }
 
@@ -770,6 +845,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         SearchName = string.Empty;
         SearchParish = string.Empty;
         SearchValidationMessage = string.Empty;
+        EvidenceSearchStatusMessage = "Search fields cleared. No new legal cadaster search has been run.";
     }
 
     private void MarkEvidenceResultValuable(CompareEvidenceSearchResultItem? item)
@@ -837,6 +913,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     {
         LegalEvidenceReviewed = true;
         LegalEvidenceStatus = result.Message;
+        EvidenceSearchStatusMessage = BuildEvidenceSearchStatusMessage(result);
+        legalQueryTracePersistence.Append(layout, TransactionNumber, result, getUtcNow());
         if (result.Success && result.Records.Count > 0)
         {
             LegalCadasterSummary = string.Join(Environment.NewLine, result.Records.Select(record =>
@@ -849,6 +927,26 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
 
         RefreshEvidenceItems();
+    }
+
+    private static string BuildEvidenceSearchStatusMessage(LegalCadasterQueryResult result)
+    {
+        var queryKey = LegalCadasterQueryResult.BuildLegalQueryKey(result.Query);
+        if (!result.Success)
+        {
+            var diagnostic = string.IsNullOrWhiteSpace(result.Diagnostic)
+                ? string.Empty
+                : $" Diagnostic: {result.Diagnostic}";
+            return $"Search failed for {queryKey}. {result.Message}{diagnostic}";
+        }
+
+        if (result.Records.Count == 0)
+        {
+            return $"Search completed for {queryKey}: no records returned.";
+        }
+
+        var plural = result.Records.Count == 1 ? "record" : "records";
+        return $"Search completed for {queryKey}: {result.Records.Count} {plural} returned.";
     }
 
     private void ApplyFiscalResult(FiscalCadasterNeighborQueryResult result, CompareSurveyPlanEvidence plan)
@@ -867,6 +965,96 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
 
         RefreshEvidenceItems();
+    }
+
+    private void ApplyEnterpriseCadasterEvidenceResult(CompareEnterpriseCadasterEvidenceResult result)
+    {
+        FiscalEvidenceReviewed = true;
+        FiscalEvidenceStatus = result.Message;
+        if (!result.Success)
+        {
+            FiscalNeighborSummary = result.Diagnostic ?? result.Message;
+            StatusText = result.Diagnostic ?? result.Message;
+            RefreshEvidenceItems();
+            return;
+        }
+
+        EnterpriseCadasterEvidenceRows.Clear();
+        foreach (var record in CompareEnterpriseCadasterEvidenceClassifier.Sort(result.Records))
+        {
+            var item = new CompareEnterpriseCadasterEvidenceRowItem(record);
+            item.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(CompareEnterpriseCadasterEvidenceRowItem.IsIncluded))
+                {
+                    FiscalNeighborSummary = BuildEnterpriseCadasterSummary();
+                    RefreshEvidenceItems();
+                    RaiseStateProperties();
+                }
+            };
+            EnterpriseCadasterEvidenceRows.Add(item);
+        }
+
+        FiscalNeighborSummary = EnterpriseCadasterEvidenceRows.Count == 0
+            ? result.Diagnostic ?? "No Legal/Fiscal neighbor evidence returned."
+            : BuildEnterpriseCadasterSummary();
+        StatusText = result.Diagnostic;
+        RefreshEvidenceItems();
+    }
+
+    private string BuildEnterpriseCadasterSummary()
+    {
+        if (EnterpriseCadasterEvidenceRows.Count == 0)
+        {
+            return "No Legal/Fiscal neighbor evidence rows are loaded.";
+        }
+
+        var included = EnterpriseCadasterEvidenceRows.Count(row => row.IsIncluded);
+        var excluded = EnterpriseCadasterEvidenceRows.Count - included;
+        var sourceCounts = EnterpriseCadasterEvidenceRows
+            .GroupBy(row => row.SourceLabel)
+            .Select(group => $"{group.Key}: {group.Count()}")
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+        var relationships = EnterpriseCadasterEvidenceRows
+            .GroupBy(row => row.SpatialRelationship)
+            .Select(group => $"{group.Key}: {group.Count()}")
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+        return $"Enterprise cadaster evidence loaded. Included: {included}; Excluded: {excluded}; Sources: {string.Join(", ", sourceCounts)}; Relationships: {string.Join(", ", relationships)}.";
+    }
+
+    private void SeedSearchFromEnterpriseEvidence(CompareEnterpriseCadasterEvidenceRowItem? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(row.Volume) || !string.IsNullOrWhiteSpace(row.Folio))
+        {
+            SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+            SearchVolume = NullIfBlank(row.Volume) ?? string.Empty;
+            SearchFolio = NullIfBlank(row.Folio) ?? string.Empty;
+        }
+        else if (!string.IsNullOrWhiteSpace(row.Pid) || !string.IsNullOrWhiteSpace(row.ParcelId))
+        {
+            SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+            SearchPid = NullIfBlank(row.Pid) ?? NullIfBlank(row.ParcelId) ?? string.Empty;
+        }
+        else if (!string.IsNullOrWhiteSpace(row.LandValuationNumber))
+        {
+            SelectedEvidenceSearchMode = CompareEvidenceSearchMode.LandValuationNumber;
+            SearchLandValuationNumber = row.LandValuationNumber;
+        }
+        else if (!string.IsNullOrWhiteSpace(row.DisplayName))
+        {
+            SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Name;
+            SearchName = row.DisplayName;
+        }
+
+        SearchParish = NullIfBlank(row.Parish) ?? SearchParish;
+        EvidenceSearchStatusMessage = $"Search fields loaded from {row.SourceLabel} row {row.PrimaryIdentifier}.";
+        SearchValidationMessage = string.Empty;
+        RaiseStateProperties();
     }
 
     private void RestoreDraft(CaseFolderLayout currentLayout)
@@ -904,6 +1092,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         {
             ValuableEvidenceItems.Add(new CompareValuableEvidenceItem(evidence.ToModel()));
         }
+
+        EnterpriseCadasterEvidenceRows.Clear();
+        foreach (var evidence in draft.EnterpriseCadasterEvidence ?? Array.Empty<CompareEnterpriseCadasterEvidenceDraft>())
+        {
+            EnterpriseCadasterEvidenceRows.Add(new CompareEnterpriseCadasterEvidenceRowItem(evidence.ToModel()));
+        }
     }
 
     private void SaveProgress()
@@ -936,7 +1130,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             LegalEvidenceReviewed,
             FiscalEvidenceReviewed,
             QueryResults.Select(item => CompareEvidenceSearchResultDraft.FromModel(item.Result)).ToArray(),
-            ValuableEvidenceItems.Select(item => CompareValuableEvidenceDraft.FromModel(item.ToModel())).ToArray());
+            ValuableEvidenceItems.Select(item => CompareValuableEvidenceDraft.FromModel(item.ToModel())).ToArray(),
+            EnterpriseCadasterEvidenceRows.Select(item => CompareEnterpriseCadasterEvidenceDraft.FromModel(item.ToModel())).ToArray());
         var result = draftPersistence.Save(layout, draft);
         DecisionStatus = displayStatus;
         StatusText = result.Message;
@@ -1012,6 +1207,15 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             item.SourceType,
             null,
             $"{item.RoleTag}: {item.DisplaySummary}")));
+
+        refs.AddRange(EnterpriseCadasterEvidenceRows
+            .Where(item => item.IsIncluded)
+            .Select(item => new CompareReviewEvidenceRef(
+                item.SourceKind.Equals(CompareEnterpriseCadasterSourceKind.Legal, StringComparison.OrdinalIgnoreCase)
+                    ? "legal_cadaster_spatial"
+                    : "fiscal_cadaster_spatial",
+                null,
+                item.Summary)));
 
         return refs;
     }
@@ -1111,6 +1315,13 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         EvidenceItems.Add(new CompareEvidenceItem("Survey plan interpretation", SurveyPlanSummary, "Survey plan"));
         EvidenceItems.Add(new CompareEvidenceItem("Legal cadaster owner records", LegalCadasterSummary, "Legal cadaster"));
         EvidenceItems.Add(new CompareEvidenceItem("Fiscal neighbor records", FiscalNeighborSummary, "Fiscal cadaster - neighbor context only"));
+        if (EnterpriseCadasterEvidenceRows.Count > 0)
+        {
+            EvidenceItems.Add(new CompareEvidenceItem(
+                "Enterprise Legal/Fiscal spatial evidence",
+                BuildEnterpriseCadasterSummary(),
+                "ArcGIS Enterprise cadaster layers"));
+        }
         foreach (var reference in restoredDecisionEvidenceRefs)
         {
             EvidenceItems.Add(new CompareEvidenceItem(
@@ -1146,6 +1357,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             QueryParcelIdCommand,
             QueryVolumeFolioCommand,
             FindNeighborsCommand,
+            RefreshEnterpriseCadasterEvidenceCommand,
+            SeedSearchFromEnterpriseEvidenceCommand,
             RunEvidenceSearchCommand,
             ClearEvidenceSearchFieldsCommand,
             MarkEvidenceResultValuableCommand,
@@ -1268,6 +1481,138 @@ public sealed record CompareEvidenceSearchResultItem(CompareEvidenceSearchResult
         return result.SourceType.Equals(CompareEvidenceSourceType.FiscalCadaster, StringComparison.OrdinalIgnoreCase)
             ? CompareEvidenceRoleTag.Neighbor
             : CompareEvidenceRoleTag.Owner;
+    }
+}
+
+public sealed class CompareEnterpriseCadasterEvidenceRowItem : INotifyPropertyChanged
+{
+    private bool isIncluded;
+
+    public CompareEnterpriseCadasterEvidenceRowItem(CompareEnterpriseCadasterEvidenceRecord record)
+    {
+        SourceKind = record.SourceKind;
+        SourceLabel = record.SourceLabel;
+        LayerUrl = record.LayerUrl;
+        ObjectId = record.ObjectId;
+        GlobalId = record.GlobalId;
+        Suid = record.Suid;
+        ParcelId = record.ParcelId;
+        Pid = record.Pid;
+        Volume = record.Volume;
+        Folio = record.Folio;
+        LandValuationNumber = record.LandValuationNumber;
+        OwnerName = record.OwnerName;
+        OccupantName = record.OccupantName;
+        TaxpayerName = record.TaxpayerName;
+        Parish = record.Parish;
+        SpatialRelationship = record.SpatialRelationship;
+        isIncluded = record.IsIncluded;
+        QueriedAt = record.QueriedAt;
+        Status = record.Status;
+        Diagnostic = record.Diagnostic;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string SourceKind { get; }
+
+    public string SourceLabel { get; }
+
+    public string LayerUrl { get; }
+
+    public string? ObjectId { get; }
+
+    public string? GlobalId { get; }
+
+    public string? Suid { get; }
+
+    public string? ParcelId { get; }
+
+    public string? Pid { get; }
+
+    public string? Volume { get; }
+
+    public string? Folio { get; }
+
+    public string? LandValuationNumber { get; }
+
+    public string? OwnerName { get; }
+
+    public string? OccupantName { get; }
+
+    public string? TaxpayerName { get; }
+
+    public string? Parish { get; }
+
+    public string SpatialRelationship { get; }
+
+    public DateTimeOffset QueriedAt { get; }
+
+    public string Status { get; }
+
+    public string? Diagnostic { get; }
+
+    public bool IsIncluded
+    {
+        get => isIncluded;
+        set
+        {
+            if (isIncluded == value)
+            {
+                return;
+            }
+
+            isIncluded = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIncluded)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Summary)));
+        }
+    }
+
+    public string DisplayName
+    {
+        get
+        {
+            var display = FirstNonBlank(OwnerName, OccupantName, TaxpayerName);
+            return string.IsNullOrWhiteSpace(display) ? "(no party)" : display;
+        }
+    }
+
+    public string PrimaryIdentifier => FirstNonBlank(Pid, ParcelId, LandValuationNumber, ObjectId, GlobalId) ?? "(blank)";
+
+    public string VolumeFolio => string.IsNullOrWhiteSpace(Volume) && string.IsNullOrWhiteSpace(Folio)
+        ? "(blank)"
+        : $"{Volume ?? string.Empty}/{Folio ?? string.Empty}";
+
+    public string Summary => ToModel().DisplaySummary;
+
+    public CompareEnterpriseCadasterEvidenceRecord ToModel()
+    {
+        return new CompareEnterpriseCadasterEvidenceRecord(
+            SourceKind,
+            SourceLabel,
+            LayerUrl,
+            ObjectId,
+            GlobalId,
+            Suid,
+            ParcelId,
+            Pid,
+            Volume,
+            Folio,
+            LandValuationNumber,
+            OwnerName,
+            OccupantName,
+            TaxpayerName,
+            Parish,
+            SpatialRelationship,
+            IsIncluded,
+            QueriedAt,
+            Status,
+            Diagnostic);
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
     }
 }
 

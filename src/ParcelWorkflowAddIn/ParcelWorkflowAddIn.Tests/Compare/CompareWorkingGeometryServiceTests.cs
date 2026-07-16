@@ -115,6 +115,26 @@ internal static class CompareWorkingGeometryServiceTests
         TestAssert.Equal("parcel_owner = 'O''Neil'", query, "Definition query should escape single quotes.");
     }
 
+    public static void ObjectIdContextQuerySortsIdsAndRejectsUnsafeFields()
+    {
+        var query = ArcGisCompareMapIntegrationService.BuildObjectIdDefinitionQuery(
+            "OBJECTID",
+            new long[] { 42, 7, 13 });
+
+        TestAssert.Equal("OBJECTID IN (7,13,42)", query, "Context layer ObjectID filter should be deterministic.");
+        var threw = false;
+        try
+        {
+            ArcGisCompareMapIntegrationService.BuildObjectIdDefinitionQuery("OBJECTID; DROP", new long[] { 1 });
+        }
+        catch (ArgumentException)
+        {
+            threw = true;
+        }
+
+        TestAssert.True(threw, "Unsafe ObjectID fields should not be accepted in definition queries.");
+    }
+
     public static void MapIntegrationExceptionBecomesRetryableFailure()
     {
         var service = new CompareWorkingGeometryService(

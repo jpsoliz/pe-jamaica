@@ -78,7 +78,8 @@ public sealed record CompareReviewDraftDocument(
     [property: JsonPropertyName("legal_evidence_reviewed")] bool LegalEvidenceReviewed = false,
     [property: JsonPropertyName("fiscal_evidence_reviewed")] bool FiscalEvidenceReviewed = false,
     [property: JsonPropertyName("manual_query_history")] IReadOnlyList<CompareEvidenceSearchResultDraft>? ManualQueryHistory = null,
-    [property: JsonPropertyName("valuable_evidence")] IReadOnlyList<CompareValuableEvidenceDraft>? ValuableEvidence = null);
+    [property: JsonPropertyName("valuable_evidence")] IReadOnlyList<CompareValuableEvidenceDraft>? ValuableEvidence = null,
+    [property: JsonPropertyName("enterprise_cadaster_evidence")] IReadOnlyList<CompareEnterpriseCadasterEvidenceDraft>? EnterpriseCadasterEvidence = null);
 
 public sealed record CompareDiscrepancyDraft(
     [property: JsonPropertyName("title")] string Title,
@@ -171,6 +172,79 @@ public sealed record CompareValuableEvidenceDraft(
             DisplaySummary,
             RoleTag,
             DateTimeOffset.TryParse(CapturedAtUtc, out var capturedAt) ? capturedAt : DateTimeOffset.MinValue,
+            Diagnostic);
+    }
+}
+
+public sealed record CompareEnterpriseCadasterEvidenceDraft(
+    [property: JsonPropertyName("source_kind")] string SourceKind,
+    [property: JsonPropertyName("source_label")] string SourceLabel,
+    [property: JsonPropertyName("layer_url")] string LayerUrl,
+    [property: JsonPropertyName("object_id")] string? ObjectId,
+    [property: JsonPropertyName("global_id")] string? GlobalId,
+    [property: JsonPropertyName("suid")] string? Suid,
+    [property: JsonPropertyName("parcel_id")] string? ParcelId,
+    [property: JsonPropertyName("pid")] string? Pid,
+    [property: JsonPropertyName("volume")] string? Volume,
+    [property: JsonPropertyName("folio")] string? Folio,
+    [property: JsonPropertyName("land_valuation_number")] string? LandValuationNumber,
+    [property: JsonPropertyName("owner_name")] string? OwnerName,
+    [property: JsonPropertyName("occupant_name")] string? OccupantName,
+    [property: JsonPropertyName("taxpayer_name")] string? TaxpayerName,
+    [property: JsonPropertyName("parish")] string? Parish,
+    [property: JsonPropertyName("spatial_relationship")] string SpatialRelationship,
+    [property: JsonPropertyName("is_included")] bool IsIncluded,
+    [property: JsonPropertyName("queried_at_utc")] string QueriedAtUtc,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("diagnostic")] string? Diagnostic)
+{
+    public static CompareEnterpriseCadasterEvidenceDraft FromModel(CompareEnterpriseCadasterEvidenceRecord record)
+    {
+        return new CompareEnterpriseCadasterEvidenceDraft(
+            record.SourceKind,
+            record.SourceLabel,
+            record.LayerUrl,
+            record.ObjectId,
+            record.GlobalId,
+            record.Suid,
+            record.ParcelId,
+            record.Pid,
+            record.Volume,
+            record.Folio,
+            record.LandValuationNumber,
+            record.OwnerName,
+            record.OccupantName,
+            record.TaxpayerName,
+            record.Parish,
+            record.SpatialRelationship,
+            record.IsIncluded,
+            record.QueriedAt.UtcDateTime.ToString("O"),
+            record.Status,
+            record.Diagnostic);
+    }
+
+    public CompareEnterpriseCadasterEvidenceRecord ToModel()
+    {
+        return new CompareEnterpriseCadasterEvidenceRecord(
+            SourceKind,
+            SourceLabel,
+            LayerUrl,
+            ObjectId,
+            GlobalId,
+            Suid,
+            ParcelId,
+            Pid,
+            Volume,
+            Folio,
+            LandValuationNumber,
+            OwnerName,
+            OccupantName,
+            TaxpayerName,
+            Parish,
+            SpatialRelationship,
+            IsIncluded,
+            DateTimeOffset.TryParse(QueriedAtUtc, out var queriedAt) ? queriedAt : DateTimeOffset.MinValue,
+            Status,
             Diagnostic);
     }
 }

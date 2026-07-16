@@ -1,16 +1,21 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net;
 using System.Security.Cryptography.X509Certificates;
 
 namespace ParcelWorkflowAddIn.Innola;
 
 internal static class InnolaHttpClientFactory
 {
+    private static readonly CookieContainer SharedCookieContainer = new();
+
     public static HttpClient Create(InnolaClientCertificateSettings certificateSettings)
     {
         var handler = new HttpClientHandler
         {
-            CheckCertificateRevocationList = certificateSettings.CheckCertificateRevocationList
+            CheckCertificateRevocationList = certificateSettings.CheckCertificateRevocationList,
+            CookieContainer = SharedCookieContainer,
+            UseCookies = true
         };
 
         if (certificateSettings.AllowInvalidServerCertificate)
@@ -27,6 +32,49 @@ internal static class InnolaHttpClientFactory
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
+    }
+
+    public static bool HasCookie(string serverUrl, string cookieName)
+    {
+        try
+        {
+            var uri = new Uri(InnolaHttp.NormalizeServerUrl(serverUrl));
+            return SharedCookieContainer
+                .GetCookies(uri)
+                .Cast<Cookie>()
+                .Any(cookie => cookie.Name.Equals(cookieName, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    public static void EnsureCookie(string serverUrl, string cookieName, string value)
+    {
+        try
+        {
+            var uri = new Uri(InnolaHttp.NormalizeServerUrl(serverUrl));
+            var hasCookie = SharedCookieContainer
+                .GetCookies(uri)
+                .Cast<Cookie>()
+                .Any(cookie => cookie.Name.Equals(cookieName, StringComparison.OrdinalIgnoreCase));
+            if (hasCookie)
+            {
+                return;
+            }
+
+            SharedCookieContainer.Add(uri, new Cookie(cookieName, value, "/", uri.Host)
+            {
+                Secure = uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            });
+        }
+        catch (CookieException)
+        {
+        }
+        catch (UriFormatException)
+        {
+        }
     }
 
     private static bool TryFindCertificate(InnolaClientCertificateSettings settings, out X509Certificate2 certificate)

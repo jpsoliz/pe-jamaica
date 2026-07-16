@@ -149,6 +149,9 @@ development_status:
   8-3-build-compare-workspace-evidence-reconciliation-ux: review
   8-4-add-legal-and-fiscal-cadaster-query-services-for-compare: review
   8-4a-add-manual-compare-evidence-search-and-result-curation-ui: review
+  8-4b-add-live-innola-baunit-search-adapter-for-compare: review
+  8-4c-add-enterprise-legal-and-fiscal-neighbor-evidence-for-compare: review
+  8-4d-add-collapsible-pdf-panel-to-compare-workspace: done
   8-5-persist-compare-decision-and-unlock-commit-stage: review
   8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
   epic-8-retrospective: optional

@@ -34,6 +34,7 @@ public sealed record InnolaTransactionSettings(
     string CompletedAttachmentRegisteredType,
     string? AttachmentRegisteredSpatialUnitId,
     CompareCadasterQuerySettings CompareCadaster,
+    CompareEnterpriseCadasterSettings CompareEnterpriseCadaster,
     InnolaClientCertificateSettings ClientCertificate)
 {
     public static IReadOnlyList<string> SafeDefaultSupportedTransactionTypes { get; } = new[]
@@ -89,6 +90,7 @@ public sealed record InnolaTransactionSettings(
         "st_surveyplan",
         null,
         CompareCadasterQuerySettings.Default,
+        CompareEnterpriseCadasterSettings.Default,
         InnolaClientCertificateSettings.Default);
 
     public static InnolaTransactionSettings Load()
@@ -139,6 +141,7 @@ public sealed record InnolaTransactionSettings(
             var completedAttachmentRegisteredType = ReadString(root, "innola_completed_attachment_registered_type") ?? Default.CompletedAttachmentRegisteredType;
             var attachmentRegisteredSpatialUnitId = ReadString(root, "innola_attachment_registered_spatial_unit_id");
             var compareCadaster = CompareCadasterQuerySettings.FromJson(root);
+            var compareEnterpriseCadaster = CompareEnterpriseCadasterSettings.FromJson(root);
             var certificate = InnolaClientCertificateSettings.FromJson(root);
             return new InnolaTransactionSettings(
                 InnolaHttp.NormalizeServerUrl(serverUrl),
@@ -170,6 +173,7 @@ public sealed record InnolaTransactionSettings(
                 string.IsNullOrWhiteSpace(completedAttachmentRegisteredType) ? Default.CompletedAttachmentRegisteredType : completedAttachmentRegisteredType,
                 string.IsNullOrWhiteSpace(attachmentRegisteredSpatialUnitId) ? Default.AttachmentRegisteredSpatialUnitId : attachmentRegisteredSpatialUnitId,
                 compareCadaster,
+                compareEnterpriseCadaster,
                 certificate);
         }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException or UriFormatException)
@@ -1151,7 +1155,16 @@ public sealed record CadasterSourceSettings(
     string? OwnerField,
     string? NeighborRelationshipField,
     string? BoundarySideField,
-    string? Warning)
+    string? Warning,
+    string Adapter = "",
+    string SearchKind = "baunit",
+    string Datamap = "BaUnitSearchDM",
+    string BaUnitType = "bu_type_land",
+    string BaUnitStatus = "reg_status_current",
+    bool StatusLatest = true,
+    int Page = 1,
+    int Start = 0,
+    int Limit = 25)
 {
     public static CadasterSourceSettings Disabled(
         string sourceName,
@@ -1185,9 +1198,13 @@ public sealed record CadasterSourceSettings(
             return fallback with { Warning = $"{propertyName} is not a valid object." };
         }
 
+        var adapter = ReadString(value, "adapter") ?? fallback.Adapter;
+        var serviceUrl = ReadString(value, "service_url")
+            ?? (adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase) ? "search/" : fallback.ServiceUrl);
         var enabled = ReadBool(value, "enabled") ?? fallback.Enabled;
-        var serviceUrl = ReadString(value, "service_url") ?? fallback.ServiceUrl;
-        var warning = enabled && string.IsNullOrWhiteSpace(serviceUrl)
+        var warning = enabled
+            && string.IsNullOrWhiteSpace(serviceUrl)
+            && !adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase)
             ? $"{propertyName} is enabled but service_url is not configured."
             : null;
         return new CadasterSourceSettings(
@@ -1200,7 +1217,245 @@ public sealed record CadasterSourceSettings(
             ReadString(value, "owner_field") ?? fallback.OwnerField,
             ReadString(value, "neighbor_relationship_field") ?? fallback.NeighborRelationshipField,
             ReadString(value, "boundary_side_field") ?? fallback.BoundarySideField,
+            warning,
+            adapter,
+            ReadString(value, "search_kind") ?? fallback.SearchKind,
+            ReadString(value, "datamap") ?? fallback.Datamap,
+            ReadString(value, "baunit_type") ?? fallback.BaUnitType,
+            ReadString(value, "baunit_status") ?? fallback.BaUnitStatus,
+            ReadBool(value, "status_latest") ?? fallback.StatusLatest,
+            ReadNonNegativeInt(value, "page") ?? fallback.Page,
+            ReadNonNegativeInt(value, "start") ?? fallback.Start,
+            ReadPositiveInt(value, "limit") ?? fallback.Limit);
+    }
+
+    private static int? ReadPositiveInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var number)
+            && number > 0
+                ? number
+                : null;
+    }
+
+    private static int? ReadNonNegativeInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var number)
+            && number >= 0
+                ? number
+                : null;
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+}
+
+public sealed record CompareEnterpriseCadasterSettings(
+    bool Enabled,
+    double RelationshipToleranceMeters,
+    int ResultLimit,
+    int PageSize,
+    CompareEnterpriseCadasterSourceSettings Legal,
+    CompareEnterpriseCadasterSourceSettings Fiscal,
+    string? Warning)
+{
+    public static CompareEnterpriseCadasterSettings Default { get; } = new(
+        false,
+        0.05,
+        250,
+        100,
+        CompareEnterpriseCadasterSourceSettings.Disabled("Legal Cadastre"),
+        CompareEnterpriseCadasterSourceSettings.Disabled("Fiscal Cadastre"),
+        null);
+
+    public static CompareEnterpriseCadasterSettings FromJson(JsonElement root)
+    {
+        if (!root.TryGetProperty("compare_enterprise_cadaster", out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return Default;
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? Default.Enabled;
+        var tolerance = ReadPositiveDouble(value, "relationship_tolerance_meters") ?? Default.RelationshipToleranceMeters;
+        var resultLimit = ReadPositiveInt(value, "result_limit") ?? Default.ResultLimit;
+        var pageSize = ReadPositiveInt(value, "page_size") ?? Default.PageSize;
+        var legal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "legal", Default.Legal);
+        var fiscal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "fiscal", Default.Fiscal);
+        var warnings = new List<string>();
+        if (enabled)
+        {
+            if (!legal.Enabled && !fiscal.Enabled)
+            {
+                warnings.Add("compare_enterprise_cadaster is enabled but both Legal and Fiscal sources are disabled.");
+            }
+
+            foreach (var source in new[] { legal, fiscal })
+            {
+                if (source.Enabled && string.IsNullOrWhiteSpace(source.LayerUrl))
+                {
+                    warnings.Add($"{source.SourceName} is enabled but layer_url is not configured.");
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(legal.Warning))
+        {
+            warnings.Add(legal.Warning);
+        }
+
+        if (!string.IsNullOrWhiteSpace(fiscal.Warning))
+        {
+            warnings.Add(fiscal.Warning);
+        }
+
+        return new CompareEnterpriseCadasterSettings(
+            enabled,
+            tolerance,
+            resultLimit,
+            pageSize,
+            legal,
+            fiscal,
+            warnings.Count == 0 ? null : string.Join(" ", warnings));
+    }
+
+    private static int? ReadPositiveInt(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var number)
+            && number > 0
+                ? number
+                : null;
+    }
+
+    private static double? ReadPositiveDouble(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetDouble(out var number)
+            && number > 0
+                ? number
+                : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+}
+
+public sealed record CompareEnterpriseCadasterSourceSettings(
+    bool Enabled,
+    string SourceName,
+    string? LayerUrl,
+    string ParcelIdField,
+    string? PidField,
+    string? VolumeField,
+    string? FolioField,
+    string? LandValuationNumberField,
+    string? OwnerField,
+    string? OccupantField,
+    string? TaxpayerField,
+    string? ParishField,
+    string? SuidField,
+    string? ObjectIdField,
+    string? GlobalIdField,
+    string? Warning)
+{
+    public static CompareEnterpriseCadasterSourceSettings Disabled(string sourceName)
+    {
+        return new CompareEnterpriseCadasterSourceSettings(
+            false,
+            sourceName,
+            null,
+            "parcel_id",
+            "pid",
+            "volume",
+            "folio",
+            "landvalnumber",
+            "owners",
+            "occupant",
+            "taxpayer_display",
+            "parish",
+            "suid",
+            "objectid",
+            "globalid",
+            null);
+    }
+
+    public static CompareEnterpriseCadasterSourceSettings FromJson(
+        JsonElement root,
+        string propertyName,
+        CompareEnterpriseCadasterSourceSettings fallback)
+    {
+        if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return fallback;
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? fallback.Enabled;
+        var sourceName = ReadString(value, "source_name") ?? fallback.SourceName;
+        var layerUrl = ReadString(value, "layer_url") ?? fallback.LayerUrl;
+        var warning = enabled && string.IsNullOrWhiteSpace(layerUrl)
+            ? $"{sourceName} is enabled but layer_url is not configured."
+            : null;
+
+        return new CompareEnterpriseCadasterSourceSettings(
+            enabled,
+            sourceName,
+            layerUrl,
+            ReadString(value, "parcel_id_field") ?? fallback.ParcelIdField,
+            ReadString(value, "pid_field") ?? fallback.PidField,
+            ReadString(value, "volume_field") ?? fallback.VolumeField,
+            ReadString(value, "folio_field") ?? fallback.FolioField,
+            ReadString(value, "land_valuation_number_field") ?? fallback.LandValuationNumberField,
+            ReadString(value, "owner_field") ?? fallback.OwnerField,
+            ReadString(value, "occupant_field") ?? fallback.OccupantField,
+            ReadString(value, "taxpayer_field") ?? fallback.TaxpayerField,
+            ReadString(value, "parish_field") ?? fallback.ParishField,
+            ReadString(value, "suid_field") ?? fallback.SuidField,
+            ReadString(value, "object_id_field") ?? fallback.ObjectIdField,
+            ReadString(value, "global_id_field") ?? fallback.GlobalIdField,
             warning);
+    }
+
+    public IReadOnlyList<string> EvidenceFields()
+    {
+        return new[]
+        {
+            ParcelIdField,
+            PidField,
+            VolumeField,
+            FolioField,
+            LandValuationNumberField,
+            OwnerField,
+            OccupantField,
+            TaxpayerField,
+            ParishField,
+            SuidField,
+            ObjectIdField,
+            GlobalIdField
+        }
+            .Where(field => !string.IsNullOrWhiteSpace(field))
+            .Select(field => field!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string? ReadString(JsonElement element, string name)

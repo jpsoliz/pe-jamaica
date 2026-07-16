@@ -159,6 +159,33 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(viewModel.GeometryAvailable, "Geometry should remain available after document selection changes.");
     }
 
+    public static void PdfPanelToggleDefaultsVisibleAndPreservesSelectedDocument()
+    {
+        using var fixture = CreateCaseFolderWithSources("plan-a.pdf", "plan-b.pdf");
+        var viewModel = CreateViewModel();
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedDocument = viewModel.PdfDocuments[1].SourceFile;
+        var selectedDocument = viewModel.SelectedDocument;
+        var navigationKey = viewModel.ViewerNavigationKey;
+
+        TestAssert.True(viewModel.IsPdfPanelVisible, "PDF panel should be visible by default.");
+        TestAssert.False(viewModel.IsPdfPanelHidden, "Hidden helper should be false by default.");
+        TestAssert.Equal("Hide PDF", viewModel.PdfPanelToggleText, "Visible panel should expose Hide PDF action.");
+
+        viewModel.TogglePdfPanelCommand.Execute(null);
+
+        TestAssert.False(viewModel.IsPdfPanelVisible, "Toggle should hide PDF panel.");
+        TestAssert.True(viewModel.IsPdfPanelHidden, "Hidden helper should track collapsed PDF panel.");
+        TestAssert.Equal("Show PDF", viewModel.PdfPanelToggleText, "Hidden panel should expose Show PDF action.");
+        TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Toggling PDF panel should preserve selected document.");
+        TestAssert.Equal(navigationKey, viewModel.ViewerNavigationKey, "Toggling PDF panel should not change viewer navigation state.");
+
+        viewModel.TogglePdfPanelCommand.Execute(null);
+
+        TestAssert.True(viewModel.IsPdfPanelVisible, "Second toggle should restore PDF panel.");
+        TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Restoring PDF panel should preserve selected document.");
+    }
+
     public static void PdfSelectorEmptyStateKeepsCompareUsableWhenNoPdfExists()
     {
         using var fixture = CreateCaseFolderWithSources("notes.txt", "scan.png");
@@ -191,6 +218,47 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(2, viewModel.QueryResults.Count, "Manual PID search should display every returned record.");
         TestAssert.True(viewModel.QueryResults.All(item => item.QueryKey.Contains("typed-999", StringComparison.Ordinal)), "Manual PID search should use the typed PID value.");
         TestAssert.True(viewModel.LegalEvidenceReviewed, "Manual legal search should count as legal evidence review.");
+        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("2 records returned", StringComparison.OrdinalIgnoreCase), "Search status should report returned record count.");
+    }
+
+    public static async Task ManualSearchWritesTraceWithoutSaveProgress()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel(new MockLegalCadasterQueryService());
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+        viewModel.SearchVolume = "1486";
+        viewModel.SearchFolio = "393";
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        var tracePath = Path.Combine(fixture.Layout.WorkingDirectory, "compare_legal_query_trace.json");
+        TestAssert.True(File.Exists(tracePath), "Manual legal search should write an immediate trace file.");
+        var trace = File.ReadAllText(tracePath);
+        TestAssert.True(trace.Contains("\"query_kind\": \"volume_folio\"", StringComparison.Ordinal), "Trace should capture the query kind.");
+        TestAssert.True(trace.Contains("\"query_key\": \"volume=1486;folio=393\"", StringComparison.Ordinal), "Trace should capture the searched Volume/Folio.");
+        TestAssert.True(trace.Contains("\"record_count\": 0", StringComparison.Ordinal), "Trace should capture no-record result count.");
+        TestAssert.True(!trace.Contains("token", StringComparison.OrdinalIgnoreCase), "Trace must not contain auth token labels.");
+        TestAssert.True(!trace.Contains("password", StringComparison.OrdinalIgnoreCase), "Trace must not contain password labels.");
+        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("no records returned", StringComparison.OrdinalIgnoreCase), "Search status should report no-record results.");
+    }
+
+    public static async Task ManualSearchFailureMessageIsVisible()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel(new UnsupportedLegalCadasterQueryService(
+            "Innola BA Unit search could not be completed. Try again.",
+            "Innola BA Unit search returned Unauthorized."));
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+        viewModel.SearchVolume = "1486";
+        viewModel.SearchFolio = "393";
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Search failed", StringComparison.OrdinalIgnoreCase), "Search status should report failed queries.");
+        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("volume=1486;folio=393", StringComparison.Ordinal), "Search status should include the query key.");
+        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase), "Search status should surface sanitized diagnostics.");
     }
 
     public static async Task ManualSearchValidationBlocksBlankRequiredValues()
@@ -205,6 +273,23 @@ internal static class CompareWorkspaceViewModelTests
 
         TestAssert.Equal(0, viewModel.QueryResults.Count, "Blank required value should not query or render results.");
         TestAssert.True(viewModel.SearchValidationMessage.Contains("Land Val No.", StringComparison.OrdinalIgnoreCase), "Validation should name the missing field.");
+    }
+
+    public static async Task ManualVolumeFolioSearchValidationBlocksNonNumericValues()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var service = new CountingLegalCadasterQueryService();
+        var viewModel = CreateViewModel(service);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+        viewModel.SearchVolume = "ABC";
+        viewModel.SearchFolio = "583";
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.Equal(0, viewModel.QueryResults.Count, "Invalid Volume/Folio should not query or render results.");
+        TestAssert.Equal(0, service.VolumeFolioCallCount, "Invalid Volume/Folio should be blocked before service call.");
+        TestAssert.True(viewModel.SearchValidationMessage.Contains("numeric", StringComparison.OrdinalIgnoreCase), "Validation should explain numeric requirement.");
     }
 
     public static async Task ManualLandValAndNameSearchBuildExpectedQueryKeys()
@@ -334,6 +419,32 @@ internal static class CompareWorkspaceViewModelTests
             landValuationNumber,
             parish,
             partyRole);
+    }
+
+    private sealed class CountingLegalCadasterQueryService : ILegalCadasterQueryService
+    {
+        public int VolumeFolioCallCount { get; private set; }
+
+        public Task<LegalCadasterQueryResult> QueryByParcelIdAsync(string parcelId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("parcel_id", parcelId, null, null), DateTimeOffset.UtcNow));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByVolumeFolioAsync(string volume, string folio, CancellationToken cancellationToken = default)
+        {
+            VolumeFolioCallCount++;
+            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("volume_folio", null, volume, folio), DateTimeOffset.UtcNow));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByLandValuationNumberAsync(string landValuationNumber, string? parish = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("land_valuation_number", null, null, null, landValuationNumber, null, parish), DateTimeOffset.UtcNow));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string parish, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("name_parish", null, null, null, null, name, parish), DateTimeOffset.UtcNow));
+        }
     }
 
     private static CompareWorkspaceLoadState ReadyState(string caseFolderPath)
