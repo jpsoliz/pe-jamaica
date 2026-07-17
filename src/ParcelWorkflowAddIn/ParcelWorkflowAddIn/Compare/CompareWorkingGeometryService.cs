@@ -17,6 +17,10 @@ public interface ICompareMapIntegrationService
     Task<CompareMapIntegrationResult> AddTransactionGeometryToActiveMapAsync(
         CompareWorkingGeometryLoadPlan plan,
         CancellationToken cancellationToken = default);
+
+    Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+        string groupLayerName,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class CompareWorkingGeometryService : ICompareWorkingGeometryService
@@ -380,6 +384,22 @@ public enum CompareMapIntegrationStatus
     MapUnavailable,
     NoPolygons,
     Failed
+}
+
+public sealed record CompareMapCleanupResult(
+    bool Success,
+    string Message,
+    int RemovedLayerCount)
+{
+    public static CompareMapCleanupResult Removed(string groupLayerName, int removedLayerCount)
+    {
+        return new CompareMapCleanupResult(true, $"Removed Compare map group '{groupLayerName}'.", removedLayerCount);
+    }
+
+    public static CompareMapCleanupResult Skipped(string message)
+    {
+        return new CompareMapCleanupResult(false, message, 0);
+    }
 }
 
 public sealed record CompareWorkspaceLoadState(

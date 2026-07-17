@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Contracts;
@@ -60,24 +61,30 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(viewModel.GeometryStatus.Contains("1 polygon", StringComparison.OrdinalIgnoreCase), "Geometry status should include the loaded polygon count.");
     }
 
-    public static async Task DiscrepancyBlocksApprovalUntilResolved()
+    public static async Task FinalizeUsesValuableEvidenceAndNotesEvenWhenDiscrepancyExists()
     {
         using var fixture = CreateCaseFolderWithSource();
-        var viewModel = CreateViewModel();
+        var viewModel = CreateViewModel(new MockLegalCadasterQueryService(new[]
+        {
+            LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+        }));
 
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
-        await viewModel.QueryParcelIdAsync();
-        await viewModel.QueryFiscalNeighborsAsync();
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
         viewModel.AddDiscrepancy("Owner mismatch", "Legal cadaster", isResolved: false);
 
         TestAssert.True(viewModel.HasUnresolvedDiscrepancies, "Open discrepancy should be visible.");
-        TestAssert.False(viewModel.CanApproveCompare, "Open discrepancy should block approval.");
+        TestAssert.True(viewModel.CanApproveCompare, "Finalize should follow valuable evidence plus Decision Notes even when a discrepancy is visible.");
 
         viewModel.MarkAllDiscrepanciesResolved();
 
-        TestAssert.False(viewModel.HasUnresolvedDiscrepancies, "Resolved discrepancies should not block.");
-        TestAssert.True(viewModel.CanApproveCompare, "Resolved discrepancies should allow approval when load state is ready.");
+        TestAssert.False(viewModel.HasUnresolvedDiscrepancies, "Resolved discrepancies should still be tracked.");
+        TestAssert.True(viewModel.CanApproveCompare, "Resolved discrepancies should keep Finalize enabled when evidence and notes remain ready.");
     }
 
     public static void SaveAndRestoreDraftPreservesNotesAndEvidence()
@@ -104,6 +111,80 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(restored.Discrepancies[0].IsResolved, "Resolved discrepancy state should restore.");
     }
 
+    public static void SaveGeneratesCompareReviewReportAndCompletionMessage()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel();
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.Notes = "Reviewed survey plan against legal owner evidence.";
+        viewModel.SurveyPlanSummary = "Survey plan owner: TRACEY, HOPETON SCOTT.";
+        viewModel.LegalCadasterSummary = "Legal cadaster owner: TRACEY, HOPETON SCOTT.";
+        viewModel.FiscalNeighborSummary = "Fiscal context reviewed.";
+        viewModel.ValuableEvidenceItems.Add(new CompareValuableEvidenceItem(new CompareValuableEvidence(
+            "evidence-1",
+            CompareEvidenceSourceType.LegalCadaster,
+            "Innola Owner Search",
+            "volume=1486;folio=393",
+            "TRACEY, HOPETON SCOTT; Role: Fee Simple; PID: 10843842",
+            CompareEvidenceRoleTag.Owner,
+            DateTimeOffset.Parse("2026-07-14T00:00:00Z"),
+            null)));
+        viewModel.SaveProgressCommand.Execute(null);
+
+        var reportPath = Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.ReportFileName);
+        var pdfReportPath = Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        TestAssert.True(File.Exists(reportPath), "Save should generate the Compare review report JSON.");
+        TestAssert.True(File.Exists(pdfReportPath), "Save should generate the Compare review report PDF.");
+        var pdfText = File.ReadAllText(pdfReportPath);
+        TestAssert.True(pdfText.StartsWith("%PDF-1.4", StringComparison.Ordinal), "PDF report should be a PDF document.");
+        TestAssert.True(pdfText.Contains("Valuable Evidence", StringComparison.Ordinal), "PDF report should title the retained evidence section.");
+        TestAssert.True(pdfText.Contains("1. Owner: TRACEY, HOPETON SCOTT", StringComparison.Ordinal), "PDF report should number valuable evidence rows.");
+        TestAssert.True(pdfText.Contains("Notes", StringComparison.Ordinal), "PDF report should include notes section.");
+        TestAssert.True(pdfText.Contains("Reviewed survey plan against legal owner evidence.", StringComparison.Ordinal), "PDF report should include decision notes.");
+        TestAssert.False(pdfText.Contains("Review Summary", StringComparison.Ordinal), "PDF report should not include internal review summary sections.");
+        TestAssert.Equal("Save complete. Compare report generated and overwritten.", viewModel.StatusText, "Save should show a clear completion message.");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(reportPath));
+        var root = document.RootElement;
+        TestAssert.Equal("1.0.0", root.GetProperty("schema_version").GetString(), "Report schema version mismatch.");
+        TestAssert.Equal("TR100000674", root.GetProperty("transaction_number").GetString(), "Report transaction number mismatch.");
+        TestAssert.Equal("saved_progress", root.GetProperty("decision_state").GetString(), "Report decision state mismatch.");
+        TestAssert.Equal("Reviewed survey plan against legal owner evidence.", root.GetProperty("notes").GetString(), "Report notes mismatch.");
+        TestAssert.True(root.GetProperty("artifact_refs").EnumerateArray().Any(), "Report should include artifact references.");
+    }
+
+    public static async Task FinalizeAttachesComparePdfReportBeforeCompletingTask()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            CompleteResult = CompareTaskLifecycleResult.Succeeded("Completed from test.")
+        };
+        var attachmentService = new RecordingCompareReportAttachmentService();
+        var viewModel = CreateViewModel(
+            new MockLegalCadasterQueryService(new[]
+            {
+                LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+            }),
+            lifecycle,
+            attachmentService);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
+        viewModel.MarkAllDiscrepanciesResolved();
+
+        viewModel.ApproveCompareCommand.Execute(null);
+        await lifecycle.CompleteObserved.Task;
+
+        TestAssert.Equal(1, attachmentService.UploadCalls, "Finalize should attach the generated Compare PDF report once.");
+        TestAssert.Equal("TR100000674", attachmentService.LastTransactionNumber, "Report attachment should target the selected transaction.");
+        TestAssert.True(File.Exists(attachmentService.LastPdfReportPath), "Report attachment should use an existing generated PDF.");
+        TestAssert.Equal(1, lifecycle.CompleteCalls, "Finalize should complete only after the report attachment step succeeds.");
+    }
+
     public static void SaveDraftDoesNotCallTaskLifecycle()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -116,6 +197,24 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(0, lifecycle.SuspendCalls, "Save draft must not suspend or release the task.");
         TestAssert.Equal(0, lifecycle.CompleteCalls, "Save draft must not complete the task.");
         TestAssert.Equal("Draft", viewModel.DecisionStatus, "Save draft should keep draft decision status.");
+    }
+
+    public static void SavePromptCanCancelWithoutWritingReport()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var prompt = new RecordingCompareWorkspacePromptService
+        {
+            SaveResult = false
+        };
+        var viewModel = CreateViewModel(promptService: prompt);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        viewModel.SaveProgressCommand.Execute(null);
+
+        TestAssert.Equal(1, prompt.SaveCalls, "Save should ask for user confirmation.");
+        TestAssert.Equal("Save cancelled.", viewModel.StatusText, "Cancelled Save should show a visible status.");
+        TestAssert.False(File.Exists(Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.ReportFileName)), "Cancelled Save should not write the JSON report.");
+        TestAssert.False(File.Exists(Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName)), "Cancelled Save should not write the PDF report.");
     }
 
     public static async Task SuspendTaskSavesDraftAndRequestsCloseOnSuccess()
@@ -139,6 +238,45 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal("Suspended from test.", viewModel.StatusText, "Suspend result message should be shown.");
     }
 
+    public static async Task SuspendTaskCleansCompareMapAndWorkspaceOnSuccess()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            SuspendResult = CompareTaskLifecycleResult.Succeeded("Suspended from test.")
+        };
+        var mapIntegration = new RecordingCompareMapIntegrationService();
+        var viewModel = CreateViewModel(
+            taskLifecycleService: lifecycle,
+            mapIntegrationService: mapIntegration);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        viewModel.SuspendTaskCommand.Execute(null);
+        await lifecycle.SuspendObserved.Task;
+
+        TestAssert.Equal(1, mapIntegration.CleanupCalls, "Successful suspend should remove the active Compare map group.");
+        TestAssert.Equal("Compare Review - 100000674", mapIntegration.LastGroupLayerName, "Map cleanup should target the loaded Compare group.");
+        TestAssert.False(viewModel.DocumentsAvailable, "Successful suspend cleanup should clear document availability.");
+        TestAssert.False(viewModel.GeometryAvailable, "Successful suspend cleanup should clear geometry availability.");
+        TestAssert.Equal(0, viewModel.Documents.Count, "Successful suspend cleanup should clear the form documents.");
+    }
+
+    public static async Task CloseWorkspaceCleansCompareMapAndWorkspace()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var mapIntegration = new RecordingCompareMapIntegrationService();
+        var viewModel = CreateViewModel(mapIntegrationService: mapIntegration);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        await viewModel.CloseWorkspaceAsync();
+
+        TestAssert.Equal(1, mapIntegration.CleanupCalls, "Closing the Compare workspace should remove the active Compare map group.");
+        TestAssert.Equal("Compare Review - 100000674", mapIntegration.LastGroupLayerName, "Close cleanup should target the loaded Compare group.");
+        TestAssert.False(viewModel.DocumentsAvailable, "Close cleanup should clear document availability.");
+        TestAssert.False(viewModel.GeometryAvailable, "Close cleanup should clear geometry availability.");
+        TestAssert.Equal(0, viewModel.Documents.Count, "Close cleanup should clear the form documents.");
+    }
+
     public static async Task SuspendTaskFailureKeepsWorkspaceOpen()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -158,79 +296,89 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal("Could not suspend. Try again.", viewModel.StatusText, "Failed suspend should show sanitized retryable message.");
     }
 
-    public static async Task CompleteTaskRequiresApprovedDecisionAndClosesOnSuccess()
+    public static async Task FinalizeCompletesTaskAndClosesOnSuccess()
     {
         using var fixture = CreateCaseFolderWithSource();
         var lifecycle = new RecordingCompareTaskLifecycleService
         {
             CompleteResult = CompareTaskLifecycleResult.Succeeded("Completed from test.")
         };
-        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        var viewModel = CreateViewModel(
+            new MockLegalCadasterQueryService(new[]
+            {
+                LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+            }),
+            lifecycle);
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
-        TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task should be disabled before approval.");
+        TestAssert.False(viewModel.CanApproveCompare, "Finalize should be disabled before evidence and notes are ready.");
 
-        await viewModel.QueryParcelIdAsync();
-        await viewModel.QueryFiscalNeighborsAsync();
-        viewModel.MarkAllDiscrepanciesResolved();
-        viewModel.ApproveCompareCommand.Execute(null);
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
         var closeRequested = false;
         viewModel.CloseRequested += (_, _) => closeRequested = true;
 
-        TestAssert.True(viewModel.CompleteTaskCommand.CanExecute(null), "Approved Compare should enable Complete task.");
-        viewModel.CompleteTaskCommand.Execute(null);
+        viewModel.MarkAllDiscrepanciesResolved();
+        TestAssert.True(viewModel.CanApproveCompare, "Evidence and notes should enable Finalize.");
+        viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
 
-        TestAssert.Equal(1, lifecycle.CompleteCalls, "Complete task should call the lifecycle bridge once.");
-        TestAssert.True(closeRequested, "Successful complete should ask the window to close after cleanup.");
-        TestAssert.Equal("Completed from test.", viewModel.StatusText, "Complete result message should be shown.");
+        TestAssert.Equal(1, lifecycle.CompleteCalls, "Finalize should call the lifecycle bridge once.");
+        TestAssert.True(closeRequested, "Successful finalize should ask the window to close after cleanup.");
+        TestAssert.Equal("Completed from test.", viewModel.StatusText, "Finalize result message should be shown.");
     }
 
-    public static async Task CompleteTaskIsDisabledWhenApprovedCompareBecomesBlocked()
+    public static async Task FinalizeClearsWorkspaceAndDisablesCompletionAfterTaskClose()
     {
         using var fixture = CreateCaseFolderWithSource();
         var lifecycle = new RecordingCompareTaskLifecycleService();
-        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        var viewModel = CreateViewModel(
+            new MockLegalCadasterQueryService(new[]
+            {
+                LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+            }),
+            lifecycle);
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
-        await viewModel.QueryParcelIdAsync();
-        await viewModel.QueryFiscalNeighborsAsync();
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
         viewModel.ApproveCompareCommand.Execute(null);
+        await lifecycle.CompleteObserved.Task;
 
-        TestAssert.True(viewModel.CompleteTaskCommand.CanExecute(null), "Approved Compare should initially enable Complete task.");
-
-        viewModel.AddDiscrepancy("Late owner mismatch", "Legal cadaster", isResolved: false);
-
-        TestAssert.False(viewModel.CanApproveCompare, "A late unresolved discrepancy should block current approval readiness.");
-        TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task must be disabled when an approved Compare becomes blocked.");
-        viewModel.CompleteTaskCommand.Execute(null);
-
-        TestAssert.Equal(0, lifecycle.CompleteCalls, "Blocked Complete task must not call the lifecycle bridge.");
+        TestAssert.False(viewModel.GeometryAvailable, "Successful Finalize should clear geometry availability after task close.");
+        TestAssert.Equal(0, viewModel.ValuableEvidenceItems.Count, "Successful Finalize should clear retained evidence from the closed workspace.");
+        TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task should be disabled after Finalize closes and clears the workspace.");
     }
 
-    public static void ReturnToComputeCommandRefreshesAfterLoad()
+    public static async Task FinalizeRequiresValuableEvidenceAndDecisionNotes()
     {
         using var fixture = CreateCaseFolderWithSource();
-        var viewModel = CreateViewModel();
-        var refreshed = false;
-        viewModel.ReturnToComputeCommand.CanExecuteChanged += (_, _) => refreshed = true;
-
+        var viewModel = CreateViewModel(new MockLegalCadasterQueryService(new[]
+        {
+            LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+        }));
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
-        TestAssert.True(refreshed, "Return to Compute command should refresh after Case Folder load.");
-        TestAssert.True(viewModel.ReturnToComputeCommand.CanExecute(null), "Return to Compute should be enabled after Case Folder load.");
-    }
+        TestAssert.False(viewModel.CanApproveCompare, "Finalize should require retained valuable evidence and Decision Notes.");
 
-    public static void ApprovalRequiresLegalAndFiscalEvidenceReview()
-    {
-        using var fixture = CreateCaseFolderWithSource();
-        var viewModel = CreateViewModel();
-        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
+        TestAssert.False(viewModel.CanApproveCompare, "Decision Notes alone should not enable Finalize.");
 
-        TestAssert.False(viewModel.CanApproveCompare, "Approval should require legal and fiscal evidence review.");
-        TestAssert.False(viewModel.LegalEvidenceReviewed, "Legal evidence should start unreviewed.");
-        TestAssert.False(viewModel.FiscalEvidenceReviewed, "Fiscal evidence should start unreviewed.");
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        TestAssert.True(viewModel.CanApproveCompare, "Finalize should enable once valuable evidence and Decision Notes exist.");
+
+        viewModel.RemoveValuableEvidenceCommand.Execute(viewModel.ValuableEvidenceItems[0]);
+        TestAssert.False(viewModel.CanApproveCompare, "Removing valuable evidence should disable Finalize again.");
     }
 
     public static void PdfSelectorDefaultsToFirstPdfAndExcludesOtherAttachments()
@@ -275,13 +423,13 @@ internal static class CompareWorkspaceViewModelTests
 
         TestAssert.True(viewModel.IsPdfPanelVisible, "PDF panel should be visible by default.");
         TestAssert.False(viewModel.IsPdfPanelHidden, "Hidden helper should be false by default.");
-        TestAssert.Equal("Hide PDF", viewModel.PdfPanelToggleText, "Visible panel should expose Hide PDF action.");
+        TestAssert.Equal("Hide Files", viewModel.PdfPanelToggleText, "Visible panel should expose Hide Files action.");
 
         viewModel.TogglePdfPanelCommand.Execute(null);
 
         TestAssert.False(viewModel.IsPdfPanelVisible, "Toggle should hide PDF panel.");
         TestAssert.True(viewModel.IsPdfPanelHidden, "Hidden helper should track collapsed PDF panel.");
-        TestAssert.Equal("Show PDF", viewModel.PdfPanelToggleText, "Hidden panel should expose Show PDF action.");
+        TestAssert.Equal("Show Files", viewModel.PdfPanelToggleText, "Hidden panel should expose Show Files action.");
         TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Toggling PDF panel should preserve selected document.");
         TestAssert.Equal(navigationKey, viewModel.ViewerNavigationKey, "Toggling PDF panel should not change viewer navigation state.");
 
@@ -323,7 +471,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(2, viewModel.QueryResults.Count, "Manual PID search should display every returned record.");
         TestAssert.True(viewModel.QueryResults.All(item => item.QueryKey.Contains("typed-999", StringComparison.Ordinal)), "Manual PID search should use the typed PID value.");
         TestAssert.True(viewModel.LegalEvidenceReviewed, "Manual legal search should count as legal evidence review.");
-        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("2 records returned", StringComparison.OrdinalIgnoreCase), "Search status should report returned record count.");
+        TestAssert.Equal("PID search: 2 records found.", viewModel.EvidenceSearchStatusMessage, "Search status should report returned record count.");
     }
 
     public static async Task ManualSearchWritesTraceWithoutSaveProgress()
@@ -345,7 +493,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(trace.Contains("\"record_count\": 0", StringComparison.Ordinal), "Trace should capture no-record result count.");
         TestAssert.True(!trace.Contains("token", StringComparison.OrdinalIgnoreCase), "Trace must not contain auth token labels.");
         TestAssert.True(!trace.Contains("password", StringComparison.OrdinalIgnoreCase), "Trace must not contain password labels.");
-        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("no records returned", StringComparison.OrdinalIgnoreCase), "Search status should report no-record results.");
+        TestAssert.Equal("Volume/Folio search: no records found.", viewModel.EvidenceSearchStatusMessage, "Search status should report no-record results.");
     }
 
     public static async Task ManualSearchFailureMessageIsVisible()
@@ -361,9 +509,7 @@ internal static class CompareWorkspaceViewModelTests
 
         await viewModel.RunEvidenceSearchAsync();
 
-        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Search failed", StringComparison.OrdinalIgnoreCase), "Search status should report failed queries.");
-        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("volume=1486;folio=393", StringComparison.Ordinal), "Search status should include the query key.");
-        TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase), "Search status should surface sanitized diagnostics.");
+        TestAssert.Equal("Volume/Folio search: search failed. Try again.", viewModel.EvidenceSearchStatusMessage, "Search status should report failed queries without diagnostic noise.");
         TestAssert.Equal(0, viewModel.QueryResults.Count, "Failed legal searches should not add blank query result rows.");
     }
 
@@ -415,11 +561,10 @@ internal static class CompareWorkspaceViewModelTests
 
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Name;
         viewModel.SearchName = "Brown";
-        viewModel.SearchParish = "Clarendon";
         await viewModel.RunEvidenceSearchAsync();
 
         TestAssert.False(viewModel.QueryResults.Any(item => item.QueryKey == "land_val_no=LV-77"), "Manual search results should show the current query, not stale rows from the prior search.");
-        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "name=Brown;parish=Clarendon"), "Name and parish query key should be shown after the Name search.");
+        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "name=Brown"), "Owner name query key should be shown after the Name search.");
     }
 
     public static async Task ValuableEvidencePersistsRoleTagAndRestoresWithoutRequery()
@@ -447,7 +592,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(restored.ValuableEvidenceItems[0].DisplaySummary.Contains("Jane Brown", StringComparison.Ordinal), "Retained evidence summary should restore.");
     }
 
-    public static async Task NoRecordResultCannotBeMarkedValuable()
+    public static async Task NoRecordResultDoesNotRenderBlankSearchRow()
     {
         using var fixture = CreateCaseFolderWithSource();
         var viewModel = CreateViewModel(new MockLegalCadasterQueryService());
@@ -457,13 +602,43 @@ internal static class CompareWorkspaceViewModelTests
 
         await viewModel.RunEvidenceSearchAsync();
 
-        TestAssert.Equal(1, viewModel.QueryResults.Count, "No-record query should remain visible in query history.");
-        TestAssert.False(viewModel.QueryResults[0].CanMarkValuable, "No-record rows should not be markable as valuable evidence.");
-        TestAssert.False(viewModel.MarkEvidenceResultValuableCommand.CanExecute(viewModel.QueryResults[0]), "Command should reject no-record rows.");
+        TestAssert.Equal(0, viewModel.QueryResults.Count, "No-record query should not render a blank Search Results row.");
+        TestAssert.False(viewModel.HasQueryResults, "Search Results grid should collapse when no returned records exist.");
+        TestAssert.Equal("PID search: no records found.", viewModel.EvidenceSearchStatusMessage, "No-record query should remain visible as a status message.");
+        TestAssert.Equal(0, viewModel.ValuableEvidenceItems.Count, "No-record search must not be retained as valuable evidence.");
+    }
 
-        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+    public static async Task PartyMatchesRenderSeparatelyAndPersistWhenKept()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel(new PartyMatchLegalCadasterQueryService());
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.LandValuationNumber;
+        viewModel.SearchLandValuationNumber = "16505010005";
 
-        TestAssert.Equal(0, viewModel.ValuableEvidenceItems.Count, "No-record row must not be retained as valuable evidence.");
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.Equal(0, viewModel.QueryResults.Count, "Party-shaped rows should not render in the property Search Results grid.");
+        TestAssert.False(viewModel.HasQueryResults, "Property Search Results should stay collapsed for party-only matches.");
+        TestAssert.Equal(1, viewModel.RelatedPartyMatches.Count, "Party-shaped rows should render in Related Party Matches.");
+        TestAssert.True(viewModel.HasRelatedPartyMatches, "Related Party Matches should be visible when party rows are returned.");
+        TestAssert.Equal("KING, WILTON F.", viewModel.RelatedPartyMatches[0].PartyName, "Party match name mismatch.");
+        TestAssert.Equal("100778284", viewModel.RelatedPartyMatches[0].Prid, "Party match PRID mismatch.");
+
+        viewModel.MarkPartyMatchValuableCommand.Execute(viewModel.RelatedPartyMatches[0]);
+
+        TestAssert.Equal(1, viewModel.ValuableEvidenceItems.Count, "Keeping a party match should add Valuable Evidence.");
+        TestAssert.True(viewModel.ValuableEvidenceItems[0].DisplaySummary.Contains("Party match: KING, WILTON F.", StringComparison.Ordinal), "Valuable party summary should be explicit.");
+        TestAssert.True(viewModel.ValuableEvidenceItems[0].DisplaySummary.Contains("PRID: 100778284", StringComparison.Ordinal), "Valuable party summary should retain PRID.");
+
+        viewModel.SaveProgressCommand.Execute(null);
+
+        var restored = CreateViewModel(new UnsupportedLegalCadasterQueryService());
+        restored.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        TestAssert.Equal(1, restored.ValuableEvidenceItems.Count, "Kept party evidence should restore from the Compare draft.");
+        TestAssert.True(restored.ValuableEvidenceItems[0].DisplaySummary.Contains("KING, WILTON F.", StringComparison.Ordinal), "Restored party evidence should retain party name.");
+        TestAssert.True(restored.ValuableEvidenceItems[0].DisplaySummary.Contains("PRID: 100778284", StringComparison.Ordinal), "Restored party evidence should retain PRID.");
     }
 
     public static async Task ValuableEvidenceIdsRemainUniqueAfterRemoveAndAdd()
@@ -490,7 +665,10 @@ internal static class CompareWorkspaceViewModelTests
 
     private static CompareWorkspaceViewModel CreateViewModel(
         ILegalCadasterQueryService? legalService = null,
-        ICompareTaskLifecycleService? taskLifecycleService = null)
+        ICompareTaskLifecycleService? taskLifecycleService = null,
+        ICompareReportAttachmentService? reportAttachmentService = null,
+        ICompareMapIntegrationService? mapIntegrationService = null,
+        ICompareWorkspacePromptService? promptService = null)
     {
         return new CompareWorkspaceViewModel(new SelectedInnolaTransaction(
             "task-1",
@@ -500,7 +678,10 @@ internal static class CompareWorkspaceViewModelTests
             "Compare",
             DateTimeOffset.Parse("2026-07-14T00:00:00Z")),
             legalCadasterQueryService: legalService ?? new MockLegalCadasterQueryService(),
-            taskLifecycleService: taskLifecycleService);
+            taskLifecycleService: taskLifecycleService,
+            reportAttachmentService: reportAttachmentService,
+            mapIntegrationService: mapIntegrationService,
+            promptService: promptService);
     }
 
     private static LegalCadasterRecord LegalRecord(
@@ -551,9 +732,58 @@ internal static class CompareWorkspaceViewModelTests
             return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("land_valuation_number", null, null, null, landValuationNumber, null, parish), DateTimeOffset.UtcNow));
         }
 
-        public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string parish, CancellationToken cancellationToken = default)
+        public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string? parish = null, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("name_parish", null, null, null, null, name, parish), DateTimeOffset.UtcNow));
+            return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("name", null, null, null, null, name, parish), DateTimeOffset.UtcNow));
+        }
+    }
+
+    private sealed class PartyMatchLegalCadasterQueryService : ILegalCadasterQueryService
+    {
+        public Task<LegalCadasterQueryResult> QueryByParcelIdAsync(string parcelId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CreatePartyResult(new LegalCadasterQuery("parcel_id", parcelId, null, null)));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByVolumeFolioAsync(string volume, string folio, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CreatePartyResult(new LegalCadasterQuery("volume_folio", null, volume, folio)));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByLandValuationNumberAsync(string landValuationNumber, string? parish = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CreatePartyResult(new LegalCadasterQuery("land_valuation_number", null, null, null, landValuationNumber, null, parish)));
+        }
+
+        public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string? parish = null, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CreatePartyResult(new LegalCadasterQuery("name", null, null, null, null, name, parish)));
+        }
+
+        private static LegalCadasterQueryResult CreatePartyResult(LegalCadasterQuery query)
+        {
+            var queryKey = LegalCadasterQueryResult.BuildLegalQueryKey(query);
+            return new LegalCadasterQueryResult(
+                true,
+                false,
+                query,
+                Array.Empty<LegalCadasterRecord>(),
+                CompareEvidenceStatus.NoRecordReturned,
+                "Party matches returned",
+                null,
+                PartyRecords: new[]
+                {
+                    new LegalCadasterPartyRecord(
+                        "KING, WILTON F.",
+                        "100778284",
+                        "Cave Mountain, Cave Post Office Westmoreland",
+                        "TX-55",
+                        "reg_status_current",
+                        "party_type_individual",
+                        "Innola Owner Search",
+                        DateTimeOffset.Parse("2026-07-14T00:00:00Z"),
+                        queryKey)
+                });
         }
     }
 
@@ -587,6 +817,86 @@ internal static class CompareWorkspaceViewModelTests
             LastTransactionNumber = transactionNumber;
             CompleteObserved.TrySetResult(transactionNumber);
             return Task.FromResult(CompleteResult);
+        }
+    }
+
+    private sealed class RecordingCompareReportAttachmentService : ICompareReportAttachmentService
+    {
+        public int UploadCalls { get; private set; }
+
+        public string? LastTransactionNumber { get; private set; }
+
+        public string? LastPdfReportPath { get; private set; }
+
+        public Task<CompareReportAttachmentResult> UploadAsync(
+            SelectedInnolaTransaction transaction,
+            string pdfReportPath,
+            CancellationToken cancellationToken = default)
+        {
+            UploadCalls++;
+            LastTransactionNumber = transaction.TransactionNumber;
+            LastPdfReportPath = pdfReportPath;
+            return Task.FromResult(CompareReportAttachmentResult.Succeeded(CompareReportAttachmentService.SourceType, pdfReportPath));
+        }
+    }
+
+    private sealed class RecordingCompareMapIntegrationService : ICompareMapIntegrationService
+    {
+        public int CleanupCalls { get; private set; }
+
+        public string? LastGroupLayerName { get; private set; }
+
+        public Task<CompareMapIntegrationResult> AddTransactionGeometryToActiveMapAsync(
+            CompareWorkingGeometryLoadPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapIntegrationResult.Loaded(
+                "Loaded in test.",
+                Array.Empty<string>(),
+                ArcGisCompareMapIntegrationService.BuildGroupLayerName(plan),
+                1));
+        }
+
+        public Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+            string groupLayerName,
+            CancellationToken cancellationToken = default)
+        {
+            CleanupCalls++;
+            LastGroupLayerName = groupLayerName;
+            return Task.FromResult(CompareMapCleanupResult.Removed(groupLayerName, 1));
+        }
+    }
+
+    private sealed class RecordingCompareWorkspacePromptService : ICompareWorkspacePromptService
+    {
+        public bool SaveResult { get; init; } = true;
+
+        public bool SuspendResult { get; init; } = true;
+
+        public bool FinalizeResult { get; init; } = true;
+
+        public int SaveCalls { get; private set; }
+
+        public int SuspendCalls { get; private set; }
+
+        public int FinalizeCalls { get; private set; }
+
+        public bool ConfirmSave()
+        {
+            SaveCalls++;
+            return SaveResult;
+        }
+
+        public bool ConfirmSuspend()
+        {
+            SuspendCalls++;
+            return SuspendResult;
+        }
+
+        public bool ConfirmFinalize(bool reportAlreadyGenerated)
+        {
+            FinalizeCalls++;
+            return FinalizeResult;
         }
     }
 

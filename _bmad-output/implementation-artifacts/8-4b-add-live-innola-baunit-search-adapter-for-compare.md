@@ -16,7 +16,7 @@ so that Volume/Folio and later PID, Land Val No., and Name searches return real 
 
 Stories 8.4 and 8.4A created the Compare evidence model, query service seam, manual search UI, query history, and valuable-evidence curation. The remaining gap is the live Innola search adapter. The first confirmed request shape is a BA Unit search by Volume/Folio from the Innola web client network trace.
 
-This story should add the live adapter conservatively: start with the confirmed Volume/Folio request, keep the existing mock/test service behavior, and leave PID, Land Val No., and Name live calls behind explicit unsupported diagnostics until their exact Innola request payloads and response fields are confirmed.
+This story should add the live adapter conservatively: start with the confirmed Volume/Folio request, keep the existing mock/test service behavior, and enable PID, Land Val No., and owner-name searches through the configured live adapter. When the configured adapter is `innola_owner_search`, requests must use the Postman-confirmed `SearchRequest` envelope against `portal/searches`. Owner-name search is name-only and must support `%` wildcard matching.
 
 ## Confirmed Innola Request Evidence
 
@@ -56,17 +56,36 @@ The trace also shows request metadata including `info.datamap = "BaUnitSearchDM"
 4. Given Innola returns records, when the adapter maps the response, then Compare receives normalized legal evidence records with source label, query key, queried timestamp, and any available owner, parcel, volume/folio, land valuation number, parish, and record identifiers.
 5. Given Innola returns no records, when the adapter completes, then Compare shows a `No record returned` query result without clearing existing valuable evidence.
 6. Given Innola returns auth, timeout, invalid config, network, or service errors, when the adapter completes, then Compare shows a retryable non-secret diagnostic and preserves previous query history/evidence.
-7. Given PID, Land Val No., or Name live request payloads are not yet confirmed, when those modes run against the live adapter, then the adapter returns a clear unsupported diagnostic rather than guessing a payload.
+7. Given PID, Land Val No., or owner-name search values are provided, when those modes run against the live adapter, then the adapter posts the configured live search payload and maps normalized legal evidence results.
 8. Given mock mode is enabled, when Compare searches evidence, then existing mock query behavior continues to work without requiring live Innola access.
 9. Given automated tests run, then they verify endpoint construction, `Access-Token` application, exact Volume/Folio payload construction, no-record handling, error redaction, and normalized mapping from a fixture response.
 10. Given the full Innola response fixture is later added, when tests run, then response field mapping is locked with regression coverage before enabling additional query modes.
+
+## Amendment: Party-Shaped Innola Results
+
+Live Innola searches can return two result shapes through the same Postman-confirmed search contract:
+
+- Property / BA Unit rows with parcel evidence fields such as Volume/Folio, PID, LandVal No., owner, parish, tenure, type, and registration date.
+- Party-shaped rows with fields such as `type = party_type_individual`, `fullname`, `prid`, `fulladdress`, `taxnumber`, and `status`.
+
+The Compare workspace must preserve the existing Postman payload contract while presenting these shapes separately. Party-shaped rows must not be rendered as property / BA Unit rows because that creates blank or misleading legal evidence in the main Search Results grid. They still represent useful evidence and must be reviewable, keepable, and reportable as party matches.
+
+### Amendment Acceptance Criteria
+
+11. Given PID, Land Val No., or owner-name search returns property / BA Unit rows, when Compare maps the response, then those rows continue to appear in the existing Search Results grid with Volume/Folio, Type, Tenure, PID, LandVal No., Owner, Parish, Date Registered, and Keep action.
+12. Given PID, Land Val No., or owner-name search returns rows where the mapped type starts with `party_type_`, when Compare maps the response, then those rows do not appear in the property / BA Unit Search Results grid unless they also contain real property evidence fields.
+13. Given a `party_type_*` row contains party evidence such as `fullname`, `prid`, `fulladdress`, `taxnumber`, or `status`, when Compare maps the response, then the row appears in a separate Related Party Matches result area.
+14. Given Related Party Matches are shown, when the user selects Keep, then the evidence is added to Valuable Evidence with a clear party-oriented source/summary such as party name, PRID, address, tax number, and status where available.
+15. Given the user saves, suspends, or finalizes Compare, when kept party evidence exists, then that evidence is persisted with other Valuable Evidence and is included in the future Compare review report.
+16. Given the adapter builds Innola requests for this amendment, when the request is sent, then the payload contract remains the Postman-confirmed contract for the selected mode; no endpoint, search kind, field name, pagination, wildcard, auth, or envelope change is allowed as part of party result display.
+17. Given automated tests run, then regression coverage proves `party_type_individual` rows with only party identifiers are excluded from the property grid, included in Related Party Matches, and can be kept as Valuable Evidence.
 
 ## Tasks / Subtasks
 
 - [x] Add live Innola BA Unit adapter. (AC: 1-8)
   - [x] Create `InnolaBaUnitLegalCadasterQueryService` or equivalent behind `ILegalCadasterQueryService`.
-  - [x] Route only `QueryByVolumeFolioAsync` to the confirmed live request.
-  - [x] Return unsupported diagnostics for PID, Land Val No., and Name until payloads are confirmed.
+  - [x] Route `QueryByVolumeFolioAsync` to the confirmed live request.
+  - [x] Route PID, Land Val No., and owner-name searches through the configured live adapter once payload variants are confirmed.
 
 - [x] Add configuration support. (AC: 1, 8)
   - [x] Extend legal cadaster settings with adapter type, search path, datamap, search kind, BA Unit type/status, latest-status flag, page, start, and limit.
@@ -89,9 +108,20 @@ The trace also shows request metadata including `info.datamap = "BaUnitSearchDM"
   - [x] Verify request URL resolution.
   - [x] Verify `Access-Token` header behavior.
   - [x] Verify no-record result.
-  - [x] Verify unsupported PID/Land Val/Name diagnostics in live mode.
+  - [x] Verify PID, Land Val No., and owner-name payloads in live mode, including the Postman owner-search envelope.
+  - [x] Verify owner-name search adds `%` wildcards and preserves user-supplied wildcard values.
   - [x] Verify diagnostic redaction.
   - [x] Verify mapping with a representative successful response fixture.
+
+- [x] Add party-shaped result classification without changing Innola payloads. (AC: 11-17)
+  - [x] Keep the existing property / BA Unit mapping and filtering behavior for the Search Results grid.
+  - [x] Add a party result model for `party_type_*` rows with fields for party name/full name, PRID, full address, tax number, status, and raw type label.
+  - [x] Split mapped responses into property results and related party matches after receiving the existing Innola response.
+  - [x] Do not show party-shaped rows in the property / BA Unit grid unless property evidence fields are also present.
+  - [x] Add a Related Party Matches UI area with a Keep action.
+  - [x] Ensure kept party evidence writes into Valuable Evidence with a party-specific summary and role selection.
+  - [x] Include kept party evidence in the Compare report/export contract when the report story is implemented.
+  - [x] Add regression tests for party-only rows, mixed property/party rows, Keep behavior, and payload-contract preservation.
 
 ### Review Findings
 
@@ -105,6 +135,8 @@ Relevant existing files:
 
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareWorkspaceViewModel.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEvidenceModels.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/CompareWorkspaceWindow.xaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaHttp.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSettings.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/WorkflowSettings.json`
@@ -115,6 +147,14 @@ Existing `ILegalCadasterQueryService` methods already match the Compare UI:
 - `QueryByVolumeFolioAsync`
 - `QueryByLandValuationNumberAsync`
 - `QueryByNameAsync`
+
+Party-shaped response handling must be a mapping/display concern only. Do not change the live Innola payload contract to solve party display:
+
+- Preserve the Postman-confirmed `SearchRequest` envelope for `innola_owner_search`.
+- Preserve configured field names for PID, Land Val No., and owner-name searches.
+- Preserve pagination behavior and request paths.
+- Preserve existing auth header behavior.
+- Use `compare_legal_query_raw_debug.json` only for diagnostics and fixtures, not as a UI data source.
 
 Recommended initial settings shape:
 
@@ -142,7 +182,8 @@ If the app already has an Innola REST root setting, resolve `service_url` relati
 - Confirm the full request URL from the DevTools Headers tab.
 - Confirm whether `info.datamap = "BaUnitSearchDM"` is required for `/search/`.
 - Capture one successful response body for Volume/Folio so owner, BA Unit, party, and parcel fields can be mapped accurately.
-- Confirm the payloads for PID, Land Val No., and Name + Parish search before implementing those live modes.
+- Confirm whether additional Innola field aliases are needed for PID, Land Val No., or owner-name search after more production examples are captured.
+- Confirm whether a follow-up enrichment API exists to resolve party `prid` rows back to linked BA Unit/property rows. If so, create a separate story; do not mix enrichment with this display-only amendment.
 
 ## Testing Notes
 
@@ -161,6 +202,10 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | 2026-07-15 | 1.0 | Initial story for live Innola BA Unit search adapter in Compare. | Mary / Winston |
 | 2026-07-15 | 1.1 | Implemented live Innola BA Unit Volume/Folio adapter, settings, ShellState token hookup, and regression tests. | Amelia |
 | 2026-07-15 | 1.2 | Patched code review findings for numeric validation, configured timeout use, and single-record response mapping. | Amelia |
+| 2026-07-17 | 1.3 | Enabled PID, Land Val No., and owner-name BA Unit search payloads; removed parish from owner search. | Amelia / Mary |
+| 2026-07-17 | 1.4 | Restored the Postman-confirmed owner-search transport as the default Compare legal search path and stored the Postman collection fixture for regression reference. | Amelia |
+| 2026-07-17 | 1.5 | Pinned Owner search to a single uppercase wildcard `owner` variable and added multi-row owner result mapping coverage. | Amelia |
+| 2026-07-17 | 1.6 | Added amendment for party-shaped Innola results: keep payload contract unchanged, separate party matches from property results, and allow party evidence to be kept and reported. | Mary / Amelia |
 
 ## Dev Agent Record
 
@@ -182,12 +227,23 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 - Review patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compare"` passed 57 compare-filtered tests.
 - Review patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed with 0 warnings/errors.
 - Review patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 416 tests.
+- Owner-search Postman patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- compare` passed after storing the reference collection and pinning the Postman request envelope.
+- Owner variable/result patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- compare` passed 92 compare-filtered tests.
+- Owner variable/result patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed.
+- Party-shaped result patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- compare` passed 102 compare-filtered tests.
+- Party-shaped result patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed with 0 warnings/errors.
+- Party-shaped result patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 461 tests.
 
 ### Completion Notes
 
 - Added a live Innola BA Unit legal cadaster adapter that posts the confirmed Volume/Folio payload to `search/` under the active Innola REST root.
 - The adapter sends numeric `volume` and `folio`, applies the existing `Access-Token` header helper, returns reviewable no-record results, and redacts failure diagnostics.
-- PID, Land Val No., and Name + Parish live modes intentionally return unsupported diagnostics until their Innola payloads are confirmed.
+- PID, Land Val No., and owner-name live modes now post through the configured Innola search adapter; owner-name search no longer requires parish and wraps names in `%` wildcards unless the user already provided `%`.
+- Default `WorkflowSettings.json` uses the Postman-confirmed owner-search transport: `adapter = innola_owner_search`, `service_url = portal/searches`, and `search_kind = owner`.
+- The Postman collection `Sidwell Plan Exam Scenario.postman_collection2.json` is stored in Compare test fixtures so request envelope changes can be checked against a real reference.
+- Owner-name searches now send one Postman-style parameter, `owner`, normalized to an uppercase wildcard such as `%TRACEY%`; multi-row owner responses map into the results grid with Volume/Folio, Type, Tenure, PID, LandVal No., Owner, Parish, and Date Registered.
+- Party-shaped Innola rows are now split into Related Party Matches instead of appearing as blank or misleading property Search Results rows.
+- Related Party Matches can be kept as Valuable Evidence with a party-oriented summary, and kept party evidence is restored from Compare draft persistence with other retained evidence.
 - Added tolerant response mapping for common record collection names and likely owner/parcel/volume/folio/title/land valuation/parish/role fields.
 - Updated Compare launch wiring so the live adapter can access the current in-memory Innola session without persisting secrets.
 - Resolved all 3 code review findings: manual Volume/Folio numeric validation now blocks service calls, live BA Unit searches use a timeout-linked cancellation token from `compare_cadaster_query_timeout_seconds`, and single-record objects under known response containers now map correctly.
@@ -200,6 +256,10 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionSettings.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/WorkflowSettings.json`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEvidenceModels.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareWorkspaceViewModel.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/CompareWorkspaceWindow.xaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Compare/CompareCadasterQueryServiceTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Compare/CompareWorkspaceViewModelTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionSettingsTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`

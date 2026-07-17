@@ -16,6 +16,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly CaseFolderStore caseFolderStore;
     private readonly CompareReviewDraftPersistenceService draftPersistence;
     private readonly CompareReviewDecisionPersistenceService decisionPersistence;
+    private readonly CompareReviewReportService reportService;
     private readonly CompareSurveyPlanEvidenceService surveyPlanEvidenceService;
     private readonly ILegalCadasterQueryService legalCadasterQueryService;
     private readonly IFiscalCadasterQueryService fiscalCadasterQueryService;
@@ -23,12 +24,16 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly CompareLegalQueryTracePersistenceService legalQueryTracePersistence;
     private readonly CompareEvidenceComparisonService evidenceComparisonService;
     private readonly ICompareTaskLifecycleService? taskLifecycleService;
+    private readonly ICompareReportAttachmentService? reportAttachmentService;
+    private readonly ICompareMapIntegrationService? mapIntegrationService;
+    private readonly ICompareWorkspacePromptService promptService;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly string? reviewerId;
     private readonly string? reviewerDisplayName;
     private readonly List<CompareReviewEvidenceRef> restoredDecisionEvidenceRefs = new();
     private CaseFolderLayout? layout;
     private CompareWorkingGeometryLoadPlan? currentGeometryPlan;
+    private string? currentCompareGroupLayerName;
     private SourceFileCopyResult? selectedDocument;
     private ReviewSourceViewerState viewerState = ReviewSourceViewerStateProjector.Build(null);
     private string notes = string.Empty;
@@ -65,6 +70,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         CaseFolderStore? caseFolderStore = null,
         CompareReviewDraftPersistenceService? draftPersistence = null,
         CompareReviewDecisionPersistenceService? decisionPersistence = null,
+        CompareReviewReportService? reportService = null,
         CompareSurveyPlanEvidenceService? surveyPlanEvidenceService = null,
         ILegalCadasterQueryService? legalCadasterQueryService = null,
         IFiscalCadasterQueryService? fiscalCadasterQueryService = null,
@@ -72,6 +78,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         CompareLegalQueryTracePersistenceService? legalQueryTracePersistence = null,
         CompareEvidenceComparisonService? evidenceComparisonService = null,
         ICompareTaskLifecycleService? taskLifecycleService = null,
+        ICompareReportAttachmentService? reportAttachmentService = null,
+        ICompareMapIntegrationService? mapIntegrationService = null,
+        ICompareWorkspacePromptService? promptService = null,
         Func<DateTimeOffset>? getUtcNow = null,
         string? reviewerId = null,
         string? reviewerDisplayName = null)
@@ -81,6 +90,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.caseFolderStore = caseFolderStore ?? new CaseFolderStore();
         this.draftPersistence = draftPersistence ?? new CompareReviewDraftPersistenceService();
         this.decisionPersistence = decisionPersistence ?? new CompareReviewDecisionPersistenceService();
+        this.reportService = reportService ?? new CompareReviewReportService(getUtcNow);
         this.surveyPlanEvidenceService = surveyPlanEvidenceService ?? new CompareSurveyPlanEvidenceService();
         this.legalCadasterQueryService = legalCadasterQueryService ?? new UnsupportedLegalCadasterQueryService();
         this.fiscalCadasterQueryService = fiscalCadasterQueryService ?? new UnsupportedFiscalCadasterQueryService();
@@ -88,6 +98,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.legalQueryTracePersistence = legalQueryTracePersistence ?? new CompareLegalQueryTracePersistenceService();
         this.evidenceComparisonService = evidenceComparisonService ?? new CompareEvidenceComparisonService();
         this.taskLifecycleService = taskLifecycleService;
+        this.reportAttachmentService = reportAttachmentService;
+        this.mapIntegrationService = mapIntegrationService;
+        this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
         this.reviewerId = reviewerId;
         this.reviewerDisplayName = reviewerDisplayName;
@@ -105,6 +118,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         MarkEvidenceResultValuableCommand = new RelayCommand(
             parameter => MarkEvidenceResultValuable(parameter as CompareEvidenceSearchResultItem),
             parameter => parameter is CompareEvidenceSearchResultItem item && item.CanMarkValuable && !IsLoading);
+        MarkPartyMatchValuableCommand = new RelayCommand(
+            parameter => MarkPartyMatchValuable(parameter as ComparePartySearchResultItem),
+            parameter => parameter is ComparePartySearchResultItem item && item.CanMarkValuable && !IsLoading);
         RemoveValuableEvidenceCommand = new RelayCommand(
             parameter => RemoveValuableEvidence(parameter as CompareValuableEvidenceItem),
             parameter => parameter is CompareValuableEvidenceItem && !IsLoading);
@@ -113,11 +129,15 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         SuspendTaskCommand = new RelayCommand(async () => await SuspendTaskAsync(), () => CanSuspendTask);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteTaskAsync(), () => CanCompleteTask);
         BlockCompareCommand = new RelayCommand(BlockCompare, () => CanBlockCompare);
-        ApproveCompareCommand = new RelayCommand(ApproveCompare, () => CanApproveCompare);
-        ReturnToComputeCommand = new RelayCommand(ReturnToCompute, () => CanBlockCompare);
+        ApproveCompareCommand = new RelayCommand(async () => await FinalizeCompareAsync(), () => CanApproveCompare);
 
         QueryResults.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasQueryResults));
-        ValuableEvidenceItems.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasValuableEvidenceItems));
+        RelatedPartyMatches.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasRelatedPartyMatches));
+        ValuableEvidenceItems.CollectionChanged += (_, _) =>
+        {
+            NotifyPropertyChanged(nameof(HasValuableEvidenceItems));
+            RaiseCommandStates();
+        };
         EnterpriseCadasterEvidenceRows.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEnterpriseCadasterEvidenceRows));
         EvidenceItems.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEvidenceItems));
         Discrepancies.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasDiscrepancies));
@@ -139,6 +159,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public ObservableCollection<CompareEvidenceSearchResultItem> QueryResults { get; } = new();
 
+    public ObservableCollection<ComparePartySearchResultItem> RelatedPartyMatches { get; } = new();
+
     public ObservableCollection<CompareValuableEvidenceItem> ValuableEvidenceItems { get; } = new();
 
     public ObservableCollection<CompareEnterpriseCadasterEvidenceRowItem> EnterpriseCadasterEvidenceRows { get; } = new();
@@ -147,13 +169,18 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public bool HasQueryResults => QueryResults.Count > 0;
 
+    public bool HasRelatedPartyMatches => RelatedPartyMatches.Count > 0;
+
     public bool HasValuableEvidenceItems => ValuableEvidenceItems.Count > 0;
 
     public bool HasEnterpriseCadasterEvidenceRows => EnterpriseCadasterEvidenceRows.Count > 0;
 
     public bool HasEvidenceItems => EvidenceItems.Count > 0;
 
-    public bool HasDiscrepancies => Discrepancies.Count > 0;
+    public bool HasDiscrepancies => Discrepancies.Any(item =>
+        !string.IsNullOrWhiteSpace(item.Title)
+        || !string.IsNullOrWhiteSpace(item.Source)
+        || !string.IsNullOrWhiteSpace(item.Status));
 
     public IReadOnlyList<string> EvidenceSearchModes { get; } = new[]
     {
@@ -190,6 +217,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand MarkEvidenceResultValuableCommand { get; }
 
+    public ICommand MarkPartyMatchValuableCommand { get; }
+
     public ICommand RemoveValuableEvidenceCommand { get; }
 
     public ICommand TogglePdfPanelCommand { get; }
@@ -203,8 +232,6 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ICommand BlockCompareCommand { get; }
 
     public ICommand ApproveCompareCommand { get; }
-
-    public ICommand ReturnToComputeCommand { get; }
 
     public bool IsLoading
     {
@@ -229,7 +256,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public bool IsPdfPanelHidden => !IsPdfPanelVisible;
 
-    public string PdfPanelToggleText => IsPdfPanelVisible ? "Hide PDF" : "Show PDF";
+    public string PdfPanelToggleText => IsPdfPanelVisible ? "Hide Files" : "Show Files";
 
     public SourceFileCopyResult? SelectedDocument
     {
@@ -503,7 +530,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public bool CanCompleteTask => layout is not null
         && !IsLoading
         && taskLifecycleService is not null
-        && DecisionStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase)
+        && DecisionStatus.Equals("Finalized", StringComparison.OrdinalIgnoreCase)
         && CanApproveCompare;
 
     public bool CanBlockCompare => layout is not null && !IsLoading;
@@ -526,9 +553,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         && DocumentsAvailable
         && GeometryAvailable
         && !geometryBlocksApproval
-        && LegalEvidenceReviewed
-        && FiscalEvidenceReviewed
-        && !HasUnresolvedDiscrepancies
+        && ValuableEvidenceItems.Count > 0
+        && !string.IsNullOrWhiteSpace(Notes)
         && !IsLoading;
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
@@ -557,6 +583,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             IsLoading = false;
             RaiseCommandStates();
         }
+    }
+
+    public async Task CloseWorkspaceAsync(CancellationToken cancellationToken = default)
+    {
+        await CleanupAfterTaskExitAsync(cancellationToken);
     }
 
     public void ReportWorkspaceError(string message)
@@ -628,6 +659,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         geometryRetryable = geometry.Retryable;
         geometryBlocksApproval = geometry.BlocksApproval;
         currentGeometryPlan = geometry.Success ? geometry.Plan : currentGeometryPlan;
+        currentCompareGroupLayerName = geometry.MapResult?.GroupLayerName ?? currentCompareGroupLayerName;
         GeometryStatus = geometry.Message;
     }
 
@@ -755,6 +787,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         SearchValidationMessage = string.Empty;
         QueryResults.Clear();
+        RelatedPartyMatches.Clear();
         IsLoading = true;
         LegalEvidenceStatus = $"Querying legal cadaster by {SelectedEvidenceSearchMode}.";
         EvidenceSearchStatusMessage = $"Searching legal cadaster by {SelectedEvidenceSearchMode}...";
@@ -765,7 +798,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                 "parcel_id" => await legalCadasterQueryService.QueryByParcelIdAsync(request.Pid!, cancellationToken),
                 "volume_folio" => await legalCadasterQueryService.QueryByVolumeFolioAsync(request.Volume!, request.Folio!, cancellationToken),
                 "land_valuation_number" => await legalCadasterQueryService.QueryByLandValuationNumberAsync(request.LandValuationNumber!, request.Parish, cancellationToken),
-                "name_parish" => await legalCadasterQueryService.QueryByNameAsync(request.Name!, request.Parish!, cancellationToken),
+                "name" => await legalCadasterQueryService.QueryByNameAsync(request.Name!, null, cancellationToken),
                 _ => LegalCadasterQueryResult.Failed(
                     new LegalCadasterQuery(request.QueryKind, request.Pid, request.Volume, request.Folio, request.LandValuationNumber, request.Name, request.Parish),
                     "Unsupported evidence search mode.")
@@ -829,13 +862,13 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         if (IsNameSearchMode)
         {
-            if (string.IsNullOrWhiteSpace(SearchName) || string.IsNullOrWhiteSpace(SearchParish))
+            if (string.IsNullOrWhiteSpace(SearchName))
             {
-                validationMessage = "Name and parish are required before searching.";
+                validationMessage = "Owner name is required before searching.";
                 return false;
             }
 
-            request = new CompareEvidenceSearchRequest("name_parish", null, null, null, null, SearchName.Trim(), SearchParish.Trim());
+            request = new CompareEvidenceSearchRequest("name", null, null, null, null, SearchName.Trim(), null);
             return true;
         }
 
@@ -852,22 +885,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                 QueryResults.Add(new CompareEvidenceSearchResultItem(item));
             }
         }
-        else if (result.Success && result.Status.Equals(CompareEvidenceStatus.NoRecordReturned, StringComparison.OrdinalIgnoreCase))
+
+        foreach (var partyRecord in result.PartyRecords ?? Array.Empty<LegalCadasterPartyRecord>())
         {
-            QueryResults.Add(new CompareEvidenceSearchResultItem(new CompareEvidenceSearchResult(
-                CompareEvidenceSourceType.LegalCadaster,
-                "Legal cadaster",
-                LegalCadasterQueryResult.BuildLegalQueryKey(result.Query),
-                null,
-                null,
-                result.Query.ParcelId,
-                result.Query.Volume,
-                result.Query.Folio,
-                result.Query.LandValuationNumber,
-                result.Query.Parish,
-                result.Status,
-                getUtcNow(),
-                result.Diagnostic)));
+            RelatedPartyMatches.Add(new ComparePartySearchResultItem(partyRecord));
         }
 
         ApplyLegalResult(result, plan);
@@ -904,6 +925,28 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             getUtcNow());
         ValuableEvidenceItems.Add(new CompareValuableEvidenceItem(evidence));
         StatusText = "Evidence marked valuable for Compare decision.";
+        RaiseStateProperties();
+    }
+
+    private void MarkPartyMatchValuable(ComparePartySearchResultItem? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (!item.CanMarkValuable)
+        {
+            StatusText = "Only returned party matches can be marked valuable.";
+            RaiseStateProperties();
+            return;
+        }
+
+        var evidence = item.ToValuableEvidence(
+            $"evidence-{Guid.NewGuid():N}",
+            getUtcNow());
+        ValuableEvidenceItems.Add(new CompareValuableEvidenceItem(evidence));
+        StatusText = "Party match marked valuable for Compare decision.";
         RaiseStateProperties();
     }
 
@@ -968,22 +1011,49 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     private static string BuildEvidenceSearchStatusMessage(LegalCadasterQueryResult result)
     {
-        var queryKey = LegalCadasterQueryResult.BuildLegalQueryKey(result.Query);
+        var label = EvidenceSearchLabel(result.Query);
         if (!result.Success)
         {
-            var diagnostic = string.IsNullOrWhiteSpace(result.Diagnostic)
-                ? string.Empty
-                : $" Diagnostic: {result.Diagnostic}";
-            return $"Search failed for {queryKey}. {result.Message}{diagnostic}";
+            return $"{label}: search failed. Try again.";
         }
 
-        if (result.Records.Count == 0)
+        var propertyCount = result.Records.Count;
+        var partyCount = result.PartyRecords?.Count ?? 0;
+        if (propertyCount == 0 && partyCount == 0)
         {
-            return $"Search completed for {queryKey}: no records returned.";
+            return $"{label}: no records found.";
         }
 
-        var plural = result.Records.Count == 1 ? "record" : "records";
-        return $"Search completed for {queryKey}: {result.Records.Count} {plural} returned.";
+        var parts = new List<string>();
+        if (propertyCount > 0)
+        {
+            parts.Add($"{propertyCount} {Plural(propertyCount, "record", "records")} found");
+        }
+
+        if (partyCount > 0)
+        {
+            parts.Add($"{partyCount} related party {Plural(partyCount, "match", "matches")} found");
+        }
+
+        return $"{label}: {string.Join(", ", parts)}.";
+    }
+
+    private static string EvidenceSearchLabel(LegalCadasterQuery query)
+    {
+        return query.QueryKind switch
+        {
+            "parcel_id" => "PID search",
+            "volume_folio" => "Volume/Folio search",
+            "land_valuation_number" => "Land Val No. search",
+            "name" => "Owner search",
+            "name_parish" => "Owner search",
+            _ => "Search"
+        };
+    }
+
+    private static string Plural(int count, string singular, string plural)
+    {
+        return count == 1 ? singular : plural;
     }
 
     private void ApplyFiscalResult(FiscalCadasterNeighborQueryResult result, CompareSurveyPlanEvidence plan)
@@ -1165,6 +1235,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     private void SaveProgress()
     {
+        if (!promptService.ConfirmSave())
+        {
+            StatusText = "Save cancelled.";
+            return;
+        }
+
         _ = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
     }
 
@@ -1173,6 +1249,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         if (taskLifecycleService is null)
         {
             StatusText = "Suspend task is unavailable because Compare is not connected to the transaction lifecycle.";
+            return;
+        }
+
+        if (!promptService.ConfirmSuspend())
+        {
+            StatusText = "Suspend cancelled.";
             return;
         }
 
@@ -1190,6 +1272,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             StatusText = result.Message;
             if (result.Success && result.ShouldCloseWorkspace)
             {
+                await CleanupAfterTaskExitAsync(cancellationToken);
                 CloseRequested?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -1210,19 +1293,42 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         if (!CanCompleteTask)
         {
-            StatusText = "Complete task is blocked until Compare is approved and completion readiness passes.";
+            StatusText = "Finalize is blocked until Compare readiness passes.";
             return;
         }
 
-        SaveDecision(CompareReviewDecisionValues.Approved, "Approved");
+        var reportAlreadyGenerated = ComparePdfReportExists();
+        if (!reportAlreadyGenerated)
+        {
+            var draftResult = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+            if (draftResult is null)
+            {
+                return;
+            }
+        }
+
+        if (!promptService.ConfirmFinalize(reportAlreadyGenerated))
+        {
+            StatusText = "Finalize cancelled.";
+            return;
+        }
+
+        SaveDecision(CompareReviewDecisionValues.Approved, "Finalized");
         IsLoading = true;
-        StatusText = "Completing Compare task.";
+        StatusText = "Preparing Compare report attachment.";
         try
         {
+            if (!await UploadCompareReportIfConfiguredAsync(cancellationToken))
+            {
+                return;
+            }
+
+            StatusText = "Completing Compare task.";
             var result = await taskLifecycleService.CompleteAsync(TransactionNumber, cancellationToken);
             StatusText = result.Message;
             if (result.Success && result.ShouldCloseWorkspace)
             {
+                await CleanupAfterTaskExitAsync(cancellationToken);
                 CloseRequested?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -1261,9 +1367,15 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             ValuableEvidenceItems.Select(item => CompareValuableEvidenceDraft.FromModel(item.ToModel())).ToArray(),
             EnterpriseCadasterEvidenceRows.Select(item => CompareEnterpriseCadasterEvidenceDraft.FromModel(item.ToModel())).ToArray());
         var result = draftPersistence.Save(layout, draft);
+        var reportResult = result.Document is null
+            ? CompareReviewReportResult.Failed("Compare report could not be generated because the draft was not saved.")
+            : reportService.Generate(layout, transaction, result.Document);
         DecisionStatus = displayStatus;
-        StatusText = result.Message;
-        return result;
+        StatusText = BuildSaveProgressStatus(result, reportResult);
+        return result with
+        {
+            Message = StatusText ?? result.Message
+        };
     }
 
     private void BlockCompare()
@@ -1271,20 +1383,128 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         SaveDecision(CompareReviewDecisionValues.Blocked, "Blocked");
     }
 
-    private void ApproveCompare()
+    private async Task FinalizeCompareAsync(CancellationToken cancellationToken = default)
     {
         if (!CanApproveCompare)
         {
-            StatusText = "Compare approval is blocked until documents, geometry, legal/fiscal evidence, and discrepancies are resolved.";
+            StatusText = "Finalize is blocked until documents and geometry are ready, at least one valuable evidence row is retained, and Notes are completed.";
             return;
         }
 
-        SaveDecision(CompareReviewDecisionValues.Approved, "Approved");
+        var reportAlreadyGenerated = ComparePdfReportExists();
+        if (!reportAlreadyGenerated)
+        {
+            var draftResult = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+            if (draftResult is null)
+            {
+                return;
+            }
+        }
+
+        if (!promptService.ConfirmFinalize(reportAlreadyGenerated))
+        {
+            StatusText = "Finalize cancelled.";
+            return;
+        }
+
+        SaveDecision(CompareReviewDecisionValues.Approved, "Finalized");
+        IsLoading = true;
+        StatusText = "Preparing Compare report attachment.";
+        try
+        {
+            if (!await UploadCompareReportIfConfiguredAsync(cancellationToken))
+            {
+                return;
+            }
+
+            if (taskLifecycleService is null)
+            {
+                return;
+            }
+
+            StatusText = "Finalizing Compare task.";
+            var result = await taskLifecycleService.CompleteAsync(TransactionNumber, cancellationToken);
+            StatusText = result.Message;
+            if (result.Success && result.ShouldCloseWorkspace)
+            {
+                await CleanupAfterTaskExitAsync(cancellationToken);
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
     }
 
-    private void ReturnToCompute()
+    private bool ComparePdfReportExists()
     {
-        SaveDecision(CompareReviewDecisionValues.ReturnedToCompute, "Returned to Compute");
+        return layout is not null
+            && File.Exists(Path.Combine(layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName));
+    }
+
+    private async Task CleanupAfterTaskExitAsync(CancellationToken cancellationToken)
+    {
+        var groupLayerName = currentCompareGroupLayerName;
+        if (string.IsNullOrWhiteSpace(groupLayerName))
+        {
+            groupLayerName = $"Compare Review - {CompareWorkingGeometryService.NormalizeTransactionNumber(TransactionNumber)}";
+        }
+
+        if (mapIntegrationService is not null)
+        {
+            var cleanup = await mapIntegrationService.RemoveTransactionGeometryFromActiveMapAsync(
+                groupLayerName,
+                cancellationToken);
+            if (!cleanup.Success)
+            {
+                StatusText = cleanup.Message;
+            }
+        }
+
+        ClearWorkspaceStateAfterTaskExit();
+    }
+
+    private void ClearWorkspaceStateAfterTaskExit()
+    {
+        Documents.Clear();
+        PdfDocuments.Clear();
+        EvidenceItems.Clear();
+        QueryResults.Clear();
+        RelatedPartyMatches.Clear();
+        ValuableEvidenceItems.Clear();
+        EnterpriseCadasterEvidenceRows.Clear();
+        Discrepancies.Clear();
+        selectedDocument = null;
+        currentGeometryPlan = null;
+        currentCompareGroupLayerName = null;
+        documentsAvailable = false;
+        geometryAvailable = false;
+        geometryRetryable = false;
+        geometryBlocksApproval = true;
+        DocumentStatus = "Compare workspace cleared.";
+        GeometryStatus = "Compare map layers cleared.";
+        RaiseStateProperties();
+    }
+
+    private async Task<bool> UploadCompareReportIfConfiguredAsync(CancellationToken cancellationToken)
+    {
+        if (reportAttachmentService is null)
+        {
+            return true;
+        }
+
+        if (layout is null)
+        {
+            StatusText = "Open a Compare Case Folder before attaching the Compare report.";
+            return false;
+        }
+
+        var pdfPath = Path.Combine(layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        var result = await reportAttachmentService.UploadAsync(transaction, pdfPath, cancellationToken);
+        StatusText = result.Message;
+        return result.Success;
     }
 
     private void SaveDecision(string decision, string displayStatus)
@@ -1345,7 +1565,41 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                 null,
                 item.Summary)));
 
+        var reportPath = layout is null
+            ? null
+            : Path.Combine(layout.ReportsDirectory, CompareReviewReportService.ReportFileName);
+        if (!string.IsNullOrWhiteSpace(reportPath) && File.Exists(reportPath))
+        {
+            refs.Add(new CompareReviewEvidenceRef(
+                "compare_review_report",
+                ToRelativeCasePath(reportPath),
+                "Compare review report."));
+        }
+
+        var pdfReportPath = layout is null
+            ? null
+            : Path.Combine(layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        if (!string.IsNullOrWhiteSpace(pdfReportPath) && File.Exists(pdfReportPath))
+        {
+            refs.Add(new CompareReviewEvidenceRef(
+                "compare_review_report_pdf",
+                ToRelativeCasePath(pdfReportPath),
+                "Compare review report PDF."));
+        }
+
         return refs;
+    }
+
+    private static string BuildSaveProgressStatus(CompareReviewDraftSaveResult draftResult, CompareReviewReportResult reportResult)
+    {
+        if (!draftResult.Success)
+        {
+            return draftResult.Message;
+        }
+
+        return reportResult.Success
+            ? "Save complete. Compare report generated and overwritten."
+            : $"Compare saved. {reportResult.Message}";
     }
 
     private string? ToRelativeCasePath(string? path)
@@ -1371,7 +1625,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         DecisionStatus = result.Document.Decision switch
         {
-            CompareReviewDecisionValues.Approved => "Approved",
+            CompareReviewDecisionValues.Approved => "Finalized",
             CompareReviewDecisionValues.Blocked => "Blocked",
             CompareReviewDecisionValues.ReturnedToCompute => "Returned to Compute",
             _ => DecisionStatus
@@ -1497,8 +1751,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             SuspendTaskCommand,
             CompleteTaskCommand,
             BlockCompareCommand,
-            ApproveCompareCommand,
-            ReturnToComputeCommand
+            ApproveCompareCommand
         })
         {
             if (command is RelayCommand relay)
@@ -1623,6 +1876,40 @@ public sealed record CompareEvidenceSearchResultItem(CompareEvidenceSearchResult
         return result.SourceType.Equals(CompareEvidenceSourceType.FiscalCadaster, StringComparison.OrdinalIgnoreCase)
             ? CompareEvidenceRoleTag.Neighbor
             : CompareEvidenceRoleTag.Owner;
+    }
+}
+
+public sealed record ComparePartySearchResultItem(LegalCadasterPartyRecord PartyRecord)
+{
+    public string SourceLabel => PartyRecord.SourceLabel;
+
+    public string QueryKey => PartyRecord.QueryKey;
+
+    public string PartyName => string.IsNullOrWhiteSpace(PartyRecord.PartyName) ? "(no name)" : PartyRecord.PartyName.Trim();
+
+    public string Prid => string.IsNullOrWhiteSpace(PartyRecord.Prid) ? "(blank)" : PartyRecord.Prid.Trim();
+
+    public string FullAddress => string.IsNullOrWhiteSpace(PartyRecord.FullAddress) ? "(blank)" : PartyRecord.FullAddress.Trim();
+
+    public string TaxNumber => string.IsNullOrWhiteSpace(PartyRecord.TaxNumber) ? "(blank)" : PartyRecord.TaxNumber.Trim();
+
+    public string PartyStatus => string.IsNullOrWhiteSpace(PartyRecord.PartyStatus) ? "(blank)" : PartyRecord.PartyStatus.Trim();
+
+    public string PartyType => string.IsNullOrWhiteSpace(PartyRecord.PartyType) ? "(blank)" : PartyRecord.PartyType.Trim();
+
+    public bool CanMarkValuable => true;
+
+    public CompareValuableEvidence ToValuableEvidence(string evidenceId, DateTimeOffset capturedAt)
+    {
+        return new CompareValuableEvidence(
+            evidenceId,
+            CompareEvidenceSourceType.LegalCadaster,
+            string.IsNullOrWhiteSpace(PartyRecord.SourceLabel) ? "Innola Party Match" : PartyRecord.SourceLabel,
+            PartyRecord.QueryKey,
+            $"Party match: {PartyRecord.DisplaySummary}",
+            CompareEvidenceRoleTag.Owner,
+            capturedAt,
+            PartyRecord.Diagnostic);
     }
 }
 

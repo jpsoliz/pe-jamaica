@@ -148,6 +148,11 @@ internal static class ShellState
             fiscalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateFiscal(Settings),
             enterpriseCadasterEvidenceService: new CompareEnterpriseCadasterEvidenceService(InnolaTransactionSettings.Load),
             taskLifecycleService: taskLifecycleService,
+            reportAttachmentService: new CompareReportAttachmentService(
+                () => Session.CurrentSession,
+                CreateTransactionDetailService()),
+            mapIntegrationService: new ArcGisCompareMapIntegrationService(),
+            promptService: new MessageBoxCompareWorkspacePromptService(),
             reviewerId: Session.CurrentUser?.Username,
             reviewerDisplayName: Session.CurrentUser?.DisplayName);
         var window = new CompareWorkspaceWindow(viewModel)

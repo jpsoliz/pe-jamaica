@@ -10,7 +10,7 @@ Status: review
 
 As a cadastral examiner in Compare,  
 I want clear task lifecycle actions inside the Compare workspace,  
-so that I can save evidence notes, suspend work for later, complete approved work, or close the window without accidentally leaving the transaction in an unclear state.
+so that I can save evidence notes, suspend work for later, complete finalized work, or close the window without accidentally leaving the transaction in an unclear state.
 
 ## Business Context
 
@@ -34,7 +34,7 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
 
 - **Story 8.5: Persist Compare Decision and Unlock Commit Stage**
   - Reuse Compare draft and decision artifacts.
-  - `Complete task` is enabled only when Compare is approved and task completion readiness passes.
+  - `Complete task` is enabled only when Compare is finalized/approved and task completion readiness passes.
   - `Save draft` must continue to write Compare evidence/notes only; it must not release the task.
 
 ## Acceptance Criteria
@@ -42,15 +42,17 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
 1. Given Compare is open for an active transaction, when the user clicks `Save draft`, then the add-in saves Compare evidence, notes, query history, included/excluded Enterprise evidence, and decision draft artifacts only; the Innola task remains active and the window remains open.
 2. Given Compare is open for an active transaction, when the user clicks `Suspend task`, then the add-in saves the Compare draft, uploads the resume package, calls the existing task save-and-close lifecycle path, clears loaded/active transaction state, refreshes or restores the Transaction Panel list, and closes the Compare window.
 3. Given `Suspend task` fails because upload, save-progress, auth, timeout, or lifecycle service fails, then the Compare window remains open, the active transaction state is preserved, a sanitized retryable message is shown, and no token/raw response is written to UI or artifacts.
-4. Given Compare is approved and completion readiness passes, when the user clicks `Complete task`, then the add-in saves the final Compare decision, calls the existing completion lifecycle path, clears loaded/active transaction state, refreshes the Transaction Panel list, suppresses stale completed rows, and closes the Compare window.
-5. Given Compare is not approved, has unresolved blockers, missing required evidence, or completion readiness fails, when the user views `Complete task`, then the action is disabled or returns a clear blocked message and does not call the lifecycle completion service.
+4. Given Compare is finalized and completion readiness passes, when the user clicks `Complete task`, then the add-in saves the final Compare decision, calls the existing completion lifecycle path, clears loaded/active transaction state, refreshes the Transaction Panel list, suppresses stale completed rows, and closes the Compare window.
+5. Given Compare is not finalized, has unresolved blockers, missing required evidence, or completion readiness fails, when the user views `Complete task`, then the action is disabled or returns a clear blocked message and does not call the lifecycle completion service.
 6. Given completion fails after being attempted, when the user returns to Compare, then previous valid active transaction state and Compare artifacts are preserved, and the user sees a sanitized retryable message.
-7. Given the user clicks `Close window`, then only the Compare window closes; no task save, task suspend, completion, cancellation, row suppression, or lifecycle mutation occurs.
+7. Given the user clicks `Close window`, then the Compare window closes and the transaction-scoped Compare map group is removed; no task save, task suspend, completion, cancellation, row suppression, or lifecycle mutation occurs.
 8. Given a Compare task remains active after `Close window`, when the Transaction Panel is visible, then it exposes a `Reopen Compare` action for the active Compare task.
 9. Given the user clicks `Reopen Compare` for the active Compare task, then the Compare workspace opens using the already selected/loaded active transaction and does not call claim/start again.
 10. Given a transaction is in Compute stage or no active transaction exists, then `Reopen Compare` is not available.
-11. Given Compare suspends, completes, or close-window-only exits, then Transaction Panel command states and list-lock state are updated consistently with Stories 2.5 and 2.7.
+11. Given Compare suspends, completes, or close-window-only exits, then Transaction Panel command states and list-lock state are updated consistently with Stories 2.5 and 2.7, and stale `Compare Review - <transaction>` map groups are removed from the active map.
 12. Given automated tests run, then they cover Save Draft, Suspend success/failure, Complete success/blocked/failure, Close window only, Reopen Compare without claim, Transaction Panel refresh/suppression behavior, and sanitized failure messages.
+13. Given the user clicks `Save`, `Suspend`, or `Finalize`, then the add-in asks for confirmation before mutating saved/task state.
+14. Given Suspend, Finalize, or Close window proceeds after required confirmation, then the Compare form state is cleared and every loaded Compare map group for that transaction is removed from the active map.
 
 ## Tasks / Subtasks
 
@@ -59,7 +61,7 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
   - [x] Add `Suspend task` command to the Compare workspace.
   - [x] Add `Complete task` command to the Compare workspace.
   - [x] Rename the window-only close affordance to `Close window`.
-  - [x] Keep `Block`, `Approve Compare`, and `Return to Compute` decision actions intact.
+  - [x] Keep `Block` and the final approving action intact; the approving action is now labeled `Finalize`.
 
 - [x] Add a Compare-to-TransactionPanel lifecycle bridge. (AC: 2-6, 11)
   - [x] Add a small interface or callback seam so `CompareWorkspaceViewModel` can request task suspend/complete without directly reaching into WPF dockpane internals.
@@ -78,15 +80,18 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
 - [x] Wire Compare window close/cleanup behavior. (AC: 2-7, 11)
   - [x] On suspend success, close the Compare window after cleanup/refresh is complete.
   - [x] On complete success, close the Compare window after cleanup/refresh is complete.
-  - [x] On `Close window`, close only the window and leave active task state unchanged.
+  - [x] On `Close window`, remove the transaction-scoped Compare map group, close only the window, and leave active task state unchanged.
   - [x] Avoid duplicate cleanup when the user closes the window after suspend/complete has already closed it.
   - [x] Ensure WebView2/PDF resources are still disposed through normal window close.
+  - [x] Confirm Save, Suspend, and Finalize before saving or changing task state.
+  - [x] Remove all matching transaction-scoped `Compare Review - <transaction>` map groups after successful Suspend/Finalize and window-only Close.
+  - [x] Clear Compare form state after successful Suspend/Finalize/Close cleanup.
 
 - [x] Preserve Compare decision semantics. (AC: 1, 4, 5)
   - [x] `Save draft` writes only `compare_review_draft.json`.
-  - [x] `Complete task` requires an approved/current Compare decision from Story 8.5.
-  - [x] If needed, have `Complete task` save/confirm an approved decision before lifecycle complete, but do not invent commit-stage promotion.
-  - [x] Do not let `Block` or `Return to Compute` call task completion.
+  - [x] `Complete task` requires a finalized/current Compare decision from Story 8.5.
+  - [x] If needed, have `Complete task` save/confirm a finalized decision before lifecycle complete, but do not invent commit-stage promotion.
+  - [x] Do not let `Block` call task completion.
 
 - [x] Add tests. (AC: 1-12)
   - [x] Add Compare ViewModel tests for Save Draft not calling lifecycle.
@@ -181,7 +186,7 @@ Manual validation target:
 - Click `Reopen Compare`; confirm Compare opens without a new claim/start attempt.
 - Click `Save draft`; confirm the task remains active.
 - Click `Suspend task`; confirm resume package upload/save occurs, Compare closes, Transaction Panel unlocks/refreshes, and the task can be resumed later.
-- For an approved Compare decision, click `Complete task`; confirm Compare closes, Transaction Panel refreshes, and stale completed rows are suppressed.
+- For a finalized Compare decision, click `Complete task`; confirm Compare closes, Transaction Panel refreshes, and stale completed rows are suppressed.
 
 ## Investigation Reference
 
@@ -194,6 +199,8 @@ Manual validation target:
 | 2026-07-16 | 1.0 | Initial story for Compare task lifecycle actions, close-window semantics, and active Compare reopen path. | Mary |
 | 2026-07-16 | 1.1 | Implemented Compare lifecycle commands, Transaction Panel reopen bridge, and regression tests. | Amelia |
 | 2026-07-16 | 1.2 | Patched review finding: Complete task now revalidates current Compare readiness after approval. | Amelia |
+| 2026-07-17 | 1.3 | Aligned lifecycle copy with Story 8.5 Finalize terminology and removal of Return to Compute from Compare. | Codex |
+| 2026-07-17 | 1.4 | Added confirmation prompts and Compare form/map cleanup after confirmed Suspend/Finalize. | Codex |
 
 ## Dev Agent Record
 
@@ -223,7 +230,8 @@ Manual validation target:
 - Successful suspend/complete asks the window to close after Transaction Panel cleanup; failures keep Compare open and preserve active task state.
 - Transaction Panel now exposes gated `ReopenCompareCommand` for active Compare-stage tasks and passes a lifecycle bridge to Compare launches.
 - Reopen Compare uses the already active transaction and does not call claim/start again.
-- Review patch tightened `Complete task` so a previously approved Compare cannot complete after new unresolved blockers are introduced.
+- Review patch tightened `Complete task` so a previously finalized Compare cannot complete after new unresolved blockers are introduced.
+- Added close-path cleanup so `Close window`, window X, Suspend, and Finalize all remove loaded Compare map groups for the transaction without mutating task lifecycle on plain close.
 
 ### File List
 

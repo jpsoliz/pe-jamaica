@@ -7,7 +7,7 @@
   "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
-  "review_workspace_mode": "parcel_fabric_local",
+  "review_workspace_mode": "enterprise_working_layers",
   "manual_review_retry_threshold": 2,
   "enterprise_working_review": {
     "enabled": true,

@@ -202,6 +202,53 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal(583, parameters.GetProperty("folio").GetInt32(), "Folio should be serialized as a number.");
     }
 
+    public static async Task InnolaBaUnitPidLandValAndOwnerSearchPostExpectedPayloads()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"records":[]}""", HttpStatusCode.OK),
+            ("""{"records":[]}""", HttpStatusCode.OK),
+            ("""{"records":[]}""", HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        await service.QueryByParcelIdAsync("10843842");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            TestAssert.Equal("baunit", root.GetProperty("searchKind").GetString(), "PID searchKind mismatch.");
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal("10843842", parameters.GetProperty("pid").GetString(), "PID should be serialized in BA Unit params.");
+            TestAssert.Equal("fld_pid : 10843842, Type : Land, Status : Active", root.GetProperty("info").GetProperty("searchDetails").GetString(), "PID search details mismatch.");
+        }
+
+        await service.QueryByLandValuationNumberAsync("16505005179");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal("16505005179", parameters.GetProperty("landValNumber").GetString(), "LandVal No. should be serialized in camel-case BA Unit params.");
+            TestAssert.Equal("16505005179", parameters.GetProperty("landvalnumber").GetString(), "LandVal No. should also be serialized in Innola response field casing.");
+            TestAssert.Equal("fld_landvalnumber : 16505005179, Type : Land, Status : Active", root.GetProperty("info").GetProperty("searchDetails").GetString(), "LandVal No. search details mismatch.");
+        }
+
+        await service.QueryByNameAsync("Tracey");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal("%TRACEY%", parameters.GetProperty("ownername").GetString(), "Owner search should add upper-case wildcard markers.");
+            TestAssert.True(!parameters.TryGetProperty("owner", out _), "Owner search should use the confirmed ownername variable.");
+            TestAssert.True(!parameters.TryGetProperty("owners", out _), "Owner search should use a single owner variable.");
+            TestAssert.Equal("fld_ownername : %TRACEY%, Type : Land, Status : Active", root.GetProperty("info").GetProperty("searchDetails").GetString(), "Owner search details mismatch.");
+        }
+    }
+
     public static async Task InnolaBaUnitVolumeFolioSearchRetriesCookieOnlyWhenAccessTokenRejected()
     {
         var handler = new CapturingHttpMessageHandler(new[]
@@ -264,6 +311,122 @@ internal static class CompareCadasterQueryServiceTests
         var parameters = root.GetProperty("params");
         TestAssert.Equal(1549, parameters.GetProperty("volume").GetInt32(), "Owner search volume should be serialized as a number.");
         TestAssert.Equal(583, parameters.GetProperty("folio").GetInt32(), "Owner search folio should be serialized as a number.");
+    }
+
+    public static async Task InnolaOwnerPidLandValAndNameSearchPostPostmanEnvelope()
+    {
+        var service = CreateOwnerSearchService(out var handler);
+        await service.QueryByParcelIdAsync("10843842");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var parameters = document.RootElement.GetProperty("params");
+            TestAssert.Equal("10843842", parameters.GetProperty("pid").GetString(), "PID owner-search param mismatch.");
+        }
+
+        service = CreateOwnerSearchService(out handler);
+        await service.QueryByLandValuationNumberAsync("16505005179");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var parameters = document.RootElement.GetProperty("params");
+            TestAssert.True(!parameters.TryGetProperty("landValNumber", out _), "Owner-search LandVal payload should not include the unconfirmed camel-case key.");
+            TestAssert.Equal("16505005179", parameters.GetProperty("landvalnumber").GetString(), "LandVal owner-search lowercase param mismatch.");
+        }
+
+        service = CreateOwnerSearchService(out handler);
+        await service.QueryByNameAsync("Tracey");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "baunit");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var parameters = document.RootElement.GetProperty("params");
+            TestAssert.Equal("%TRACEY%", parameters.GetProperty("ownername").GetString(), "Owner-name search should add upper-case wildcard ownername param.");
+            TestAssert.True(!parameters.TryGetProperty("owner", out _), "Owner-name search should use the confirmed ownername variable.");
+            TestAssert.True(!parameters.TryGetProperty("owners", out _), "Owner-name search should use the single Postman owner variable.");
+        }
+    }
+
+    public static async Task InnolaOwnerSearchPayloadContractIgnoresConfiguredSearchKind()
+    {
+        var source = LegalOwnerSearchSource() with { SearchKind = "changed_by_settings" };
+        var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            source,
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        await service.QueryByParcelIdAsync("10843842");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal(1, parameters.EnumerateObject().Count(), "PID Postman payload should contain only pid.");
+            TestAssert.Equal("10843842", parameters.GetProperty("pid").GetString(), "PID Postman payload mismatch.");
+        }
+
+        await service.QueryByNameAsync("Tracey");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "baunit");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal(1, parameters.EnumerateObject().Count(), "Owner-name Postman payload should contain only ownername.");
+            TestAssert.Equal("%TRACEY%", parameters.GetProperty("ownername").GetString(), "Owner-name Postman payload mismatch.");
+        }
+    }
+
+    public static void PostmanOwnerSearchReferenceIsStored()
+    {
+        var path = Path.Combine(
+            "src",
+            "ParcelWorkflowAddIn",
+            "ParcelWorkflowAddIn.Tests",
+            "Fixtures",
+            "Compare",
+            "Sidwell Plan Exam Scenario.postman_collection2.json");
+
+        TestAssert.True(File.Exists(path), "Postman owner-search reference collection should be stored with Compare fixtures.");
+        var body = File.ReadAllText(path);
+        using var document = JsonDocument.Parse(body);
+        var storedRequests = document.RootElement
+            .GetProperty("item")
+            .EnumerateArray()
+            .Where(item => item.TryGetProperty("request", out _))
+            .ToArray();
+        TestAssert.True(storedRequests.Any(item =>
+            item.GetProperty("request").GetProperty("url").GetProperty("raw").GetString()?.Contains("portal/searches", StringComparison.OrdinalIgnoreCase) == true),
+            "Stored Postman fixture should include the portal/searches endpoint.");
+        TestAssert.True(storedRequests.Any(item =>
+            item.GetProperty("request").TryGetProperty("body", out var requestBody)
+            && requestBody.TryGetProperty("raw", out var raw)
+            && raw.GetString()?.Contains("\"searchKind\": \"owner\"", StringComparison.OrdinalIgnoreCase) == true),
+            "Stored Postman fixture should include the owner search request.");
+    }
+
+    private static InnolaBaUnitLegalCadasterQueryService CreateOwnerSearchService(out CapturingHttpMessageHandler handler)
+    {
+        handler = new CapturingHttpMessageHandler("""{"records":[]}""");
+        return new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+    }
+
+    private static void AssertOwnerSearchEnvelope(string requestBody, string expectedSearchKind = "owner", int expectedStart = 0)
+    {
+        using var document = JsonDocument.Parse(requestBody);
+        var root = document.RootElement;
+        TestAssert.Equal("SearchRequest", root.GetProperty("@c").GetString(), "Owner search should use the Postman SearchRequest envelope.");
+        TestAssert.Equal(expectedSearchKind, root.GetProperty("searchKind").GetString(), "Owner searchKind mismatch.");
+        TestAssert.Equal(expectedStart, root.GetProperty("start").GetInt32(), "Owner search start mismatch.");
+        TestAssert.Equal(25, root.GetProperty("limit").GetInt32(), "Owner search limit mismatch.");
+        TestAssert.True(!root.TryGetProperty("info", out _), "Owner search envelope should not include BA Unit info metadata.");
+        TestAssert.True(!root.TryGetProperty("page", out _), "Owner search envelope should not include BA Unit page metadata.");
     }
 
     public static async Task InnolaBaUnitMapsReturnedRecords()
@@ -446,6 +609,40 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.True(result.Diagnostic?.Contains("captured BA Unit result fixture", StringComparison.OrdinalIgnoreCase) == true, "Fallback diagnostic should explain fixture use.");
     }
 
+    public static async Task InnolaOwnerPidSearchUsesCapturedBaUnitFixtureWhenLiveRowsAreEmpty()
+    {
+        var handler = new CapturingHttpMessageHandler("""{"total":0,"success":true,"records":[]}""");
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByParcelIdAsync("10843842");
+
+        TestAssert.Equal(1, handler.RequestCount, "PID search should still call the live Postman contract before fixture fallback.");
+        AssertOwnerSearchEnvelope(handler.LastRequestBody, expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var parameters = document.RootElement.GetProperty("params");
+            TestAssert.Equal("10843842", parameters.GetProperty("pid").GetString(), "PID owner-search payload must keep the Postman pid variable.");
+            TestAssert.Equal(1, parameters.EnumerateObject().Count(), "PID owner-search payload should not add alternate property keys.");
+        }
+
+        TestAssert.True(result.Success, "Empty PID owner-search rows should use captured BA Unit fixture for the known PID.");
+        TestAssert.Equal(1, result.Records.Count, "Captured BA Unit PID fallback should provide one property row.");
+        var record = result.Records[0];
+        TestAssert.Equal("1486", record.Volume, "Fallback volume should map from the captured BA Unit row.");
+        TestAssert.Equal("393", record.Folio, "Fallback folio should map from the captured BA Unit row.");
+        TestAssert.Equal("Land", record.PropertyType, "Fallback type should map.");
+        TestAssert.Equal("Fee Simple", record.Tenure, "Fallback tenure should map.");
+        TestAssert.Equal("10843842", record.ParcelId, "Fallback PID should map.");
+        TestAssert.Equal("16505005179", record.LandValuationNumber, "Fallback LandVal No. should map.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", record.OwnerName, "Fallback owner should map.");
+        TestAssert.Equal("Manchester", record.Parish, "Fallback parish should map.");
+        TestAssert.Equal("24/Nov/2014", record.RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Fallback registration date should map.");
+    }
+
     public static async Task InnolaOwnerSearchUsesCapturedBaUnitFixtureBeforeLiveCallForKnownExample()
     {
         var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
@@ -508,6 +705,222 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal("24/Nov/2014", result.Records[0].RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Portal Date Registered label should populate registered date.");
     }
 
+    public static async Task InnolaOwnerPidSearchMapsPridRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "records": [
+                {
+                  "fulladdress": "Cave Mountain, Cave Post Office Westmoreland",
+                  "prid": "10954223",
+                  "owners": "SMITH, EVERTON",
+                  "baunit_type": "bu_type_land",
+                  "tenuretype": "tenure_type_freehold",
+                  "volume": 1421,
+                  "folio": 880,
+                  "landvalnumber": "19006005055",
+                  "spparish": "St.James",
+                  "registrationdate": "2005-11-10T00:00:00.000+00:00"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByParcelIdAsync("10954223");
+
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            TestAssert.Equal("SearchRequest", root.GetProperty("@c").GetString(), "PID search should use the Postman envelope.");
+            TestAssert.Equal("owner", root.GetProperty("searchKind").GetString(), "PID searchKind should use the owner Postman method.");
+            TestAssert.Equal("10954223", root.GetProperty("params").GetProperty("pid").GetString(), "PID request value mismatch.");
+        }
+
+        TestAssert.True(result.Success, "PID owner search should succeed.");
+        TestAssert.Equal(1, result.Records.Count, "PID owner search should map one row.");
+        TestAssert.Equal("10954223", result.Records[0].ParcelId, "PID search should map Innola prid to the PID column.");
+        TestAssert.Equal("SMITH, EVERTON", result.Records[0].OwnerName, "PID search owner mismatch.");
+        TestAssert.Equal("1421", result.Records[0].Volume, "PID search volume mismatch.");
+        TestAssert.Equal("880", result.Records[0].Folio, "PID search folio mismatch.");
+        TestAssert.Equal("19006005055", result.Records[0].LandValuationNumber, "PID search LandVal mismatch.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "PID search type mismatch.");
+        TestAssert.Equal("Fee Simple", result.Records[0].Tenure, "PID search tenure mismatch.");
+    }
+
+    public static async Task InnolaOwnerLandValSearchMapsPridRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "records": [
+                {
+                  "fulladdress": "Cave Mountain, Cave Post Office Westmoreland",
+                  "prid": "10954223",
+                  "owners": "SMITH, EVERTON",
+                  "baunit_type": "bu_type_land",
+                  "tenuretype": "tenure_type_freehold",
+                  "volume": 1421,
+                  "folio": 880,
+                  "landvalnumber": "19006005055",
+                  "spparish": "St.James",
+                  "registrationdate": "2005-11-10T00:00:00.000+00:00"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("19006005055");
+
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var root = document.RootElement;
+            TestAssert.Equal("SearchRequest", root.GetProperty("@c").GetString(), "LandVal search should use the Postman envelope.");
+            TestAssert.Equal("owner", root.GetProperty("searchKind").GetString(), "LandVal searchKind should use the owner Postman method.");
+            TestAssert.Equal("19006005055", root.GetProperty("params").GetProperty("landvalnumber").GetString(), "LandVal request value mismatch.");
+        }
+
+        TestAssert.True(result.Success, "LandVal owner search should succeed.");
+        TestAssert.Equal(1, result.Records.Count, "LandVal owner search should map one row.");
+        TestAssert.Equal("10954223", result.Records[0].ParcelId, "LandVal search should map Innola prid to the PID column.");
+        TestAssert.Equal("19006005055", result.Records[0].LandValuationNumber, "LandVal search LandVal mismatch.");
+        TestAssert.Equal("SMITH, EVERTON", result.Records[0].OwnerName, "LandVal search owner mismatch.");
+        TestAssert.Equal("1421", result.Records[0].Volume, "LandVal search volume mismatch.");
+        TestAssert.Equal("880", result.Records[0].Folio, "LandVal search folio mismatch.");
+    }
+
+    public static async Task InnolaOwnerLandValSearchPaginatesPostmanEnvelope()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            (OwnerSearchPageResponse(49, 11032262, 25, "16505010005"), HttpStatusCode.OK),
+            (OwnerSearchPageResponse(49, 11032287, 24, "16505010005"), HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        TestAssert.True(result.Success, "Paged LandVal owner search should succeed.");
+        TestAssert.Equal(49, result.Records.Count, "Paged LandVal owner search should merge both result pages.");
+        TestAssert.Equal(2, handler.RequestCount, "Paged LandVal owner search should request the second page.");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[0], expectedSearchKind: "owner");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[1], expectedSearchKind: "owner", expectedStart: 25);
+        using (var firstDocument = JsonDocument.Parse(handler.RequestBodies[0]))
+        {
+            var root = firstDocument.RootElement;
+            TestAssert.Equal(0, root.GetProperty("start").GetInt32(), "First LandVal page should preserve configured start.");
+            TestAssert.Equal(25, root.GetProperty("limit").GetInt32(), "First LandVal page should preserve configured limit.");
+            TestAssert.Equal("16505010005", root.GetProperty("params").GetProperty("landvalnumber").GetString(), "First LandVal page should preserve Postman landvalnumber param.");
+            TestAssert.True(!root.TryGetProperty("info", out _), "Paged owner search must not add BA Unit info metadata.");
+            TestAssert.True(!root.TryGetProperty("page", out _), "Paged owner search must not add BA Unit page metadata.");
+        }
+
+        using (var secondDocument = JsonDocument.Parse(handler.RequestBodies[1]))
+        {
+            var root = secondDocument.RootElement;
+            TestAssert.Equal(25, root.GetProperty("start").GetInt32(), "Second LandVal page should advance by the configured limit.");
+            TestAssert.Equal(25, root.GetProperty("limit").GetInt32(), "Second LandVal page should preserve configured limit.");
+            TestAssert.Equal("16505010005", root.GetProperty("params").GetProperty("landvalnumber").GetString(), "Second LandVal page should preserve Postman landvalnumber param.");
+            TestAssert.True(!root.TryGetProperty("info", out _), "Second page must not add BA Unit info metadata.");
+            TestAssert.True(!root.TryGetProperty("page", out _), "Second page must not add BA Unit page metadata.");
+        }
+
+        TestAssert.Equal("11032262", result.Records[0].ParcelId, "First page PID should map.");
+        TestAssert.Equal("11032310", result.Records[^1].ParcelId, "Second page PID should map.");
+        TestAssert.Equal("16505010005", result.Records[^1].LandValuationNumber, "Second page LandVal should map.");
+    }
+
+    public static async Task InnolaOwnerNameSearchMapsMultiplePortalRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 3,
+              "success": true,
+              "records": [
+                {
+                  "registrationdate": "2008-11-26T00:00:00.000+00:00",
+                  "pid": "10915474",
+                  "owners": "TRACEY, WINSTON SEYMOUR, TULL...",
+                  "baunit_type": "bu_type_land",
+                  "tenurevalue": "Fee Simple",
+                  "volume": 1426,
+                  "folio": 220
+                },
+                {
+                  "registrationdate": "2010-06-29T00:00:00.000+00:00",
+                  "pid": "10397822",
+                  "owners": "HENRY, BERYL, TRACEY, NICOLE",
+                  "baunit_type": "bu_type_land",
+                  "tenurevalue": "Fee Simple",
+                  "volume": 1442,
+                  "folio": 703,
+                  "landvalnumber": "07003014016",
+                  "spparish": "St.Mary"
+                },
+                {
+                  "registrationdate": "2013-09-13T00:00:00.000+00:00",
+                  "pid": "10984563",
+                  "owners": "SMITH, TRACEY-ANN DELITH",
+                  "baunit_type": "bu_type_land",
+                  "tenurevalue": "Fee Simple",
+                  "volume": 1473,
+                  "folio": 594,
+                  "landvalnumber": "19004012058",
+                  "spparish": "St.Catherine"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByNameAsync("%tracey%");
+
+        using (var document = JsonDocument.Parse(handler.LastRequestBody))
+        {
+            var parameters = document.RootElement.GetProperty("params");
+            TestAssert.Equal("%TRACEY%", parameters.GetProperty("ownername").GetString(), "Owner search request variable should be upper-case wildcard.");
+            TestAssert.True(!parameters.TryGetProperty("owner", out _), "Owner search request should use ownername, not owner.");
+        }
+
+        TestAssert.True(result.Success, "Owner name search should succeed.");
+        TestAssert.Equal(CompareEvidenceStatus.Ambiguous, result.Status, "Multiple owner rows should be shown as ambiguous/reviewable.");
+        TestAssert.Equal(3, result.Records.Count, "All owner search records should be mapped.");
+        TestAssert.Equal("1426", result.Records[0].Volume, "First owner row volume mismatch.");
+        TestAssert.Equal("220", result.Records[0].Folio, "First owner row folio mismatch.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "First owner row type mismatch.");
+        TestAssert.Equal("Fee Simple", result.Records[0].Tenure, "First owner row tenure mismatch.");
+        TestAssert.Equal("10915474", result.Records[0].ParcelId, "First owner row PID mismatch.");
+        TestAssert.Equal("TRACEY, WINSTON SEYMOUR, TULL...", result.Records[0].OwnerName, "First owner row owner mismatch.");
+        TestAssert.Equal("1442", result.Records[1].Volume, "Second owner row volume mismatch.");
+        TestAssert.Equal("703", result.Records[1].Folio, "Second owner row folio mismatch.");
+        TestAssert.Equal("07003014016", result.Records[1].LandValuationNumber, "Second owner row LandVal mismatch.");
+        TestAssert.Equal("St.Mary", result.Records[1].Parish, "Second owner row parish mismatch.");
+        TestAssert.Equal("29/Jun/2010", result.Records[1].RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Second owner row date mismatch.");
+    }
+
     public static async Task InnolaOwnerSearchDoesNotReturnBlankTechnicalIdOnlyRows()
     {
         var handler = new CapturingHttpMessageHandler(
@@ -561,6 +974,230 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal(CompareEvidenceStatus.NoRecordReturned, result.Status, "Party type alone should not count as mapped legal evidence.");
     }
 
+    public static async Task InnolaOwnerSearchDoesNotReturnPartyTypeRowsWithOnlyPidAndId()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "records": [
+                {
+                  "id": "019e2b74-5738-7063-93f6-73afdc13a886",
+                  "pid": "100311792",
+                  "type": "party_type_individual"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByParcelIdAsync("11032262");
+
+        TestAssert.True(result.Success, "A party-type row with only PID/id should be handled as a no-record result.");
+        TestAssert.Equal(0, result.Records.Count, "Party type plus PID/id alone should not create a visible legal/property result.");
+        TestAssert.Equal(CompareEvidenceStatus.NoRecordReturned, result.Status, "Party type plus PID/id alone should not count as mapped legal evidence.");
+    }
+
+    public static async Task InnolaOwnerSearchSplitsPartyRowsFromPropertyRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 2,
+              "success": true,
+              "records": [
+                {
+                  "id": "019e2b74-5738-7063-93f6-73afdc13a886",
+                  "prid": "100778284",
+                  "type": "party_type_individual",
+                  "fullname": "KING, WILTON F.",
+                  "fulladdress": "Cave Mountain, Cave Post Office Westmoreland",
+                  "taxnumber": "TX-55",
+                  "status": "reg_status_current"
+                },
+                {
+                  "pid": "11032262",
+                  "owners": "KING, WILTON F.",
+                  "baunit_type": "bu_type_land",
+                  "tenurevalue": "Fee Simple",
+                  "volume": 1447,
+                  "folio": 138,
+                  "landvalnumber": "16505010005",
+                  "spparish": "Manchester",
+                  "registrationdate": "2010-12-21T00:00:00.000+00:00"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        TestAssert.True(result.Success, "Mixed party/property rows should remain a successful legal search.");
+        TestAssert.Equal(1, result.Records.Count, "Only BA Unit/property-shaped rows should appear in property search results.");
+        TestAssert.Equal("KING, WILTON F.", result.Records[0].OwnerName, "Property result owner mismatch.");
+        TestAssert.Equal("11032262", result.Records[0].ParcelId, "Property result PID mismatch.");
+        TestAssert.Equal(1, result.PartyRecords?.Count ?? 0, "Party-shaped rows should be split into related party matches.");
+        TestAssert.Equal("KING, WILTON F.", result.PartyRecords![0].PartyName, "Party match name mismatch.");
+        TestAssert.Equal("100778284", result.PartyRecords[0].Prid, "Party match PRID mismatch.");
+        TestAssert.Equal("Cave Mountain, Cave Post Office Westmoreland", result.PartyRecords[0].FullAddress, "Party match address mismatch.");
+        TestAssert.Equal("TX-55", result.PartyRecords[0].TaxNumber, "Party match tax number mismatch.");
+        TestAssert.Equal("party_type_individual", result.PartyRecords[0].PartyType, "Party match type mismatch.");
+    }
+
+    public static async Task InnolaOwnerSearchReportsRawRowsWhenAllRowsAreFiltered()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "records": [
+                {
+                  "id": "019e2b74-5738-7063-93f6-73afdc13a886",
+                  "pid": "100311792",
+                  "type": "party_type_individual"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        TestAssert.True(result.Success, "Filtered owner-search rows should remain a reviewable no-record result.");
+        TestAssert.Equal(0, result.Records.Count, "Party-only rows must not render as property evidence.");
+        TestAssert.Equal(CompareEvidenceStatus.NoRecordReturned, result.Status, "Filtered rows should remain no-record for Compare.");
+        TestAssert.True(result.Diagnostic!.Contains("1 raw row", StringComparison.Ordinal), "Diagnostic should reveal that raw rows were returned.");
+        TestAssert.True(result.Diagnostic.Contains("reported total=1", StringComparison.Ordinal), "Diagnostic should preserve the reported total.");
+        TestAssert.True(result.Diagnostic.Contains("first raw row fields: id, pid, type", StringComparison.Ordinal), "Diagnostic should list raw field names without values.");
+    }
+
+    public static async Task InnolaOwnerSearchCapturesRawDebugRowsWhenRowsAreFiltered()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 2,
+              "success": true,
+              "records": [
+                {
+                  "id": "019e2b74-5738-7063-93f6-73afdc13a886",
+                  "prid": "100778284",
+                  "type": "party_type_individual",
+                  "fullname": "KING, WILTON F.",
+                  "debug": "token=secret password=hidden"
+                },
+                {
+                  "id": "019e2b74-a1fc-7503-9392-3c3c59d92f78",
+                  "prid": "100603420",
+                  "type": "party_type_individual",
+                  "fullname": "SCOTT-HERON, ROSELEE"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        TestAssert.True(result.Success, "Filtered owner-search rows should remain reviewable.");
+        TestAssert.Equal(0, result.Records.Count, "Party rows without property evidence should not render search results.");
+        TestAssert.True(result.RawDebug is not null, "Filtered owner-search rows should keep raw debug metadata.");
+        TestAssert.Equal(1, result.RawDebug!.ResponsePageCount, "Raw debug should capture response page count.");
+        TestAssert.Equal(2, result.RawDebug.RawRecordCount, "Raw debug should capture every raw row.");
+        TestAssert.Equal(2, result.RawDebug.ReportedTotal, "Raw debug should capture response total.");
+        TestAssert.Equal(2, result.RawDebug.Rows.Count, "Raw debug should preserve raw row values.");
+        TestAssert.Equal("100778284", result.RawDebug.Rows[0].Values["prid"], "Raw debug should preserve the first raw row PRID.");
+        TestAssert.Equal("party_type_individual", result.RawDebug.Rows[0].Values["type"], "Raw debug should preserve the first raw row type.");
+        TestAssert.Equal("KING, WILTON F.", result.RawDebug.Rows[0].Values["fullname"], "Raw debug should preserve scalar row fields.");
+        TestAssert.True(result.RawDebug.Rows[0].Values["debug"]?.Contains("[REDACTED]", StringComparison.Ordinal) == true, "Raw debug should redact sensitive scalar values.");
+    }
+
+    public static async Task CompareLegalQueryTraceWritesRawDebugArtifact()
+    {
+        using var fixture = CompareCaseFixture.CreateWithExtraction();
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "records": [
+                {
+                  "id": "019e2b74-5738-7063-93f6-73afdc13a886",
+                  "prid": "100778284",
+                  "type": "party_type_individual",
+                  "fullname": "KING, WILTON F."
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+        var result = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        new CompareLegalQueryTracePersistenceService()
+            .Append(fixture.Layout, "100000668", result, FixedNow);
+
+        var rawDebugPath = Path.Combine(fixture.Layout.WorkingDirectory, "compare_legal_query_raw_debug.json");
+        TestAssert.True(File.Exists(rawDebugPath), "Raw debug trace should be written beside the normal legal query trace.");
+        var rawDebug = File.ReadAllText(rawDebugPath);
+        TestAssert.True(rawDebug.Contains("\"query_kind\": \"land_valuation_number\"", StringComparison.Ordinal), "Raw debug should capture query kind.");
+        TestAssert.True(rawDebug.Contains("\"raw_record_count\": 1", StringComparison.Ordinal), "Raw debug should capture raw row count.");
+        TestAssert.True(rawDebug.Contains("\"prid\": \"100778284\"", StringComparison.Ordinal), "Raw debug should persist raw row values.");
+        TestAssert.True(rawDebug.Contains("\"type\": \"party_type_individual\"", StringComparison.Ordinal), "Raw debug should persist raw row type.");
+        TestAssert.True(!rawDebug.Contains("token", StringComparison.OrdinalIgnoreCase), "Raw debug should not contain token labels for this sample.");
+    }
+
+    public static async Task InnolaOwnerSearchReportsZeroRawRowsForEmptyPidAndLandValResponses()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"total":0,"success":true,"records":[]}""", HttpStatusCode.OK),
+            ("""{"total":0,"success":true,"records":[]}""", HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var pidResult = await service.QueryByParcelIdAsync("10954223");
+        var landValResult = await service.QueryByLandValuationNumberAsync("16505010005");
+
+        TestAssert.True(pidResult.Success, "Empty PID owner search should remain reviewable.");
+        TestAssert.Equal(0, pidResult.Records.Count, "Empty PID owner search should not map records.");
+        TestAssert.True(pidResult.Diagnostic!.Contains("0 raw row", StringComparison.Ordinal), "PID diagnostic should report zero raw rows.");
+        TestAssert.True(pidResult.Diagnostic.Contains("reported total=0", StringComparison.Ordinal), "PID diagnostic should report the response total.");
+        TestAssert.True(pidResult.Diagnostic.Contains("root fields: total, success, records", StringComparison.Ordinal), "PID diagnostic should report response root fields.");
+
+        TestAssert.True(landValResult.Success, "Empty LandVal owner search should remain reviewable.");
+        TestAssert.Equal(0, landValResult.Records.Count, "Empty LandVal owner search should not map records.");
+        TestAssert.True(landValResult.Diagnostic!.Contains("0 raw row", StringComparison.Ordinal), "LandVal diagnostic should report zero raw rows.");
+        TestAssert.True(landValResult.Diagnostic.Contains("reported total=0", StringComparison.Ordinal), "LandVal diagnostic should report the response total.");
+        TestAssert.True(landValResult.Diagnostic.Contains("root fields: total, success, records", StringComparison.Ordinal), "LandVal diagnostic should report response root fields.");
+    }
+
     public static async Task InnolaBaUnitMapsSingleResultObject()
     {
         var handler = new CapturingHttpMessageHandler(
@@ -604,7 +1241,7 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.True(result.Message.Contains("No record", StringComparison.OrdinalIgnoreCase), "No-record message mismatch.");
     }
 
-    public static async Task InnolaBaUnitUnsupportedLiveModesDoNotCallService()
+    public static async Task InnolaBaUnitOwnerSearchPreservesUserWildcard()
     {
         var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
         var service = new InnolaBaUnitLegalCadasterQueryService(
@@ -613,14 +1250,12 @@ internal static class CompareCadasterQueryServiceTests
             new HttpClient(handler),
             () => FixedNow);
 
-        var pid = await service.QueryByParcelIdAsync("PID-123");
-        var landVal = await service.QueryByLandValuationNumberAsync("LV-44", "Clarendon");
-        var name = await service.QueryByNameAsync("Jane Brown", "Clarendon");
+        await service.QueryByNameAsync("%TRACEY%");
 
-        TestAssert.False(pid.Success, "PID live mode should be unsupported until payload is confirmed.");
-        TestAssert.False(landVal.Success, "Land Val live mode should be unsupported until payload is confirmed.");
-        TestAssert.False(name.Success, "Name live mode should be unsupported until payload is confirmed.");
-        TestAssert.Equal(0, handler.RequestCount, "Unsupported modes should not call Innola.");
+        using var document = JsonDocument.Parse(handler.LastRequestBody);
+        var parameters = document.RootElement.GetProperty("params");
+        TestAssert.Equal("%TRACEY%", parameters.GetProperty("ownername").GetString(), "User-supplied wildcard owner search should not be double-wrapped.");
+        TestAssert.True(!parameters.TryGetProperty("owner", out _), "Owner search should use ownername, not owner.");
     }
 
     public static async Task InnolaBaUnitRedactsFailureDiagnostics()
@@ -848,6 +1483,8 @@ internal static class CompareCadasterQueryServiceTests
 
         public string LastRequestBody { get; private set; } = string.Empty;
 
+        public List<string> RequestBodies { get; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestCount++;
@@ -870,6 +1507,7 @@ internal static class CompareCadasterQueryServiceTests
             LastRequestBody = request.Content is null
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
+            RequestBodies.Add(LastRequestBody);
 
             var response = responses.Count > 0
                 ? responses.Dequeue()
@@ -879,6 +1517,25 @@ internal static class CompareCadasterQueryServiceTests
                 Content = new StringContent(response.Item1, Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    private static string OwnerSearchPageResponse(int total, int firstPid, int count, string landValuationNumber)
+    {
+        var records = Enumerable.Range(0, count)
+            .Select(index => new Dictionary<string, object?>
+            {
+                ["registrationdate"] = "2010-12-21T00:00:00.000+00:00",
+                ["pid"] = (firstPid + index).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["owners"] = $"OWNER {index + 1}",
+                ["baunit_type"] = "bu_type_land",
+                ["tenurevalue"] = "Fee Simple",
+                ["volume"] = 1447,
+                ["folio"] = 138 + index,
+                ["landvalnumber"] = landValuationNumber,
+                ["spparish"] = "Manchester"
+            })
+            .ToArray();
+        return JsonSerializer.Serialize(new { total, success = true, records });
     }
 
     private static CompareWorkingGeometryLoadPlan GeometryPlan()

@@ -74,6 +74,36 @@ public sealed record LegalCadasterRecord(
     string? Tenure = null,
     DateTimeOffset? RegisteredAt = null);
 
+public sealed record LegalCadasterPartyRecord(
+    string? PartyName,
+    string? Prid,
+    string? FullAddress,
+    string? TaxNumber,
+    string? PartyStatus,
+    string PartyType,
+    string SourceLabel,
+    DateTimeOffset QueriedAt,
+    string QueryKey,
+    string? Diagnostic = null)
+{
+    public string DisplaySummary
+    {
+        get
+        {
+            var parts = new[]
+            {
+                string.IsNullOrWhiteSpace(PartyName) ? null : PartyName,
+                string.IsNullOrWhiteSpace(Prid) ? null : $"PRID: {Prid}",
+                string.IsNullOrWhiteSpace(FullAddress) ? null : $"Address: {FullAddress}",
+                string.IsNullOrWhiteSpace(TaxNumber) ? null : $"Tax No.: {TaxNumber}",
+                string.IsNullOrWhiteSpace(PartyStatus) ? null : $"Status: {PartyStatus}",
+                string.IsNullOrWhiteSpace(PartyType) ? null : $"Type: {PartyType}"
+            }.Where(part => !string.IsNullOrWhiteSpace(part));
+            return string.Join("; ", parts);
+        }
+    }
+}
+
 public sealed record CompareEvidenceSearchRequest(
     string QueryKind,
     string? Pid,
@@ -88,6 +118,7 @@ public sealed record CompareEvidenceSearchRequest(
         "parcel_id" => $"parcel_id={Pid ?? string.Empty}",
         "volume_folio" => $"volume={Volume ?? string.Empty};folio={Folio ?? string.Empty}",
         "land_valuation_number" => $"land_val_no={LandValuationNumber ?? string.Empty}",
+        "name" => $"name={Name ?? string.Empty}",
         "name_parish" => $"name={Name ?? string.Empty};parish={Parish ?? string.Empty}",
         _ => QueryKind
     };
@@ -189,7 +220,9 @@ public sealed record LegalCadasterQueryResult(
     IReadOnlyList<LegalCadasterRecord> Records,
     string Status,
     string Message,
-    string? Diagnostic)
+    string? Diagnostic,
+    LegalCadasterQueryRawDebug? RawDebug = null,
+    IReadOnlyList<LegalCadasterPartyRecord>? PartyRecords = null)
 {
     public static LegalCadasterQueryResult NoRecord(LegalCadasterQuery query, DateTimeOffset queriedAt)
     {
@@ -232,6 +265,11 @@ public sealed record LegalCadasterQueryResult(
             return $"name={query.Name ?? string.Empty};parish={query.Parish ?? string.Empty}";
         }
 
+        if (query.QueryKind.Equals("name", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"name={query.Name ?? string.Empty}";
+        }
+
         return $"parcel_id={query.ParcelId ?? string.Empty}";
     }
 
@@ -247,6 +285,19 @@ public sealed record LegalCadasterQueryResult(
         return redacted;
     }
 }
+
+public sealed record LegalCadasterQueryRawDebug(
+    DateTimeOffset CapturedAt,
+    int ResponsePageCount,
+    int RawRecordCount,
+    int? ReportedTotal,
+    IReadOnlyList<string> ResponseRootFields,
+    IReadOnlyList<LegalCadasterQueryRawDebugRow> Rows);
+
+public sealed record LegalCadasterQueryRawDebugRow(
+    int PageNumber,
+    int RowNumber,
+    IReadOnlyDictionary<string, string?> Values);
 
 public sealed record FiscalCadasterNeighborQuery(
     string TransactionNumber,

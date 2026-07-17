@@ -9,7 +9,7 @@ Status: review
 ## Story
 
 As a cadastral examiner,  
-I want Compare approval, blockage, or return decisions to be recorded as transaction evidence,  
+I want Compare finalization or blockage decisions to be recorded as transaction evidence,  
 so that Commit is only available after ownership and neighbor-rights evidence has been reviewed and approved.
 
 ## Business Context
@@ -21,15 +21,15 @@ This story does not perform final authoritative layer promotion. It creates the 
 ## Acceptance Criteria
 
 1. Given Compare evidence has loaded, when the user selects Save Progress, then the add-in writes a draft Compare artifact with notes, evidence summaries, discrepancies, reviewer, and timestamp.
-2. Given unresolved blocking discrepancies exist, when the user attempts Approve Compare, then approval is disabled or requires an explicit product-approved override reason.
-3. Given all required evidence checks pass, when the user selects Approve Compare, then the add-in writes a `compare_review_decision.json` artifact with decision `approved`.
+2. Given the user has no retained valuable evidence or no Decision Notes, when they view Finalize, then finalization is disabled.
+3. Given the required Compare evidence passes, when the user selects Finalize, then the add-in writes a `compare_review_decision.json` artifact with decision `approved`.
 4. Given the examiner blocks Compare, when they select Block Compare, then the add-in writes a decision artifact with decision `blocked`, blockers, notes, reviewer, and timestamp.
-5. Given the examiner returns the transaction to Compute/correction, when they select Return to Compute, then the decision artifact records the reason and does not unlock Commit.
+5. Given the examiner has retained at least one valuable evidence row and completed Decision Notes, when documents and geometry are ready, then Finalize is enabled.
 6. Given a Compare decision is recorded, when the transaction is reopened, then the workspace can display the prior decision and evidence refs.
 7. Given Compare is approved, when stage readiness is evaluated, then Commit becomes available only after the approved decision artifact is current for the transaction.
 8. Given the decision artifact references evidence, when files are moved/restored from a resume package, then relative Case Folder refs continue to resolve where possible.
 9. Given the transaction number/id in the artifact does not match the selected transaction, when readiness is evaluated, then Commit remains blocked.
-10. Given automated tests run, then draft persistence, approve/block/return decisions, stale/mismatched artifact detection, and Commit readiness gating are covered.
+10. Given automated tests run, then draft persistence, Finalize/block decisions, stale/mismatched artifact detection, and Commit readiness gating are covered.
 
 ## Tasks / Subtasks
 
@@ -44,16 +44,17 @@ This story does not perform final authoritative layer promotion. It creates the 
   - [x] Validate transaction identity on load.
   - [x] Keep JSON machine-readable and redacted.
 
-- [x] Add Compare readiness service. (AC: 2, 7, 9-10)
+- [x] Add Compare readiness service. (AC: 2, 5, 7, 9-10)
   - [x] Add a readiness checker for Commit availability.
   - [x] Require approved Compare decision for Commit.
-  - [x] Block when decision is missing, blocked, returned, stale, mismatched, or has unresolved blockers.
+  - [x] Block when decision is missing, blocked, stale, mismatched, or has missing evidence refs.
 
 - [x] Wire workspace actions. (AC: 1-7)
   - [x] Save Progress writes draft.
-  - [x] Approve Compare writes final approved decision.
+  - [x] Finalize writes final approved decision.
   - [x] Block Compare writes final blocked decision.
-  - [x] Return to Compute writes return decision and preserves notes.
+  - [x] Finalize is gated by at least one retained valuable evidence row and non-empty Decision Notes.
+  - [x] Return to Compute is removed from the Compare workspace action surface.
   - [x] Show prior decision state on reopen.
 
 - [x] Add tests. (AC: 1-10)
@@ -106,7 +107,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 
 1. Add a Compare-specific decision document and persistence service separate from Compute disposition.
 2. Extend Compare draft persistence with transaction/reviewer metadata while preserving existing draft behavior.
-3. Wire Save Progress, Approve Compare, Block Compare, and Return to Compute into draft/decision artifact writes.
+3. Wire Save Progress, Finalize, and Block Compare into draft/decision artifact writes.
 4. Add a Commit readiness checker that requires an approved, current, matching Compare decision.
 5. Add regression tests covering draft persistence, decision persistence, and readiness blocking.
 
@@ -123,10 +124,10 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 
 - Added `compare_review_decision.json` contract and persistence under the Case Folder `working` directory.
 - Save Progress now records transaction/reviewer metadata in `compare_review_draft.json`.
-- Approve Compare writes an approved commit-ready decision; Block and Return write non-approving decisions.
+- Finalize writes an approved commit-ready decision; Block writes a non-approving decision.
 - Compare decisions include relative evidence refs, notes, reviewer identity, discrepancy summaries, transaction id/number, task id, and readiness status.
 - Added `CompareCommitReadinessService` to block Commit when the decision is missing, mismatched, stale, not approved, not commit-ready, has unresolved blockers, or references missing evidence.
-- Patched review findings by refreshing Return to Compute command state after load, restoring prior decision evidence refs/discrepancy summaries, and requiring legal/fiscal evidence review before approval.
+- Patched review findings by restoring prior decision evidence refs/discrepancy summaries and requiring at least one retained valuable evidence row plus non-empty Decision Notes before Finalize.
 
 ### File List
 
@@ -145,3 +146,4 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | --- | --- | --- | --- |
 | 2026-07-15 | 1.0 | Implemented Compare decision artifact persistence, workspace decision actions, Commit readiness gate, and regression coverage. | Codex |
 | 2026-07-15 | 1.1 | Patched review findings for command refresh, prior decision restore, and evidence-review approval gating. | Codex |
+| 2026-07-17 | 1.2 | Renamed approval action to Finalize, removed Return to Compute from Compare, and aligned Finalize gating to valuable evidence plus Decision Notes. | Codex |

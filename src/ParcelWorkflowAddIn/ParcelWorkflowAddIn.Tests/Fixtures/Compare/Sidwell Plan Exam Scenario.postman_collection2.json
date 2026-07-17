@@ -1,0 +1,301 @@
+{
+  "info": {
+    "_postman_id": "3167643d-dd07-4c3a-90c3-8a99b0cb4540",
+    "name": "Sidwell Plan Exam Scenario",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "2884335"
+  },
+  "item": [
+    {
+      "name": "1 - Authenticate",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let response = pm.response.json();\r",
+              "\r",
+              "pm.environment.set(\"access-token\", response.access-token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"generateAccessToken\" : true,\r\n    \"login\": \"innola\",\r\n    \"password\": \"*****\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/rest/authenticate",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "rest",
+            "authenticate"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "2 - Get Plan",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Access-Token",
+            "value": "{{access-token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/v4/rest/administrative/ladm-objects?typeKeyId=plan&transactionId=019ea7fc-355d-7b33-b9b8-30ca3c86fad3",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "v4",
+            "rest",
+            "administrative",
+            "ladm-objects"
+          ],
+          "query": [
+            {
+              "key": "typeKeyId",
+              "value": "plan"
+            },
+            {
+              "key": "transactionId",
+              "value": "019ea7fc-355d-7b33-b9b8-30ca3c86fad3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "3 - Update Plan Check List",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Access-Token",
+            "value": "{{access-token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "[\r\n    {\r\n        \"@c\": \"Plan\",\r\n        \"@id\": \"obj:1\",\r\n        \"versionRev\": 0,\r\n        \"id\": \"019ea7fc-3605-7d92-85ae-06c4167c814e\",\r\n        \"uid\": \"019ea7fc-3603-789b-9a6b-d75fa980ef84\",\r\n        \"currentId\": null,\r\n        \"version\": 1,\r\n        \"beginRealWorldLifespanVersion\": null,\r\n        \"endRealWorldLifespanVersion\": null,\r\n        \"beginLife\": null,\r\n        \"endLife\": null,\r\n        \"ext\": null,\r\n        \"original\": null,\r\n        \"originalTo\": null,\r\n        \"status\": \"reg_status_pending\",\r\n        \"protection\": null,\r\n        \"protectionOwner\": null,\r\n        \"originalStatus\": null,\r\n        \"action\": null,\r\n        \"objectOrigin\": null,\r\n        \"planType\": \"plan_type_examination\",\r\n        \"issueDate\": null,\r\n        \"planNumber\": \"100000113\",\r\n        \"miscNumber\": null,\r\n        \"examNumber\": \"100000113\",\r\n        \"dpNumber\": null,\r\n        \"negNumber\": null,\r\n        \"surveyMethodType\": \"survey_type_theodolite\",\r\n        \"northType\": null,\r\n        \"totalEntitle\": null,\r\n        \"area\": 20.000000,\r\n        \"areaUnitType\": \"area_unit_type_hectares\",\r\n        \"location\": \"location\",\r\n        \"address\": null,\r\n        \"occupation\": null,\r\n        \"propertyName\": null,\r\n        \"parish\": \"parish_kingston\",\r\n        \"lotsCount\": null,\r\n        \"numClarityParcels\": null,\r\n        \"numRegularParcels\": null,\r\n        \"numParcels\": null,\r\n        \"clerk\": null,\r\n        \"instigator\": null,\r\n        \"surveyor\": null,\r\n        \"registeredSurveyor\": {\r\n            \"@c\": \"RegisteredSurveyor\",\r\n            \"@id\": \"obj:2\",\r\n            \"id\": \"019e4497-8c21-7803-91fa-1111924195b1\",\r\n            \"type\": \"cert_surveyor_land_valuation\",\r\n            \"registrationNo\": \"199301\",\r\n            \"name\": \"Campbell, Ruel C.\",\r\n            \"qualifications\": \"\",\r\n            \"postalAddress\": \"Suite 9A , The Trade Centre, 30-32 Red Hills Road, Kingston 10\",\r\n            \"phoneEmailAddress\": \"876-754-9400 / 876-382-0944\",\r\n            \"streetAddress\": \"\",\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"checkCompleted\": null,\r\n        \"comment\": null,\r\n        \"surveyStartDate\": null,\r\n        \"surveyEndDate\": null,\r\n        \"checkList\": [\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:3\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f4\",\r\n                \"checkType\": \"plan_check_type_closure\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:4\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f5\",\r\n                \"checkType\": \"plan_check_type_area\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:5\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f6\",\r\n                \"checkType\": \"plan_check_type_compplan_datasheet\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:6\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f7\",\r\n                \"checkType\": \"plan_check_type_plotting\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:7\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f8\",\r\n                \"checkType\": \"plan_check_type_notices\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:8\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1f9\",\r\n                \"checkType\": \"plan_check_type_details\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:9\",\r\n                \"id\": \"019ea7fd-066d-7a0e-b17b-6c821cd6d1fa\",\r\n                \"checkType\": \"plan_check_type_general\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            },\r\n            {\r\n                \"@c\": \"PlanCheck\",\r\n                \"@id\": \"obj:10\",\r\n                \"id\": \"019ea7fd-067b-7c81-85c5-01a85a82d718\",\r\n                \"checkType\": \"plan_check_type_adjoining\",\r\n                \"passed\": true,\r\n                \"description\": null,\r\n                \"allowRead\": true,\r\n                \"allowWrite\": true\r\n            }\r\n        ],\r\n        \"idMarkupType\": \"plan\",\r\n        \"protectionLevel\": null,\r\n        \"trId\": \"019ea7fc-355d-7b33-b9b8-30ca3c86fad3\",\r\n        \"trNo\": \"100000113\",\r\n        \"trCode\": \"PE\",\r\n        \"link\": {\r\n            \"@c\": \"LadmTransactionLink\",\r\n            \"@id\": \"obj:11\",\r\n            \"id\": \"019ea7fc-3605-7d92-85ae-06c4167c814f\",\r\n            \"transactionId\": \"019ea7fc-355d-7b33-b9b8-30ca3c86fad3\",\r\n            \"objectId\": \"019ea7fc-3605-7d92-85ae-06c4167c814e\",\r\n            \"objectUid\": \"019ea7fc-3603-789b-9a6b-d75fa980ef84\",\r\n            \"objectType\": \"plan\",\r\n            \"kind\": null,\r\n            \"order\": 0,\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"ladmId\": null,\r\n        \"allowRead\": true,\r\n        \"allowWrite\": true\r\n    }\r\n]",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/v4/rest/administrative/ladm-objects?typeKeyId=plan&transactionId=019ea7fc-355d-7b33-b9b8-30ca3c86fad3",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "v4",
+            "rest",
+            "administrative",
+            "ladm-objects"
+          ],
+          "query": [
+            {
+              "key": "typeKeyId",
+              "value": "plan"
+            },
+            {
+              "key": "transactionId",
+              "value": "019ea7fc-355d-7b33-b9b8-30ca3c86fad3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "4 - Create Spatial Units",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Access-Token",
+            "value": "{{access-token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "[\r\n  {\r\n    \"@c\": \"SpatialUnitExt\",\r\n    \"id\": null\r\n  },\r\n  {\r\n    \"@c\": \"SpatialUnitExt\",\r\n    \"id\": null\r\n  }\r\n]",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/v4/rest/administrative/ladm-objects/create/multi?transactionId=019ea7fc-355d-7b33-b9b8-30ca3c86fad3",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "v4",
+            "rest",
+            "administrative",
+            "ladm-objects",
+            "create",
+            "multi"
+          ],
+          "query": [
+            {
+              "key": "transactionId",
+              "value": "019ea7fc-355d-7b33-b9b8-30ca3c86fad3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "5 - Save Spatial Units",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Access-Token",
+            "value": "{{access-token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "[\r\n    {\r\n        \"@c\": \"SpatialUnitExt\",\r\n        \"@id\": \"obj:1\",\r\n        \"versionRev\": 0,\r\n        \"id\": \"019edba7-755e-7cac-b0fb-5ab00ae156d7\",\r\n        \"uid\": \"019edba7-755e-7cac-b0fb-5ab00ae156d5\",\r\n        \"currentId\": null,\r\n        \"version\": 1,\r\n        \"beginRealWorldLifespanVersion\": null,\r\n        \"endRealWorldLifespanVersion\": null,\r\n        \"beginLife\": null,\r\n        \"endLife\": null,\r\n        \"ext\": null,\r\n        \"original\": null,\r\n        \"originalTo\": null,\r\n        \"status\": \"reg_status_pending\",\r\n        \"protection\": null,\r\n        \"protectionOwner\": null,\r\n        \"originalStatus\": null,\r\n        \"action\": null,\r\n        \"objectOrigin\": null,\r\n        \"type\": \"spatial_unit_type_land\",\r\n        \"address\": {\r\n            \"@c\": \"AddressExt\",\r\n            \"@id\": \"obj:2\",\r\n            \"versionRev\": 0,\r\n            \"id\": \"019edba7-755f-720b-8fde-4c021e5ca915\",\r\n            \"type\": null,\r\n            \"country\": \"country_jm\",\r\n            \"cadDistrict\": null,\r\n            \"district\": null,\r\n            \"county\": null,\r\n            \"city\": null,\r\n            \"village\": null,\r\n            \"description\": null,\r\n            \"addressLine1\": \"address 1\",\r\n            \"addressLine2\": null,\r\n            \"postalCode\": null,\r\n            \"poBox\": null,\r\n            \"fullAddress\": \"\",\r\n            \"parish\": null,\r\n            \"streetNumber\": null,\r\n            \"streetNumberSuffix\": null,\r\n            \"streetPrefixDirection\": null,\r\n            \"streetPrefixType\": null,\r\n            \"streetType\": null,\r\n            \"streetDirection\": null,\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"dimension\": null,\r\n        \"label\": null,\r\n        \"legalArea\": null,\r\n        \"legalAreaUnitType\": null,\r\n        \"legalAreaApproximate\": null,\r\n        \"suid\": \"S100285021\",\r\n        \"surfaceRelation\": null,\r\n        \"areaValues\": [],\r\n        \"referencePoint\": null,\r\n        \"geometry\": null,\r\n        \"registrationDatetime\": null,\r\n        \"landUseType\": null,\r\n        \"surveyArea\": null,\r\n        \"surveyAreaUnitType\": null,\r\n        \"surveyType\": null,\r\n        \"surveyDate\": null,\r\n        \"gisArea\": null,\r\n        \"gisAreaUnitType\": null,\r\n        \"description\": null,\r\n        \"surveyNote\": null,\r\n        \"cadNumber\": null,\r\n        \"block\": null,\r\n        \"lot\": \"2\",\r\n        \"points\": [],\r\n        \"bfsMinus\": [],\r\n        \"bfsPlus\": [],\r\n        \"bfMinus\": [],\r\n        \"bfPlus\": [],\r\n        \"landValNumber\": null,\r\n        \"unitNumber\": null,\r\n        \"planNumber\": null,\r\n        \"examinationNumber\": null,\r\n        \"strataPlanNumber\": null,\r\n        \"strataExtension\": \"0000\",\r\n        \"cmParcelNumber\": null,\r\n        \"unitEntitlement\": null,\r\n        \"propertyName\": null,\r\n        \"parentPropertyName\": null,\r\n        \"planIssueDate\": null,\r\n        \"rnumber\": null,\r\n        \"idMarkupType\": \"spatialunit\",\r\n        \"ladmId\": \"S100285021\",\r\n        \"protectionLevel\": null,\r\n        \"trId\": null,\r\n        \"trNo\": null,\r\n        \"trCode\": null,\r\n        \"link\": {\r\n            \"@c\": \"LadmTransactionLink\",\r\n            \"@id\": \"obj:3\",\r\n            \"id\": \"019edba7-7563-7b0e-8cc3-8c3946b12df0\",\r\n            \"transactionId\": \"019ea7fc-355d-7b33-b9b8-30ca3c86fad3\",\r\n            \"objectId\": \"019edba7-755e-7cac-b0fb-5ab00ae156d7\",\r\n            \"objectUid\": \"019edba7-755e-7cac-b0fb-5ab00ae156d5\",\r\n            \"objectType\": \"spatialunit\",\r\n            \"kind\": null,\r\n            \"order\": null,\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"allowRead\": true,\r\n        \"allowWrite\": true\r\n    },\r\n    {\r\n        \"@c\": \"SpatialUnitExt\",\r\n        \"@id\": \"obj:4\",\r\n        \"versionRev\": 0,\r\n        \"id\": \"019edba7-7563-7b0e-8cc3-8c3946b12df1\",\r\n        \"uid\": \"019edba7-755e-7cac-b0fb-5ab00ae156d6\",\r\n        \"currentId\": null,\r\n        \"version\": 1,\r\n        \"beginRealWorldLifespanVersion\": null,\r\n        \"endRealWorldLifespanVersion\": null,\r\n        \"beginLife\": null,\r\n        \"endLife\": null,\r\n        \"ext\": null,\r\n        \"original\": null,\r\n        \"originalTo\": null,\r\n        \"status\": \"reg_status_pending\",\r\n        \"protection\": null,\r\n        \"protectionOwner\": null,\r\n        \"originalStatus\": null,\r\n        \"action\": null,\r\n        \"objectOrigin\": null,\r\n        \"type\": \"spatial_unit_type_land\",\r\n        \"address\": {\r\n            \"@c\": \"AddressExt\",\r\n            \"@id\": \"obj:5\",\r\n            \"versionRev\": 0,\r\n            \"id\": \"019edba7-7564-7738-9738-b6bbf916714a\",\r\n            \"type\": null,\r\n            \"country\": \"country_jm\",\r\n            \"cadDistrict\": null,\r\n            \"district\": null,\r\n            \"county\": null,\r\n            \"city\": null,\r\n            \"village\": null,\r\n            \"description\": null,\r\n            \"addressLine1\": \"address 2\",\r\n            \"addressLine2\": null,\r\n            \"postalCode\": null,\r\n            \"poBox\": null,\r\n            \"fullAddress\": \"\",\r\n            \"parish\": null,\r\n            \"streetNumber\": null,\r\n            \"streetNumberSuffix\": null,\r\n            \"streetPrefixDirection\": null,\r\n            \"streetPrefixType\": null,\r\n            \"streetType\": null,\r\n            \"streetDirection\": null,\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"dimension\": null,\r\n        \"label\": null,\r\n        \"legalArea\": null,\r\n        \"legalAreaUnitType\": null,\r\n        \"legalAreaApproximate\": null,\r\n        \"suid\": \"S100285022\",\r\n        \"surfaceRelation\": null,\r\n        \"areaValues\": [],\r\n        \"referencePoint\": null,\r\n        \"geometry\": null,\r\n        \"registrationDatetime\": null,\r\n        \"landUseType\": null,\r\n        \"surveyArea\": null,\r\n        \"surveyAreaUnitType\": null,\r\n        \"surveyType\": null,\r\n        \"surveyDate\": null,\r\n        \"gisArea\": null,\r\n        \"gisAreaUnitType\": null,\r\n        \"description\": null,\r\n        \"surveyNote\": null,\r\n        \"cadNumber\": null,\r\n        \"block\": null,\r\n        \"lot\": \"3\",\r\n        \"points\": [],\r\n        \"bfsMinus\": [],\r\n        \"bfsPlus\": [],\r\n        \"bfMinus\": [],\r\n        \"bfPlus\": [],\r\n        \"landValNumber\": null,\r\n        \"unitNumber\": null,\r\n        \"planNumber\": null,\r\n        \"examinationNumber\": null,\r\n        \"strataPlanNumber\": null,\r\n        \"strataExtension\": \"0000\",\r\n        \"cmParcelNumber\": null,\r\n        \"unitEntitlement\": null,\r\n        \"propertyName\": null,\r\n        \"parentPropertyName\": null,\r\n        \"planIssueDate\": null,\r\n        \"rnumber\": null,\r\n        \"idMarkupType\": \"spatialunit\",\r\n        \"ladmId\": \"S100285022\",\r\n        \"protectionLevel\": null,\r\n        \"trId\": null,\r\n        \"trNo\": null,\r\n        \"trCode\": null,\r\n        \"link\": {\r\n            \"@c\": \"LadmTransactionLink\",\r\n            \"@id\": \"obj:6\",\r\n            \"id\": \"019edba7-7566-71d0-b81d-fece6ffc4b8d\",\r\n            \"transactionId\": \"019ea7fc-355d-7b33-b9b8-30ca3c86fad3\",\r\n            \"objectId\": \"019edba7-7563-7b0e-8cc3-8c3946b12df1\",\r\n            \"objectUid\": \"019edba7-755e-7cac-b0fb-5ab00ae156d6\",\r\n            \"objectType\": \"spatialunit\",\r\n            \"kind\": null,\r\n            \"order\": null,\r\n            \"allowRead\": true,\r\n            \"allowWrite\": true\r\n        },\r\n        \"allowRead\": true,\r\n        \"allowWrite\": true\r\n    }\r\n]",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/v4/rest/administrative/ladm-objects?typeKeyId=spatialunit&transactionId=019ea7fc-355d-7b33-b9b8-30ca3c86fad3",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "v4",
+            "rest",
+            "administrative",
+            "ladm-objects"
+          ],
+          "query": [
+            {
+              "key": "typeKeyId",
+              "value": "spatialunit"
+            },
+            {
+              "key": "transactionId",
+              "value": "019ea7fc-355d-7b33-b9b8-30ca3c86fad3"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "6- Search Owners",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Access-Token",
+            "value": "{{access-token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"@c\": \"SearchRequest\",\r\n    \"searchKind\": \"owner\",\r\n    \"params\": {\r\n        \"volume\": 1549,\r\n        \"folio\": 583\r\n    },\r\n    \"start\": 0,\r\n    \"limit\": 25\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/v4/rest/portal/searches",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8090",
+          "path": [
+            "api",
+            "v4",
+            "rest",
+            "portal",
+            "searches"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

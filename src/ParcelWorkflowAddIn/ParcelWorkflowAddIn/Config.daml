@@ -13,12 +13,12 @@
   <modules>
     <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="false" caption="Parcel Workflow [Compute]">
       <tabs>
-        <tab id="ParcelWorkflow_Tab" caption="Sidwell Co">
+        <tab id="ParcelWorkflow_Tab" caption="Cadastre tools">
           <group refID="ParcelWorkflow_Group" />
         </tab>
       </tabs>
       <groups>
-        <group id="ParcelWorkflow_Group" caption="Sidwell Co" appearsOnAddInTab="true">
+        <group id="ParcelWorkflow_Group" caption="Cadastre tools" appearsOnAddInTab="true">
           <button refID="ParcelWorkflow_LoginButton" />
           <button refID="ParcelWorkflow_TransactionPanelButton" />
           <button refID="ParcelWorkflow_ShowDockpaneButton" />

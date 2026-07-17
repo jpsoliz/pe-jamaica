@@ -147,6 +147,54 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         return $"Compare Review - {plan.ScopeValue}";
     }
 
+    public async Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+        string groupLayerName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(groupLayerName))
+        {
+            return CompareMapCleanupResult.Skipped("No Compare map group was available for cleanup.");
+        }
+
+        var mapView = MapView.Active;
+        if (mapView?.Map is null)
+        {
+            return CompareMapCleanupResult.Skipped("No active ArcGIS Pro map was available for Compare cleanup.");
+        }
+
+        var removedCount = 0;
+        try
+        {
+            await QueuedTask.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var groupLayers = mapView.Map.Layers.OfType<GroupLayer>()
+                    .Where(layer => string.Equals(layer.Name, groupLayerName, StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (groupLayers.Length == 0)
+                {
+                    return;
+                }
+
+                foreach (var groupLayer in groupLayers)
+                {
+                    removedCount += FlattenLayers(groupLayer.Layers).Count() + 1;
+                    mapView.Map.RemoveLayer(groupLayer);
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+            or NotSupportedException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            return CompareMapCleanupResult.Skipped($"Compare map cleanup could not be completed: {exception.Message}");
+        }
+
+        return removedCount == 0
+            ? CompareMapCleanupResult.Skipped($"No active map group named '{groupLayerName}' was found.")
+            : CompareMapCleanupResult.Removed(groupLayerName, removedCount);
+    }
+
     private async Task<PortalAuthResult> TryAuthenticateAsync(
         CompareWorkingGeometryLoadPlan plan,
         CancellationToken cancellationToken)
@@ -622,14 +670,13 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             return null;
         }
 
-        return "\"LV#: \" + " + FieldTextOrEmpty(lvNumber) +
-            " + TextFormatting.NewLine + " +
-            "\"PID: \" + " + FieldTextOrEmpty(pid) +
-            " + TextFormatting.NewLine + " +
-            "\"Vol/Fol: \" + " + FieldTextOrEmpty(volume) +
-            " + \"/\" + " + FieldTextOrEmpty(folio) +
-            " + TextFormatting.NewLine + " +
-            "\"Lot #: \" + " + FieldTextOrEmpty(lotNumber);
+        var expression = new List<string> { "var lines = [];" };
+        AddOptionalLabelLine(expression, "lv", "LV#:", lvNumber);
+        AddOptionalLabelLine(expression, "pid", "PID:", pid);
+        AddOptionalCombinedLabelLine(expression, "volfol", "Vol/Fol:", volume, folio);
+        AddOptionalLabelLine(expression, "lot", "Lot #:", lotNumber);
+        expression.Add("return Concatenate(lines, TextFormatting.NewLine);");
+        return string.Join(Environment.NewLine, expression);
     }
 
     private static string? BuildLegalContextLabelExpression(IReadOnlySet<string> fieldNames)
@@ -643,13 +690,13 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             return null;
         }
 
-        return "\"Lot #: \" + " + FieldTextOrEmpty(lotNumber) +
-            " + TextFormatting.NewLine + " +
-            "\"Vol/Fol: \" + " + FieldTextOrEmpty(volFol) +
-            " + TextFormatting.NewLine + " +
-            "\"DP#: \" + " + FieldTextOrEmpty(dpNumber) +
-            " + TextFormatting.NewLine + " +
-            "\"PE#: \" + " + FieldTextOrEmpty(peNumber);
+        var expression = new List<string> { "var lines = [];" };
+        AddOptionalLabelLine(expression, "lot", "Lot #:", lotNumber);
+        AddOptionalLabelLine(expression, "volfol", "Vol/Fol:", volFol);
+        AddOptionalLabelLine(expression, "dp", "DP#:", dpNumber);
+        AddOptionalLabelLine(expression, "pe", "PE#:", peNumber);
+        expression.Add("return Concatenate(lines, TextFormatting.NewLine);");
+        return string.Join(Environment.NewLine, expression);
     }
 
     private static IReadOnlySet<string> ReadFieldNames(FeatureLayer featureLayer)
@@ -697,6 +744,40 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
     private static string FieldTextOrEmpty(string? fieldName)
     {
         return fieldName is null ? "\"\"" : $"Text(DefaultValue({FieldLookup(fieldName)}, \"\"))";
+    }
+
+    private static void AddOptionalLabelLine(
+        ICollection<string> expression,
+        string variableName,
+        string label,
+        string? fieldName)
+    {
+        if (fieldName is null)
+        {
+            return;
+        }
+
+        expression.Add($"var {variableName} = Trim(Text(DefaultValue({FieldLookup(fieldName)}, \"\")));");
+        expression.Add($"if (!IsEmpty({variableName})) {{ Push(lines, \"{label} \" + {variableName}); }}");
+    }
+
+    private static void AddOptionalCombinedLabelLine(
+        ICollection<string> expression,
+        string variableName,
+        string label,
+        string? firstFieldName,
+        string? secondFieldName)
+    {
+        if (firstFieldName is null && secondFieldName is null)
+        {
+            return;
+        }
+
+        expression.Add($"var {variableName}First = {FieldTextOrEmpty(firstFieldName)};");
+        expression.Add($"var {variableName}Second = {FieldTextOrEmpty(secondFieldName)};");
+        expression.Add($"{variableName}First = Trim({variableName}First);");
+        expression.Add($"{variableName}Second = Trim({variableName}Second);");
+        expression.Add($"if (!IsEmpty({variableName}First) || !IsEmpty({variableName}Second)) {{ Push(lines, \"{label} \" + {variableName}First + \"/\" + {variableName}Second); }}");
     }
 
     private static string FieldLookup(string fieldName)

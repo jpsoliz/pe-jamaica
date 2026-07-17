@@ -23,6 +23,7 @@ public partial class CompareWorkspaceWindow : ProWindow
     private double expandedWidthBeforePdfCollapse = 1040;
     private bool wasPdfPanelVisible = true;
     private bool webViewUnavailable;
+    private bool closeCleanupCompleted;
 
     public CompareWorkspaceWindow(Compare.CompareWorkspaceViewModel viewModel)
     {
@@ -30,6 +31,7 @@ public partial class CompareWorkspaceWindow : ProWindow
         this.viewModel = viewModel;
         DataContext = viewModel;
         Loaded += OnLoaded;
+        Closing += OnClosing;
         Closed += OnClosed;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         viewModel.CloseRequested += OnViewModelCloseRequested;
@@ -50,8 +52,30 @@ public partial class CompareWorkspaceWindow : ProWindow
         }
     }
 
+    private async void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (closeCleanupCompleted)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        try
+        {
+            await viewModel.CloseWorkspaceAsync();
+        }
+        catch (Exception exception)
+        {
+            viewModel.ReportWorkspaceError($"Compare workspace cleanup could not finish. {exception.Message}");
+        }
+
+        closeCleanupCompleted = true;
+        Close();
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
+        Closing -= OnClosing;
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.CloseRequested -= OnViewModelCloseRequested;
     }

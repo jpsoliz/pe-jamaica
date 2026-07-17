@@ -35,8 +35,10 @@ internal static class CompareReviewDecisionTests
         var viewModel = CreateViewModel();
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
         viewModel.Notes = "Evidence reconciled.";
-        await viewModel.QueryParcelIdAsync();
-        await viewModel.QueryFiscalNeighborsAsync();
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.MarkAllDiscrepanciesResolved();
 
         viewModel.ApproveCompareCommand.Execute(null);
@@ -77,7 +79,7 @@ internal static class CompareReviewDecisionTests
             item.Title.Equals("Prior accepted issue", StringComparison.OrdinalIgnoreCase)), "Prior decision discrepancy summary should restore.");
     }
 
-    public static void BlockedAndReturnedDecisionsDoNotUnlockCommit()
+    public static void BlockedDecisionDoesNotUnlockCommit()
     {
         using var blockedFixture = CompareDecisionFixture.Create();
         var blocked = CreateViewModel();
@@ -87,15 +89,6 @@ internal static class CompareReviewDecisionTests
         var blockedReadiness = new CompareCommitReadinessService().CheckReadiness(blockedFixture.Layout, Transaction());
         TestAssert.False(blockedReadiness.IsReady, "Blocked Compare should not unlock Commit.");
         TestAssert.Equal("compare_decision_not_approved", blockedReadiness.Code, "Blocked readiness code mismatch.");
-
-        using var returnedFixture = CompareDecisionFixture.Create();
-        var returned = CreateViewModel();
-        returned.ApplyLoadState(ReadyState(returnedFixture.Layout.RootDirectory), returnedFixture.Reopen());
-        returned.ReturnToComputeCommand.Execute(null);
-
-        var returnedReadiness = new CompareCommitReadinessService().CheckReadiness(returnedFixture.Layout, Transaction());
-        TestAssert.False(returnedReadiness.IsReady, "Returned Compare should not unlock Commit.");
-        TestAssert.Equal("compare_decision_not_approved", returnedReadiness.Code, "Returned readiness code mismatch.");
     }
 
     public static void MismatchedTransactionBlocksCommitReadiness()
@@ -130,6 +123,23 @@ internal static class CompareReviewDecisionTests
     {
         return new CompareWorkspaceViewModel(
             Transaction(),
+            legalCadasterQueryService: new MockLegalCadasterQueryService(new[]
+            {
+                new LegalCadasterRecord(
+                    "Jane Brown",
+                    "typed-999",
+                    "1",
+                    "2",
+                    "title-1",
+                    "Innola Owner Search",
+                    DateTimeOffset.Parse("2026-07-01T00:00:00Z"),
+                    "pid=typed-999",
+                    CompareEvidenceStatus.Ready,
+                null,
+                "LV-1",
+                "Clarendon",
+                "owner")
+            }),
             getUtcNow: () => FixedNow,
             reviewerId: "tester",
             reviewerDisplayName: "Test User");

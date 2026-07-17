@@ -257,6 +257,13 @@ internal static class CompareWorkingGeometryServiceTests
                     : plan.Layers.Select(layer => layer.LayerUrl).ToArray()
             });
         }
+
+        public Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+            string groupLayerName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapCleanupResult.Skipped("No cleanup needed in test."));
+        }
     }
 
     private sealed class ThrowingMapIntegrationService : ICompareMapIntegrationService
@@ -266,6 +273,13 @@ internal static class CompareWorkingGeometryServiceTests
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Layer factory failed.");
+        }
+
+        public Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+            string groupLayerName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapCleanupResult.Skipped("No cleanup needed in test."));
         }
     }
 }
