@@ -104,16 +104,21 @@ internal static class ShellState
 
     public static void OpenCompareWorkspace(string transactionNumber)
     {
+        OpenCompareWorkspace(transactionNumber, null);
+    }
+
+    public static void OpenCompareWorkspace(string transactionNumber, ICompareTaskLifecycleService? taskLifecycleService)
+    {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher is not null && !dispatcher.CheckAccess())
         {
-            _ = dispatcher.InvokeAsync(() => OpenCompareWorkspace(transactionNumber));
+            _ = dispatcher.InvokeAsync(() => OpenCompareWorkspace(transactionNumber, taskLifecycleService));
             return;
         }
 
         try
         {
-            OpenCompareWorkspaceCore(transactionNumber);
+            OpenCompareWorkspaceCore(transactionNumber, taskLifecycleService);
         }
         catch (Exception exception)
         {
@@ -125,7 +130,7 @@ internal static class ShellState
         }
     }
 
-    private static void OpenCompareWorkspaceCore(string transactionNumber)
+    private static void OpenCompareWorkspaceCore(string transactionNumber, ICompareTaskLifecycleService? taskLifecycleService)
     {
         if (Session.SelectedTransaction is null
             || !Session.SelectedTransaction.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase))
@@ -142,6 +147,7 @@ internal static class ShellState
                 SharedInnolaHttpClient),
             fiscalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateFiscal(Settings),
             enterpriseCadasterEvidenceService: new CompareEnterpriseCadasterEvidenceService(InnolaTransactionSettings.Load),
+            taskLifecycleService: taskLifecycleService,
             reviewerId: Session.CurrentUser?.Username,
             reviewerDisplayName: Session.CurrentUser?.DisplayName);
         var window = new CompareWorkspaceWindow(viewModel)

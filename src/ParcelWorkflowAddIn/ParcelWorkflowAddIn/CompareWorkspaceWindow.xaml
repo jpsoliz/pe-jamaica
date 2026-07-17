@@ -80,17 +80,18 @@
       </Border>
 
       <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="92" />
-            <RowDefinition Height="78" />
-            <RowDefinition Height="112" />
-            <RowDefinition Height="78" />
-            <RowDefinition Height="78" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="112" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <Border Background="#EEF5F3" BorderBrush="#C9D8D4" BorderThickness="1" Padding="8">
@@ -167,49 +168,83 @@
             <TextBlock Margin="0,4,0,0" Foreground="#8A3328" Text="{Binding SearchValidationMessage}" TextWrapping="Wrap" />
           </StackPanel>
 
-          <ListView Grid.Row="2" Margin="0,10,0,0" ItemsSource="{Binding QueryResults}" BorderBrush="#D5E0E7" BorderThickness="1">
-            <ListView.ItemTemplate>
-              <DataTemplate>
-                <StackPanel Margin="4">
-                  <DockPanel>
-                    <TextBlock FontWeight="SemiBold" Text="{Binding DisplayName}" />
-                    <Button DockPanel.Dock="Right"
-                            Width="96"
-                            Height="24"
-                            Content="Valuable"
-                            Command="{Binding DataContext.MarkEvidenceResultValuableCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                            CommandParameter="{Binding}" />
-                  </DockPanel>
-                  <TextBlock Foreground="#53636A" Text="{Binding SourceLabel}" />
-                  <TextBlock Margin="0,3,0,0" Text="{Binding Summary}" TextWrapping="Wrap" />
-                </StackPanel>
-              </DataTemplate>
-            </ListView.ItemTemplate>
+          <ListView Grid.Row="2"
+                    Margin="0,10,0,0"
+                    ItemsSource="{Binding QueryResults}"
+                    Visibility="{Binding HasQueryResults, Converter={StaticResource BoolToVisibility}}"
+                    BorderBrush="#D5E0E7"
+                    BorderThickness="1"
+                    ScrollViewer.HorizontalScrollBarVisibility="Auto">
+            <ListView.View>
+              <GridView>
+                <GridViewColumn Header="Volume/Folio" Width="92" DisplayMemberBinding="{Binding VolumeFolio}" />
+                <GridViewColumn Header="Type" Width="70" DisplayMemberBinding="{Binding PropertyType}" />
+                <GridViewColumn Header="Tenure" Width="96" DisplayMemberBinding="{Binding Tenure}" />
+                <GridViewColumn Header="PID" Width="90" DisplayMemberBinding="{Binding ParcelId}" />
+                <GridViewColumn Header="LandVal No." Width="110" DisplayMemberBinding="{Binding LandValuationNumber}" />
+                <GridViewColumn Header="Owner" Width="190" DisplayMemberBinding="{Binding Owner}" />
+                <GridViewColumn Header="Parish" Width="92" DisplayMemberBinding="{Binding Parish}" />
+                <GridViewColumn Header="Date Registered" Width="118" DisplayMemberBinding="{Binding DateRegistered}" />
+                <GridViewColumn Header="Action" Width="86">
+                  <GridViewColumn.CellTemplate>
+                    <DataTemplate>
+                      <Button Width="72"
+                              Height="22"
+                              Content="Valuable"
+                              Command="{Binding DataContext.MarkEvidenceResultValuableCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              CommandParameter="{Binding}" />
+                    </DataTemplate>
+                  </GridViewColumn.CellTemplate>
+                </GridViewColumn>
+              </GridView>
+            </ListView.View>
           </ListView>
 
-          <ListView Grid.Row="3" Margin="0,10,0,0" ItemsSource="{Binding ValuableEvidenceItems}" BorderBrush="#C9D8D4" BorderThickness="1">
-            <ListView.ItemTemplate>
-              <DataTemplate>
-                <StackPanel Margin="4">
-                  <DockPanel>
-                    <ComboBox Width="130"
-                              ItemsSource="{Binding DataContext.EvidenceRoleTags, RelativeSource={RelativeSource AncestorType=Window}}"
-                              SelectedItem="{Binding RoleTag, Mode=TwoWay}" />
-                    <Button DockPanel.Dock="Right"
-                            Width="70"
-                            Height="24"
-                            Content="Remove"
-                            Command="{Binding DataContext.RemoveValuableEvidenceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                            CommandParameter="{Binding}" />
-                  </DockPanel>
-                  <TextBlock Margin="0,3,0,0" Foreground="#53636A" Text="{Binding SourceLabel}" />
-                  <TextBlock Text="{Binding DisplaySummary}" TextWrapping="Wrap" />
-                </StackPanel>
-              </DataTemplate>
-            </ListView.ItemTemplate>
-          </ListView>
+          <StackPanel Grid.Row="3"
+                      Margin="0,10,0,0"
+                      Visibility="{Binding HasValuableEvidenceItems, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock FontWeight="SemiBold" Text="Valuable Evidence" />
+            <TextBlock Margin="0,2,0,4" Foreground="#53636A" Text="Retained search results for the Compare decision." TextWrapping="Wrap" />
+            <ListView ItemsSource="{Binding ValuableEvidenceItems}"
+                      MinHeight="72"
+                      MaxHeight="132"
+                      BorderBrush="#C9D8D4"
+                      BorderThickness="1">
+              <ListView.View>
+                <GridView>
+                  <GridViewColumn Header="Role" Width="132">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <ComboBox Width="120"
+                                  ItemsSource="{Binding DataContext.EvidenceRoleTags, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  SelectedItem="{Binding RoleTag, Mode=TwoWay}" />
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                  <GridViewColumn Header="Source" Width="120" DisplayMemberBinding="{Binding SourceLabel}" />
+                  <GridViewColumn Header="Evidence" Width="360" DisplayMemberBinding="{Binding DisplaySummary}" />
+                  <GridViewColumn Header="Action" Width="78">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <Button Width="68"
+                                Height="22"
+                                Content="Remove"
+                                Command="{Binding DataContext.RemoveValuableEvidenceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}" />
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                </GridView>
+              </ListView.View>
+            </ListView>
+          </StackPanel>
 
-          <ListView Grid.Row="4" Margin="0,10,0,0" ItemsSource="{Binding EnterpriseCadasterEvidenceRows}" BorderBrush="#D5E0E7" BorderThickness="1">
+          <ListView Grid.Row="4"
+                    Margin="0,10,0,0"
+                    ItemsSource="{Binding EnterpriseCadasterEvidenceRows}"
+                    Visibility="{Binding HasEnterpriseCadasterEvidenceRows, Converter={StaticResource BoolToVisibility}}"
+                    BorderBrush="#D5E0E7"
+                    BorderThickness="1">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <Grid Margin="4">
@@ -238,7 +273,12 @@
             </ListView.ItemTemplate>
           </ListView>
 
-          <ListView Grid.Row="5" Margin="0,10,0,0" ItemsSource="{Binding EvidenceItems}" BorderBrush="#D5E0E7" BorderThickness="1">
+          <ListView Grid.Row="5"
+                    Margin="0,10,0,0"
+                    ItemsSource="{Binding EvidenceItems}"
+                    Visibility="{Binding HasEvidenceItems, Converter={StaticResource BoolToVisibility}}"
+                    BorderBrush="#D5E0E7"
+                    BorderThickness="1">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4">
@@ -250,7 +290,12 @@
             </ListView.ItemTemplate>
           </ListView>
 
-          <ListView Grid.Row="6" Margin="0,10,0,0" ItemsSource="{Binding Discrepancies}" BorderBrush="#E7B0A8" BorderThickness="1">
+          <ListView Grid.Row="6"
+                    Margin="0,10,0,0"
+                    ItemsSource="{Binding Discrepancies}"
+                    Visibility="{Binding HasDiscrepancies, Converter={StaticResource BoolToVisibility}}"
+                    BorderBrush="#E7B0A8"
+                    BorderThickness="1">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4">
@@ -268,19 +313,24 @@
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <TextBlock FontWeight="SemiBold" Text="Decision Notes" />
-            <TextBox Grid.Row="1" Margin="0,6,0,0" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBox Grid.Row="1" Height="54" Margin="0,6,0,0" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
           </Grid>
 
           <StackPanel Grid.Row="8" Margin="0,10,0,0">
             <TextBlock Foreground="#53636A" Text="{Binding DecisionStatus, StringFormat=Decision: {0}}" />
             <TextBlock Margin="0,3,0,8" Foreground="#53636A" Text="{Binding StatusText}" TextWrapping="Wrap" />
             <UniformGrid Columns="2">
-              <Button Margin="0,0,4,0" Content="Save progress" Command="{Binding SaveProgressCommand}" />
+              <Button Margin="0,0,4,0" Content="Save draft" Command="{Binding SaveProgressCommand}" />
               <Button Margin="4,0,0,0" Content="Block" Command="{Binding BlockCompareCommand}" />
             </UniformGrid>
             <Button Margin="0,8,0,0" Height="30" Content="Approve Compare" Command="{Binding ApproveCompareCommand}" />
+            <UniformGrid Columns="2" Margin="0,8,0,0">
+              <Button Margin="0,0,4,0" Height="28" Content="Suspend task" Command="{Binding SuspendTaskCommand}" />
+              <Button Margin="4,0,0,0" Height="28" Content="Complete task" Command="{Binding CompleteTaskCommand}" />
+            </UniformGrid>
           </StackPanel>
         </Grid>
+        </ScrollViewer>
       </Border>
     </Grid>
 
@@ -292,7 +342,7 @@
       </Grid.ColumnDefinitions>
       <TextBlock Margin="8" Foreground="#53636A" VerticalAlignment="Center" Text="Compare is an evidence reconciliation workspace. Geometry is read-only context." />
       <Button Grid.Column="1" Width="130" Margin="0,6,8,6" Content="Return to Compute" Command="{Binding ReturnToComputeCommand}" />
-      <Button Grid.Column="2" Width="90" Margin="0,6,8,6" Content="Close" Click="CloseButton_Click" />
+      <Button Grid.Column="2" Width="100" Margin="0,6,8,6" Content="Close window" Click="CloseButton_Click" />
     </Grid>
   </Grid>
 </controls:ProWindow>

@@ -100,7 +100,10 @@ public sealed record CompareEvidenceSearchResultDraft(
     [property: JsonPropertyName("parish")] string? Parish,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("queried_at_utc")] string QueriedAtUtc,
-    [property: JsonPropertyName("diagnostic")] string? Diagnostic)
+    [property: JsonPropertyName("diagnostic")] string? Diagnostic,
+    [property: JsonPropertyName("property_type")] string? PropertyType = null,
+    [property: JsonPropertyName("tenure")] string? Tenure = null,
+    [property: JsonPropertyName("registered_at_utc")] string? RegisteredAtUtc = null)
 {
     public static CompareEvidenceSearchResultDraft FromModel(CompareEvidenceSearchResult result)
     {
@@ -117,7 +120,10 @@ public sealed record CompareEvidenceSearchResultDraft(
             result.Parish,
             result.Status,
             result.QueriedAt.UtcDateTime.ToString("O"),
-            result.Diagnostic);
+            result.Diagnostic,
+            result.PropertyType,
+            result.Tenure,
+            result.RegisteredAt?.UtcDateTime.ToString("O"));
     }
 
     public CompareEvidenceSearchResult ToModel()
@@ -135,7 +141,10 @@ public sealed record CompareEvidenceSearchResultDraft(
             Parish,
             Status,
             DateTimeOffset.TryParse(QueriedAtUtc, out var queriedAt) ? queriedAt : DateTimeOffset.MinValue,
-            Diagnostic);
+            Diagnostic,
+            PropertyType,
+            Tenure,
+            DateTimeOffset.TryParse(RegisteredAtUtc, out var registeredAt) ? registeredAt : null);
     }
 }
 

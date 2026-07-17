@@ -66,6 +66,15 @@
           <Image Source="Images\TaskList\OpenTask.png" Width="32" Height="32" Stretch="Uniform" />
         </Button>
         <Button Style="{StaticResource ToolbarButton}"
+                Command="{Binding State.ReopenCompareCommand}"
+                ToolTip="Reopen active Compare workspace">
+          <TextBlock Text="CMP"
+                     FontSize="11"
+                     FontWeight="SemiBold"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+        </Button>
+        <Button Style="{StaticResource ToolbarButton}"
                 Command="{Binding State.StopTaskCommand}"
                 ToolTip="Stop Transaction">
           <Image Source="Images\TaskList\StopTask.png" Width="32" Height="32" Stretch="Uniform" />

@@ -69,7 +69,10 @@ public sealed record LegalCadasterRecord(
     string? Diagnostic,
     string? LandValuationNumber = null,
     string? Parish = null,
-    string? PartyRole = null);
+    string? PartyRole = null,
+    string? PropertyType = null,
+    string? Tenure = null,
+    DateTimeOffset? RegisteredAt = null);
 
 public sealed record CompareEvidenceSearchRequest(
     string QueryKind,
@@ -103,7 +106,10 @@ public sealed record CompareEvidenceSearchResult(
     string? Parish,
     string Status,
     DateTimeOffset QueriedAt,
-    string? Diagnostic)
+    string? Diagnostic,
+    string? PropertyType = null,
+    string? Tenure = null,
+    DateTimeOffset? RegisteredAt = null)
 {
     public static CompareEvidenceSearchResult FromLegalRecord(LegalCadasterRecord record)
     {
@@ -120,7 +126,10 @@ public sealed record CompareEvidenceSearchResult(
             record.Parish,
             record.Status,
             record.QueriedAt,
-            record.Diagnostic);
+            record.Diagnostic,
+            record.PropertyType,
+            record.Tenure,
+            record.RegisteredAt);
     }
 
     public string DisplaySummary
@@ -135,6 +144,9 @@ public sealed record CompareEvidenceSearchResult(
                 string.IsNullOrWhiteSpace(Volume) && string.IsNullOrWhiteSpace(Folio) ? null : $"Vol/Folio: {Volume ?? string.Empty}/{Folio ?? string.Empty}",
                 string.IsNullOrWhiteSpace(LandValuationNumber) ? null : $"Land Val No.: {LandValuationNumber}",
                 string.IsNullOrWhiteSpace(Parish) ? null : $"Parish: {Parish}",
+                string.IsNullOrWhiteSpace(PropertyType) ? null : $"Type: {PropertyType}",
+                string.IsNullOrWhiteSpace(Tenure) ? null : $"Tenure: {Tenure}",
+                RegisteredAt is null ? null : $"Date Registered: {RegisteredAt:dd/MMM/yyyy}",
                 string.IsNullOrWhiteSpace(Status) ? null : $"Status: {Status}"
             }.Where(part => !string.IsNullOrWhiteSpace(part));
             return string.Join("; ", parts);

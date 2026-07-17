@@ -104,6 +104,111 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(restored.Discrepancies[0].IsResolved, "Resolved discrepancy state should restore.");
     }
 
+    public static void SaveDraftDoesNotCallTaskLifecycle()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService();
+        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        viewModel.SaveProgressCommand.Execute(null);
+
+        TestAssert.Equal(0, lifecycle.SuspendCalls, "Save draft must not suspend or release the task.");
+        TestAssert.Equal(0, lifecycle.CompleteCalls, "Save draft must not complete the task.");
+        TestAssert.Equal("Draft", viewModel.DecisionStatus, "Save draft should keep draft decision status.");
+    }
+
+    public static async Task SuspendTaskSavesDraftAndRequestsCloseOnSuccess()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            SuspendResult = CompareTaskLifecycleResult.Succeeded("Suspended from test.")
+        };
+        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        var closeRequested = false;
+        viewModel.CloseRequested += (_, _) => closeRequested = true;
+
+        viewModel.SuspendTaskCommand.Execute(null);
+        await lifecycle.SuspendObserved.Task;
+
+        TestAssert.Equal(1, lifecycle.SuspendCalls, "Suspend task should call the lifecycle bridge once.");
+        TestAssert.Equal("TR100000674", lifecycle.LastTransactionNumber, "Suspend should target the active Compare transaction.");
+        TestAssert.True(closeRequested, "Successful suspend should ask the window to close after cleanup.");
+        TestAssert.Equal("Suspended from test.", viewModel.StatusText, "Suspend result message should be shown.");
+    }
+
+    public static async Task SuspendTaskFailureKeepsWorkspaceOpen()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            SuspendResult = CompareTaskLifecycleResult.Failure("Could not suspend. Try again.")
+        };
+        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        var closeRequested = false;
+        viewModel.CloseRequested += (_, _) => closeRequested = true;
+
+        viewModel.SuspendTaskCommand.Execute(null);
+        await lifecycle.SuspendObserved.Task;
+
+        TestAssert.False(closeRequested, "Failed suspend must keep Compare open for retry.");
+        TestAssert.Equal("Could not suspend. Try again.", viewModel.StatusText, "Failed suspend should show sanitized retryable message.");
+    }
+
+    public static async Task CompleteTaskRequiresApprovedDecisionAndClosesOnSuccess()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            CompleteResult = CompareTaskLifecycleResult.Succeeded("Completed from test.")
+        };
+        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task should be disabled before approval.");
+
+        await viewModel.QueryParcelIdAsync();
+        await viewModel.QueryFiscalNeighborsAsync();
+        viewModel.MarkAllDiscrepanciesResolved();
+        viewModel.ApproveCompareCommand.Execute(null);
+        var closeRequested = false;
+        viewModel.CloseRequested += (_, _) => closeRequested = true;
+
+        TestAssert.True(viewModel.CompleteTaskCommand.CanExecute(null), "Approved Compare should enable Complete task.");
+        viewModel.CompleteTaskCommand.Execute(null);
+        await lifecycle.CompleteObserved.Task;
+
+        TestAssert.Equal(1, lifecycle.CompleteCalls, "Complete task should call the lifecycle bridge once.");
+        TestAssert.True(closeRequested, "Successful complete should ask the window to close after cleanup.");
+        TestAssert.Equal("Completed from test.", viewModel.StatusText, "Complete result message should be shown.");
+    }
+
+    public static async Task CompleteTaskIsDisabledWhenApprovedCompareBecomesBlocked()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService();
+        var viewModel = CreateViewModel(taskLifecycleService: lifecycle);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        await viewModel.QueryParcelIdAsync();
+        await viewModel.QueryFiscalNeighborsAsync();
+        viewModel.MarkAllDiscrepanciesResolved();
+        viewModel.ApproveCompareCommand.Execute(null);
+
+        TestAssert.True(viewModel.CompleteTaskCommand.CanExecute(null), "Approved Compare should initially enable Complete task.");
+
+        viewModel.AddDiscrepancy("Late owner mismatch", "Legal cadaster", isResolved: false);
+
+        TestAssert.False(viewModel.CanApproveCompare, "A late unresolved discrepancy should block current approval readiness.");
+        TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task must be disabled when an approved Compare becomes blocked.");
+        viewModel.CompleteTaskCommand.Execute(null);
+
+        TestAssert.Equal(0, lifecycle.CompleteCalls, "Blocked Complete task must not call the lifecycle bridge.");
+    }
+
     public static void ReturnToComputeCommandRefreshesAfterLoad()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -259,6 +364,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Search failed", StringComparison.OrdinalIgnoreCase), "Search status should report failed queries.");
         TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("volume=1486;folio=393", StringComparison.Ordinal), "Search status should include the query key.");
         TestAssert.True(viewModel.EvidenceSearchStatusMessage.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase), "Search status should surface sanitized diagnostics.");
+        TestAssert.Equal(0, viewModel.QueryResults.Count, "Failed legal searches should not add blank query result rows.");
     }
 
     public static async Task ManualSearchValidationBlocksBlankRequiredValues()
@@ -305,14 +411,15 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.LandValuationNumber;
         viewModel.SearchLandValuationNumber = "LV-77";
         await viewModel.RunEvidenceSearchAsync();
+        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "land_val_no=LV-77"), "Land Val No. query key should be shown after the Land Val No. search.");
 
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Name;
         viewModel.SearchName = "Brown";
         viewModel.SearchParish = "Clarendon";
         await viewModel.RunEvidenceSearchAsync();
 
-        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "land_val_no=LV-77"), "Land Val No. query key should be retained.");
-        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "name=Brown;parish=Clarendon"), "Name and parish query key should be retained.");
+        TestAssert.False(viewModel.QueryResults.Any(item => item.QueryKey == "land_val_no=LV-77"), "Manual search results should show the current query, not stale rows from the prior search.");
+        TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "name=Brown;parish=Clarendon"), "Name and parish query key should be shown after the Name search.");
     }
 
     public static async Task ValuableEvidencePersistsRoleTagAndRestoresWithoutRequery()
@@ -381,7 +488,9 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(!string.Equals(firstId, viewModel.ValuableEvidenceItems[0].EvidenceId, StringComparison.Ordinal), "Evidence IDs should not be reused after removal.");
     }
 
-    private static CompareWorkspaceViewModel CreateViewModel(ILegalCadasterQueryService? legalService = null)
+    private static CompareWorkspaceViewModel CreateViewModel(
+        ILegalCadasterQueryService? legalService = null,
+        ICompareTaskLifecycleService? taskLifecycleService = null)
     {
         return new CompareWorkspaceViewModel(new SelectedInnolaTransaction(
             "task-1",
@@ -390,7 +499,8 @@ internal static class CompareWorkspaceViewModelTests
             "Compare Survey Plan",
             "Compare",
             DateTimeOffset.Parse("2026-07-14T00:00:00Z")),
-            legalCadasterQueryService: legalService ?? new MockLegalCadasterQueryService());
+            legalCadasterQueryService: legalService ?? new MockLegalCadasterQueryService(),
+            taskLifecycleService: taskLifecycleService);
     }
 
     private static LegalCadasterRecord LegalRecord(
@@ -444,6 +554,39 @@ internal static class CompareWorkspaceViewModelTests
         public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string parish, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("name_parish", null, null, null, null, name, parish), DateTimeOffset.UtcNow));
+        }
+    }
+
+    private sealed class RecordingCompareTaskLifecycleService : ICompareTaskLifecycleService
+    {
+        public TaskCompletionSource<string> SuspendObserved { get; } = new();
+
+        public TaskCompletionSource<string> CompleteObserved { get; } = new();
+
+        public CompareTaskLifecycleResult SuspendResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Suspended.");
+
+        public CompareTaskLifecycleResult CompleteResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Completed.");
+
+        public int SuspendCalls { get; private set; }
+
+        public int CompleteCalls { get; private set; }
+
+        public string? LastTransactionNumber { get; private set; }
+
+        public Task<CompareTaskLifecycleResult> SuspendAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            SuspendCalls++;
+            LastTransactionNumber = transactionNumber;
+            SuspendObserved.TrySetResult(transactionNumber);
+            return Task.FromResult(SuspendResult);
+        }
+
+        public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            CompleteCalls++;
+            LastTransactionNumber = transactionNumber;
+            CompleteObserved.TrySetResult(transactionNumber);
+            return Task.FromResult(CompleteResult);
         }
     }
 

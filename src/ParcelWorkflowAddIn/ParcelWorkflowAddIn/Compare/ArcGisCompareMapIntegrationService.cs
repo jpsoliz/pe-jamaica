@@ -58,7 +58,9 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         {
             await QueuedTask.Run(() =>
             {
+                RemoveStaleCompareGroups(mapView.Map, groupLayerName);
                 var groupLayer = EnsureGroupLayer(mapView.Map, groupLayerName);
+                ClearGroupLayer(mapView.Map, groupLayer);
                 var reviewGeometries = new List<Geometry>();
                 foreach (var request in OrderLayers(plan.Layers))
                 {
@@ -181,6 +183,25 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         }
 
         return LayerFactory.Instance.CreateGroupLayer(map, 0, groupLayerName);
+    }
+
+    private static void RemoveStaleCompareGroups(Map map, string currentGroupLayerName)
+    {
+        foreach (var groupLayer in map.Layers.OfType<GroupLayer>()
+            .Where(layer => layer.Name.StartsWith("Compare Review - ", StringComparison.OrdinalIgnoreCase)
+                && !layer.Name.Equals(currentGroupLayerName, StringComparison.OrdinalIgnoreCase))
+            .ToArray())
+        {
+            map.RemoveLayer(groupLayer);
+        }
+    }
+
+    private static void ClearGroupLayer(Map map, GroupLayer groupLayer)
+    {
+        foreach (var layer in FlattenLayers(groupLayer.Layers).ToArray())
+        {
+            map.RemoveLayer(layer);
+        }
     }
 
     private static void RemoveExistingLayer(Map map, string layerUrl)

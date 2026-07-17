@@ -19,7 +19,8 @@ internal sealed class TransactionPanelDockpaneViewModel : DockPane
             supportedTransactionTypes: ShellState.SupportedTransactionTypes,
             computeWorkflowStages: ShellState.ComputeWorkflowStages,
             compareWorkflowStages: ShellState.CompareWorkflowStages,
-            compareWorkspaceLauncher: ShellState.OpenCompareWorkspace);
+            compareWorkspaceLauncher: ShellState.OpenCompareWorkspace,
+            compareWorkspaceLifecycleLauncher: ShellState.OpenCompareWorkspace);
     }
 
     public TransactionPanelState State { get; }

@@ -1200,11 +1200,13 @@ public sealed record CadasterSourceSettings(
 
         var adapter = ReadString(value, "adapter") ?? fallback.Adapter;
         var serviceUrl = ReadString(value, "service_url")
-            ?? (adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase) ? "search/" : fallback.ServiceUrl);
+            ?? (adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase) ? "search/" : null)
+            ?? (adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase) ? "portal/searches" : fallback.ServiceUrl);
         var enabled = ReadBool(value, "enabled") ?? fallback.Enabled;
         var warning = enabled
             && string.IsNullOrWhiteSpace(serviceUrl)
             && !adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase)
+            && !adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
             ? $"{propertyName} is enabled but service_url is not configured."
             : null;
         return new CadasterSourceSettings(

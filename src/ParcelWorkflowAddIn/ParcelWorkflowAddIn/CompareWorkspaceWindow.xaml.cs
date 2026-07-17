@@ -32,6 +32,7 @@ public partial class CompareWorkspaceWindow : ProWindow
         Loaded += OnLoaded;
         Closed += OnClosed;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        viewModel.CloseRequested += OnViewModelCloseRequested;
         ApplyPdfPanelLayout();
     }
 
@@ -52,6 +53,12 @@ public partial class CompareWorkspaceWindow : ProWindow
     private void OnClosed(object? sender, EventArgs e)
     {
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        viewModel.CloseRequested -= OnViewModelCloseRequested;
+    }
+
+    private void OnViewModelCloseRequested(object? sender, EventArgs e)
+    {
+        Close();
     }
 
     private async void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

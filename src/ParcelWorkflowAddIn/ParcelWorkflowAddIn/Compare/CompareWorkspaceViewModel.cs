@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -21,6 +22,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly ICompareEnterpriseCadasterEvidenceService enterpriseCadasterEvidenceService;
     private readonly CompareLegalQueryTracePersistenceService legalQueryTracePersistence;
     private readonly CompareEvidenceComparisonService evidenceComparisonService;
+    private readonly ICompareTaskLifecycleService? taskLifecycleService;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly string? reviewerId;
     private readonly string? reviewerDisplayName;
@@ -69,6 +71,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         ICompareEnterpriseCadasterEvidenceService? enterpriseCadasterEvidenceService = null,
         CompareLegalQueryTracePersistenceService? legalQueryTracePersistence = null,
         CompareEvidenceComparisonService? evidenceComparisonService = null,
+        ICompareTaskLifecycleService? taskLifecycleService = null,
         Func<DateTimeOffset>? getUtcNow = null,
         string? reviewerId = null,
         string? reviewerDisplayName = null)
@@ -84,6 +87,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.enterpriseCadasterEvidenceService = enterpriseCadasterEvidenceService ?? new CompareEnterpriseCadasterEvidenceService();
         this.legalQueryTracePersistence = legalQueryTracePersistence ?? new CompareLegalQueryTracePersistenceService();
         this.evidenceComparisonService = evidenceComparisonService ?? new CompareEvidenceComparisonService();
+        this.taskLifecycleService = taskLifecycleService;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
         this.reviewerId = reviewerId;
         this.reviewerDisplayName = reviewerDisplayName;
@@ -106,12 +110,22 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             parameter => parameter is CompareValuableEvidenceItem && !IsLoading);
         TogglePdfPanelCommand = new RelayCommand(TogglePdfPanel);
         SaveProgressCommand = new RelayCommand(SaveProgress, () => CanSaveProgress);
+        SuspendTaskCommand = new RelayCommand(async () => await SuspendTaskAsync(), () => CanSuspendTask);
+        CompleteTaskCommand = new RelayCommand(async () => await CompleteTaskAsync(), () => CanCompleteTask);
         BlockCompareCommand = new RelayCommand(BlockCompare, () => CanBlockCompare);
         ApproveCompareCommand = new RelayCommand(ApproveCompare, () => CanApproveCompare);
         ReturnToComputeCommand = new RelayCommand(ReturnToCompute, () => CanBlockCompare);
+
+        QueryResults.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasQueryResults));
+        ValuableEvidenceItems.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasValuableEvidenceItems));
+        EnterpriseCadasterEvidenceRows.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEnterpriseCadasterEvidenceRows));
+        EvidenceItems.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEvidenceItems));
+        Discrepancies.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasDiscrepancies));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public event EventHandler? CloseRequested;
 
     public string TransactionNumber => transaction.TransactionNumber;
 
@@ -130,6 +144,16 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<CompareEnterpriseCadasterEvidenceRowItem> EnterpriseCadasterEvidenceRows { get; } = new();
 
     public ObservableCollection<CompareDiscrepancyItem> Discrepancies { get; } = new();
+
+    public bool HasQueryResults => QueryResults.Count > 0;
+
+    public bool HasValuableEvidenceItems => ValuableEvidenceItems.Count > 0;
+
+    public bool HasEnterpriseCadasterEvidenceRows => EnterpriseCadasterEvidenceRows.Count > 0;
+
+    public bool HasEvidenceItems => EvidenceItems.Count > 0;
+
+    public bool HasDiscrepancies => Discrepancies.Count > 0;
 
     public IReadOnlyList<string> EvidenceSearchModes { get; } = new[]
     {
@@ -171,6 +195,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ICommand TogglePdfPanelCommand { get; }
 
     public ICommand SaveProgressCommand { get; }
+
+    public ICommand SuspendTaskCommand { get; }
+
+    public ICommand CompleteTaskCommand { get; }
 
     public ICommand BlockCompareCommand { get; }
 
@@ -470,6 +498,14 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public bool CanSaveProgress => layout is not null && !IsLoading;
 
+    public bool CanSuspendTask => layout is not null && !IsLoading && taskLifecycleService is not null;
+
+    public bool CanCompleteTask => layout is not null
+        && !IsLoading
+        && taskLifecycleService is not null
+        && DecisionStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase)
+        && CanApproveCompare;
+
     public bool CanBlockCompare => layout is not null && !IsLoading;
 
     public bool HasUnresolvedDiscrepancies => Discrepancies.Any(item => !item.IsResolved);
@@ -718,6 +754,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
 
         SearchValidationMessage = string.Empty;
+        QueryResults.Clear();
         IsLoading = true;
         LegalEvidenceStatus = $"Querying legal cadaster by {SelectedEvidenceSearchMode}.";
         EvidenceSearchStatusMessage = $"Searching legal cadaster by {SelectedEvidenceSearchMode}...";
@@ -808,29 +845,29 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     private void ApplyManualLegalSearchResult(LegalCadasterQueryResult result, CompareSurveyPlanEvidence plan)
     {
-        var rendered = result.Records.Count > 0
-            ? result.Records.Select(CompareEvidenceSearchResult.FromLegalRecord).ToArray()
-            : new[]
-            {
-                new CompareEvidenceSearchResult(
-                    CompareEvidenceSourceType.LegalCadaster,
-                    "Legal cadaster",
-                    LegalCadasterQueryResult.BuildLegalQueryKey(result.Query),
-                    null,
-                    null,
-                    result.Query.ParcelId,
-                    result.Query.Volume,
-                    result.Query.Folio,
-                    result.Query.LandValuationNumber,
-                    result.Query.Parish,
-                    result.Status,
-                    getUtcNow(),
-                    result.Diagnostic)
-            };
-
-        foreach (var item in rendered)
+        if (result.Records.Count > 0)
         {
-            QueryResults.Add(new CompareEvidenceSearchResultItem(item));
+            foreach (var item in result.Records.Select(CompareEvidenceSearchResult.FromLegalRecord))
+            {
+                QueryResults.Add(new CompareEvidenceSearchResultItem(item));
+            }
+        }
+        else if (result.Success && result.Status.Equals(CompareEvidenceStatus.NoRecordReturned, StringComparison.OrdinalIgnoreCase))
+        {
+            QueryResults.Add(new CompareEvidenceSearchResultItem(new CompareEvidenceSearchResult(
+                CompareEvidenceSourceType.LegalCadaster,
+                "Legal cadaster",
+                LegalCadasterQueryResult.BuildLegalQueryKey(result.Query),
+                null,
+                null,
+                result.Query.ParcelId,
+                result.Query.Volume,
+                result.Query.Folio,
+                result.Query.LandValuationNumber,
+                result.Query.Parish,
+                result.Status,
+                getUtcNow(),
+                result.Diagnostic)));
         }
 
         ApplyLegalResult(result, plan);
@@ -1084,7 +1121,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         QueryResults.Clear();
         foreach (var result in draft.ManualQueryHistory ?? Array.Empty<CompareEvidenceSearchResultDraft>())
         {
-            QueryResults.Add(new CompareEvidenceSearchResultItem(result.ToModel()));
+            if (ShouldRestoreManualQueryResult(result))
+            {
+                QueryResults.Add(new CompareEvidenceSearchResultItem(result.ToModel()));
+            }
         }
 
         ValuableEvidenceItems.Clear();
@@ -1100,9 +1140,97 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
     }
 
+    private static bool ShouldRestoreManualQueryResult(CompareEvidenceSearchResultDraft result)
+    {
+        if (result.Status.Equals(CompareEvidenceStatus.Ready, StringComparison.OrdinalIgnoreCase)
+            || result.Status.Equals(CompareEvidenceStatus.NoRecordReturned, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return HasValue(result.DisplayName)
+            || HasValue(result.PartyRole)
+            || HasValue(result.ParcelId)
+            || HasValue(result.LandValuationNumber)
+            || HasValue(result.Parish)
+            || HasValue(result.PropertyType)
+            || HasValue(result.Tenure)
+            || HasValue(result.RegisteredAtUtc);
+    }
+
+    private static bool HasValue(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
     private void SaveProgress()
     {
         _ = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+    }
+
+    private async Task SuspendTaskAsync(CancellationToken cancellationToken = default)
+    {
+        if (taskLifecycleService is null)
+        {
+            StatusText = "Suspend task is unavailable because Compare is not connected to the transaction lifecycle.";
+            return;
+        }
+
+        var draftResult = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+        if (draftResult is null)
+        {
+            return;
+        }
+
+        IsLoading = true;
+        StatusText = "Suspending Compare task.";
+        try
+        {
+            var result = await taskLifecycleService.SuspendAsync(TransactionNumber, cancellationToken);
+            StatusText = result.Message;
+            if (result.Success && result.ShouldCloseWorkspace)
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
+    }
+
+    private async Task CompleteTaskAsync(CancellationToken cancellationToken = default)
+    {
+        if (taskLifecycleService is null)
+        {
+            StatusText = "Complete task is unavailable because Compare is not connected to the transaction lifecycle.";
+            return;
+        }
+
+        if (!CanCompleteTask)
+        {
+            StatusText = "Complete task is blocked until Compare is approved and completion readiness passes.";
+            return;
+        }
+
+        SaveDecision(CompareReviewDecisionValues.Approved, "Approved");
+        IsLoading = true;
+        StatusText = "Completing Compare task.";
+        try
+        {
+            var result = await taskLifecycleService.CompleteAsync(TransactionNumber, cancellationToken);
+            StatusText = result.Message;
+            if (result.Success && result.ShouldCloseWorkspace)
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
     }
 
     private CompareReviewDraftSaveResult? SaveProgress(string decisionState, string displayStatus)
@@ -1341,6 +1469,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanQueryFiscalEvidence));
         NotifyPropertyChanged(nameof(CanRunEvidenceSearch));
         NotifyPropertyChanged(nameof(CanSaveProgress));
+        NotifyPropertyChanged(nameof(CanSuspendTask));
+        NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanBlockCompare));
         NotifyPropertyChanged(nameof(CanApproveCompare));
         NotifyPropertyChanged(nameof(HasUnresolvedDiscrepancies));
@@ -1364,6 +1494,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             MarkEvidenceResultValuableCommand,
             RemoveValuableEvidenceCommand,
             SaveProgressCommand,
+            SuspendTaskCommand,
+            CompleteTaskCommand,
             BlockCompareCommand,
             ApproveCompareCommand,
             ReturnToComputeCommand
@@ -1425,6 +1557,16 @@ public sealed record CompareEvidenceSearchResultItem(CompareEvidenceSearchResult
     public string QueryKey => Result.QueryKey;
 
     public string DisplayName => string.IsNullOrWhiteSpace(Result.DisplayName) ? "(no name)" : Result.DisplayName.Trim();
+
+    public string Owner => DisplayName;
+
+    public string PropertyType => string.IsNullOrWhiteSpace(Result.PropertyType) ? "(blank)" : Result.PropertyType.Trim();
+
+    public string Tenure => string.IsNullOrWhiteSpace(Result.Tenure) ? "(blank)" : Result.Tenure.Trim();
+
+    public string DateRegistered => Result.RegisteredAt is null
+        ? "(blank)"
+        : Result.RegisteredAt.Value.ToString("dd/MMM/yyyy", CultureInfo.InvariantCulture);
 
     public string PartyRole => string.IsNullOrWhiteSpace(Result.PartyRole) ? "(role not specified)" : Result.PartyRole.Trim();
 

@@ -81,21 +81,21 @@
   "compare_cadaster_query_timeout_seconds": 30,
   "compare_legal_cadaster": {
     "enabled": true,
-    "source_name": "Innola BA Unit",
-    "adapter": "innola_baunit_search",
-    "service_url": "search/",
+    "source_name": "Innola Owner Search",
+    "adapter": "innola_owner_search",
+    "service_url": "portal/searches",
     "datamap": "BaUnitSearchDM",
-    "search_kind": "baunit",
+    "search_kind": "owner",
     "baunit_type": "bu_type_land",
     "baunit_status": "reg_status_current",
     "status_latest": true,
     "page": 1,
     "start": 0,
     "limit": 25,
-    "parcel_id_field": "parcel_id",
+    "parcel_id_field": "pid",
     "volume_field": "volume",
     "folio_field": "folio",
-    "owner_field": "owner_name"
+    "owner_field": "owners"
   },
   "compare_fiscal_cadaster": {
     "enabled": false,

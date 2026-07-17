@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-07-15
+# last_updated: 2026-07-16
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-15
+last_updated: 2026-07-16
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -152,6 +152,7 @@ development_status:
   8-4b-add-live-innola-baunit-search-adapter-for-compare: review
   8-4c-add-enterprise-legal-and-fiscal-neighbor-evidence-for-compare: review
   8-4d-add-collapsible-pdf-panel-to-compare-workspace: done
+  8-4e-add-compare-task-lifecycle-actions-and-reopen-active-workspace: review
   8-5-persist-compare-decision-and-unlock-commit-stage: review
   8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
   epic-8-retrospective: optional

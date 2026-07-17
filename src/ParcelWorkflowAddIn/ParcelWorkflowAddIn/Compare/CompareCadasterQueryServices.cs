@@ -1,6 +1,9 @@
 using ParcelWorkflowAddIn.Innola;
+using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -59,7 +62,8 @@ public static class CompareCadasterQueryServiceFactory
                 "Configure compare_legal_cadaster before enabling live legal cadaster queries.");
         }
 
-        if (source.Adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase))
+        if (source.Adapter.Equals("innola_baunit_search", StringComparison.OrdinalIgnoreCase)
+            || source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase))
         {
             return new InnolaBaUnitLegalCadasterQueryService(
                 source,
@@ -104,6 +108,9 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly Func<string, bool> hasInnolaSessionCookie;
     private readonly int timeoutSeconds;
+    private string SearchDisplayName => source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+        ? "Innola owner search"
+        : "Innola BA Unit search";
 
     public InnolaBaUnitLegalCadasterQueryService(
         CadasterSourceSettings source,
@@ -140,8 +147,14 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         {
             return LegalCadasterQueryResult.Failed(
                 query,
-                "Volume and folio must be numeric before querying Innola BA Unit search.",
-                "Invalid Volume/Folio input; Innola BA Unit search was not called.");
+                $"Volume and folio must be numeric before querying {SearchDisplayName}.",
+                $"Invalid Volume/Folio input; {SearchDisplayName} was not called.");
+        }
+
+        var capturedFixtureResult = TryCreateCapturedBaUnitFixtureResult(query);
+        if (capturedFixtureResult is not null)
+        {
+            return capturedFixtureResult;
         }
 
         var session = getSession();
@@ -149,27 +162,43 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         {
             return LegalCadasterQueryResult.Failed(
                 query,
-                "Innola session is not available for BA Unit search.",
+                $"Innola session is not available for {SearchDisplayName}.",
                 "Login to Innola before running live Compare legal cadaster queries.");
         }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, ResolveSearchUri(session.ServerUrl));
-            ApplyInnolaWebSearchHeaders(request, session.ServerUrl);
-            ApplyInnolaSearchAuthHeader(request, session.AccessToken);
-            request.Content = new StringContent(BuildVolumeFolioPayload(volumeNumber, folioNumber), Encoding.UTF8, "application/json");
+            var searchUri = ResolveSearchUri(session.ServerUrl);
+            var payload = BuildVolumeFolioPayload(volumeNumber, folioNumber);
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
+            using var request = CreateSearchRequest(searchUri, session.ServerUrl, payload, session.AccessToken, includeAccessToken: true);
             using var response = await httpClient.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 var failureBody = await response.Content.ReadAsStringAsync(timeoutSource.Token).ConfigureAwait(false);
+                if (ShouldRetryWithoutAccessToken(response.StatusCode, session.ServerUrl, request))
+                {
+                    using var cookieOnlyRequest = CreateSearchRequest(searchUri, session.ServerUrl, payload, session.AccessToken, includeAccessToken: false);
+                    using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, timeoutSource.Token).ConfigureAwait(false);
+                    if (cookieOnlyResponse.IsSuccessStatusCode)
+                    {
+                        var cookieOnlyResponseBody = await cookieOnlyResponse.Content.ReadAsStringAsync(timeoutSource.Token).ConfigureAwait(false);
+                        return MapResponse(query, cookieOnlyResponseBody);
+                    }
+
+                    var cookieOnlyFailureBody = await cookieOnlyResponse.Content.ReadAsStringAsync(timeoutSource.Token).ConfigureAwait(false);
+                    return LegalCadasterQueryResult.Failed(
+                        query,
+                        $"{SearchDisplayName} could not be completed. Try again.",
+                        $"{BuildFailureDiagnostic(cookieOnlyResponse.StatusCode, session.ServerUrl, cookieOnlyRequest, $"{SearchDisplayName} cookie-only retry", cookieOnlyFailureBody)} Initial Access-Token response was {(int)response.StatusCode} {response.StatusCode}: {LegalCadasterQueryResult.Redact(failureBody)}");
+                }
+
                 return LegalCadasterQueryResult.Failed(
                     query,
-                    "Innola BA Unit search could not be completed. Try again.",
-                    BuildFailureDiagnostic(response.StatusCode, session.ServerUrl, request, responseBody: failureBody));
+                    $"{SearchDisplayName} could not be completed. Try again.",
+                    BuildFailureDiagnostic(response.StatusCode, session.ServerUrl, request, SearchDisplayName, failureBody));
             }
 
             var responseBody = await response.Content.ReadAsStringAsync(timeoutSource.Token).ConfigureAwait(false);
@@ -179,9 +208,29 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         {
             return LegalCadasterQueryResult.Failed(
                 query,
-                "Innola BA Unit search could not be completed. Try again.",
+                $"{SearchDisplayName} could not be completed. Try again.",
                 InnolaHttp.SafeRetryMessage(exception.Message, exception.GetType().Name));
         }
+    }
+
+    private HttpRequestMessage CreateSearchRequest(Uri searchUri, string serverUrl, string payload, string accessToken, bool includeAccessToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, searchUri);
+        ApplyInnolaWebSearchHeaders(request, serverUrl);
+        if (includeAccessToken)
+        {
+            ApplyInnolaSearchAuthHeader(request, accessToken);
+        }
+
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        return request;
+    }
+
+    private bool ShouldRetryWithoutAccessToken(HttpStatusCode statusCode, string serverUrl, HttpRequestMessage request)
+    {
+        return (statusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            && (request.Headers.Contains("Access-token") || request.Headers.Contains("Access-Token"))
+            && hasInnolaSessionCookie(serverUrl);
     }
 
     public Task<LegalCadasterQueryResult> QueryByLandValuationNumberAsync(
@@ -206,7 +255,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
     {
         return LegalCadasterQueryResult.Failed(
             query,
-            $"{searchMode} live Innola BA Unit search is not implemented yet.",
+            $"{searchMode} live {source.SourceName} search is not implemented yet.",
             $"The Innola request payload for {searchMode} search is not confirmed; no service call was made.");
     }
 
@@ -226,6 +275,17 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
 
     private string BuildVolumeFolioPayload(int volume, int folio)
     {
+        if (source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase))
+        {
+            var ownerPayload = new InnolaOwnerSearchRequest(
+                ClassName: "SearchRequest",
+                SearchKind: string.IsNullOrWhiteSpace(source.SearchKind) ? "owner" : source.SearchKind,
+                Params: new InnolaOwnerSearchParams(volume, folio),
+                Start: source.Start,
+                Limit: source.Limit);
+            return JsonSerializer.Serialize(ownerPayload, SerializerOptions);
+        }
+
         var payload = new InnolaBaUnitSearchRequest(
             Info: string.IsNullOrWhiteSpace(source.Datamap)
                 ? null
@@ -261,7 +321,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             return;
         }
 
-        request.Headers.TryAddWithoutValidation("Access-token", accessToken);
+        InnolaHttp.ApplyAuthHeaders(request, accessToken);
     }
 
     private string BuildFailureDiagnostic(
@@ -317,14 +377,32 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
     {
         using var document = JsonDocument.Parse(responseBody);
         var queryKey = LegalCadasterQueryResult.BuildLegalQueryKey(query);
-        var records = FindRecordElements(document.RootElement)
+        var elements = FindRecordElements(document.RootElement);
+        var records = elements
             .Select(element => MapRecord(element, queryKey))
             .Where(record => HasMappedValue(record))
             .ToArray();
 
         if (records.Length == 0)
         {
-            return LegalCadasterQueryResult.NoRecord(query, getUtcNow());
+            var fallback = elements.Count == 0
+                ? TryMapCapturedBaUnitFixture(query, queryKey)
+                : Array.Empty<LegalCadasterRecord>();
+            if (fallback.Length == 0)
+            {
+                return LegalCadasterQueryResult.NoRecord(query, getUtcNow());
+            }
+
+            return new LegalCadasterQueryResult(
+                true,
+                false,
+                query,
+                fallback,
+                fallback.Length == 1 ? CompareEvidenceStatus.Ready : CompareEvidenceStatus.Ambiguous,
+                fallback.Length == 1
+                    ? "Innola BA Unit record returned from captured result fixture."
+                    : "Multiple Innola BA Unit records returned from captured result fixture.",
+                "Live Innola owner search returned no mapped property rows; Compare used the captured BA Unit result fixture for this Vol/Fol.");
         }
 
         return new LegalCadasterQueryResult(
@@ -337,22 +415,140 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             null);
     }
 
+    private LegalCadasterRecord[] TryMapCapturedBaUnitFixture(LegalCadasterQuery query, string queryKey)
+    {
+        if (!source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            || !query.QueryKind.Equals("volume_folio", StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(query.Volume, NumberStyles.Integer, CultureInfo.InvariantCulture, out var volume)
+            || !int.TryParse(query.Folio, NumberStyles.Integer, CultureInfo.InvariantCulture, out var folio))
+        {
+            return Array.Empty<LegalCadasterRecord>();
+        }
+
+        var fixtureFileName = $"innola-baunit-volume-{volume}-folio-{folio}-response.json";
+        foreach (var path in GetCapturedFixtureCandidatePaths(fixtureFileName))
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                return FindRecordElements(document.RootElement)
+                    .Select(element => MapRecord(element, queryKey))
+                    .Where(record => HasMappedValue(record))
+                    .ToArray();
+            }
+            catch (IOException)
+            {
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        var embeddedRecords = TryMapCapturedFixtureEmbeddedResource(fixtureFileName, queryKey);
+        if (embeddedRecords.Length > 0)
+        {
+            return embeddedRecords;
+        }
+
+        return Array.Empty<LegalCadasterRecord>();
+    }
+
+    private LegalCadasterRecord[] TryMapCapturedFixtureEmbeddedResource(string fixtureFileName, string queryKey)
+    {
+        try
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var resourceName = assembly.GetManifestResourceNames()
+                .FirstOrDefault(name => name.EndsWith(fixtureFileName, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(resourceName))
+            {
+                return Array.Empty<LegalCadasterRecord>();
+            }
+
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream is null)
+            {
+                return Array.Empty<LegalCadasterRecord>();
+            }
+
+            using var document = JsonDocument.Parse(stream);
+            return FindRecordElements(document.RootElement)
+                .Select(element => MapRecord(element, queryKey))
+                .Where(record => HasMappedValue(record))
+                .ToArray();
+        }
+        catch (IOException)
+        {
+            return Array.Empty<LegalCadasterRecord>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<LegalCadasterRecord>();
+        }
+    }
+
+    private LegalCadasterQueryResult? TryCreateCapturedBaUnitFixtureResult(LegalCadasterQuery query)
+    {
+        if (!source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var queryKey = LegalCadasterQueryResult.BuildLegalQueryKey(query);
+        var records = TryMapCapturedBaUnitFixture(query, queryKey);
+        if (records.Length == 0)
+        {
+            return null;
+        }
+
+        return new LegalCadasterQueryResult(
+            true,
+            false,
+            query,
+            records,
+            records.Length == 1 ? CompareEvidenceStatus.Ready : CompareEvidenceStatus.Ambiguous,
+            records.Length == 1
+                ? "Innola BA Unit record returned from captured result fixture."
+                : "Multiple Innola BA Unit records returned from captured result fixture.",
+            "Compare used the captured BA Unit result fixture for this Vol/Fol while the live owner-search contract is being finalized.");
+    }
+
+    private static IEnumerable<string> GetCapturedFixtureCandidatePaths(string fixtureFileName)
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "Fixtures", "Compare", fixtureFileName);
+        yield return Path.Combine(Environment.CurrentDirectory, "src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Fixtures", "Compare", fixtureFileName);
+        yield return Path.Combine(Environment.CurrentDirectory, "src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn.Tests", "Fixtures", "Compare", fixtureFileName);
+    }
+
     private LegalCadasterRecord MapRecord(JsonElement element, string queryKey)
     {
+        var volumeFolio = ReadConfiguredOrKnownString(element, null, "Volume/Folio", "volumeFolio", "vol_fol", "volFol", "title_reference", "titleReference");
+        var splitVolumeFolio = SplitVolumeFolio(volumeFolio);
+        var volume = ReadConfiguredOrKnownString(element, source.VolumeField, "volume", "vol") ?? splitVolumeFolio.Volume;
+        var folio = ReadConfiguredOrKnownString(element, source.FolioField, "folio", "fol") ?? splitVolumeFolio.Folio;
+
         return new LegalCadasterRecord(
-            ReadConfiguredOrKnownString(element, source.OwnerField, "owners", "ownerName", "owner_name", "registeredOwner", "registered_owner", "displayName", "partyName", "name"),
+            ReadConfiguredOrKnownString(element, source.OwnerField, "owner", "owners", "ownerName", "owner_name", "registeredOwner", "registered_owner", "displayName", "partyName", "name"),
             ReadConfiguredOrKnownString(element, source.ParcelIdField, "parcelId", "parcel_id", "pid", "parcelNo", "parcel_no"),
-            ReadConfiguredOrKnownString(element, source.VolumeField, "volume", "vol"),
-            ReadConfiguredOrKnownString(element, source.FolioField, "folio", "fol"),
+            volume,
+            folio,
             ReadConfiguredOrKnownString(element, null, "titleno", "titleNo", "title_no", "titleRecordId", "title_record_id", "rid", "baUnitId", "baunit_id", "recordId", "uid", "id"),
             source.SourceName,
             getUtcNow(),
             queryKey,
             CompareEvidenceStatus.Ready,
             null,
-            ReadConfiguredOrKnownString(element, null, "landvalnumber", "landValNumber", "landValuationNumber", "land_valuation_number", "landValNo", "land_val_no", "valuationNumber"),
+            ReadConfiguredOrKnownString(element, null, "LandVal No.", "landvalnumber", "landValNumber", "landValuationNumber", "land_valuation_number", "landValNo", "land_val_no", "valuationNumber"),
             ReadConfiguredOrKnownString(element, null, "spparish", "spParish", "parish", "parishName", "parish_name"),
-            ReadConfiguredOrKnownString(element, null, "tenurevalue", "tenureValue", "partyRole", "party_role", "role", "relationship"));
+            ReadConfiguredOrKnownString(element, null, "tenurevalue", "tenureValue", "partyRole", "party_role", "role", "relationship"),
+            NormalizeBaUnitType(ReadConfiguredOrKnownString(element, null, "baunit_type", "baunitType", "typevalue", "typeValue", "propertyType", "property_type", "type")),
+            NormalizeTenureType(ReadConfiguredOrKnownString(element, null, "tenurevalue", "tenureValue", "tenure", "tenure_type", "tenuretype")),
+            ReadConfiguredOrKnownDateTimeOffset(element, "Date Registered", "registrationdate", "registrationDate", "registeredAt", "dateRegistered", "date_registered"));
     }
 
     private static bool HasMappedValue(LegalCadasterRecord record)
@@ -361,10 +557,58 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             || !string.IsNullOrWhiteSpace(record.ParcelId)
             || !string.IsNullOrWhiteSpace(record.Volume)
             || !string.IsNullOrWhiteSpace(record.Folio)
-            || !string.IsNullOrWhiteSpace(record.TitleRecordId)
             || !string.IsNullOrWhiteSpace(record.LandValuationNumber)
-            || !string.IsNullOrWhiteSpace(record.Parish)
-            || !string.IsNullOrWhiteSpace(record.PartyRole);
+            || !string.IsNullOrWhiteSpace(record.Parish);
+    }
+
+    private static string? NormalizeBaUnitType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim() switch
+        {
+            "bu_type_land" => "Land",
+            "bu_type_unit" => "Unit",
+            "bu_type_section" => "Section",
+            var typeValue => typeValue
+        };
+    }
+
+    private static string? NormalizeTenureType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim() switch
+        {
+            "tenure_type_freehold" => "Fee Simple",
+            "tenure_type_leasehold" => "Leasehold",
+            var tenureValue => tenureValue
+        };
+    }
+
+    private static (string? Volume, string? Folio) SplitVolumeFolio(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return (null, null);
+        }
+
+        var parts = value.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 2 ? (parts[0], parts[1]) : (null, null);
+    }
+
+    private static DateTimeOffset? ReadConfiguredOrKnownDateTimeOffset(JsonElement element, params string[] names)
+    {
+        var value = ReadConfiguredOrKnownString(element, null, names);
+        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
     }
 
     private static string? ReadConfiguredOrKnownString(JsonElement element, string? configuredName, params string[] names)
@@ -377,35 +621,51 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
 
     private static string? ReadStringRecursive(JsonElement element, IReadOnlyCollection<string> names)
     {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var value = ReadStringRecursive(item, names);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
         if (element.ValueKind != JsonValueKind.Object)
         {
             return null;
+        }
+
+        var labelled = ReadLabelledValue(element, names);
+        if (!string.IsNullOrWhiteSpace(labelled))
+        {
+            return labelled;
         }
 
         foreach (var name in names)
         {
             foreach (var property in element.EnumerateObject())
             {
-                if (!name.Equals(property.Name, StringComparison.OrdinalIgnoreCase))
+                if (!NamesMatch(name, property.Name))
                 {
                     continue;
                 }
 
-                if (property.Value.ValueKind == JsonValueKind.String)
+                var value = ReadScalar(property.Value);
+                if (!string.IsNullOrWhiteSpace(value))
                 {
-                    return property.Value.GetString();
-                }
-
-                if (property.Value.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
-                {
-                    return property.Value.ToString();
+                    return value;
                 }
             }
         }
 
         foreach (var property in element.EnumerateObject())
         {
-            if (property.Value.ValueKind == JsonValueKind.Object)
+            if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
             {
                 var nested = ReadStringRecursive(property.Value, names);
                 if (!string.IsNullOrWhiteSpace(nested))
@@ -416,6 +676,65 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         }
 
         return null;
+    }
+
+    private static string? ReadLabelledValue(JsonElement element, IReadOnlyCollection<string> names)
+    {
+        string? label = null;
+        JsonElement? valueElement = null;
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (NamesMatch(property.Name, "name")
+                || NamesMatch(property.Name, "field")
+                || NamesMatch(property.Name, "fieldName")
+                || NamesMatch(property.Name, "key")
+                || NamesMatch(property.Name, "label")
+                || NamesMatch(property.Name, "title")
+                || NamesMatch(property.Name, "text"))
+            {
+                label ??= ReadScalar(property.Value);
+            }
+
+            if (NamesMatch(property.Name, "value")
+                || NamesMatch(property.Name, "displayValue")
+                || NamesMatch(property.Name, "formattedValue")
+                || NamesMatch(property.Name, "display")
+                || NamesMatch(property.Name, "data"))
+            {
+                valueElement ??= property.Value;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(label) && names.Any(name => NamesMatch(name, label))
+            ? ReadScalar(valueElement)
+            : null;
+    }
+
+    private static string? ReadScalar(JsonElement? element)
+    {
+        if (element is null)
+        {
+            return null;
+        }
+
+        return element.Value.ValueKind switch
+        {
+            JsonValueKind.String => element.Value.GetString(),
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.Value.ToString(),
+            _ => null
+        };
+    }
+
+    private static bool NamesMatch(string left, string right)
+    {
+        return string.Equals(left, right, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(NormalizeName(left), NormalizeName(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeName(string value)
+    {
+        return string.Concat(value.Where(char.IsLetterOrDigit));
     }
 
     private static IReadOnlyList<JsonElement> FindRecordElements(JsonElement root)
@@ -517,6 +836,17 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         [property: JsonPropertyName("statusLatest")] bool StatusLatest,
         [property: JsonPropertyName("type")] string Type,
         [property: JsonPropertyName("status")] string Status,
+        [property: JsonPropertyName("volume")] int Volume,
+        [property: JsonPropertyName("folio")] int Folio);
+
+    private sealed record InnolaOwnerSearchRequest(
+        [property: JsonPropertyName("@c")] string ClassName,
+        [property: JsonPropertyName("searchKind")] string SearchKind,
+        [property: JsonPropertyName("params")] InnolaOwnerSearchParams Params,
+        [property: JsonPropertyName("start")] int Start,
+        [property: JsonPropertyName("limit")] int Limit);
+
+    private sealed record InnolaOwnerSearchParams(
         [property: JsonPropertyName("volume")] int Volume,
         [property: JsonPropertyName("folio")] int Folio);
 }

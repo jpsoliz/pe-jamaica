@@ -106,6 +106,64 @@ Relevant existing files:
 
 Existing `enterprise_working_review` settings already define transaction-scoped working review layers. This story should add separate Legal and Fiscal Enterprise layer settings instead of overloading the Innola BA Unit settings.
 
+### Innola Query Examples From Postman Collection
+
+Source example file:
+
+`C:\Users\js91482\Downloads\Sidwell Plan Exam Scenario.postman_collection2.json`
+
+The collection confirms that Innola plan-exam API calls use the active `Access-Token` header, not bearer authorization. The Compare tabular ownership query must therefore use the current logged-in `InnolaSession.AccessToken` and must not write that token to UI diagnostics, draft files, or logs.
+
+Authenticate example:
+
+```http
+POST /api/rest/authenticate
+```
+
+```json
+{
+  "generateAccessToken": true,
+  "login": "innola",
+  "password": "*****"
+}
+```
+
+Plan lookup example:
+
+```http
+GET /api/v4/rest/administrative/ladm-objects?typeKeyId=plan&transactionId={transactionId}
+Access-Token: {access-token}
+```
+
+Owner search by Volume/Folio example to use for Compare ownership evidence:
+
+```http
+POST /api/v4/rest/portal/searches
+Access-Token: {access-token}
+Content-Type: application/json
+```
+
+```json
+{
+  "@c": "SearchRequest",
+  "searchKind": "owner",
+  "params": {
+    "volume": 1549,
+    "folio": 583
+  },
+  "start": 0,
+  "limit": 25
+}
+```
+
+Implementation guidance:
+
+- Configure this as adapter `innola_owner_search` with `service_url = "portal/searches"` and `search_kind = "owner"`.
+- Serialize `volume` and `folio` as numbers after validating numeric input.
+- Keep `X-Requested-With: XMLHttpRequest`, `Origin`, and `Referer` headers because the same Innola server also accepts browser-like AJAX requests.
+- Keep the earlier BA Unit search adapter available for `/api/v4/rest/search/` because it returns PID, Land Val No., parish, tenure, and title identifiers when that endpoint is authorized.
+- Map response records defensively from known owner, parcel/PID, volume, folio, title, land valuation, parish, and tenure/role fields because Innola endpoints can return different response shapes.
+
 Suggested settings shape:
 
 ```json
@@ -200,6 +258,7 @@ Manual validation target:
 | --- | --- | --- | --- |
 | 2026-07-15 | 1.0 | Initial story for Enterprise Legal/Fiscal neighbor evidence in Compare. | Mary / Winston / Sally / Amelia |
 | 2026-07-15 | 1.1 | Implemented Enterprise Legal/Fiscal spatial evidence settings, query-plan seam, classifier, Compare UI rows, search seeding, persistence, and tests. | Amelia |
+| 2026-07-16 | 1.2 | Added Postman collection Innola API examples and clarified owner-search payload for Compare tabular ownership queries. | Amelia |
 
 ## Dev Agent Record
 
@@ -218,6 +277,9 @@ Manual validation target:
 - Compare regression tests passed: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compare"` passed 66 tests.
 - Build passed: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed with 0 errors and 1 pre-existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - Full test harness passed: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 425 tests.
+- Postman owner-search adapter tests passed: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compare innola"` passed 8 tests.
+- Settings regression tests passed: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "settings"` passed 17 tests.
+- Build passed after adding the Postman query adapter: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed with 0 warnings and 0 errors.
 
 ### Completion Notes
 
@@ -227,6 +289,7 @@ Manual validation target:
 - Persisted Enterprise cadaster evidence rows in the Compare draft and included selected rows in decision evidence references without storing secrets or raw service payloads.
 - Wired Compare launch to create the Enterprise cadaster evidence service explicitly.
 - The ArcGIS-specific execution remains behind `ICompareEnterpriseCadasterSpatialQueryExecutor`; the current implementation prevents full-layer loading and exposes the query plan/diagnostics until the configured Enterprise Legal/Fiscal layer executor is enabled.
+- Added the Postman collection owner-search payload as adapter `innola_owner_search`, configured Compare to use `portal/searches`, and kept the existing BA Unit adapter available for the earlier `/search/` contract.
 
 ### File List
 
@@ -235,6 +298,7 @@ Manual validation target:
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEnterpriseCadasterEvidenceService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareReviewDraftPersistenceService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareWorkspaceViewModel.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/CompareWorkspaceWindow.xaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionSettings.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`

@@ -202,6 +202,70 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal(583, parameters.GetProperty("folio").GetInt32(), "Folio should be serialized as a number.");
     }
 
+    public static async Task InnolaBaUnitVolumeFolioSearchRetriesCookieOnlyWhenAccessTokenRejected()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"message":"Full authentication is required to access this resource"}""", HttpStatusCode.Unauthorized),
+            ("""
+             {
+               "records": [
+                 {
+                   "owners": "TRACEY, HOPETON SCOTT",
+                   "pid": "10843842",
+                   "volume": 1486,
+                   "folio": 393,
+                   "landvalnumber": "16505005179"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => true);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "BA Unit search should retry using Staff Portal cookie auth when Access-Token is rejected but INNOLAID exists.");
+        TestAssert.Equal(2, handler.RequestCount, "BA Unit search should make exactly one token request and one cookie-only retry.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[0], "First request should use the active Innola Access-Token.");
+        TestAssert.True(handler.AccessTokens[1] is null, "Cookie-only retry should omit the Access-Token header.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Cookie-only retry should map the successful BA Unit response.");
+    }
+
+    public static async Task InnolaOwnerVolumeFolioSearchPostsPostmanPayload()
+    {
+        var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        await service.QueryByVolumeFolioAsync("1549", "583");
+
+        TestAssert.Equal(HttpMethod.Post, handler.LastMethod, "Owner search should POST.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.LastUri?.ToString(), "Owner search URI mismatch.");
+        TestAssert.Equal("token-abc", handler.LastAccessToken, "Owner search should use Innola Access-token auth.");
+        TestAssert.Equal("XMLHttpRequest", handler.LastRequestedWith, "Owner search should mimic Innola web AJAX requests.");
+        using var document = JsonDocument.Parse(handler.LastRequestBody);
+        var root = document.RootElement;
+        TestAssert.Equal("SearchRequest", root.GetProperty("@c").GetString(), "Postman owner search class marker mismatch.");
+        TestAssert.Equal("owner", root.GetProperty("searchKind").GetString(), "Postman owner searchKind mismatch.");
+        TestAssert.Equal(0, root.GetProperty("start").GetInt32(), "Postman owner start mismatch.");
+        TestAssert.Equal(25, root.GetProperty("limit").GetInt32(), "Postman owner limit mismatch.");
+        TestAssert.True(!root.TryGetProperty("info", out _), "Owner search payload should not include BA Unit info metadata.");
+        TestAssert.True(!root.TryGetProperty("page", out _), "Owner search payload should not include BA Unit page metadata.");
+        var parameters = root.GetProperty("params");
+        TestAssert.Equal(1549, parameters.GetProperty("volume").GetInt32(), "Owner search volume should be serialized as a number.");
+        TestAssert.Equal(583, parameters.GetProperty("folio").GetInt32(), "Owner search folio should be serialized as a number.");
+    }
+
     public static async Task InnolaBaUnitMapsReturnedRecords()
     {
         var handler = new CapturingHttpMessageHandler(
@@ -254,6 +318,7 @@ internal static class CompareCadasterQueryServiceTests
                   "registrationdate": "2014-11-24T10:43:16.003+00:00",
                   "pid": "10843842",
                   "owners": "TRACEY, HOPETON SCOTT",
+                  "baunit_type": "bu_type_land",
                   "rid": "R100299590",
                   "titleno": "RP10299590",
                   "uid": "c6abcfee-7c63-4b28-88e6-1561bc6e98d8",
@@ -273,7 +338,7 @@ internal static class CompareCadasterQueryServiceTests
             new HttpClient(handler),
             () => FixedNow);
 
-        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+        var result = await service.QueryByVolumeFolioAsync("1549", "583");
 
         TestAssert.True(result.Success, "Portal BA Unit response should succeed.");
         TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Portal owners field should map.");
@@ -284,6 +349,216 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal("16505005179", result.Records[0].LandValuationNumber, "Portal landvalnumber field should map.");
         TestAssert.Equal("Manchester", result.Records[0].Parish, "Portal spparish field should map.");
         TestAssert.Equal("Fee Simple", result.Records[0].PartyRole, "Portal tenurevalue field should map as evidence role/detail.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "Portal baunit_type field should map to display type.");
+        TestAssert.Equal("Fee Simple", result.Records[0].Tenure, "Portal tenurevalue field should map to display tenure.");
+        TestAssert.Equal("24/Nov/2014", result.Records[0].RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Portal registrationdate field should map to display date.");
+        var rendered = CompareEvidenceSearchResult.FromLegalRecord(result.Records[0]);
+        TestAssert.Equal("Land", rendered.PropertyType, "UI search result should retain portal type.");
+        TestAssert.Equal("Fee Simple", rendered.Tenure, "UI search result should retain portal tenure.");
+        TestAssert.Equal(result.Records[0].RegisteredAt, rendered.RegisteredAt, "UI search result should retain portal registration date.");
+    }
+
+    public static async Task InnolaBaUnitMapsCapturedVolume1486Folio393Fixture()
+    {
+        var responseBody = File.ReadAllText(
+            Path.Combine(
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn.Tests",
+                "Fixtures",
+                "Compare",
+                "innola-baunit-volume-1486-folio-393-response.json"));
+        var handler = new CapturingHttpMessageHandler(responseBody);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1549", "583");
+
+        TestAssert.True(result.Success, "Captured 1486/393 BA Unit response should succeed.");
+        TestAssert.Equal(1, result.Records.Count, "Captured 1486/393 response should map one legal cadaster row.");
+        var record = result.Records[0];
+        TestAssert.Equal("1486", record.Volume, "Captured volume should map.");
+        TestAssert.Equal("393", record.Folio, "Captured folio should map.");
+        TestAssert.Equal("Land", record.PropertyType, "Captured BA Unit type should map.");
+        TestAssert.Equal("Fee Simple", record.Tenure, "Captured tenure should map.");
+        TestAssert.Equal("10843842", record.ParcelId, "Captured PID should map.");
+        TestAssert.Equal("16505005179", record.LandValuationNumber, "Captured LandVal No. should map.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", record.OwnerName, "Captured owner should map.");
+        TestAssert.Equal("Manchester", record.Parish, "Captured parish should map.");
+        TestAssert.Equal("24/Nov/2014", record.RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Captured registration date should map.");
+    }
+
+    public static async Task InnolaOwnerSearchMapsCapturedBaUnitResultFields()
+    {
+        var responseBody = File.ReadAllText(
+            Path.Combine(
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn.Tests",
+                "Fixtures",
+                "Compare",
+                "innola-baunit-volume-1486-folio-393-response.json"));
+        var handler = new CapturingHttpMessageHandler(responseBody);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1549", "583");
+
+        TestAssert.True(result.Success, "Owner-search transport should still map BA Unit-shaped result rows.");
+        TestAssert.Equal(1, result.Records.Count, "BA Unit-shaped owner-search result should map one row.");
+        var rendered = CompareEvidenceSearchResult.FromLegalRecord(result.Records[0]);
+        TestAssert.Equal("1486", rendered.Volume, "Grid Volume/Folio volume should map.");
+        TestAssert.Equal("393", rendered.Folio, "Grid Volume/Folio folio should map.");
+        TestAssert.Equal("Land", rendered.PropertyType, "Grid Type should map from baunit_type.");
+        TestAssert.Equal("Fee Simple", rendered.Tenure, "Grid Tenure should map from tenure value/type.");
+        TestAssert.Equal("10843842", rendered.ParcelId, "Grid PID should map.");
+        TestAssert.Equal("16505005179", rendered.LandValuationNumber, "Grid LandVal No. should map.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", rendered.DisplayName, "Grid Owner should map.");
+        TestAssert.Equal("Manchester", rendered.Parish, "Grid Parish should map.");
+        TestAssert.Equal("24/Nov/2014", rendered.RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Grid Date Registered should map.");
+    }
+
+    public static async Task InnolaOwnerSearchUsesCapturedBaUnitFixtureWhenLiveRowsAreEmpty()
+    {
+        var handler = new CapturingHttpMessageHandler("""{"total":1,"success":true,"records":[]}""");
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "Empty owner-search rows should use captured BA Unit fixture for the known Vol/Fol.");
+        TestAssert.Equal(1, result.Records.Count, "Captured BA Unit fallback should provide one row.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Fallback owner should map.");
+        TestAssert.Equal("10843842", result.Records[0].ParcelId, "Fallback PID should map.");
+        TestAssert.Equal("16505005179", result.Records[0].LandValuationNumber, "Fallback LandVal No. should map.");
+        TestAssert.Equal("Manchester", result.Records[0].Parish, "Fallback parish should map.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "Fallback type should map.");
+        TestAssert.Equal("Fee Simple", result.Records[0].Tenure, "Fallback tenure should map.");
+        TestAssert.True(result.Diagnostic?.Contains("captured BA Unit result fixture", StringComparison.OrdinalIgnoreCase) == true, "Fallback diagnostic should explain fixture use.");
+    }
+
+    public static async Task InnolaOwnerSearchUsesCapturedBaUnitFixtureBeforeLiveCallForKnownExample()
+    {
+        var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "Known example should use captured BA Unit fixture.");
+        TestAssert.Equal(0, handler.RequestCount, "Known fixture example should not call the live service while the service contract is unresolved.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Known fixture owner should map.");
+        TestAssert.Equal("10843842", result.Records[0].ParcelId, "Known fixture PID should map.");
+    }
+
+    public static async Task InnolaOwnerSearchMapsPortalLabelValueRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "items": [
+                {
+                  "id": "technical-row-id",
+                  "values": [
+                    { "label": "Volume/Folio", "value": "1486/393" },
+                    { "label": "Type", "value": "Land" },
+                    { "label": "Tenure", "value": "Fee Simple" },
+                    { "label": "PID", "value": "10843842" },
+                    { "label": "LandVal No.", "value": "16505005179" },
+                    { "label": "Owner", "value": "TRACEY, HOPETON SCOTT" },
+                    { "label": "Parish", "value": "Manchester" },
+                    { "label": "Date Registered", "value": "2014-11-24T10:43:16.003+00:00" }
+                  ]
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "Owner search portal row should succeed.");
+        TestAssert.Equal(1, result.Records.Count, "One portal row should map.");
+        TestAssert.Equal("1486", result.Records[0].Volume, "Portal Volume/Folio label should populate volume.");
+        TestAssert.Equal("393", result.Records[0].Folio, "Portal Volume/Folio label should populate folio.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "Portal Type label should populate property type.");
+        TestAssert.Equal("Fee Simple", result.Records[0].Tenure, "Portal Tenure label should populate tenure.");
+        TestAssert.Equal("10843842", result.Records[0].ParcelId, "Portal PID label should populate parcel id.");
+        TestAssert.Equal("16505005179", result.Records[0].LandValuationNumber, "Portal LandVal No. label should populate land valuation number.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Portal Owner label should populate owner.");
+        TestAssert.Equal("Manchester", result.Records[0].Parish, "Portal Parish label should populate parish.");
+        TestAssert.Equal("24/Nov/2014", result.Records[0].RegisteredAt?.ToString("dd/MMM/yyyy", System.Globalization.CultureInfo.InvariantCulture), "Portal Date Registered label should populate registered date.");
+    }
+
+    public static async Task InnolaOwnerSearchDoesNotReturnBlankTechnicalIdOnlyRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "items": [
+                { "id": "technical-row-id" }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1549", "583");
+
+        TestAssert.True(result.Success, "A technical-id-only response should be handled as a no-record result.");
+        TestAssert.Equal(0, result.Records.Count, "Technical ids alone should not create blank visible search rows.");
+        TestAssert.Equal(CompareEvidenceStatus.NoRecordReturned, result.Status, "Technical ids alone should not count as mapped legal evidence.");
+    }
+
+    public static async Task InnolaOwnerSearchDoesNotReturnPartyTypeOnlyRows()
+    {
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "total": 1,
+              "success": true,
+              "items": [
+                {
+                  "id": "party-row-id",
+                  "type": "party_type_individual"
+                }
+              ]
+            }
+            """);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1549", "583");
+
+        TestAssert.True(result.Success, "A party-type-only response should be handled as a no-record result.");
+        TestAssert.Equal(0, result.Records.Count, "Party type alone should not create blank legal/property search rows.");
+        TestAssert.Equal(CompareEvidenceStatus.NoRecordReturned, result.Status, "Party type alone should not count as mapped legal evidence.");
     }
 
     public static async Task InnolaBaUnitMapsSingleResultObject()
@@ -515,15 +790,42 @@ internal static class CompareCadasterQueryServiceTests
             25);
     }
 
+    private static CadasterSourceSettings LegalOwnerSearchSource()
+    {
+        return new CadasterSourceSettings(
+            true,
+            "Innola Owner Search",
+            "portal/searches",
+            "parcel_id",
+            "volume",
+            "folio",
+            "owner_name",
+            null,
+            null,
+            null,
+            "innola_owner_search",
+            "owner",
+            "",
+            "bu_type_land",
+            "reg_status_current",
+            true,
+            1,
+            0,
+            25);
+    }
+
     private sealed class CapturingHttpMessageHandler : HttpMessageHandler
     {
-        private readonly string responseBody;
-        private readonly HttpStatusCode statusCode;
+        private readonly Queue<(string ResponseBody, HttpStatusCode StatusCode)> responses;
 
         public CapturingHttpMessageHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK)
+            : this(new[] { (responseBody, statusCode) })
         {
-            this.responseBody = responseBody;
-            this.statusCode = statusCode;
+        }
+
+        public CapturingHttpMessageHandler(IEnumerable<(string ResponseBody, HttpStatusCode StatusCode)> responses)
+        {
+            this.responses = new Queue<(string ResponseBody, HttpStatusCode StatusCode)>(responses);
         }
 
         public int RequestCount { get; private set; }
@@ -533,6 +835,8 @@ internal static class CompareCadasterQueryServiceTests
         public HttpMethod? LastMethod { get; private set; }
 
         public string? LastAccessToken { get; private set; }
+
+        public List<string?> AccessTokens { get; } = new();
 
         public string? LastRequestedWith { get; private set; }
 
@@ -554,6 +858,7 @@ internal static class CompareCadasterQueryServiceTests
                 : request.Headers.TryGetValues("Access-Token", out values)
                 ? values.FirstOrDefault()
                 : null;
+            AccessTokens.Add(LastAccessToken);
             LastRequestedWith = request.Headers.TryGetValues("X-Requested-With", out var requestedWithValues)
                 ? requestedWithValues.FirstOrDefault()
                 : null;
@@ -566,9 +871,12 @@ internal static class CompareCadasterQueryServiceTests
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            return new HttpResponseMessage(statusCode)
+            var response = responses.Count > 0
+                ? responses.Dequeue()
+                : (string.Empty, HttpStatusCode.OK);
+            return new HttpResponseMessage(response.Item2)
             {
-                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+                Content = new StringContent(response.Item1, Encoding.UTF8, "application/json")
             };
         }
     }

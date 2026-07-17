@@ -7,6 +7,7 @@ using System.Windows.Input;
 using ArcGIS.Desktop.Framework;
 using Microsoft.Win32;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Innola;
 
 namespace ParcelWorkflowAddIn;
@@ -25,6 +26,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> computeWorkflowStages;
     private readonly HashSet<string> compareWorkflowStages;
     private readonly Action<string>? compareWorkspaceLauncher;
+    private readonly Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher;
     private readonly Func<DateTimeOffset> clock;
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
@@ -50,8 +52,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
         IReadOnlyCollection<string>? computeWorkflowStages = null,
         IReadOnlyCollection<string>? compareWorkflowStages = null,
-        Action<string>? compareWorkspaceLauncher = null)
-        : this(session, transactionService, processStep, null, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher)
+        Action<string>? compareWorkspaceLauncher = null,
+        Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null)
+        : this(session, transactionService, processStep, null, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher, compareWorkspaceLifecycleLauncher)
     {
     }
 
@@ -64,8 +67,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
         IReadOnlyCollection<string>? computeWorkflowStages = null,
         IReadOnlyCollection<string>? compareWorkflowStages = null,
-        Action<string>? compareWorkspaceLauncher = null)
-        : this(session, transactionService, processStep, transactionLoadService, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher)
+        Action<string>? compareWorkspaceLauncher = null,
+        Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null)
+        : this(session, transactionService, processStep, transactionLoadService, null, null, clock, false, supportedTransactionTypes, computeWorkflowStages, compareWorkflowStages, compareWorkspaceLauncher, compareWorkspaceLifecycleLauncher)
     {
     }
 
@@ -81,7 +85,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IReadOnlyCollection<string>? supportedTransactionTypes = null,
         IReadOnlyCollection<string>? computeWorkflowStages = null,
         IReadOnlyCollection<string>? compareWorkflowStages = null,
-        Action<string>? compareWorkspaceLauncher = null)
+        Action<string>? compareWorkspaceLauncher = null,
+        Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -102,6 +107,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             compareWorkflowStages ?? ShellState.CompareWorkflowStages,
             StringComparer.OrdinalIgnoreCase);
         this.compareWorkspaceLauncher = compareWorkspaceLauncher;
+        this.compareWorkspaceLifecycleLauncher = compareWorkspaceLifecycleLauncher;
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
         this.autoRefreshOnLogin = autoRefreshOnLogin;
@@ -114,6 +120,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
+        ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
         session.SessionChanged += (_, _) => HandleSessionChanged();
         RefreshSessionState();
         QueueRefreshAfterLogin();
@@ -142,6 +149,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public ICommand AddDocumentCommand { get; }
 
     public ICommand CompleteTaskCommand { get; }
+
+    public ICommand ReopenCompareCommand { get; }
 
     public string ProcessStep { get; }
 
@@ -417,6 +426,17 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public bool CanAddDocument => CanViewDocuments;
 
     public bool CanCompleteTask => IsLoggedIn && !IsLoading && lifecycleCoordinator is not null && session.CanCompleteTransaction;
+
+    public bool CanReopenCompare => IsLoggedIn
+        && !IsLoading
+        && session.HasActiveTransaction
+        && IsActiveTransactionCompareStage
+        && (compareWorkspaceLauncher is not null || compareWorkspaceLifecycleLauncher is not null);
+
+    private bool IsActiveTransactionCompareStage => ParcelWorkflowStageRouter.Resolve(
+        session.SelectedTransaction?.TaskName,
+        computeWorkflowStages,
+        compareWorkflowStages) == ParcelWorkflowStageRoute.Compare;
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -698,6 +718,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     private void OpenCompareWorkspace(string requestedTransactionNumber)
     {
+        var lifecycleService = lifecycleCoordinator is null
+            ? null
+            : new TransactionPanelCompareTaskLifecycleService(this);
+
+        if (compareWorkspaceLifecycleLauncher is not null)
+        {
+            compareWorkspaceLifecycleLauncher(requestedTransactionNumber, lifecycleService);
+            return;
+        }
+
         if (compareWorkspaceLauncher is not null)
         {
             compareWorkspaceLauncher(requestedTransactionNumber);
@@ -705,6 +735,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         StatusText = $"Transaction {requestedTransactionNumber} is in progress. Compare workspace is not implemented yet.";
+    }
+
+    public Task ReopenCompareWorkspaceAsync(CancellationToken cancellationToken = default)
+    {
+        if (!CanReopenCompare || string.IsNullOrWhiteSpace(ActiveTransactionNumber))
+        {
+            StatusText = session.HasActiveTransaction
+                ? "Reopen Compare is available only for active Compare-stage transactions."
+                : "No active Compare transaction is available to reopen.";
+            NotifyListState();
+            return Task.CompletedTask;
+        }
+
+        OpenCompareWorkspace(ActiveTransactionNumber);
+        StatusText = $"Reopened Compare workspace for {ActiveTransactionNumber}.";
+        NotifyListState();
+        return Task.CompletedTask;
     }
 
     private void OpenParcelWorkflowDockpane(string requestedTransactionNumber, string? notFoundMessage = null, int attempt = 1)
@@ -758,9 +805,19 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public async Task SaveCurrentTransactionAsync(CancellationToken cancellationToken = default)
     {
+        _ = await SuspendCurrentTransactionForCompareAsync(ActiveTransactionNumber, cancellationToken);
+    }
+
+    internal async Task<CompareTaskLifecycleResult> SuspendCurrentTransactionForCompareAsync(string? transactionNumber, CancellationToken cancellationToken = default)
+    {
         if (!CanStopTask || lifecycleCoordinator is null)
         {
-            return;
+            return CompareTaskLifecycleResult.Failure("Suspend task is unavailable for the current transaction state.");
+        }
+
+        if (!MatchesActiveTransaction(transactionNumber))
+        {
+            return CompareTaskLifecycleResult.Failure("Suspend task is available only for the active Compare transaction.");
         }
 
         IsLoading = true;
@@ -779,6 +836,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 StatusText = result.StatusMessage ?? "Suspended. Select a transaction to continue.";
                 NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
             }
+
+            return result.Success
+                ? CompareTaskLifecycleResult.Succeeded(StatusText)
+                : CompareTaskLifecycleResult.Failure(ErrorText ?? StatusText);
         }
         finally
         {
@@ -789,9 +850,19 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public async Task CompleteCurrentTransactionAsync(CancellationToken cancellationToken = default)
     {
+        _ = await CompleteCurrentTransactionForCompareAsync(ActiveTransactionNumber, cancellationToken);
+    }
+
+    internal async Task<CompareTaskLifecycleResult> CompleteCurrentTransactionForCompareAsync(string? transactionNumber, CancellationToken cancellationToken = default)
+    {
         if (!CanCompleteTask || lifecycleCoordinator is null)
         {
-            return;
+            return CompareTaskLifecycleResult.Failure("Complete task is unavailable for the current transaction state.");
+        }
+
+        if (!MatchesActiveTransaction(transactionNumber))
+        {
+            return CompareTaskLifecycleResult.Failure("Complete task is available only for the active Compare transaction.");
         }
 
         IsLoading = true;
@@ -813,12 +884,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 SelectedRow = null;
                 await RefreshAsync(cancellationToken);
             }
+
+            return result.Success
+                ? CompareTaskLifecycleResult.Succeeded(StatusText)
+                : CompareTaskLifecycleResult.Failure(ErrorText ?? StatusText);
         }
         finally
         {
             IsLoading = false;
             NotifyListState();
         }
+    }
+
+    private bool MatchesActiveTransaction(string? transactionNumber)
+    {
+        return !string.IsNullOrWhiteSpace(transactionNumber)
+            && ActiveTransactionNumber is not null
+            && ActiveTransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task HandleWorkflowExitAsync(
@@ -1007,6 +1089,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
+        NotifyPropertyChanged(nameof(CanReopenCompare));
         NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         NotifyPropertyChanged(nameof(ConnectionUserText));
         NotifyPropertyChanged(nameof(ConnectionServerText));
@@ -1195,6 +1278,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
+        NotifyPropertyChanged(nameof(CanReopenCompare));
         NotifyCommandStates();
     }
 
@@ -1233,6 +1317,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (CompleteTaskCommand is RelayCommand complete)
         {
             complete.RaiseCanExecuteChanged();
+        }
+
+        if (ReopenCompareCommand is RelayCommand reopenCompare)
+        {
+            reopenCompare.RaiseCanExecuteChanged();
         }
     }
 
@@ -1313,5 +1402,25 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return supportedStages.Length == 0
             ? "none configured"
             : string.Join(", ", supportedStages);
+    }
+
+    private sealed class TransactionPanelCompareTaskLifecycleService : ICompareTaskLifecycleService
+    {
+        private readonly TransactionPanelState owner;
+
+        public TransactionPanelCompareTaskLifecycleService(TransactionPanelState owner)
+        {
+            this.owner = owner;
+        }
+
+        public Task<CompareTaskLifecycleResult> SuspendAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            return owner.SuspendCurrentTransactionForCompareAsync(transactionNumber, cancellationToken);
+        }
+
+        public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            return owner.CompleteCurrentTransactionForCompareAsync(transactionNumber, cancellationToken);
+        }
     }
 }

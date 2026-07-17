@@ -1,5 +1,6 @@
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -330,6 +331,60 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(1, launchedTransactions.Count, "Compare workspace should launch once.");
         TestAssert.Equal("TR100000004", launchedTransactions[0], "Compare workspace launch transaction mismatch.");
         TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed Compare transaction should keep active transaction gates enabled.");
+    }
+
+    public static async Task ActiveCompareTaskCanReopenWithoutClaimingAgainAndSuspend()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare Survey Plan", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var lifecycleService = new CountingTransactionLifecycleService();
+        var launchedTransactions = new List<string>();
+        ICompareTaskLifecycleService? compareLifecycleBridge = null;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock, lifecycleService: lifecycleService),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
+            compareWorkspaceLifecycleLauncher: (transactionNumber, lifecycleBridge) =>
+            {
+                launchedTransactions.Add(transactionNumber);
+                compareLifecycleBridge = lifecycleBridge;
+            });
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(1, lifecycleService.ClaimCalls, "Initial Compare start should claim once.");
+        TestAssert.Equal(1, launchedTransactions.Count, "Initial Compare start should launch once.");
+        TestAssert.True(panel.CanReopenCompare, "Active Compare task should expose Reopen Compare.");
+
+        await panel.ReopenCompareWorkspaceAsync();
+
+        TestAssert.Equal(1, lifecycleService.ClaimCalls, "Reopen Compare must not claim/start the task again.");
+        TestAssert.Equal(2, launchedTransactions.Count, "Reopen Compare should launch another Compare window instance.");
+        TestAssert.True(compareLifecycleBridge is not null, "Compare launch should receive a lifecycle bridge.");
+
+        var suspendResult = await compareLifecycleBridge!.SuspendAsync("TR100000004");
+
+        TestAssert.True(suspendResult.Success, "Lifecycle bridge should suspend through the panel path.");
+        TestAssert.Equal(1, lifecycleService.SaveProgressCalls, "Suspend should save progress through the existing lifecycle service.");
+        TestAssert.False(panel.IsTransactionPanelLocked, "Suspend from Compare should unlock the transaction panel.");
+        TestAssert.Equal("TR100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
     }
 
     public static void CompareWorkflowStageDoesNotResolveAsComputeWorkspace()
@@ -981,6 +1036,59 @@ internal static class TransactionPanelStateTests
         public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(InnolaTransactionLifecycleResult.Failure("Not claimed.", "ownership_conflict"));
+        }
+    }
+
+    private sealed class CountingTransactionLifecycleService : IInnolaTransactionLifecycleService
+    {
+        private string? owner;
+
+        public int ClaimCalls { get; private set; }
+
+        public int SaveProgressCalls { get; private set; }
+
+        public int CompleteCalls { get; private set; }
+
+        public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            ClaimCalls++;
+            owner = request.Session.User.Username;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded(
+                "in_progress",
+                request.Session.User.Username,
+                request.Session.User.DisplayName,
+                "Transaction is in progress."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            SaveProgressCalls++;
+            if (!string.Equals(owner, request.Session.User.Username, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(InnolaTransactionLifecycleResult.Failure("Not claimed.", "ownership_conflict"));
+            }
+
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded(
+                "in_progress",
+                request.Session.User.Username,
+                request.Session.User.DisplayName,
+                "Progress saved."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            CompleteCalls++;
+            if (!string.Equals(owner, request.Session.User.Username, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(InnolaTransactionLifecycleResult.Failure("Not claimed.", "ownership_conflict"));
+            }
+
+            owner = null;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded(
+                "completed",
+                request.Session.User.Username,
+                request.Session.User.DisplayName,
+                "Transaction completed."));
         }
     }
 

@@ -149,6 +149,44 @@ internal static class CompareWorkingGeometryServiceTests
         TestAssert.True(result.Message.Contains("could not be loaded", StringComparison.OrdinalIgnoreCase), "Failure message should be actionable.");
     }
 
+    public static void MapIntegrationClearsExistingCompareGroupBeforeReload()
+    {
+        var source = File.ReadAllText(FindArcGisCompareMapIntegrationService());
+
+        TestAssert.True(
+            source.Contains("ClearGroupLayer(mapView.Map, groupLayer)", StringComparison.Ordinal),
+            "Compare map integration should clear the transaction group before re-adding working and cadaster context layers.");
+        TestAssert.True(
+            source.Contains("RemoveStaleCompareGroups(mapView.Map, groupLayerName)", StringComparison.Ordinal),
+            "Compare map integration should remove stale Compare groups from other transactions before loading the active transaction context.");
+        TestAssert.True(
+            source.Contains("private static void ClearGroupLayer(Map map, GroupLayer groupLayer)", StringComparison.Ordinal),
+            "Compare map integration should keep group cleanup explicit and local.");
+    }
+
+    private static string FindArcGisCompareMapIntegrationService()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn",
+                "Compare",
+                "ArcGisCompareMapIntegrationService.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Could not locate ArcGisCompareMapIntegrationService.cs from the test output directory.");
+    }
+
     private static InnolaTransactionSettings CreateSettings(string scopeField, string? serviceRoot = null)
     {
         return InnolaTransactionSettings.Default with
