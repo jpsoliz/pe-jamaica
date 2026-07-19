@@ -54,6 +54,15 @@
                Text="Not logged in."
                TextWrapping="Wrap" />
 
+    <Image Grid.Row="5"
+           Grid.ColumnSpan="2"
+           Width="120"
+           MaxHeight="24"
+           HorizontalAlignment="Left"
+           VerticalAlignment="Center"
+           Stretch="Uniform"
+           Source="Images/Branding/SidwellLogo.png" />
+
     <StackPanel Grid.Row="5"
                 Grid.ColumnSpan="2"
                 HorizontalAlignment="Right"

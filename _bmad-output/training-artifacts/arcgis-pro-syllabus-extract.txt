@@ -1,0 +1,1125 @@
+### UNIT 1 - Intro to ArcGIS Pro.pdf | pages=29
+--- page 1 ---
+UNIT 1 – Introduction to ArcGIS Pro
+Create a New Project
+This exercise is to create a new project in ArcGIS Pro (3.7.x)
+• Open ArcGIS Pro through the Windows Start Menu
+o Go to Start > ArcGIS > ArcGIS Pro
+• On the intro screen
+o Go to the New Project area and select Map
+• On the Create a New Project window
+o Enter UNIT01 Intro for the Name
+o Use the Browse folder to navigate to the C:\Training\UNIT01 folder to set the Location
+o Leave ‘Create a folder for this project’ unchecked
+Click OK
+• The project is created in the folder you specified. Note that the C:\Training\UNIT01 directory
+includes multiple files, but the important project file ends in .aprx and has a suitcase icon. In our
+example, the project file will be UNIT01 Intro.aprx
+--- page 2 ---
+2 | P a g e
+Explore the Catalog Pane
+The Catalog Pane is useful to customize your project and access items like maps, layouts, folders and
+databases quickly. The following is to show some of the features of the Catalog Pane.
+Opening the Catalog Pane
+The Catalog Pane is  typically open by default when you create a new project. But sometimes, you will
+have to open it manually:
+• On the View ribbon, click on Catalog Pane (Windows group)
+• The Catalog Pane will typically open on the right-hand side of your ArcGIS Pro project window:
+Exploring the Catalog Pane - Maps
+• Expand the Maps folder by clicking on the small triangle next to Maps in the Catalog Pane
+• When it expands you will see an object called Map underneath it. This refers to the Map you see
+in the middle of the ArcGIS Pro window.
+• Close the Map in the ArcGIS Pro window by clicking the X on the tab at the top of the map
+--- page 3 ---
+3 | P a g e
+• Reopen the map by double-clicking Map under Maps in the Catalog Pane
+• To make the map more meaningful, you can change the name of the Map. Right-click on Map in
+the Catalog Pane and select Rename:
+o Type UNIT01 Map for the name and press Enter on your keyboard
+• Note that name changes on the Catalog Pane, tab at the top of the map window and at the top
+of the Contents pane (left side of ArcGIS Pro window)
+Exploring the Catalog Pane – Connect to Folder
+• Right-click on Folders in the Catalog Pane
+• Click on Add Folder Connection
+• In the Add Folder Connection window, click on This PC in the left-hand panel.
+• Select the C: drive (might say Windows (C:)) and then click OK.
+• After a few moments, expand Folders in the Catalog Panel and note that Windows C: is now a
+folder you can directly connect to.
+• Note that there is a UNIT01 folder with a house icon. This is the default folder for the project.
+--- page 4 ---
+4 | P a g e
+Exploring the Catalog Pane – Adding to Favorites
+One of the nice additions to ArcGIS Pro is the ability to add items to a Favorites area, which can be
+accessible from every project you open in ArcGIS Pro
+• Right-click on the Windows C: folder under Folders in the Catalog Pane
+• Select Add To Favorites from the context menu
+• Click on Favorites at the top of your Catalog panel
+• You will see the item on the list. At any time in future projects, you can right-click on the item
+and select Add to Project. Add to New Project will perform this task automatically for all new
+projects.
+Exploring the Catalog Pane – Connect to Database
+• Right-click on Databases in the Catalog Pane
+• Click on Add Database
+• In the Select Existing Geodatabase window, expand Project then Folders and select UNIT01 in
+the left-hand panel
+--- page 5 ---
+5 | P a g e
+• Select UNIT01_Training_GDB.gdb in the right hand panel and click OK
+• After a few moments, expand Databases in the Catalog Panel and note that the selected
+geodatabase is now listed under Databases.
+• Note that there is a UNIT01 Intro.gdb (named after project) geodatabase with a house icon. This
+is the default geodatabase for the project.
+Saving Your Project
+It is a good idea to routinely save your project so that all changes are permanent when you leave the
+project and come back in.
+• At the top lefthand corner of the ArcGIS Pro application window, select the Save icon to save
+your project.
+Adding Data to the Map
+Currently your UNIT01 Map just has a ‘basemap’ in it, which is a basic background layer that is
+automatically added to a new map. The next step is to add some more data to our project
+• In the Catalog Pane expand UNIT01_Training_GDB.gdb and then expand Cadastre
+• Click and drag Parishes into the map window and release the mouse button.
+• Note that Parishes is added to the map window and listed into the Contents panel. Also, the map
+is automatically zoomed and centered to the data.
+--- page 6 ---
+6 | P a g e
+• Click and drag Parcels into the map window and release the mouse button.
+Turn Layers On and Off
+• You can click the checkbox for each layer in the Contents panel to make the layer visible or not.
+Checked means you can see it, unchecked means you cannot.
+Reorder Layers
+• You can drag the layer names in the Contents panel above and below other layers. The list of
+layers works so that it stacks the data in the map with the top layer being the top layer on the
+map.
+Rename Layers
+• You select the layer in the Contents panel, then click the layer name again to allow you to
+rename the layer. In our example we will call the layer St. Andrew Parcels since we have all the
+parcels from that parish. You can also open the Properties box:
+o Right-click on Parcels in the Contents panel
+o Select Properties from the menu (all the way at the bottom of the menu)
+o Ensure that General is selected at the top of the left-hand panel of the Layer Properties:
+Parcels window
+o Change the Name to St. Andrew Parcels and Click OK.
+--- page 7 ---
+7 | P a g e
+Change Definition Query
+The St. Andrew Parcels layer includes several different classifications of parcels (Parcel Status). If we only
+want to see specific classifications, on a layer without deleting data, we can set a definition query.
+• To set a definition query:
+o Right-click on Parcels in the Contents panel
+o Select Properties from the menu (all the way at the bottom of the menu)
+o Select Definition Query
+o Click on the New Definition Query button in the middle of the window
+o On the first list that appears select PARCEL_STATUS
+o On the second list choose ‘includes the value(s)’
+o On the third list select 1 – Pending and 2 – Active. You r definition query should appear
+as this:
+Click Apply, then OK.
+• The legend does not change, but the parcel now appear with only two colors. You can also turn
+the definition query on and off in the Properties by clicking the green check mark next to the
+name of the query (Query 1)
+Change Basemap
+• You can change the underlying basemap (currently World Topographic Map and World Hillshade)
+o In the Map ribbon (tab) click the small triangle under the Basemap Icon
+o Select Imagery (or whatever one you want) to change the basemap.
+--- page 8 ---
+8 | P a g e
+Navigating in ArcGIS Pro
+Using the Explorer Tool
+The Explorer tool is the default navigational tool for zooming, panning and identifying in ArcGIS Pro
+• On the Map ribbon, select the Explore tool (Navigate group)
+o To zoom in and out, use the middle mouse wheel
+o To pan click and hold the middle mouse wheel
+o To identify a feature, hover over the feature and do a left click
+• If you hover over the Explorer tool with your cursor, you can see some brief instructions on how
+to use it. You can hover on any tool to get more information on that tool.
+Zoom to Scale
+• If you want to zoom to a specific scale, you can enter in the scale at the bottom left of the map
+window
+o Enter 2400 in the scale box and press Enter on your keyboard to zoom to that scale on
+the map.
+--- page 9 ---
+9 | P a g e
+Using the Locator
+The Locate tool is used to find GIS features based on names and attributes and navigate to them directly
+• On the Map ribbon, click the Locate (binoculars) tool (Inquiry group)
+• Note Locate is underlined
+o Click the ‘abacus’ > Provider Settings
+--- page 10 ---
+10 | P a g e
+o In the next window, click the Configure for Locate button (first one)
+o On the next screen select Parcels and click OK
+o Change Search mode for LV_NUMBER and PID to Equals
+o Select the back button at top of panel
+o Make sure parcels is the only one checked for Enable (uncheck the others)
+o Select the back button at top of panel
+--- page 11 ---
+11 | P a g e
+• Type 10396193 and press Enter
+o It finds the parcel and pans to it. Next, we’ll try an alternative method.
+• Layer Search is the next option
+o Click Layer Search at the top of the Locate panel
+o Click the ‘abacus’
+o Go to Search in Layer > St. Andrew Parcels > PID
+o Type 10396193
+o When result appears, right-click on the number and select Zoom To
+--- page 12 ---
+12 | P a g e
+Measuring in ArcGIS Pro
+The Measure tool is used to measure features on the map. There are a variety of different methods you
+can use:
+• Click on the Measure tool (ruler) on the Map ribbon (Inquiry group)
+Set Snapping
+• One setting that can be turned on is snapping, which causes the cursor to jump or ‘snap’ exactly
+to specific parts of features, click corners. This is important for editing data, but can also be used
+to ensure consistent measurements from identifiable corners.
+o At the bottom of the map, click on the Snapping button. You know it is on when it turns
+blue as you move away from it
+o You can also change some of the snapping settings by hovering over the snap button and
+revealing an options window. You can make any changes you wish and then move away
+from the window to close it
+--- page 13 ---
+13 | P a g e
+Measure Distance
+• The Measure box opens in the top left corner of your map window when the tool is active.
+Ensure the two unit boxes say Planar (left) and Metric (right)
+• We will turn our focus to the road parcel to the south of the parcel we found using the locator.
+Though it is a long parcel, we will measure the two areas that do not intersect the other street
+parcels:
+• Move your cursor onto the map and click once on the southwest corner of the longer area
+• Move your cursor north and click on the northwest corner of the parcel – note the readout on
+the line as you are moving the cursor and the readout of the window at the top left of the map
+--- page 14 ---
+14 | P a g e
+• Click all the way around to show a dotted line around the parcel and note the segment lengths
+and total (perimeter) while double-clicking on the last point (units on below screenshot will not
+be the same as on your map)
+• Click the eraser tool to clear the measurements
+Measure Area
+• By either clicking the black triangle underneath the Measure icon on the Map ribbon, or clicking
+the small triangle next to the ruler icon at the top left of the measure window, change the
+measure type to Measure Area
+OR
+--- page 15 ---
+15 | P a g e
+• Make sure the two unit boxes say Planar (left) and Square Meters (right)
+• Re-measure the parcel and note the calculation of both meters and square meters. You can
+switch to Hectares as well and it will convert the units
+Measure Feature
+• By either clicking the black triangle underneath the Measure icon on the Map ribbon, or clicking
+the small triangle next to the ruler icon at the top left of the measure window, change the
+measure type to Measure Feature
+• Make sure the two unit boxes say Planar (left) and Square Meters (right)
+• Click on some parcel and note the measurements
+Measure Direction Distance
+• By either clicking the black triangle underneath the Measure icon on the Map ribbon, or clicking
+the small triangle next to the ruler icon at the top left of the measure window, change the
+measure type to Measure Direction Distance
+• Make sure the two unit boxes say Planar (left) and Metric (right)
+• Measure some lines and note the measurements.
+--- page 16 ---
+16 | P a g e
+Changing Unit Properties
+You may have noticed that be default, measurements of distance and area are set to two decimals, and
+defaults to feet. You can change this by setting unit options for the project.
+• Go to the Project tab at the top left corner of ArcGIS Pro
+• In the sidebar, select Options
+• A new window opens. At the top of this window’s sidebar, under the Project group, select Units
+• Open the Distance Units and change the Default setting to Meter
+• Click its Format box and change the number of decimals to 3, click OK
+• The Distance Units should read as:
+• You can do the same with the Area units. Here we changed the Default to Square Meter and set
+both Square Meter and Hectare to 3 decimals
+• Click OK when finished. Feel free to remeasure a few things to note the change in decimals for
+the distance and area units
+--- page 17 ---
+17 | P a g e
+Selecting Features in ArcGIS Pro
+A great many operations in ArcGIS Pro require the selection of specific features. This next section will go
+over the methods in which to select features
+• Turn off the display of the Page Index layer in the Contents panel (if on) and zoom out a little (to
+at least 1000 m)
+Select Features Manually
+• Click the Select tool on the Map ribbon (Selection group)
+• Select a single feature
+o Click a parcel to select a single parcel – note that when it is selected, it is surrounded by
+a light blue color:
+• Select multiple features
+o Click and drag a box that touches the features you want to select
+o Hold down Shift button and click to add to selection
+o Hold down Ctrl button and click to remove from selection
+• Clearing selection
+o Click the Clear button on the Map ribbon (Selection group)
+• Multiple selection tools
+o Click the small triangle under Select on the Map ribbon
+--- page 18 ---
+18 | P a g e
+o Note the variety of methods for selecting (Polygon, Line, Circle, etc.) Experiment with
+these options.
+• Reselection with multiple layers
+o Turn on the Parishes layer
+o Click on a parcel
+o Use the reselection box to change the selection to either the parcel or the page index
+feature by clicking the small triangle, hovering over the options, then clicking your
+choice.
+Select Features Using Attributes
+• Click on the Select by Attributes button on the Map ribbon (Selection group)
+--- page 19 ---
+19 | P a g e
+o Set Input Rows to St. Andrew Parcels
+o On the first list that appears select LV_NUMBER
+o On the second list choose ‘begins with’
+o On the third list type ‘095D3Y0’
+o Click OK
+• On the Contents panel, right-click on St. Andrew Parcels and select Selection > Zoom to Selection
+• Clear your selection
+Select Features Using Attribute Table
+The attribute table includes all of the records for the geographic features in tabular form. This can be
+used for a variety of operations including selecting features.
+• Right-click on St. Andrew Parcels > Attribute Table in the Contents panel
+--- page 20 ---
+20 | P a g e
+o The attribute table by default appears in the bottom half of the map window.
+• Dock the table
+o You can move the table around to another monitor, or dock the attribute table into
+multiple spots on the screen
+• Sort columns by right-clicking column name
+o Right-click on the PID field and select Sort Descending to order the PID’s in exact
+numerical order. We are descending due to the number of null values in the data.
+--- page 21 ---
+21 | P a g e
+• Select rows/features by clicking far left number on row
+o Select the top parcel (OLD HOPE RD)
+o Right-click on the far left number and select Zoom To
+• Close table
+o Close the attribute table by clicking the X on the table tab
+• Save your project
+Joining Data
+While the attributes that are in the Parcels attribute table are nice, one of the powerful functions of GIS
+is to join data from other sources based upon a common attribute. For example, multiple databases may
+have common PID or LV_Numbers and you can bring different data sources together with the parcels on
+the map.
+• On the Catalog Pane, expand Databases, then UNIT_1_Geodatabase.gdb
+• Click and drag Shared_Records into the map and release the mouse button
+• On the Contents panel, right-click on Parcels and select Joins and Relates > Add Join
+--- page 22 ---
+22 | P a g e
+• In the Add join window:
+o Set Input Table to St. Andrew Parcels
+o Set Input Join Field to LV_NUMBER
+o Set Join Table to Shared_Records
+o Set Join Table Field to LV_NUMBER
+o Set the Join Operation to ‘Join one to first’ (if applicable)
+o Click OK
+• Using either the Attribute table or the Explorer tool, note how there are many more attributes
+listed for the parcel. These attributes can be used for different operations that could not before.
+• Save your project
+Labelling Data
+One way to visualize attributes is to label the features on a map. There is a massive variety of
+customizations available, but we’ll keep things simple for this exercise
+Labelling Features
+• Right-click on St. Andrew Parcels on the Contents pane and select Label from the menu
+--- page 23 ---
+23 | P a g e
+o Note how the PID shows on the parcels. This is the field it selects by default, but we can
+choose any field we wish
+• Right-click on St. Andrew Parcels on the Contents pane and select Labeling Properties
+o Delete $feature['Parcels.PID'] from the Expression box
+o In left panel, scroll down and double click on Shared_Records.Lot_no
+--- page 24 ---
+24 | P a g e
+o Click Apply – note the change to map
+• For multiple fields:
+o Clear the Expression window
+o Scroll on the Fields window and double-click on Shared_Records.LT_Volume
+o Type  + ‘/’ +  after Shared_Records.LT_Volume in the expression window
+o Scroll on the Fields window and double-click on Shared_Records.LT_Folio
+--- page 25 ---
+25 | P a g e
+o Click the green check mark (Validate) to validate the expression
+o Click Apply and note the change on the map
+• Save your project
+--- page 26 ---
+26 | P a g e
+Symbolizing Data
+Another way to visualize attributes is to assign colors to represent unique or a range of values so that
+anyone reading the map can recognize features by color, or at least note a contrast between features
+rather quickly. This is called symbology in the GIS world, and we will make some changes to symbology in
+our project. For this exercise, we will symbolize the data so that we assign a color to parcels that are
+registered with title and another color for parcels that are not.
+• Right-click on St. Andrew Parcels on the Contents pane and select Symbology from the menu
+• The Symbology panel appears on the right-hand side of your map window. As you have noticed,
+colors have already been assigned for the PARCEL_STATUS field. This is because the layer is
+subtyped, meaning there is a built-in categorization of the parcels. The field used for the subtype
+is symbolized by default
+--- page 27 ---
+27 | P a g e
+o Click the Expression icon at the top of the panel
+o In the Expression Builder window, select the Import button at the bottom-right corner of
+the window
+o Go to Project > Folders > UNIT01 in the sidebar and select
+Registered_Symbology_Exp.lxp on the right-window.
+o Click OK
+The expression loads into the window. This determines if the LT_Volume field has a
+value. If it does, then it is registered. If not, it is unregistered.
+o Click the green check at the bottom of the expression builder window to validate it.
+o Click OK
+--- page 28 ---
+28 | P a g e
+o Note how the map changes
+o If you want to change individual colors, you can click on the symbol next to its name on
+the bottom of the panel
+--- page 29 ---
+29 | P a g e
+o Use the Gallery to pick an existing symbol option, or go to Properties to change the exact
+settings of fill color and outline.
+o After making changes to the symbol, click on the back arrow at the top left to get back to
+the original Symbology page
+Setting Transparency
+At the end of this exercise is a method for making the data still appear with colors while also seeing the
+photography behind it. This is done by changing the transparency setting.
+• Be sure to select the Parcels layer in the Contents panel.
+• Click the Feature Layer tab in the menu area:
+• Click on the Transparency value and note the percentage (0%). A slider appears that allows you
+to manually adjust the transparency. You can type the value in as well:
+Set the value to 50%.
+• Note how the transparency allows you to see the colored data while also observing the
+photography:
+• Save your project
+END UNIT 1
+
+### UNIT 2 - Editing in ArcGIS Pro.pdf | pages=30
+--- page 1 ---
+UNIT 2 – Editing in ArcGIS Pro
+Open UNIT 2 Project
+We will open an existing project in the training folder.
+• Using File Explorer (folder icon on most Windows taskbars), navigate to your C:\Training\UNIT02
+directory
+• Double-click on the UNIT02 Editing.aprx file to open the UNIT02 Project
+• You will open with a map that has aerial photography of a football pitch
+• Before continuing check that snapping is turned on
+--- page 2 ---
+2 | P a g e
+Editing Points
+This unit is to go through the basics for editing data in ArcGIS Pro. All editable data is separated into
+points, lines, polygons and annotations. How each one is edited relies on the tools that are available. We
+will start with points.
+• Using the Explorer tool on the Map ribbon, zoom in closer to the football pitch to the east of
+National Stadium
+• Make sure that all four layers are turned on the Contents panel
+• Click the Create icon on the Edit ribbon (Features group)
+• The Create Feature panel will appear on the right-hand side of your ArcGIS Pro window. Note
+that there are three objects in there called Line, Point and Polygon with the same styles as the
+Contents panel. These are called templates and are used to select the type of feature you want
+to add to the map. They are only available if the layer is turned on.
+o Turn off any of the layers in the Contents pane and note how they disappear from the
+Create Features window.
+--- page 3 ---
+3 | P a g e
+• Click on the Point template
+• The template expands to show three icons with the first one highlighted. These are tools, and
+the first one is the ‘default’ tool that is automatically selected when you activate the template
+• Move your cursor onto the map and click once on the base of one of the southwestern light
+tower (there are six towers surrounding the field):
+o Note that the new point is placed on the map, and is automatically selected
+• Place five more points at the base of each light tower. Use the photography to place them as
+best you can.
+--- page 4 ---
+4 | P a g e
+Managing Edits
+Before we work to correct the points, we should look at how to manage edits in ArcGIS Pro:
+Delete Features
+• Click the Select tool on the Edit ribbon (Selection group)
+• Select all the points except the first one you placed
+• Press either the Delete key on your keyboard or click the Delete icon on the Edit ribbon (Features
+group)
+Undo Edits
+• Your best friend is the Undo button at the top left corner of the ArcGIS Pro window.
+o  If you want to undo the last operation, you click on the Undo button:
+o If you want to undo several actions, you can click the small triangle next to the Undo
+button and open a list. You can select the last action you want to undo in the list and any
+action listed above will also be undone.
+Saving/Discarding Edits
+• The Save and Discard buttons save or discard all edits performed since the last save, or since the
+beginning of the current ArcGIS Pro session
+o The Save and Discard buttons are on the Manage Edits group of the Edit ribbon:
+--- page 5 ---
+5 | P a g e
+• You will need to Save your edits periodically in case something happens and the program closes
+unexpectedly.
+o Make sure all six points are back on the map before moving on and make sure you save
+your edits
+o
+Editing Lines
+Next we will draw some lines and then use the move and rotation tools to place the lines where they
+would go according to the photo. The lines will be in right angles except for the long line at the
+northeast.
+Draw Line
+• Click on the Line template on the Create Features panel
+• The template expands to show several icons for the line template. The default tool is two-point
+line tool, which places individual lines instead of a large polyline.
+• Move your cursor onto the map.
+• Snap and click anywhere in the middle of the football pitch
+o Note how as you move your cursor away it is followed by a dotted line
+--- page 6 ---
+6 | P a g e
+• Right-click and select Distance from the menu
+• Enter 24 into the Distance box and press Enter
+• Move the dotted line (which is constantly at 24 m) to generally point north; it does not have to
+be exact. Click once to finish the line. Note that a label appears on the line for the length.
+• To continue drawing, you need to draw a line that is 5.2 m and at a 90° angle from the first line.
+To do this:
+o Snap and click on the north end of the 24m line to start the line.
+o Hover your cursor  over the first line, right-click and select Perpendicular from the menu
+Note as you move the cursor, it is drawing perpendicular from the first line
+o Type D on your keyboard (another way to enter distance) and type 5.2
+• For the south 20.6 m line:
+o Snap and click on the south end of the 24m line to start the line.
+--- page 7 ---
+7 | P a g e
+o Hover your cursor over the 24m line to go Perpendicular, or the 5.2m line to go Parallel
+(right-click the option you want). You can also use keyboard shortcuts P for parallel and E
+for perpendicular
+o Type D on your keyboard and type 20.6
+• Use a similar method to place the 3.2m line
+• After placing the four ‘straight’ lines, place the diagonal by clicking the beginning and end of the
+lines at the ends of the 5.2m and 3.2m lines.
+• Save your edits
+Editing Attributes
+The next step is to edit some attributes of the lines and points
+• Use the Select tool on the Edit ribbon to select five lines and six points
+• Note that when you make a selection, it will show you the number of features selected on the
+map in the bottom right corner. In this example we have 11 features selected:
+This is a button that can be used to zoom to the extent of the selected features as well.
+Attributes Tool
+• Click the Attributes tool on the Edit ribbon (Selection group)
+• In the Attributes window that appears you will see each feature represented on the top half,
+grouped by layer name. Beside the layer name is the total number of features selected in that
+layer in parentheses (screenshot will not match yours exactly)
+o Click the first record in the Point list – you will see the first point you placed flash.
+o On the bottom half of the Attributes panel enter 1 for the Structure Number value, press
+Enter and click Apply at the bottom of the panel
+o Repeat this for each point going clockwise around the pitch where #1 is in the southwest
+and #6 is in the southeast
+--- page 8 ---
+8 | P a g e
+• If you want to use the same attribute for multiple features that are selected, you select the layer
+name in the top panel and enter the value
+o Click on Point (6) in the top half of the Attributes panel
+o Enter LIGHT TOWER for the Structure Type value and click Apply
+o Click on each Point feature in the top panel to show that the Structure Type is filled in for
+each one.
+Attributes Table
+• Right-click on the Points layer in the Contents panel and select Attribute table
+--- page 9 ---
+9 | P a g e
+• Right-click on the XC column header and select Calculate Geometry
+• Fill in the Calculate Geometry form so it appears as it does below, ensuring the both XC and YC
+are being calculated at the same time:
+• Click OK
+o Note how it puts the xy coordinates in both fields
+• Close the attribute table by clicking the x on the tabs
+• Save your edits
+--- page 10 ---
+10 | P a g e
+Modifying Features
+This next step is to demonstrate how to move and rotate features
+Moving Features
+• Use the Select tool to select all of the lines on the map
+• Click the Move tool on the Tools gallery on the Edit ribbon (don’t have to open the gallery for
+this one).
+o Note that you will see a yellow dot in the middle of the selection. This is a selection
+anchor, more on that later
+o Move your cursor and hover over any of the selected lines. Note how the cursor
+changes.
+o When the cursor changes click and hold the mouse button down
+o Drag the square to a new location – just put it anywhere, but in a different spot
+o Let go of the mouse button
+• In the example below the new location is northwest of the existing one. You can see both
+locations at the same time:
+--- page 11 ---
+11 | P a g e
+• If you like the new location, click the green check mark to accept and the black x to cancel it.
+Both buttons are at the bottom of the map window
+• Move the shape to a grassy area on the photo that appears to be the same shape. Guide the
+southeast corner of the shape to the southeast corner of the grassy area.
+• Once you have done this click the green check at the bottom of the map
+Rotating Features
+• When you open the Move tool a panel appears to the right of the map window. You can have
+access to the Rotate and Scale tools as well from this panel (otherwise open the gallery and find
+them there)
+o Click the Rotate tool on the Modify Features panel
+• Note that the yellow dot is surrounded by a green wheel with this tool
+--- page 12 ---
+12 | P a g e
+o Move your cursor over the green wheel, click and hold the mouse button.
+o Move your cursor to spin the selection around the yellow dot
+o Release the mouse button to finish
+• We can change the location of the yellow dot so that it rotates around a more meaningful point,
+like home base.
+o Click the black x to cancel the rotation
+o Click the Rotate tool again on the Modify Features panel
+o Move your cursor over the southeast corner and snap to it
+o Hold the Ctrl key on your keyboard and click once with the mouse
+• You will see the yellow dot change location
+• Rotate the selection to see how it rotates differently. Rotate the lines into place to where they
+should go
+• Click the green check when done
+Editing Polygons
+We are now going to introduce polygons for editing
+--- page 13 ---
+13 | P a g e
+Manually Drawing Polygons
+• Re-open the Create Features panel and click the Polygon template (your template will not look
+exactly like the following screenshot)
+o Move your cursor on the map
+o Click the first four points in order, then double-click the last one
+o This places a solid area on the map that is a polygon.
+o Click Undo
+Building Polygons From Lines
+• Select all of the lines on the map using the Select tool
+--- page 14 ---
+14 | P a g e
+• Open the Tools gallery on the Edit ribbon. Scroll down until you find the Construct group and
+select the Construct Polygons tool
+• The Modify Features panel opens with the Construct Polygons tool active. Keep the default
+settings on this tool and click the Construct button at the bottom of the panel
+• Note how there are polygons built from the lines you drew
+• Save your edits
+--- page 15 ---
+15 | P a g e
+Traverse Lines
+One of the most important tools you will use in ArcGIS Pro for land records is the Traverse tool, which
+maps lines based on specific bearings and distance. We will use the Traverse tool to enter lines for the
+football pitch.
+The dimensions of a football pitch are pretty universal, with the exception of the total length and width
+(we’re making assumptions for this exercise that it is 100 x 71 m). The rest of the dimensions are shown
+below:
+Enter Perimeter
+• Open the Tools gallery on the Edit ribbon. Scroll down until you find the COGO group and select
+the Traverse tool
+• The Traverse panel opens on the right hand side of the map window
+o Ensure that Line is the Layer listed at the top of the panel
+o Click the Set Start tool
+--- page 16 ---
+16 | P a g e
+o Right-click anywhere on the map and select Absolute X,Y ,Z from the menu
+o Type 774256.83 for the X value
+o Type 650231.58 for the Y value
+o Press Enter on your keyboard – note that a red point appears in the southwest corner of
+the football pitch. This is your starting point.
+--- page 17 ---
+17 | P a g e
+• When entering bearings and distances into the traverse grid, you type the Direction first, press
+Enter, type the Distance, press Enter again.
+o Type S17-01-45E in the Direction column and press Enter
+o Type 50 in the Distance column and press Enter
+• Note that the default bearing on the next line is the same as the previous line. In cases where
+you have multiple lines going in the same direction, you can simply press enter to accept the
+default bearing
+o The next distance (50) is the same as well so press Enter again
+• Note how the line is being drawn on the map as you are going along
+--- page 18 ---
+18 | P a g e
+• For the list of the bearings and distances, use the guide below:
+S17-01-45E 50
+S17-01-45E 50
+N72-58-15E 15.34
+N72-58-15E 11
+N72-58-15E 18.32
+N72-58-15E 11
+N72-58-15E 15.34
+N17-01-45W 50
+N17-01-45W 50
+S72-58-15W 15.34
+S72-58-15W 11
+S72-58-15W 18.32
+S72-58-15W 11
+S72-58-15W 15.34
+• Your Traverse window should look like the following
+• When you place the final line you will see a readout at the bottom of the traverse window
+indicating if you were successful. A Misclose Distance of zero is perfect
+--- page 19 ---
+19 | P a g e
+• You will also see the perimeter of the football pitch on your map. For the next few steps, we are
+going to turn off the photography so we can see the lines better.
+Enter Outer Goal Area
+• On the Traverse panel click New
+o This clears the traverse window but leaves the drawn lines on the map
+• Click the Set Start tool on the Traverse panel
+• Move your cursor and snap to the northwest corner of the outer goal area on the north end of
+the football pitch. Click to place the start point
+--- page 20 ---
+20 | P a g e
+• Click the Set Closing tool on the Traverse panel
+• Move your cursor to the southwest corner of the outer goal area, snap and click to set the
+closing point (used when starting and closing points are not the same)
+• Use the following bearings and dimensions for this traverse:
+S17-01-45E 16.5
+N72-58-15E 40.32
+N17-01-45W 16.5
+• Your map should look similar to the following:
+• Click New at the bottom of the Traverse panel
+Enter Inner Goal Area
+• Set the Start and Close point for the inner box of the goal area
+• Use the following bearings and dimensions for this traverse:
+S17-01-45E 5.5
+N72-58-15E 18.32
+N17-01-45W 5.5
+• Your map should look similar to the following:
+--- page 21 ---
+21 | P a g e
+• Click the back arrow at the top left of the traverse tool to get out of the tool
+Enter Penalty Arc
+We will need to be clever to enter the arc at the top of the goal area. We will need to change a snap
+setting first and then enter some construction lines to get the arc.
+• On the Edit ribbon, click the small triangle under the Snapping icon
+• Select the Midpoint snapping option (triangle on the submenu)
+• Select the Line template on the Create Features panel
+• Snap to the middle of the north line of the inner goal area (essentially the middle point of the
+entire baseline of the football pitch, or north boundary in this case) and click:
+--- page 22 ---
+22 | P a g e
+• Make the line 11m long and perpendicular to the base line of the field so that it looks like this:
+• Make two 9.15m lines extending from the end of the line you just drew and snap the ends to the
+outer goal box:
+--- page 23 ---
+23 | P a g e
+• On the toolbox at the bottom of the map, click on the End Point Arc Segment
+• Place a curve by:
+o Clicking once on the ends of both 9.15m lines you just drew
+o Move your cursor south (notice the curve bending as you move)
+o Press the R key on your keyboard and type 9.15 and press Enter
+• Delete the unnecessary lines and your map should look similar to the following:
+--- page 24 ---
+24 | P a g e
+Center Line
+• Click the Line template on the Create Features panel and add the center line of the field
+Copy and Pasting
+One of the important operations you will need to learn is how to copy and paste features. Instead of
+redrawing the entire goal area, we can copy and paste the original, flip it 180°, and move it to the other
+side of the field.
+• With the Select tool on the Edit ribbon, select the goal area lines you drew:
+• On the Edit ribbon, click the Copy icon at the far left (Clipboard group)
+--- page 25 ---
+25 | P a g e
+• Next click the Paste icon that lights up
+• You will see a yellow dot appear. When you paste, a copy of the lines are pasted directly on top
+of the originals. The Move tool is automatically selected so your next task is to move the copied
+lines to the other half of the field (temporarily)
+• Click and drag the lines over to the other side of the pitch so that it looks similar to the following:
+• Click the Rotate tool on the Modify Features panel
+• Move your cursor onto the map and press A on your keyboard.
+--- page 26 ---
+26 | P a g e
+• A small Angle box appears. Enter 180 into the box and press Enter
+• You see the lines flip 180° and now we just need to move them into position
+• Click the Move tool on the Modify Features panel
+• Move your cursor to the bottom right corner of the copied goal lines and snap to it.
+• Hold down the Ctrl key and click once on the end of the line. The yellow dot moves to it
+--- page 27 ---
+27 | P a g e
+• Click and drag the lines until they snap to the opposite baseline at the spot they are supposed to.
+The yellow dot provides a means of snapping the selecting to existing features.
+• When done your map should look like this:
+This task could have been accomplished easier using the Mirror tool. The instructor will
+demonstrate.
+--- page 28 ---
+28 | P a g e
+Final Circle
+The final touch is placing the circle at the middle of the pitch. This circle has a 9.15m radius. We don’t
+have the tool we need in the Line template, so this will show how to add hidden tools to templates.
+• Click the Line template on the Create Features panel
+• Click the blue arrow to the right of the template
+• On the next panel, click the ‘hamburger’ menu icon at the top right and select Properties
+• A Template Properties window appears in the middle of the screen. You can set several settings
+on here (instructor will explain a few). Most importantly we can add tools.
+• Click on the Tools option on the left side of the window
+• Check the box for Circle tool in the list of tools on the right. Check box means that the tool is
+available, the option button sets the tool as the default tool.
+• Click OK
+• Click the back arrow on the Create Features panel
+--- page 29 ---
+29 | P a g e
+• Note that there is now a circle tool available in the Line template
+• Click the circle tool on the Line template
+• On the map, snap to and click the midpoint of the centerline.
+• As you move your cursor outward a dotted circle appears
+• Press R on your keyboard to enter the radius
+• Type 9.15 in the radius box and click Enter.
+--- page 30 ---
+30 | P a g e
+• Your pitch is now complete:
+• Save your edits
+END UNIT 2
+
+### UNIT 3 - Layouts in ArcGIS Pro.pdf | pages=13
+--- page 1 ---
+UNIT 3 – Layouts
+The following section will go over several tasks to create an simple layout and map series. We are already
+assuming that the map will already be created with the appropriate layers. We will open the UNIT03
+project for this
+Open UNIT 3 Project
+We will open an existing project in the training folder.
+• Using File Explorer (folder icon on most Windows taskbars), navigate to your C:\Training\UNIT03
+directory
+• Double-click on the UNIT03 Layouts.aprx file to open the UNIT03 Project
+• You will open with a map that has a simple set of lots
+--- page 2 ---
+2 | P a g e
+Create New Layout
+The first step is to create a brand new layout
+• On the Insert ribbon, click the New Layout icon (Project group)
+• On the list of page size options, select Letter 11x17
+o A blank white sheet appears in the window called Layout
+• Rename the layout in the Catalog panel to UNIT03 Layout
+Insert the Map Frame
+Add the UNIT03 Map to the layout
+• From the Catalog panel, click and drag the UNIT03 Map to the Layout window
+• Extend the edges of the map frame to the edges of the sheet by clicking and dragging the
+handles on the sides and corners of the map frame. Drag the edges to include a 0.5” margin at
+the top, left and right sides, and a 1” margin at the bottom.
+--- page 3 ---
+3 | P a g e
+• Click outside of the map frame (in the grey area) to deselect the map frame
+Adjust Scale
+The next step is to adjust the view so that a common scale is achieved.
+• Scale can be manually changed at the bottom left corner of the layout. There are standardized
+scales you can use, but for this exercise we will use 600.
+• Type 600 in the scale box.
+• Note that the parcels do not quite fit vertically in the map frame. We have two options: make
+the map frame larger or rotate the frame from true north
+o To make the frame larger, simply click anywhere on the map. When the handles appear
+drag the edge of the map until the parcels fit vertically.
+o To rotate the data to fit in the frame do the following:
+▪ Right-click on the UNIT03 Map object under Map Frame in the Contents panel
+--- page 4 ---
+4 | P a g e
+▪ Select Properties
+▪ Ensure General is selected atop the sidebar.
+▪ Change the rotation value to -14.5
+▪ Click OK
+o Note how the orientation of the map changes. We can keep this rotation for the rest of
+the exercise if you decide you like the way this looks
+Recenter Map
+To recenter the map, you need to activate the map frame and use the Explorer tool to recenter the map.
+Activating a map frame essentially makes the map usable as a map within the layout window.
+• On the Layout tab, click the Activate button within the Map group:
+--- page 5 ---
+5 | P a g e
+• Note that the map changes. You can now use the Explorer tool (active by default) to pan around
+on the map so that it recenters correct.
+• You should note that there are two sets of navigation tools: one set for Maps and one for
+Layouts. When a map frame is activated the Maps navigation tools are used. When the map
+frame is deactivated, the Layout navigation tools are used.
+Map navigation tools (Map tab)
+Layout navigation tools (Layout tab)
+• Click the red X at the top right of the map window to deactivate the map
+•
+Add Map Elements
+Next, we are going to add four map elements to the map: north arrow, scale bar, title and image
+• On the Insert tab, find the Map Surrounds group
+• Add a North Arrow
+o Click North Arrow
+o Select a style from the gallery
+o Click and drag a box on the layout to place the arrow
+--- page 6 ---
+6 | P a g e
+o Once placed, click and drag handles as needed to adjust size and location
+o If you rotated your layout, you will notice that the north arrow follows the rotation as
+well when you place it
+• Add a Scale Bar
+o Click Scale Bar
+o Select a style from the gallery, and choose from the Metric group
+o To adjust units, right-click on the scale bar and select Properties
+o On the Elements Pane, on the Options tab, change the units from Kilometers to Meters
+• On the Insert tab, find the Graphis and Text group
+• Add a Title
+o Click the A tool in the small graphics gallery
+o Click and drag a box on the bottom of the map
+o Right click on the next text and select Properties
+o Type WIDCOME in the text box and click outside the window to commit the change
+--- page 7 ---
+7 | P a g e
+o You can also use your cursor after the fact to move the text around to center it.
+• Note that you can change the name of each element in the layout (unlink ArcMap) so that they
+are more meaningful. For example, if you just placed an element called Text 1, you can rename it
+Title so that you know what the element’s purpose is.
+• Add an Image
+o Click Picture in the Graphics and Text group of the Insert tab
+o Select From a Local or Network Path
+o Navigate to Project > Folders > Unit03 on the sidebar and select NLA.jpg on the right side
+o
+o
+• Click and drag a box onto the layout to place the image
+• After adding the elements your layout should look like the following:
+--- page 8 ---
+8 | P a g e
+Create the Map Series
+The next step is to create the map series for each lot so that the layout changes for each property.
+• Go to the Insert ribbon and click the Map Series icon (Map Frames group)
+• On the Layout Properties window that appears with Map Series selected on the left, click Spatial
+from the list of options:
+• On the Index Layer properties make the following selections:
+--- page 9 ---
+9 | P a g e
+• On the Map Extent Properties, select Best Fit Extent  option and round up scale to nearest 50
+• Click OK
+• The map series appears on the layout with the available pages listed. You will be able to navigate
+to the different pages as you would the other layout (Assessor Maps)
+• Save your project
+--- page 10 ---
+10 | P a g e
+Final Touches
+Two more things we can do to make the map series look more dynamic. The first is only show parcels
+that are relevant to the map, and add dynamic text at the bottom to show the active attributes
+• Filter out Adjacent Parcels
+o On the Contents panel click the List By Drawing Order button
+o Right-click on the Extract layer and select Properties from the menu
+o Click on Page Query at the bottom of the sidebar. This option allows you to filter out any
+layer that shares an attribute with the layer you used for the map series. Since this is the
+same layer, we can easily match with PID.
+o Select the Match option and set the field to PID
+o Click OK
+o On the Contents panel click the List Map Series Pages button
+o Preview a few pages by double clicking on the individual PID numbers in the list. Note
+how there is only one labelled green parcel and the rest are grey
+--- page 11 ---
+11 | P a g e
+Add Dynamic Text
+Dynamic text refers to the ability to dynamically update the text based upon the page you are looking at
+in the map series. We need to treat these a bit differently than regular text. We’ll place the text below
+the title for the lot number.
+• Click the Dynamic Text icon on the Insert ribbon (Graphics and Text group)
+• Scroll down until you find the Map Series group and Attribute
+• In the Insert Dynamic Text box change the field to LOT_NUMBER and click OK
+--- page 12 ---
+12 | P a g e
+• Click at the bottom center of the map to place the text.
+• Right click on the text and select Properties from the menu
+• Click the Text Symbol option at the top of the panel:
+• Make the following changes:
+o Appearance
+▪ Font Name = Tahoma
+▪ Font Style = Regular
+▪ Size = 16
+o Position
+▪ Horizontal Alignment: Center
+• Click Apply
+• Rename the element in the Contents panel to Lot Number
+• Your map should now look similar to the following:
+--- page 13 ---
+13 | P a g e
+
+### UNIT 4 - Parcel Fabric.pdf | pages=2
+--- page 1 ---
+UNIT 4 – Parcel Fabric
+The following section will introduce the parcel fabric and basic concepts therein
+Open UNIT 4 Project
+We will open an existing project in the training folder.
+• Using File Explorer (folder icon on most Windows taskbars), navigate to your C:\Training\UNIT04
+directory
+• Double-click on the UNIT05 Customizations and Tasks.aprx file to open the UNIT05 Project
+• You will open the project with a map that includes a small collection of parcel points, lines and
+polyons
+--- page 2 ---
+2 | P a g e
+Introduction to the Parcel Fabric
+This unit does not include specific hands-on exercises, only an exploration of the parcel fabric data
+model. The instructor will discuss the following:
+Components
+• Parcel Fabric Records
+• Points, lines, polygons
+• Historic maintenance
+Pertinent Toolbars
+• Parcel Fabric Workflows
+• Quality
+Topology
+Customizations
+
+### UNIT 5 - Customizations and Tasks in ArcGIS Pro.pdf | pages=13
+--- page 1 ---
+UNIT 5 – Customizations and Tasks
+The following section will introduce methods for customizing ArcGIS Pro by adding tools to a new ribbon
+and looking at tasks as a means of making workflows efficient and consistent.
+Open UNIT 5 Project
+We will open an existing project in the training folder.
+• Using File Explorer (folder icon on most Windows taskbars), navigate to your C:\Training\UNIT05
+directory
+• Double-click on the UNIT05 Customizations and Tasks.aprx file to open the UNIT05 Project
+• You will open with a map opens with a small collection of parcels
+--- page 2 ---
+2 | P a g e
+Update Quick Access Toolbar
+The Quick Access Toolbar is at the top left of the ArcGIS Pro project window. This toolbar should include
+common commands you would use often. We will add a handful of tools here.
+• Click the small button at the right of the Quick Access toolbar
+• Select Customize Quick Access Toolbar from the menu
+On the left you have a list of Popular Commands that you can pick from. On the right is a list of
+the tools on the Quick Access Toolbar.
+• On the left panel find the Explore tool and select it.
+• Click the Add button the appears between the two panels
+• Do the same for the Locate tool.
+• For the Measure tool, it is not in the list of popular commands. At the top of the left panel click
+Popular Commands and change it to All Commands
+• You can also use the Search bar above the left panel to filter the list. Type the word Measure.
+• There will be a lot of options for Measure. We will choose the one solely called Measure without
+anything to the right of it
+• Once you have added the tools you can click OK at the bottom right of the window
+--- page 3 ---
+3 | P a g e
+• Note that you will now see the three tools you added on the Quick Access Toolbar. These will be
+available regardless of what tab you are accessing:
+Create New Ribbon
+You can create your own Tab/Ribbon in ArcGIS Pro to consolidate several tools you want to use in one
+toolbar. We are going to add some tools and groups from other toolbars.
+• Click the small button at the right of the Quick Access toolbar
+• Select Customize the Ribbon from the menu
+• At the bottom right of the window click on New Tab > New Tab
+• A New Tab (Custom) appears in the right panel, and a sub class called New Group (Custom)
+• Use the Rename button to rename the New Tab to NLA Toolbar and the New Group to Navigate
+• With NLA Tools selected, click on the New Group to add another group called Manage Edits
+• Select the Navigate group
+• On the left panel, select the Popular Commands option at the top of the panel
+• Select the Explorer tool in the panel and click Add to add it to the Navigate group
+• Do the same with the Locate tool
+• Select the Manage Edits group
+• Select the Save (Save Edits) tool in the left panel and click Add to add it to the Navigate group
+--- page 4 ---
+4 | P a g e
+• Change the commands list at the top of the left panel to All Commands
+• Type Discard in the search bar.
+• Select Discard (Discard Edits) tool and click Add to add it to the Manage edits tab
+• Change the commands list at the top of the left panel to All Tabs
+• Find the Map tab in the list and expand it
+• Select Clipboard
+• On the right panel make sure you have NLA Tools selected and click the Add button to add the
+group to the toolbar.
+• Click OK – the NLA Tools are now accessible as a new tab
+--- page 5 ---
+5 | P a g e
+Working with Tasks
+Tasks are customized panels that allow users to perform work consistently and efficiently without
+concern of finding hidden tools or forgetting steps. For this exercise we will perform a simple workflow
+using a custom task, and later we will create a new one.
+Open Existing Project Tasks
+• In Catalog, navigate to the Tasks folder and expand it. Double-click on UNIT05 – Tasks to open it.
+A panel opens on the left side of project window with a lone task called Load Plan Data
+• Hover over the Load Plan Data task until you see a blue arrow to the right. Click the arrow to
+start the task.
+Locate Registered Parcel
+• The first step automatically executes the Locate tool. For this exercise, enter 404 into the search
+bar. We are looking for title Vol 404, Folio 56
+• After pressing Enter, the map finds the only parcel with volume 404 and pans to it
+• Click Next Step at the bottom of the panel
+--- page 6 ---
+6 | P a g e
+Load Sheet Coordinates
+• The next step automatically runs and uses a geoprocessing tool to load plan data from formatted
+files into a plan-based parcel fabric. The tool automatically turns off the Cad Index layer and
+loads the data into the appropriate layers.
+• Click Next Step
+Activate Record
+• The next step opens the Manage Records tool on the Pro window.
+• Select the Records Created in Last 31 Days button
+• You will see a new parcel fabric record loaded in. Click the certificate icon (next to the blue
+arrow) to make the parcel record active
+--- page 7 ---
+7 | P a g e
+• Doing so opens the Active Record Control in the top left corner. This is a necessary step for the
+next two automatic steps.
+• Click Next Step
+Create Seeds and Build Area
+• Two steps run automatically to create a seed (temporary polygon from closed lines) and build
+the polygon. You will note that the area is selected as well
+• Click Next Step
+Update Area Attributes
+• The Attributes window opens in the panel so that the user can enter data in the appropriate
+spots. For this exercise, enter the data into the yellow fields:
+• Click Finish
+This is generally how a task is executed. Next, we will make our own task.
+--- page 8 ---
+8 | P a g e
+Create a New Task
+We will create a new task to georeference a scan of the plan we loaded to the correct geographic space.
+We can accomplish this using six steps.
+• On the Tasks panel, click the menu (hamburger) icon at the top right and select Edit in Designer
+The panel changes to Designer mode, with a second panel open at the far right for configuring
+each step. This panel is called Task Designer.
+• Click the New Task button at the top of the panel
+• You see ‘New Task’ appear below Load Plan Data. On the Task Designer panel, we can rename
+the task.
+o Rename the task to ‘Georeference Scanned Plan’
+• On the Tasks panel, Hover over Georeference Scanned Plan until you see a blue arrow. Click on
+the blue arrow.
+• The Tasks panel changes, and here is where you add steps. Click on the New Step button
+--- page 9 ---
+9 | P a g e
+Open Scanned Plan
+• On the Task Designer panel, on the General tab change the name of the step to Open Scanned
+Plan. You can also enter instructions for the user if you wish.
+• Change the Step Behavior at the bottom to Auto Run (step and user proceeds)
+• Click the Actions tab at the top of the panel
+--- page 10 ---
+10 | P a g e
+• Hover over the <none> bar under ‘Set the command or geoprocessing tool’ and click the Record
+button
+• Go to the Map tab toolbar and click on the Add Data button
+• Note that the Add Data window opens. This happens every time you use the Record button, so
+not that you will often need to close the tool after clicking on it. However, in this case you will
+need to actually load the file in. Also note that the command tool says Add Data.
+• Navigate to Project > Folders > UNIT05 > images and select 492531_Plan_01.jpg.
+• Click OK.
+• Save the project
+Open Georeferencing
+• Click the Next Step button on the Tasks panel
+• Rename the step to Open Georeferencing
+• Set the Step Behavior to Automatic
+• On the Actions tab of the Task Designer, click the record button and go to the Imagery tab and
+select Georeference
+--- page 11 ---
+11 | P a g e
+Fit to Display
+• Click the Next Step button on the Tasks panel
+• Rename the step to Fit to Display
+• Set the Step Behavior to Automatic
+• On the Actions tab of the Task Designer, click the record button and go to the Georeference tab
+and select Fit to Display
+Add Control Points
+• Click the Next Step button on the Tasks panel
+• Rename the step to Add Control Points
+• Set the Step Behavior to Auto Run
+• On the Actions tab of the Task Designer, click the record button and go to the Georeference tab
+and select Add Control Points
+--- page 12 ---
+12 | P a g e
+• IMPORTANT! – Click the Reset button on the Georeference toolbar so that the georeferencing
+moves are not saved. This will be important when testing the task after we are done. If you
+forget, you can also hit the Reset button to reverse the georeferencing at any time to move the
+image back to its original state
+Save Georeferencing
+• Click the Next Step button on the Tasks panel
+• Rename the step to Save Georeferencing
+• Set the Step Behavior to Automatic
+• On the Actions tab of the Task Designer, click the record button and go to the Georeference tab
+and select Save
+Close Georeferencing
+• Click the Next Step button on the Tasks panel
+• Rename the step to Close Georeferencing
+• Set the Step Behavior to Automatic
+• On the Actions tab of the Task Designer, click the record button and go to the Georeference tab
+and select Close Georeference
+--- page 13 ---
+13 | P a g e
+• Save your project – this saves all of your progress with tasks
+• Click the menu (hamburger) icon at the top of the Tasks panel and select Exit Designer
+Test Your Task
+It’s always a good idea to test a task after creating it. Try running through the task and georeferencing
+the plan to the fabric data. Be sure to do the following beforehand:
+• Remove the 492531_Plan_01 layer from the UNIT05 Map. This ensures you have a fresh copy of
+the layer instead of duplicating the old one.
+• There is also a Safe folder in the C:\Training\UNIT05\Images folder that has a fresh copy of the
+492531_Plan_01.jpg scan. For testing it would be best to delete all of the 492531_Plan_01 files
+from the root Images folder and copy 492531_Plan_01.jpg from the Safe folder to the Images
+folder.
+When finished, your map should look like the following:

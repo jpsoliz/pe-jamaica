@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <None Remove="Config.daml" />
+    <None Remove="Images\Branding\*.png" />
     <None Remove="Images\Ribbon\*.png" />
     <None Remove="Images\TaskList\*.png" />
     <None Remove="Settings\PreflightRules.json" />
@@ -27,6 +28,7 @@
     <Content Include="Fixtures\Compare\*.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Fixtures\Compare\*.json" />
     <Content Include="Images\Ribbon\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Resource Include="Images\Branding\*.png" />
     <Resource Include="Images\Ribbon\*.png" />
     <Resource Include="Images\TaskList\*.png" />
     <Content Include="Settings\PreflightRules.json" CopyToOutputDirectory="PreserveNewest" />
