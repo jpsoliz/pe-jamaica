@@ -1,1 +1,0 @@
-"""OCR extraction provider placeholder."""

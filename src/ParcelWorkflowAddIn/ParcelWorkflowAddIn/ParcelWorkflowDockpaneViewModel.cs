@@ -3497,6 +3497,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(IsReviewApproved));
         NotifyPropertyChanged(nameof(IsReviewLocked));
         NotifyPropertyChanged(nameof(IsManualReviewEditMode));
+        NotifyPropertyChanged(nameof(HasUnsavedReviewChanges));
+        NotifyPropertyChanged(nameof(CanSaveReviewChangesFromWorkspace));
         NotifyPropertyChanged(nameof(CanCancelPendingManualPointEdit));
         NotifyPropertyChanged(nameof(CanChangeReviewParcelSelection));
         NotifyPropertyChanged(nameof(HasSingleReviewParcelGroup));

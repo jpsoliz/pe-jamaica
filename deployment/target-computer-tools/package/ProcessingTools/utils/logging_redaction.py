@@ -1,1 +1,0 @@
-"""Logging redaction utility placeholder."""

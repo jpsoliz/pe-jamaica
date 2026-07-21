@@ -1,1 +1,0 @@
-"""Hash utility placeholder."""

@@ -1,1 +1,0 @@
-"""Path utility placeholder."""

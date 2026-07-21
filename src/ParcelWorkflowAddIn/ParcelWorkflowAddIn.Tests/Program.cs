@@ -337,6 +337,7 @@ var tests = new (string Name, Action Run)[]
     ("manual boundary segment uses next sequence and defaults", ManualBoundarySegmentServiceTests.CreateManualSegmentUsesNextSequenceAndManualDefaults),
     ("pxa review xaml uses tab scoped commands", JamaicaReviewWorkspaceXamlTests.PxaReviewUsesTabScopedCommandsAndHidesGlobalPointToolbar),
     ("pxa review close and edit dialogs use owned windows", JamaicaReviewWorkspaceXamlTests.PxaReviewCloseAndEditDialogsUseOwnedWindows),
+    ("points validation footer actions reflect pressable state", JamaicaReviewWorkspaceXamlTests.FooterActionsOnlyShowWhenPressableAndSaveStateIsExplicitlyNotified),
     ("point edit draft validates required and numeric fields", PointEditDraftTests.ValidateRejectsMissingAndInvalidNumericFields),
     ("point edit draft blocks duplicate point id within parcel", PointEditDraftTests.ValidateBlocksDuplicatePointIdWithinParcel),
     ("point edit draft applies values to row model", PointEditDraftTests.ApplyToWritesCommittedValuesToRow),

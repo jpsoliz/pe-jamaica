@@ -133,6 +133,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool CanSaveReview => parent.CanSaveReviewChangesFromWorkspace;
 
+    public bool ShowSaveReviewAction => CanSaveReview;
+
     public bool ReviewHasBlockers => parent.ReviewHasBlockers;
 
     public string SelectedReviewRowValidationIssueText => parent.SelectedReviewRowValidationIssueText;
@@ -142,6 +144,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         && !parent.IsReviewLocked
         && !parent.ReviewHasBlockers
         && !parent.IsManualReviewEditMode;
+
+    public bool ShowValidationCompleteAction => CanCompleteValidation;
 
     public bool HasReviewSegments => parent.ReviewSegments.Count > 0;
 
@@ -736,6 +740,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(CenterReviewTitle));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
                 OnPropertyChanged(nameof(ApprovalGuidance));
@@ -745,17 +750,22 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ReviewHasBlockers));
                 OnPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
                 OnPropertyChanged(nameof(CanCompleteValidation));
+                OnPropertyChanged(nameof(ShowValidationCompleteAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
                 OnPropertyChanged(nameof(ReviewBadge));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 OnPropertyChanged(nameof(CanCompleteValidation));
+                OnPropertyChanged(nameof(ShowValidationCompleteAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.IsReviewLocked):
                 OnPropertyChanged(nameof(IsReviewLocked));
                 OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 OnPropertyChanged(nameof(CanCompleteValidation));
+                OnPropertyChanged(nameof(ShowValidationCompleteAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.IsManualReviewEditMode):
             case nameof(ParcelWorkflowDockpaneViewModel.CanChangeReviewParcelSelection):
@@ -763,7 +773,15 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(CanChangeParcelGroup));
                 OnPropertyChanged(nameof(IsParcelSelectionReadOnly));
                 OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 OnPropertyChanged(nameof(CanCompleteValidation));
+                OnPropertyChanged(nameof(ShowValidationCompleteAction));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.HasUnsavedReviewChanges):
+            case nameof(ParcelWorkflowDockpaneViewModel.CanSaveReviewChangesFromWorkspace):
+                OnPropertyChanged(nameof(HasUnsavedReviewChanges));
+                OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewContentVersion):
                 OnPropertyChanged(nameof(ParcelInterpretationSummary));
@@ -791,7 +809,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
+                OnPropertyChanged(nameof(ShowSaveReviewAction));
                 OnPropertyChanged(nameof(CanCompleteValidation));
+                OnPropertyChanged(nameof(ShowValidationCompleteAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.CurrentStepBadge):
             case nameof(ParcelWorkflowDockpaneViewModel.HeaderTransactionText):
@@ -864,7 +884,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsParcelSelectionReadOnly));
             OnPropertyChanged(nameof(HasUnsavedReviewChanges));
             OnPropertyChanged(nameof(CanSaveReview));
+            OnPropertyChanged(nameof(ShowSaveReviewAction));
             OnPropertyChanged(nameof(CanCompleteValidation));
+            OnPropertyChanged(nameof(ShowValidationCompleteAction));
             OnPropertyChanged(nameof(HasReviewSegments));
             OnPropertyChanged(nameof(HasStandardReviewSegments));
             OnPropertyChanged(nameof(SegmentReviewSummary));

@@ -138,16 +138,28 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         }
     }
 
-    private void ExecuteSaveFlow(bool closeAfterSave, bool triggerClose)
+    private bool ExecuteSaveFlow(bool closeAfterSave, bool triggerClose)
     {
         if (!viewModel.CanSaveReview)
         {
-            return;
+            MessageBox.Show(
+                this,
+                "Save is not available for the current Points Validation Tool state. Review the point rows and validation messages, then try Save again.",
+                "Save unavailable",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return false;
         }
 
         if (!viewModel.SaveReviewChanges())
         {
-            return;
+            MessageBox.Show(
+                this,
+                "Save did not complete. The Points Validation Tool will stay open so you can review the current point changes.",
+                "Save did not complete",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
         }
 
         if (closeAfterSave)
@@ -159,6 +171,8 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
                 Close();
             }
         }
+
+        return true;
     }
 
     private void ExecuteValidationCompleteFlow(bool triggerClose)
@@ -182,7 +196,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
                 return;
             }
 
-            if (!viewModel.SaveReviewChanges())
+            if (!ExecuteSaveFlow(closeAfterSave: false, triggerClose: false))
             {
                 return;
             }
@@ -211,7 +225,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
         var saveResult = MessageBox.Show(
             this,
-            "Save point changes before closing Points Validation Tool?",
+            BuildClosePromptMessage(),
             "Close Points Validation Tool",
             MessageBoxButton.YesNoCancel,
             MessageBoxImage.Question);
@@ -223,8 +237,8 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
         if (saveResult == MessageBoxResult.Yes)
         {
-            ExecuteSaveFlow(closeAfterSave: true, triggerClose: false);
-            return allowClose || closeDisposition is WorkspaceCloseDisposition.SavedOnly or WorkspaceCloseDisposition.SavedAndContinued;
+            return ExecuteSaveFlow(closeAfterSave: true, triggerClose: false)
+                && (allowClose || closeDisposition is WorkspaceCloseDisposition.SavedOnly or WorkspaceCloseDisposition.SavedAndContinued);
         }
 
         if (!viewModel.DiscardUnsavedReviewChanges())
@@ -234,6 +248,19 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
         closeDisposition = WorkspaceCloseDisposition.DiscardedUnsavedChanges;
         return true;
+    }
+
+    private string BuildClosePromptMessage()
+    {
+        var saveState = viewModel.CanSaveReview
+            ? "Save is available for these point changes."
+            : "Save is not available for the current review state. Choose No only if you want to discard unsaved changes and close.";
+
+        return $"Unsaved point changes were detected.{Environment.NewLine}{Environment.NewLine}"
+            + $"{saveState}{Environment.NewLine}{Environment.NewLine}"
+            + "Yes = save changes and close."
+            + $"{Environment.NewLine}No = discard unsaved changes and close."
+            + $"{Environment.NewLine}Cancel = stay in Points Validation Tool.";
     }
 
     private enum WorkspaceCloseDisposition

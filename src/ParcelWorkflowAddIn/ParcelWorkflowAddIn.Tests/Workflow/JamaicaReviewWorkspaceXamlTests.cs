@@ -36,6 +36,41 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "PXA point and segment edit dialogs should be owned by the active review workspace window.");
     }
 
+    public static void FooterActionsOnlyShowWhenPressableAndSaveStateIsExplicitlyNotified()
+    {
+        var xaml = File.ReadAllText(FindWorkspaceXaml());
+        var workspaceViewModelCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceViewModel.cs"));
+        var dockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+
+        TestAssert.True(
+            xaml.Contains("Visibility=\"{Binding ShowValidationCompleteAction, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal),
+            "Validation Complete should be hidden when validation cannot currently be completed.");
+        TestAssert.True(
+            xaml.Contains("Visibility=\"{Binding ShowSaveReviewAction, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal),
+            "Save should be hidden when there are no pressable review changes to save.");
+        TestAssert.True(
+            xaml.Contains("<Button Content=\"Close\"\r\n                  Width=\"92\"\r\n                  Click=\"CloseButton_Click\" />", StringComparison.Ordinal)
+            || xaml.Contains("<Button Content=\"Close\"\n                  Width=\"92\"\n                  Click=\"CloseButton_Click\" />", StringComparison.Ordinal),
+            "Close should remain directly pressable and must not be hidden or disabled with Save / Validation Complete.");
+        TestAssert.True(
+            workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.HasUnsavedReviewChanges):", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.CanSaveReviewChangesFromWorkspace):", StringComparison.Ordinal),
+            "The workspace should directly refresh Save when the parent dirty/save state changes.");
+        var windowCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceWindow.xaml.cs"));
+        TestAssert.True(
+            windowCode.Contains("Save is available for these point changes.", StringComparison.Ordinal)
+            && windowCode.Contains("Save is not available for the current review state.", StringComparison.Ordinal),
+            "Close should tell the user whether Save is available before closing with unsaved point changes.");
+        TestAssert.True(
+            windowCode.Contains("Save did not complete. The Points Validation Tool will stay open", StringComparison.Ordinal)
+            && windowCode.Contains("Save is not available for the current Points Validation Tool state.", StringComparison.Ordinal),
+            "Save-and-close should show a message when Save cannot run or does not complete.");
+        TestAssert.True(
+            dockpaneCode.Contains("NotifyPropertyChanged(nameof(HasUnsavedReviewChanges));", StringComparison.Ordinal)
+            && dockpaneCode.Contains("NotifyPropertyChanged(nameof(CanSaveReviewChangesFromWorkspace));", StringComparison.Ordinal),
+            "The dockpane should explicitly notify derived dirty/save state after review edits.");
+    }
+
     private static string FindWorkspaceXaml()
     {
         return FindSourceFile("JamaicaReviewWorkspaceWindow.xaml");

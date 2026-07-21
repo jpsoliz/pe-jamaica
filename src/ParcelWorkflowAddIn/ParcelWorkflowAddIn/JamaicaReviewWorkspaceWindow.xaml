@@ -1238,11 +1238,13 @@
           <Button Content="Validation Complete"
                   Width="142"
                   Margin="0,0,8,0"
+                  Visibility="{Binding ShowValidationCompleteAction, Converter={StaticResource BooleanToVisibilityConverter}}"
                   IsEnabled="{Binding CanCompleteValidation}"
                   Click="ValidationCompleteButton_Click" />
           <Button Content="Save"
                   Width="92"
                   Margin="0,0,8,0"
+                  Visibility="{Binding ShowSaveReviewAction, Converter={StaticResource BooleanToVisibilityConverter}}"
                   IsEnabled="{Binding CanSaveReview}"
                   Click="SaveButton_Click" />
           <Button Content="Close"
