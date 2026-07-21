@@ -171,6 +171,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         if (viewModel.HasUnsavedReviewChanges)
         {
             var savePromptResult = MessageBox.Show(
+                this,
                 "Point changes are still unsaved. Choose Yes to save them and continue into Create Spatial Units. Choose No to stay in Points Validation Tool.",
                 "Unsaved point changes",
                 MessageBoxButton.YesNoCancel,
@@ -209,6 +210,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         }
 
         var saveResult = MessageBox.Show(
+            this,
             "Save point changes before closing Points Validation Tool?",
             "Close Points Validation Tool",
             MessageBoxButton.YesNoCancel,

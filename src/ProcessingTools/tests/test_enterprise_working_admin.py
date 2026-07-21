@@ -564,15 +564,15 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
         self.assertTrue(any(call[0].endswith("/addItem") for call in multipart_calls))
         self.assertTrue(any(url.endswith("/publish") for url, _ in post_calls))
 
-    def test_working_lines_label_expression_uses_length_then_distance_fallback(self):
+    def test_working_lines_label_expression_uses_only_length_then_distance_fallback(self):
         labeling_info = admin_script._working_lines_labeling_info()
 
         self.assertEqual("COGO Segment", labeling_info[0]["name"])
         expression = labeling_info[0]["labelExpressionInfo"]["expression"]
         self.assertIn("$feature.length_txt", expression)
         self.assertIn("$feature.distance_txt", expression)
-        self.assertIn("$feature.bearing_txt", expression)
-        self.assertIn("TextFormatting.NewLine", expression)
+        self.assertNotIn("$feature.bearing_txt", expression)
+        self.assertNotIn("TextFormatting.NewLine", expression)
         self.assertLess(expression.index("$feature.length_txt"), expression.index("$feature.distance_txt"))
 
     def test_feature_collection_schema_includes_working_lines_labeling_info(self):
@@ -590,16 +590,13 @@ class EnterpriseWorkingAdminTests(unittest.TestCase):
 
     def test_validate_fields_reports_missing_cogo_fields_for_lines_visualization(self):
         metadata = _valid_child_metadata("lines")
-        metadata["fields"] = [
-            field for field in metadata["fields"] if field["name"] not in {"bearing_txt", "length_txt", "distance_txt"}
-        ]
+        metadata["fields"] = [field for field in metadata["fields"] if field["name"] not in {"length_txt", "distance_txt"}]
         errors = []
 
         admin_script._validate_fields("lines", metadata, errors)
 
         joined = "\n".join(errors)
         self.assertIn("default visualization labeling", joined)
-        self.assertIn("bearing_txt", joined)
         self.assertIn("length_txt", joined)
         self.assertIn("distance_txt", joined)
 

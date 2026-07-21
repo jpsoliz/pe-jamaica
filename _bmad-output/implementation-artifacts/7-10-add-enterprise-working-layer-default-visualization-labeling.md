@@ -10,7 +10,7 @@ Status: review
 
 As a cadastral examiner or supervisor reviewing Enterprise working layers outside the immediate ArcGIS Pro map session,  
 I want the Enterprise `working_review` Feature Layer to carry default visualization and labeling for parcel review,  
-so that bearing/distance line labels and parcel context are visible when the layer is opened from Portal or Map Viewer without requiring the add-in to load and style the layers first.
+so that length-only line labels and parcel context are visible when the layer is opened from Portal or Map Viewer without requiring the add-in to load and style the layers first.
 
 ## Business Context
 
@@ -22,13 +22,13 @@ This story is intentionally small. It must not change Spatial Unit creation, Inn
 
 ## Acceptance Criteria
 
-1. Given the Enterprise working service is provisioned or validated, when the `working_lines` child layer is available, then the admin tooling can apply or verify default line labeling based on `bearing_txt` plus a newline plus `length_txt` / `distance_txt`.
-2. Given `bearing_txt` and `length_txt` are populated, when `working_lines` is opened in Portal/Map Viewer or loaded by default visualization-aware clients, then the label expression displays bearing and length on separate lines.
+1. Given the Enterprise working service is provisioned or validated, when the `working_lines` child layer is available, then the admin tooling can apply or verify default line labeling based on `length_txt` with `distance_txt` fallback.
+2. Given `bearing_txt` and `length_txt` are populated, when `working_lines` is opened in Portal/Map Viewer or loaded by default visualization-aware clients, then the label expression displays only the length.
 3. Given `length_txt` is empty but `distance_txt` is populated, when the line label is evaluated, then the label falls back to `distance_txt`.
 4. Given `bearing_txt` is empty and distance/length text exists, when the line label is evaluated, then the label displays only the distance/length text.
-5. Given distance/length text is empty and `bearing_txt` exists, when the line label is evaluated, then the label displays only the bearing.
+5. Given distance/length text is empty and `bearing_txt` exists, when the line label is evaluated, then no visible label text is produced for that feature.
 6. Given all COGO label fields are empty, when the label is evaluated, then no visible label text is produced for that feature.
-7. Given the Enterprise service is missing `bearing_txt`, `length_txt`, or `distance_txt`, when default visualization validation runs, then it reports a clear schema/remediation warning or blocker according to the existing 7.8 validation behavior.
+7. Given the Enterprise service is missing `length_txt` or `distance_txt`, when default visualization validation runs, then it reports a clear schema/remediation warning or blocker according to the existing 7.8 validation behavior.
 8. Given the Enterprise admin script applies visualization defaults, when the operation succeeds, then diagnostics report that `working_lines` labeling was applied or already matches the expected default.
 9. Given the Enterprise admin script cannot apply visualization defaults because of auth, service, or REST errors, when the operation fails, then no credentials/tokens are logged and the diagnostic explains that data publishing remains separate from visualization default setup.
 10. Given the ArcGIS Pro add-in loads Enterprise working layers into the active map, when map-load labeling is applied, then existing Pro-side labels continue to work and are not broken by Portal default visualization metadata.
@@ -38,12 +38,11 @@ This story is intentionally small. It must not change Spatial Unit creation, Inn
 ## Tasks / Subtasks
 
 - [x] Define the Enterprise default visualization contract. (AC: 1-6, 11)
-  - [x] Specify the expected `working_lines` label expression using `bearing_txt`, `length_txt`, and `distance_txt`.
+  - [x] Specify the expected `working_lines` label expression using `length_txt` and `distance_txt`.
   - [x] Prefer an Arcade expression equivalent to the existing ArcGIS Pro map-load label behavior:
     - empty bearing and empty length/distance -> empty label
-    - bearing only -> bearing
     - length/distance only -> length/distance
-    - bearing plus length/distance -> bearing + newline + length/distance
+    - bearing plus length/distance -> length/distance only
   - [x] Keep line label class name stable, recommended: `COGO Segment`.
   - [x] Define whether the expression uses `length_txt` first and `distance_txt` as fallback.
 
@@ -85,7 +84,7 @@ Important methods:
 - `ApplyLineLabels(...)`
 - `ApplySingleLabelClass(...)`
 
-The current Pro expression uses `bearing_txt` and `length_txt` first, and has fallbacks for related distance fields. This story should reuse the same operator-facing behavior for Enterprise default visualization.
+The current Pro expression uses `length_txt` first, then distance-related fallbacks. This story should reuse the same operator-facing behavior for Enterprise default visualization.
 
 ### Current Enterprise Publish And Schema Behavior
 
@@ -111,12 +110,10 @@ Story 7.8 now explicitly requires those line COGO fields and `working_case_index
 Use an Arcade expression equivalent to:
 
 ```arcade
-var len = IIf(IsEmpty($feature.length_txt), $feature.distance_txt, $feature.length_txt);
 When(
-  IsEmpty($feature.bearing_txt) && IsEmpty(len), '',
-  IsEmpty($feature.bearing_txt), len,
-  IsEmpty(len), $feature.bearing_txt,
-  $feature.bearing_txt + TextFormatting.NewLine + len
+  IsEmpty($feature.length_txt) && IsEmpty($feature.distance_txt), '',
+  IsEmpty($feature.length_txt), $feature.distance_txt,
+  $feature.length_txt
 )
 ```
 
@@ -143,7 +140,7 @@ Manual/live smoke testing:
 
 - Use a non-production/test Enterprise `working_review` service.
 - Run Enterprise Admin `Validate` / `Provision` after implementation.
-- Open `working_lines` in Portal/Map Viewer and confirm COGO labels display from `bearing_txt` plus `length_txt` or `distance_txt`.
+- Open `working_lines` in Portal/Map Viewer and confirm COGO labels display only `length_txt` or `distance_txt`.
 - Open the same transaction in ArcGIS Pro through the add-in and confirm Pro-side labels still display correctly.
 
 ## References
@@ -175,6 +172,7 @@ GPT-5 Codex
 - Requirement is limited to Enterprise/Portal default visualization metadata, especially `working_lines` labeling.
 - Existing ArcGIS Pro label behavior remains the baseline and must be preserved.
 - Implemented Enterprise `working_lines` default labeling metadata with `COGO Segment` Arcade expression using `length_txt` first and `distance_txt` fallback.
+- Updated Enterprise visualization contract for PE Compute testing so line labels display length only instead of bearing plus length.
 - Added live admin diagnostics for visualization status and updateDefinition failure handling without token exposure.
 - Preserved Pro-side map-load labels; no C# production changes were needed.
 
@@ -191,3 +189,4 @@ GPT-5 Codex
 |---|---:|---|---|
 | 2026-07-06 | 0.1 | Created follow-up story for Enterprise `working_lines` default labelingInfo using bearing and distance text fields. | Mary / Codex |
 | 2026-07-06 | 1.0 | Implemented Enterprise `working_lines` default labelingInfo, validation/apply diagnostics, and admin tests. | Amelia / Codex |
+| 2026-07-21 | 1.1 | Revised Enterprise working-layer label contract to length-only labels for PE Compute review. | Mary / Codex |

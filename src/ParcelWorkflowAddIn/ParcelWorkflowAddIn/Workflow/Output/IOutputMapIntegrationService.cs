@@ -520,25 +520,11 @@ internal static class OutputMapReviewStyling
 
     private static void ApplyLineLabels(FeatureLayer featureLayer, CIMFeatureLayer definition, IReadOnlySet<string> fieldNames, ICollection<string> warnings)
     {
-        var bearingField = FirstAvailableField(fieldNames, "bearing_txt", "bearing", "course", "direction");
         var lengthTextField = FirstAvailableField(fieldNames, "length_txt", "length_txt2", "distance_txt", "distance");
         var distanceField = FirstAvailableField(fieldNames, "distance_m", "distance", "distance_value");
 
         string? expression = null;
-        if (bearingField is not null && lengthTextField is not null)
-        {
-            expression =
-                $"When(" +
-                $"IsEmpty($feature.{bearingField}) && IsEmpty($feature.{lengthTextField}), '', " +
-                $"IsEmpty($feature.{bearingField}), $feature.{lengthTextField}, " +
-                $"IsEmpty($feature.{lengthTextField}), $feature.{bearingField}, " +
-                $"$feature.{bearingField} + TextFormatting.NewLine + $feature.{lengthTextField})";
-        }
-        else if (bearingField is not null)
-        {
-            expression = $"$feature.{bearingField}";
-        }
-        else if (lengthTextField is not null)
+        if (lengthTextField is not null)
         {
             expression = $"$feature.{lengthTextField}";
         }
@@ -602,10 +588,18 @@ internal static class OutputMapReviewStyling
     {
         try
         {
-            var pointSymbol = SymbolFactory.Instance.ConstructPointSymbol(
-                ColorFactory.Instance.CreateRGBColor(194, 65, 12),
-                6.0,
+            var outlineMarker = SymbolFactory.Instance.ConstructMarker(
+                ColorFactory.Instance.BlackRGB,
+                7.0,
                 SimpleMarkerStyle.Circle);
+            var fillMarker = SymbolFactory.Instance.ConstructMarker(
+                ColorFactory.Instance.WhiteRGB,
+                5.0,
+                SimpleMarkerStyle.Circle);
+            var pointSymbol = new CIMPointSymbol
+            {
+                SymbolLayers = new CIMSymbolLayer[] { outlineMarker, fillMarker }
+            };
             featureLayer.SetRenderer(new CIMSimpleRenderer
             {
                 Symbol = pointSymbol.MakeSymbolReference()
@@ -645,7 +639,7 @@ internal static class OutputMapReviewStyling
                 1.25,
                 SimpleLineStyle.Solid);
             var polygonSymbol = SymbolFactory.Instance.ConstructPolygonSymbol(
-                ColorFactory.Instance.CreateRGBColor(222, 228, 232, 18),
+                ColorFactory.Instance.CreateRGBColor(222, 228, 232, 45),
                 SimpleFillStyle.Solid,
                 outline);
             featureLayer.SetRenderer(new CIMSimpleRenderer

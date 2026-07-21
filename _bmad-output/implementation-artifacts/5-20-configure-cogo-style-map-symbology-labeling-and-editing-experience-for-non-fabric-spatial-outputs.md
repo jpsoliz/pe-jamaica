@@ -16,8 +16,8 @@ so that I can inspect and correct parcel geometry in a map experience that feels
 
 1. Given the workflow is using the standard non-fabric output mode, when Create Spatial Units succeeds and layers are loaded into the active map, then the generated `parcel_points`, `parcel_lines`, and `parcel_polygons` layers are added with a consistent review-ready drawing order and visible symbology.
 2. Given `parcel_points` are loaded for review, when the map integration applies the layer definition, then points display with clear point symbols and labels driven by `point_id`.
-3. Given `parcel_lines` are loaded for review, when the map integration applies the layer definition, then lines display with parcel-review symbology and labels derived from the line bearing and distance fields in a COGO-style format.
-4. Given `parcel_polygons` are loaded for review, when the map integration applies the layer definition, then polygons render as lightly filled parcel areas with readable parcel boundary emphasis and parcel name/identifier support where appropriate.
+3. Given `parcel_lines` are loaded for review, when the map integration applies the layer definition, then lines display with parcel-review symbology and labels derived from the segment length only, preferring `length_txt` and falling back to `distance_txt` / `distance_m`.
+4. Given `parcel_polygons` are loaded for review, when the map integration applies the layer definition, then polygons render with transparent parcel fill, readable parcel boundary emphasis, and parcel name/identifier support where appropriate.
 5. Given multiple output layers are loaded together, when the map setup completes, then the drawing order keeps polygons below lines and lines below points so labels and geometry remain readable.
 6. Given the non-fabric output path is meant for map-based correction, when the review context is prepared, then the user is placed into a map experience that supports standard ArcGIS Pro snapping, feature selection, attribute editing, and geometry correction without requiring Parcel Fabric.
 7. Given the user is in Map Review with non-fabric outputs, when the stage loads, then the add-in shows clear status guidance that this is a COGO-ready non-fabric review surface and not a true Parcel Fabric workspace.
@@ -43,8 +43,8 @@ so that I can inspect and correct parcel geometry in a map experience that feels
 
 - [x] Implement line layer COGO-style styling and labels. (AC: 3, 5, 8, 12)
   - [x] Apply a review-oriented line symbol to `parcel_lines`.
-  - [x] Build a label expression using line bearing and distance fields.
-  - [x] Support graceful fallback when only text distance or partial bearing fields are available.
+  - [x] Build a label expression using only line length/distance fields.
+  - [x] Support graceful fallback when text length/distance fields are partially available.
 
 - [x] Implement polygon review styling. (AC: 4-5, 8, 12)
   - [x] Apply a light-fill, strong-outline parcel review style to `parcel_polygons`.
@@ -106,20 +106,20 @@ It should **not** implement:
 
 #### Points
 
-- symbol: clear, small review point marker
+- symbol: clear, small review point marker with white fill and black outline
 - label: `point_id`
 - purpose: locate and verify vertices quickly
 
 #### Lines
 
 - symbol: parcel boundary review line
-- label: `bearing_txt + ' ' + distance_txt`
+- label: length only, using `length_txt` first and `distance_txt` as fallback
 - fallback: use `distance_m` when `distance_txt` is empty
 - purpose: give the examiner a COGO-like read of each boundary segment
 
 #### Polygons
 
-- symbol: light parcel fill with stronger boundary outline
+- symbol: transparent parcel fill with stronger boundary outline
 - optional label: `parcel_name` or `parcel_id`
 - purpose: make parcel grouping obvious while keeping lines/points readable
 
@@ -181,14 +181,15 @@ This story should extend that seam rather than introducing a separate map loader
 
 Preferred:
 
-- if both `bearing_txt` and `length_txt` exist, label with both
-- if `bearing_txt` is missing but `distance_m` exists, label with numeric distance
-- if neither is present, leave labels off and warn softly
+- if `length_txt` exists, label with `length_txt`
+- if `length_txt` is missing and `distance_txt` exists, label with `distance_txt`
+- if text length/distance fields are missing but `distance_m` exists, label with numeric distance
+- if no length/distance fields are present, leave labels off and warn softly
 
 Example intent:
 
-- `N89°34'10"W 55.00`
-- `S00°12'38"E 135.01`
+- `55.00`
+- `135.01`
 
 ### Suggested Resilience Rules
 
@@ -238,6 +239,7 @@ That keeps expectations accurate while still making the standard mode feel inten
 | 2026-07-02 | 1.3 | Implemented supporting layer subgroup routing and hidden-by-default map loading behavior with focused tests. | Codex |
 | 2026-07-02 | 1.4 | Patched review findings: supporting map-load failures are non-blocking and DWG imports can enforce configured CAD layer allowlists. | Codex |
 | 2026-07-02 | 1.5 | Patched parcel-fabric map path resolution so checked supporting survey point and DWG layers remain map-loadable under the hidden supporting sources subgroup. | Codex |
+| 2026-07-21 | 1.6 | Updated review cartography contract for PE Compute testing: transparent parcel fill, length-only line labels, and white-fill/black-outline points. | Mary / Codex |
 
 ## Dev Agent Record
 
@@ -254,7 +256,8 @@ Codex GPT-5
 
 - Extended the existing output map integration seam so non-fabric review styling is applied automatically when spatial outputs are added to the active map.
 - Standardized non-fabric layer ordering to polygons, then lines, then points, matching the review-oriented COGO display contract from the story.
-- Added reviewer-friendly point, line, and polygon renderers plus resilient labeling that prefers `point_id`, `bearing_txt`, `length_txt`, `distance_m`, `parcel_name`, and `parcel_id`.
+- Added reviewer-friendly point, line, and polygon renderers plus resilient labeling that prefers `point_id`, length/distance fields, `parcel_name`, and `parcel_id`.
+- Updated PE Compute review styling so parcel points use white fill with black outline, parcel polygons use transparent fill, and line labels show only length.
 - Added graceful warning behavior so missing label fields or styling issues degrade safely instead of breaking map loading.
 - Updated success messaging to clearly position the standard path as a COGO-ready non-fabric review surface, distinct from Parcel Fabric mode.
 - Added focused tests for layer ordering and non-fabric messaging.

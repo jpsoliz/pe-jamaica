@@ -1831,6 +1831,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void RefreshReviewRowSequences(string parcelGroupId)
     {
         var normalizedParcelGroupId = NormalizeReviewParcelGroupId(parcelGroupId);
+        if (loadedReviewDocument is not null)
+        {
+            manualPointService.NormalizeSequences(loadedReviewDocument.Rows, normalizedParcelGroupId);
+        }
+
         foreach (var row in ReviewRows.Where(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), normalizedParcelGroupId, StringComparison.OrdinalIgnoreCase)))
         {
             row.RefreshSequenceInGroup();
@@ -1893,6 +1898,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var currentParcelGroupId = NormalizeReviewParcelGroupId(rowToRemove.ParcelGroupId);
         loadedReviewDocument.Rows.Remove(rowToRemove.Model);
         ReviewRows.Remove(rowToRemove);
+        RefreshReviewRowSequences(currentParcelGroupId);
         var nextRow = ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), currentParcelGroupId, StringComparison.OrdinalIgnoreCase))
             ?? ReviewRows.LastOrDefault();
         SetReviewWorkspaceParcelContext(currentParcelGroupId, rowToRemove.Model.ParcelName, rowToRemove.TraverseId, refreshProperties: false);
@@ -1919,6 +1925,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             var dialogViewModel = new PointEditDialogViewModel(draft, ReviewRows.ToArray());
             var dialog = new PointEditDialogWindow(dialogViewModel);
+            ApplyReviewDialogOwner(dialog);
             var accepted = dialog.ShowDialog() == true;
             committedDraft = dialogViewModel.CommittedDraft;
             return accepted;
@@ -1959,6 +1966,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             var dialogViewModel = new SegmentEditDialogViewModel(reviewSegment, isNewSegment: true);
             var dialog = new SegmentEditDialogWindow(dialogViewModel);
+            ApplyReviewDialogOwner(dialog);
             if (dialog.ShowDialog() != true)
             {
                 workflowSession.SetValidationFailure("Boundary segment add cancelled.");
@@ -2002,6 +2010,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             var dialogViewModel = new SegmentEditDialogViewModel(targetSegment);
             var dialog = new SegmentEditDialogWindow(dialogViewModel);
+            ApplyReviewDialogOwner(dialog);
             if (dialog.ShowDialog() != true)
             {
                 workflowSession.SetValidationFailure("Boundary segment edit cancelled.");
@@ -2050,6 +2059,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewContentVersion++;
         workflowSession.SetValidationFailure($"Boundary segment {targetSegment.FromPoint}->{targetSegment.ToPoint} excluded from boundary. Save review to persist the change.");
         RefreshWorkflowProperties();
+    }
+
+    private void ApplyReviewDialogOwner(Window dialog)
+    {
+        var owner = experimentalReviewWorkspaceWindow ?? FrameworkApplication.Current.MainWindow;
+        if (owner is not null && !ReferenceEquals(owner, dialog))
+        {
+            dialog.Owner = owner;
+        }
     }
 
     private void CancelPendingManualPointEdit()

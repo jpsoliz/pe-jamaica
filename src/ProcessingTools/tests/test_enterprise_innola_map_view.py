@@ -118,16 +118,16 @@ class EnterpriseInnolaMapViewTests(unittest.TestCase):
             urls["lines"],
         )
 
-    def test_line_label_expression_uses_bearing_length_and_distance_fallback(self):
+    def test_line_label_expression_uses_only_length_and_distance_fallback(self):
         definition = admin_script.build_web_map_definition(admin_script._resolve_config(admin_script.parse_args(["export-config"]), _settings()))
         lines = next(layer for layer in definition["operationalLayers"] if layer["id"] == "working_lines")
 
         expression = lines["layerDefinition"]["drawingInfo"]["labelingInfo"][0]["labelExpressionInfo"]["expression"]
 
-        self.assertIn("bearing_txt", expression)
         self.assertIn("length_txt", expression)
         self.assertIn("distance_txt", expression)
-        self.assertIn("TextFormatting.NewLine", expression)
+        self.assertNotIn("bearing_txt", expression)
+        self.assertNotIn("TextFormatting.NewLine", expression)
 
     def test_polygon_popup_exposes_suid_and_area(self):
         definition = admin_script.build_web_map_definition(admin_script._resolve_config(admin_script.parse_args(["export-config"]), _settings()))

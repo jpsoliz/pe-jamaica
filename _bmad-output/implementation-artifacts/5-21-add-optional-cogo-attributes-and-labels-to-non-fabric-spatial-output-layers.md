@@ -46,7 +46,7 @@ so that the non-fabric map can show parcel-review information closer to Parcel F
 
 - [x] Update ArcGIS Pro non-fabric labeling to use the optional field contract. (AC: 4, 6-7)
   - [x] Keep point labels driven by `point_id`.
-  - [x] Drive line labels from configured bearing/distance fields when enabled.
+  - [x] Drive line labels from configured length/distance fields when enabled.
   - [x] Keep polygon labels parcel-oriented and readable without overwhelming the map.
 
 - [x] Add focused verification coverage. (AC: 1-7)
@@ -90,7 +90,7 @@ so that the non-fabric map can show parcel-review information closer to Parcel F
 
 - Story 5.19 defined the target non-fabric schema contract.
 - Story 5.20 improved non-fabric symbology and labeling behavior.
-- The user now wants the standard non-fabric path to carry more of the parcel-review experience: visible point ids, line distances, and bearing-style labeling, but only when desired.
+- The user now wants the standard non-fabric path to carry more of the parcel-review experience: visible point ids and line length/distance labeling, but only when desired.
 
 This story is the bridge between:
 
@@ -244,3 +244,4 @@ while remaining:
 | 2026-06-23 | 0.1 | Drafted optional COGO attribute and label enrichment story for non-fabric spatial outputs. | Codex |
 | 2026-06-23 | 1.0 | Implemented optional non-fabric COGO enrichment, summary flags, map-label gating, and focused verification coverage. | Codex |
 | 2026-06-23 | 1.1 | Exposed the non-fabric COGO enrichment settings in the Settings workspace and added settings round-trip coverage. | Codex |
+| 2026-07-21 | 1.2 | Clarified that review line labels should use length/distance only while retaining COGO-support fields for diagnostics and data. | Mary / Codex |

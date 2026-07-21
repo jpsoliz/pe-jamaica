@@ -153,13 +153,11 @@ CASE_INDEX_FIELDS = (
 )
 ISSUE_FIELDS = ("issue_type", "issue_text")
 WORKING_LINES_LABEL_CLASS_NAME = "COGO Segment"
-WORKING_LINES_LABEL_FIELDS = ("bearing_txt", "length_txt", "distance_txt")
+WORKING_LINES_LABEL_FIELDS = ("length_txt", "distance_txt")
 WORKING_LINES_LABEL_EXPRESSION = (
-    "var len = IIf(IsEmpty($feature.length_txt), $feature.distance_txt, $feature.length_txt); "
-    "When(IsEmpty($feature.bearing_txt) && IsEmpty(len), '', "
-    "IsEmpty($feature.bearing_txt), len, "
-    "IsEmpty(len), $feature.bearing_txt, "
-    "$feature.bearing_txt + TextFormatting.NewLine + len)"
+    "When(IsEmpty($feature.length_txt) && IsEmpty($feature.distance_txt), '', "
+    "IsEmpty($feature.length_txt), $feature.distance_txt, "
+    "$feature.length_txt)"
 )
 
 

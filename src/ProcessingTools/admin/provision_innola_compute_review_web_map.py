@@ -33,11 +33,9 @@ REFERENCE_LAYER_ORDER = (
 )
 WORKING_LAYER_ORDER = ("polygons", "lines", "points", "issues")
 LINE_LABEL_EXPRESSION = (
-    "var len = IIf(IsEmpty($feature.length_txt), $feature.distance_txt, $feature.length_txt); "
-    "When(IsEmpty($feature.bearing_txt) && IsEmpty(len), '', "
-    "IsEmpty($feature.bearing_txt), len, "
-    "IsEmpty(len), $feature.bearing_txt, "
-    "$feature.bearing_txt + TextFormatting.NewLine + len)"
+    "When(IsEmpty($feature.length_txt) && IsEmpty($feature.distance_txt), '', "
+    "IsEmpty($feature.length_txt), $feature.distance_txt, "
+    "$feature.length_txt)"
 )
 POLYGON_LABEL_EXPRESSION = (
     "When(IsEmpty($feature.SUID), $feature.parcel_name, "
@@ -343,7 +341,7 @@ def _working_operational_layer(role: str, url: str, config: dict[str, Any]) -> d
         "title": _working_title(role),
         "url": url,
         "visibility": role in {"polygons", "lines"},
-        "opacity": 0.82 if role == "polygons" else 1,
+        "opacity": 0.55 if role == "polygons" else 1,
         "layerType": "ArcGISFeatureLayer",
         "layerDefinition": {
             "definitionExpression": config["completion_filter"],
@@ -366,7 +364,7 @@ def _drawing_info(role: str) -> dict[str, Any]:
                 "symbol": {
                     "type": "esriSFS",
                     "style": "esriSFSSolid",
-                    "color": [255, 229, 128, 95],
+                    "color": [255, 229, 128, 65],
                     "outline": {"type": "esriSLS", "style": "esriSLSSolid", "color": [0, 113, 117, 255], "width": 1.4},
                 },
             }
@@ -390,9 +388,9 @@ def _drawing_info(role: str) -> dict[str, Any]:
                 "symbol": {
                     "type": "esriSMS",
                     "style": "esriSMSCircle",
-                    "color": [22, 122, 130, 255],
+                    "color": [255, 255, 255, 255],
                     "size": 5,
-                    "outline": {"color": [255, 255, 255, 255], "width": 1},
+                    "outline": {"color": [0, 0, 0, 255], "width": 1},
                 },
             }
         }
