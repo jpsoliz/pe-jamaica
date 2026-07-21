@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "validation_summary.schema.json",
+  "title": "Validation Summary",
+  "type": "object",
+  "required": ["schema_version", "transaction_id", "run_id", "created_at", "source_manifest_hash", "payload"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "transaction_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "created_by": { "type": ["string", "null"] },
+    "source_manifest_hash": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["status", "rule_profile", "rule_version", "finding_counts", "findings"],
+      "properties": {
+        "status": { "type": "string" },
+        "rule_profile": { "type": "string" },
+        "rule_version": { "type": "string" },
+        "finding_counts": {
+          "type": "object",
+          "required": ["critical", "high", "warning", "info", "passed"],
+          "properties": {
+            "critical": { "type": "integer" },
+            "high": { "type": "integer" },
+            "warning": { "type": "integer" },
+            "info": { "type": "integer" },
+            "passed": { "type": "integer" }
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rule_id", "title", "severity", "status"],
+            "properties": {
+              "rule_id": { "type": "string" },
+              "title": { "type": "string" },
+              "severity": { "type": "string" },
+              "status": { "type": "string" },
+              "evidence": { "type": ["string", "null"] },
+              "recommended_action": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "errors": { "type": "array", "items": { "type": "string" } }
+  }
+}

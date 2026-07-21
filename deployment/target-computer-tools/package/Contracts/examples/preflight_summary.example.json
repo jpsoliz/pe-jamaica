@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "transaction_id": "TR-SMD-0000001",
+  "run_id": "preflight-run-0001",
+  "created_at": "2026-06-09T00:00:00Z",
+  "created_by": null,
+  "source_manifest_hash": "sha256:placeholder",
+  "payload": {
+    "status": "blocked",
+    "blockers": [
+      {
+        "check_id": "required_role_plan_map_reference",
+        "category": "manifest",
+        "severity": "blocker",
+        "status": "blocked",
+        "message": "Missing plan/map reference.",
+        "affected_path": null,
+        "source_role": "plan_map_reference",
+        "correction": "Add a copied plan/map source file and refresh intake."
+      }
+    ],
+    "warnings": [],
+    "passed_checks": [
+      {
+        "check_id": "required_role_points_computation",
+        "category": "manifest",
+        "severity": "passed",
+        "status": "passed",
+        "message": "Passed: required points/computation source role is present.",
+        "affected_path": "D:\\cases\\TR-SMD-0000001\\source\\points.csv",
+        "source_role": "points_computation",
+        "correction": null
+      }
+    ]
+  },
+  "warnings": [],
+  "errors": [
+    "Missing plan/map reference."
+  ]
+}

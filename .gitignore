@@ -24,6 +24,7 @@ __pycache__/
 .venv/
 venv/
 env/
+deployment/target-computer-tools/package/python-env/
 
 # Local runtime/test artifacts
 .runtime/

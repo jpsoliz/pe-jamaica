@@ -1,0 +1,17 @@
+{
+  "package_name": "Sidwell Parcel Workflow target-computer tools",
+  "created_at": "2026-07-21T10:45:13.3734016-05:00",
+  "configuration": "Release",
+  "includes": [
+    "ParcelWorkflowAddIn.esriAddInX",
+    "ProcessingTools",
+    "Contracts",
+    "scripts/install_target_tools.ps1"
+  ],
+  "target_default_root": "C:\\Sidwell\\ParcelWorkflow",
+  "notes": [
+    "Python runtime is not bundled by default because it is large and external to the repository.",
+    "Manually copy arcgispro-survey-ai to C:\\Sidwell\\ParcelWorkflow\\python-env on the target computer, or run install_target_tools.ps1 with -PythonExe.",
+    "Run scripts/install_target_tools.ps1 on the target computer to copy tools and configure the add-in package paths."
+  ]
+}
