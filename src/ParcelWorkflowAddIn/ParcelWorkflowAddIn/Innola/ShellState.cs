@@ -166,7 +166,10 @@ internal static class ShellState
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaAuthService()
-            : new InnolaAuthService(SharedInnolaHttpClient);
+            : new InnolaAuthService(
+                SharedInnolaHttpClient,
+                new InnolaLoginTraceService(Settings.CaseFolderOutputRoot),
+                Settings.ClientCertificate);
     }
 
     private static IInnolaTransactionService CreateTransactionService()

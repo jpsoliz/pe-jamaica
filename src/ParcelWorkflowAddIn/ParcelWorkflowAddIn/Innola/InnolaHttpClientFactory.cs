@@ -118,6 +118,80 @@ internal static class InnolaHttpClientFactory
         return certificate is not null;
     }
 
+    public static InnolaClientCertificateDiagnostic DiagnoseCertificate(InnolaClientCertificateSettings settings)
+    {
+        if (!settings.Enabled)
+        {
+            return new InnolaClientCertificateDiagnostic(false, "disabled", null, null, 0, "Client certificate is disabled in settings.");
+        }
+
+        if (!TryParseStoreLocation(settings.StoreLocation, out var location))
+        {
+            return new InnolaClientCertificateDiagnostic(false, "invalid_store_location", null, null, 0, $"Invalid certificate store location: {settings.StoreLocation}");
+        }
+
+        if (!TryParseStoreName(settings.StoreName, out var storeName))
+        {
+            return new InnolaClientCertificateDiagnostic(false, "invalid_store_name", null, null, 0, $"Invalid certificate store name: {settings.StoreName}");
+        }
+
+        try
+        {
+            using var store = new X509Store(storeName, location);
+            store.Open(OpenFlags.ReadOnly);
+            var validCertificates = store.Certificates
+                .Find(X509FindType.FindByTimeValid, DateTime.Now, validOnly: true)
+                .OfType<X509Certificate2>()
+                .ToArray();
+            var candidates = validCertificates.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(settings.Thumbprint))
+            {
+                var normalizedThumbprint = NormalizeThumbprint(settings.Thumbprint);
+                candidates = candidates.Where(item => NormalizeThumbprint(item.Thumbprint).Equals(normalizedThumbprint, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.SubjectName))
+            {
+                candidates = candidates.Where(item =>
+                    item.Subject.Contains(settings.SubjectName, StringComparison.OrdinalIgnoreCase)
+                    || item.GetNameInfo(X509NameType.SimpleName, forIssuer: false).Contains(settings.SubjectName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var matches = candidates.ToArray();
+            var selected = matches
+                .Where(item => item.HasPrivateKey)
+                .OrderByDescending(item => item.NotAfter)
+                .FirstOrDefault();
+
+            if (selected is null)
+            {
+                var reason = matches.Length == 0
+                    ? "No valid certificate matched the configured subject/thumbprint."
+                    : "Matching certificate found, but it does not have an accessible private key.";
+                return new InnolaClientCertificateDiagnostic(
+                    false,
+                    matches.Length == 0 ? "not_found" : "missing_private_key",
+                    settings.StoreLocation,
+                    settings.StoreName,
+                    matches.Length,
+                    reason);
+            }
+
+            return new InnolaClientCertificateDiagnostic(
+                true,
+                "selected",
+                settings.StoreLocation,
+                settings.StoreName,
+                matches.Length,
+                $"Selected certificate subject '{selected.GetNameInfo(X509NameType.SimpleName, forIssuer: false)}' valid until {selected.NotAfter:O}.");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.Security.Cryptography.CryptographicException)
+        {
+            return new InnolaClientCertificateDiagnostic(false, "store_error", settings.StoreLocation, settings.StoreName, 0, exception.Message);
+        }
+    }
+
     private static bool TryParseStoreLocation(string value, out StoreLocation location)
     {
         return Enum.TryParse(value, ignoreCase: true, out location);
@@ -133,3 +207,11 @@ internal static class InnolaHttpClientFactory
         return value.Replace(" ", string.Empty, StringComparison.Ordinal).Replace(":", string.Empty, StringComparison.Ordinal);
     }
 }
+
+public sealed record InnolaClientCertificateDiagnostic(
+    bool Selected,
+    string Status,
+    string? StoreLocation,
+    string? StoreName,
+    int MatchingCertificateCount,
+    string Message);

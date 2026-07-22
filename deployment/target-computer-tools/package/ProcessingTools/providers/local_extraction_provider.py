@@ -1,0 +1,1 @@
+"""Local extraction provider placeholder."""

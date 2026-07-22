@@ -47,6 +47,35 @@ internal static class InnolaAuthServiceTests
         TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/rest/currentUserDetails", StringComparison.Ordinal), "Current user endpoint mismatch.");
     }
 
+    public static async Task FailedLiveLoginWritesSanitizedDiagnosticTrace()
+    {
+        using var tempRoot = new TempDirectory();
+        var handler = new StatusCodeHttpMessageHandler(HttpStatusCode.Unauthorized);
+        var trace = new InnolaLoginTraceService(
+            tempRoot.Path,
+            () => DateTimeOffset.Parse("2026-07-22T10:15:00Z"));
+        var certificateSettings = new InnolaClientCertificateSettings(
+            true,
+            "CurrentUser",
+            "My",
+            "certificate-that-should-not-exist-in-test",
+            null,
+            false,
+            false);
+        var service = new InnolaAuthService(new HttpClient(handler), trace, certificateSettings);
+
+        var result = await service.LoginAsync("https://eltrs.innola-solutions.com/", "jane.user", "secret-password");
+
+        TestAssert.False(result.Success, "Unauthorized login should fail.");
+        TestAssert.True(File.Exists(trace.TracePath), "Failed login should write a target-machine diagnostic trace.");
+        var traceText = File.ReadAllText(trace.TracePath);
+        TestAssert.True(traceText.Contains("\"step\": \"client_certificate\"", StringComparison.Ordinal), "Login trace should include certificate diagnostics.");
+        TestAssert.True(traceText.Contains("\"status\": \"not_found\"", StringComparison.Ordinal), "Login trace should show that the configured test certificate was not found.");
+        TestAssert.True(traceText.Contains("\"step\": \"login_http_response\"", StringComparison.Ordinal), "Login trace should include HTTP status diagnostics.");
+        TestAssert.True(traceText.Contains("\"status_code\": \"401\"", StringComparison.Ordinal), "Login trace should include sanitized HTTP status code.");
+        TestAssert.False(traceText.Contains("secret-password", StringComparison.Ordinal), "Login trace must not write the password.");
+    }
+
     public static async Task SessionManagerRaisesLoginChangeOnCallerContext()
     {
         var context = new TrackingSynchronizationContext();
@@ -104,6 +133,24 @@ internal static class InnolaAuthServiceTests
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
             };
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class StatusCodeHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode statusCode;
+
+        public StatusCodeHttpMessageHandler(HttpStatusCode statusCode)
+        {
+            this.statusCode = statusCode;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(statusCode)
+            {
+                ReasonPhrase = "Unauthorized"
+            });
         }
     }
 

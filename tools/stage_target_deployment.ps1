@@ -63,9 +63,8 @@ New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
 
 if (-not $SkipAddInPackage) {
-    if (-not (Test-Path -LiteralPath $addinSource)) {
-        & (Join-Path $PSScriptRoot 'package_addin.ps1') -Root $Root -Configuration $Configuration
-    }
+    Write-Host "Building fresh add-in package..."
+    & (Join-Path $PSScriptRoot 'package_addin.ps1') -Root $Root -Configuration $Configuration
 
     if (-not (Test-Path -LiteralPath $addinSource)) {
         throw "Add-in package not found after build: $addinSource"
@@ -98,13 +97,15 @@ $manifest = [ordered]@{
         'ParcelWorkflowAddIn.esriAddInX',
         'ProcessingTools',
         'Contracts',
-        'scripts/install_target_tools.ps1'
+        'scripts/install_target_tools.ps1',
+        'scripts/install_target_tools.bat'
     )
     target_default_root = 'C:\Sidwell\ParcelWorkflow'
     notes = @(
         'Python runtime is not bundled by default because it is large and external to the repository.',
         'Manually copy arcgispro-survey-ai to C:\Sidwell\ParcelWorkflow\python-env on the target computer, or run install_target_tools.ps1 with -PythonExe.',
-        'Run scripts/install_target_tools.ps1 on the target computer to copy tools and configure the add-in package paths.'
+        'Run scripts/install_target_tools.ps1 on the target computer to copy tools and configure the add-in package paths.',
+        'If PowerShell is blocked by MachinePolicy AllSigned, run scripts/install_target_tools.bat instead.'
     )
 }
 

@@ -62,11 +62,6 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             return WorkflowScriptStepExecutionResult.Failed("Configured ArcGIS Python executable is not available for extraction.");
         }
 
-        if (string.IsNullOrWhiteSpace(context.ExecutionSettings.CreateParcelScriptPath) || !File.Exists(context.ExecutionSettings.CreateParcelScriptPath))
-        {
-            return WorkflowScriptStepExecutionResult.Failed("CreateParcelFromFile.py is not available for extraction.");
-        }
-
         var manifest = context.Manifest;
         var route = ResolveExtractionRoute(context);
         if (route.PrimarySource is null)
@@ -135,6 +130,11 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 WriteRouteArtifact(routeArtifactPath, route, transactionNumber, runtimeDiagnostics);
                 return WorkflowScriptStepExecutionResult.Failed(route.OperatorMessage ?? "No supported extraction route is available for the selected source package.");
             }
+        }
+
+        if (string.IsNullOrWhiteSpace(context.ExecutionSettings.CreateParcelScriptPath) || !File.Exists(context.ExecutionSettings.CreateParcelScriptPath))
+        {
+            return WorkflowScriptStepExecutionResult.Failed("Legacy CreateParcelFromFile.py fallback is not available for extraction. Re-run extraction with a supported text/AI route, or switch to the manual review workspace.");
         }
 
         WriteGeneratedConfig(

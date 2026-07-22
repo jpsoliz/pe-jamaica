@@ -56,11 +56,12 @@ public sealed class ArcPyDwgReferenceReadinessInspector : IDwgReferenceReadiness
         if (result.ExitCode != 0)
         {
             Debug.WriteLine($"Innola DWG CAD probe failed. ExitCode={result.ExitCode}; StdOut={Sanitize(result.StandardOutput)}; StdErr={Sanitize(result.StandardError)}.");
+            var probeMessage = GetProbeMessage(result.StandardOutput, result.StandardError);
             return new DwgReferenceReadinessProbeResult(
                 ProbeExecuted: true,
                 Success: false,
-                $"DWG CAD probe returned {result.ExitCode}: {GetProbeMessage(result.StandardOutput, result.StandardError)}",
-                "Verify the DWG reference file is readable and the ArcGIS Python environment can import arcpy.");
+                $"DWG CAD probe returned {result.ExitCode}: {probeMessage}",
+                BuildProbeFailureCorrection(probeMessage));
         }
 
         if (ContainsMarker(result.StandardOutput, "dwg_probe_result:ok"))
@@ -128,6 +129,22 @@ public sealed class ArcPyDwgReferenceReadinessInspector : IDwgReferenceReadiness
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .ToArray();
         return lines.Length > 0 ? lines[^1] : "Unknown probe error.";
+    }
+
+    private static string BuildProbeFailureCorrection(string probeMessage)
+    {
+        if (probeMessage.Contains("version mis-match", StringComparison.OrdinalIgnoreCase)
+            || probeMessage.Contains("version mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Use the target computer's ArcGIS Pro Python environment, or recreate python-env from the same ArcGIS Pro install. Re-run install_target_tools.bat with /PythonExe pointing to the target ArcGIS Pro python.exe.";
+        }
+
+        if (probeMessage.Contains("license has not been initialized", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Open ArcGIS Pro with a valid licensed session, then retry Structure Check.";
+        }
+
+        return "Verify the DWG reference file is readable and the ArcGIS Python environment can import arcpy.";
     }
 
     private static IReadOnlyList<string> ReadMarkerJsonArray(string output, string marker)

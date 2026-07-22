@@ -507,6 +507,67 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal(1, rows[1].GetProperty("point_order").GetInt32(), "Point order should reset per parcel group.");
     }
 
+    public static void ExtractionAdapterTextFirstDoesNotRequireLegacyCreateParcelScript()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000214");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLANCOMSHEET.pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "BELLEV029GEOLAN20230811.pdf");
+        File.WriteAllText(catalogPath, BuildCatalogJson(includeStructuredPoints: false));
+        File.WriteAllText(sourcePath, "computation");
+        File.WriteAllText(planPath, "plan");
+
+        var reviewOutputPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            TestAssert.True(arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase), "Only the structured text extractor should execute.");
+            File.WriteAllText(
+                reviewOutputPath,
+                $$"""
+                {
+                  "transaction_number": "100000214",
+                  "row_count": 1,
+                  "rows": [
+                    {
+                      "parcel_group_id": "parcel-001",
+                      "point_order": 1,
+                      "point_identifier": "339",
+                      "easting": "680920.044",
+                      "northing": "639209.180"
+                    }
+                  ],
+                  "outputs": {
+                    "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+                  }
+                }
+                """);
+
+            var stdout = $$"""
+            {
+              "status": "success",
+              "text_layer_available": true,
+              "parser_status": "parsed",
+              "parsed_parcel_count": 1,
+              "parsed_row_count": 1,
+              "outputs": {
+                "review_json": "{{reviewOutputPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(layout, sourcePath, planPath, openAiEnabled: false, createLegacyScript: false);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Text-first extraction should not require legacy CreateParcelFromFile.py.");
+        TestAssert.True(!File.Exists(context.ExecutionSettings.CreateParcelScriptPath), "The legacy script should be absent for this regression.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Modern extraction should still create the review artifact.");
+    }
+
     public static void ExtractionAdapterFallsBackFromTextFirstWhenNoUsableTextLayerExists()
     {
         using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
@@ -840,6 +901,7 @@ internal static class CreateParcelDraftExtractionAdapterTests
         IReadOnlyList<ManifestSourceFile>? additionalSources = null,
         string pointsSourceRole = "computation_source",
         bool openAiEnabled = true,
+        bool createLegacyScript = true,
         ManifestSupportingDocumentOptions? supportingDocumentOptions = null)
     {
         var sourceFiles = new List<ManifestSourceFile>
@@ -922,7 +984,10 @@ internal static class CreateParcelDraftExtractionAdapterTests
             null);
 
         File.WriteAllText(executionSettings.PythonExecutable, "stub");
-        File.WriteAllText(executionSettings.CreateParcelScriptPath, "stub");
+        if (createLegacyScript)
+        {
+            File.WriteAllText(executionSettings.CreateParcelScriptPath, "stub");
+        }
 
         return new WorkflowScriptExecutionContext(
             layout,

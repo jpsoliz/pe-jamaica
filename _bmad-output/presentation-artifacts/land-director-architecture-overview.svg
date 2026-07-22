@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Plan Examination Architecture Overview</title>
+  <desc id="desc">High level architecture diagram showing Innola, ArcGIS Pro, the Parcel Workflow Add-in, Case Folder audit record, processing tools, map review, and outputs.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17202a" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2f5d62"/>
+    </marker>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 40px Segoe UI, Arial, sans-serif; fill: #17202a; }
+      .subtitle { font: 400 21px Segoe UI, Arial, sans-serif; fill: #52616b; }
+      .lane-title { font: 700 20px Segoe UI, Arial, sans-serif; fill: #17202a; }
+      .box-title { font: 700 24px Segoe UI, Arial, sans-serif; fill: #17202a; }
+      .box-text { font: 400 18px Segoe UI, Arial, sans-serif; fill: #344955; }
+      .small { font: 400 15px Segoe UI, Arial, sans-serif; fill: #52616b; }
+      .pill { font: 700 15px Segoe UI, Arial, sans-serif; fill: #ffffff; }
+      .benefit-title { font: 700 19px Segoe UI, Arial, sans-serif; fill: #17202a; }
+      .benefit-text { font: 400 16px Segoe UI, Arial, sans-serif; fill: #344955; }
+      .arrow { stroke: #2f5d62; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .arrow-soft { stroke: #6a7f83; stroke-width: 3; stroke-dasharray: 8 8; fill: none; marker-end: url(#arrow); }
+      .innola { fill: #fff3df; stroke: #d88925; stroke-width: 2; }
+      .arcgis { fill: #e8f4ff; stroke: #357abd; stroke-width: 2; }
+      .addin { fill: #ffffff; stroke: #2f5d62; stroke-width: 3; }
+      .case { fill: #edf7ed; stroke: #3b8b56; stroke-width: 2; }
+      .process { fill: #f0eefc; stroke: #6654b8; stroke-width: 2; }
+      .review { fill: #fff9d7; stroke: #b19719; stroke-width: 2; }
+      .output { fill: #f8ecec; stroke: #b84b4b; stroke-width: 2; }
+      .band { fill: #ffffff; stroke: #dce3e8; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="900"/>
+
+  <text x="70" y="74" class="title">Plan Examination Solution Architecture</text>
+  <text x="70" y="111" class="subtitle">A controlled bridge between Innola transactions, ArcGIS Pro examination tools, auditable case records, and final reports.</text>
+
+  <rect x="70" y="150" width="1460" height="540" rx="16" class="band"/>
+  <text x="98" y="188" class="lane-title">How the work moves through the solution</text>
+
+  <rect x="105" y="235" width="240" height="150" rx="12" class="innola" filter="url(#shadow)"/>
+  <text x="130" y="278" class="box-title">Innola</text>
+  <text x="130" y="314" class="box-text">Task queue</text>
+  <text x="130" y="342" class="box-text">Transaction files</text>
+  <text x="130" y="370" class="box-text">Status and attachments</text>
+  <rect x="130" y="402" width="160" height="28" rx="14" fill="#d88925"/>
+  <text x="151" y="421" class="pill">System of work</text>
+
+  <rect x="430" y="215" width="310" height="190" rx="12" class="addin" filter="url(#shadow)"/>
+  <text x="460" y="258" class="box-title">ArcGIS Pro Add-in</text>
+  <text x="460" y="294" class="box-text">Examiner workflow panel</text>
+  <text x="460" y="322" class="box-text">Login and task controls</text>
+  <text x="460" y="350" class="box-text">Save, suspend, finalize</text>
+  <text x="460" y="378" class="box-text">Custom review screens</text>
+  <rect x="460" y="425" width="220" height="28" rx="14" fill="#2f5d62"/>
+  <text x="488" y="444" class="pill">Guided examination</text>
+
+  <rect x="825" y="215" width="300" height="190" rx="12" class="case" filter="url(#shadow)"/>
+  <text x="855" y="258" class="box-title">Case Folder</text>
+  <text x="855" y="294" class="box-text">Copied source files</text>
+  <text x="855" y="322" class="box-text">Workflow state</text>
+  <text x="855" y="350" class="box-text">Review decisions</text>
+  <text x="855" y="378" class="box-text">Logs and diagnostics</text>
+  <rect x="855" y="425" width="215" height="28" rx="14" fill="#3b8b56"/>
+  <text x="885" y="444" class="pill">Audit and recovery</text>
+
+  <rect x="1210" y="215" width="270" height="190" rx="12" class="arcgis" filter="url(#shadow)"/>
+  <text x="1240" y="258" class="box-title">ArcGIS Pro Map</text>
+  <text x="1240" y="294" class="box-text">Parcel points and lines</text>
+  <text x="1240" y="322" class="box-text">Spatial unit review</text>
+  <text x="1240" y="350" class="box-text">Legal and fiscal context</text>
+  <text x="1240" y="378" class="box-text">Visual quality checks</text>
+  <rect x="1240" y="425" width="190" height="28" rx="14" fill="#357abd"/>
+  <text x="1266" y="444" class="pill">Map-based review</text>
+
+  <path d="M345 310 C375 310, 395 310, 430 310" class="arrow"/>
+  <path d="M740 310 C770 310, 790 310, 825 310" class="arrow"/>
+  <path d="M1125 310 C1155 310, 1175 310, 1210 310" class="arrow"/>
+  <path d="M1210 372 C1128 472, 989 508, 863 435" class="arrow-soft"/>
+  <path d="M825 382 C690 480, 510 480, 345 373" class="arrow-soft"/>
+
+  <rect x="170" y="505" width="250" height="120" rx="12" class="process"/>
+  <text x="198" y="545" class="box-title">Custom Rules</text>
+  <text x="198" y="579" class="box-text">Profiles, preflight,</text>
+  <text x="198" y="607" class="box-text">quality gates</text>
+
+  <rect x="505" y="505" width="250" height="120" rx="12" class="review"/>
+  <text x="533" y="545" class="box-title">Human Review</text>
+  <text x="533" y="579" class="box-text">Correct points, compare</text>
+  <text x="533" y="607" class="box-text">records, approve evidence</text>
+
+  <rect x="840" y="505" width="250" height="120" rx="12" class="process"/>
+  <text x="868" y="545" class="box-title">Processing Tools</text>
+  <text x="868" y="579" class="box-text">Python and ArcPy create</text>
+  <text x="868" y="607" class="box-text">geometry and reports</text>
+
+  <rect x="1175" y="505" width="250" height="120" rx="12" class="output"/>
+  <text x="1203" y="545" class="box-title">Final Package</text>
+  <text x="1203" y="579" class="box-text">PDF report, outputs,</text>
+  <text x="1203" y="607" class="box-text">Innola upload and close</text>
+
+  <path d="M420 565 C450 565, 475 565, 505 565" class="arrow"/>
+  <path d="M755 565 C785 565, 810 565, 840 565" class="arrow"/>
+  <path d="M1090 565 C1120 565, 1145 565, 1175 565" class="arrow"/>
+
+  <rect x="70" y="725" width="1460" height="120" rx="16" fill="#ffffff" stroke="#dce3e8" stroke-width="1.5"/>
+  <text x="98" y="760" class="lane-title">Why this architecture helps NLA</text>
+
+  <circle cx="115" cy="802" r="8" fill="#2f5d62"/>
+  <text x="135" y="808" class="benefit-title">Fewer handoffs</text>
+  <text x="135" y="834" class="benefit-text">Transactions, documents, map review, and reports stay connected.</text>
+
+  <circle cx="505" cy="802" r="8" fill="#3b8b56"/>
+  <text x="525" y="808" class="benefit-title">Stronger audit trail</text>
+  <text x="525" y="834" class="benefit-text">Every case keeps sources, decisions, outputs, and diagnostics.</text>
+
+  <circle cx="915" cy="802" r="8" fill="#b19719"/>
+  <text x="935" y="808" class="benefit-title">Controlled quality</text>
+  <text x="935" y="834" class="benefit-text">Custom checks block premature spatial-unit creation or finalization.</text>
+
+  <circle cx="1265" cy="802" r="8" fill="#b84b4b"/>
+  <text x="1285" y="808" class="benefit-title">Expandable platform</text>
+  <text x="1285" y="834" class="benefit-text">New rules and examination steps can be added without replacing Innola.</text>
+</svg>

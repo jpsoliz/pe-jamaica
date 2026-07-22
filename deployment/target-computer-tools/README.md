@@ -17,15 +17,39 @@ It contains:
 - `ParcelWorkflowAddIn.esriAddInX`
 - `ProcessingTools/`
 - `Contracts/`
+- `scripts/install_target_tools.bat`
 - `deployment_manifest.json`
 
 ## Install On The Target Computer
 
 From the copied folder on the target machine:
 
+```cmd
+scripts\install_target_tools.bat
+```
+
+This is the recommended installer when the target computer has PowerShell `MachinePolicy = AllSigned`.
+
+The PowerShell installer is also available:
+
 ```powershell
 .\scripts\install_target_tools.ps1
 ```
+
+If PowerShell reports that `install_target_tools.ps1` is not digitally signed, use a process-scoped execution policy for this install session:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install_target_tools.ps1
+```
+
+If the folder was downloaded or copied from a ZIP/email/browser source, Windows may also mark the files as blocked. From the copied `target-computer-tools` folder, unblock the staged scripts first:
+
+```powershell
+Get-ChildItem -Recurse -File | Unblock-File
+PowerShell -ExecutionPolicy Bypass -File .\scripts\install_target_tools.ps1
+```
+
+If `Get-ExecutionPolicy -List` shows `MachinePolicy` as `AllSigned`, PowerShell will still block the unsigned `.ps1` script. Use `scripts\install_target_tools.bat`, or ask IT to sign the PowerShell installer. Do not permanently lower the machine-wide execution policy unless IT approves it.
 
 Default install root:
 
@@ -34,6 +58,26 @@ C:\Sidwell\ParcelWorkflow
 ```
 
 The installer copies the Python processing tools and contracts, creates a target-configured add-in package, and can launch the add-in installer.
+
+## Login Diagnostics
+
+If Innola login fails on the target computer, check the sanitized login trace:
+
+```text
+%USERPROFILE%\Documents\SidwellCo\ParcelWorkflowCases\_diagnostics\innola_login_trace.json
+```
+
+If `case_folder_output_root` was changed in `WorkflowSettings.json`, use that folder instead of the default `Documents\SidwellCo\ParcelWorkflowCases` root.
+
+The trace records:
+
+- whether the configured client certificate was found
+- whether the matching certificate has an accessible private key
+- the Innola server URL and login endpoint path
+- HTTP status code for the login request, such as `401`, `403`, or `500`
+- timeout/network/TLS exception category
+
+The trace does not write passwords, access tokens, authorization headers, cookies, or raw response bodies.
 
 ## Python Environment
 
@@ -54,6 +98,20 @@ If the target machine already has a working ArcGIS Pro Python clone, use it inst
 ```powershell
 .\scripts\install_target_tools.ps1 -PythonExe "C:\Path\To\Existing\ArcGISPython\python.exe"
 ```
+
+Or with the batch installer:
+
+```cmd
+scripts\install_target_tools.bat /PythonExe "C:\Path\To\Existing\ArcGISPython\python.exe"
+```
+
+For a standard ArcGIS Pro install, use the target computer's ArcGIS Pro Python:
+
+```cmd
+scripts\install_target_tools.bat /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
+```
+
+If Structure Check reports `DWG CAD probe returned 1: ImportError: version mis-match`, the configured Python environment is not binary-compatible with the target ArcGIS Pro/ArcPy install. Re-run the installer with `/PythonExe` pointing to the target computer's ArcGIS Pro Python, or recreate `C:\Sidwell\ParcelWorkflow\python-env` from that same ArcGIS Pro installation.
 
 If you intentionally want to bundle the Python environment into this package, regenerate it with:
 
