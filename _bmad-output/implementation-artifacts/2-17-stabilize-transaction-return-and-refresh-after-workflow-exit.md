@@ -102,6 +102,9 @@ Codex GPT-5
 - Added transaction-panel state handling for workflow exit so saved transactions remain selected for context and completed transactions are locally suppressed even if refresh returns stale rows.
 - Tightened lifecycle gate expressions in `InnolaSessionManager` so active-lock behavior is deterministic after workflow exit.
 - Added focused transaction-panel tests for suspend, cancel, and complete exit handling in addition to the existing stale-refresh and list-lock coverage.
+- Added best-effort active map cleanup after successful PE cancel, suspend, and finalize so the `TR <transaction> - Review` group is removed from Contents before the workflow form resets back to the transaction list.
+- Kept cleanup after lifecycle success only; failed suspend/finalize/cancel attempts preserve the review map context for recovery.
+- Added focused regression coverage that all three PE exit paths route through the shared transaction review map cleanup helper.
 
 ### File List
 
@@ -109,7 +112,9 @@ Codex GPT-5
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSessionManager.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Output/IOutputMapIntegrationService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ParcelWorkflowDockpaneExitCleanupTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 
 ## Change Log
@@ -118,3 +123,4 @@ Codex GPT-5
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial story for reliable return-to-list and refresh stabilization after workflow cancel, suspend, and complete actions. | Codex |
 | 2026-06-17 | 1.0 | Implemented workflow-exit handoff to the Transaction List, refresh/suppression handling for completed transactions, lifecycle-gate tightening, and focused tests. | Codex |
+| 2026-07-21 | 1.1 | Extended successful PE workflow exits to clean the active `TR <transaction> - Review` map group from ArcGIS Pro Contents on cancel, suspend, and finalize. | Codex |

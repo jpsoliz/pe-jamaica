@@ -22,6 +22,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly IFiscalCadasterQueryService fiscalCadasterQueryService;
     private readonly ICompareEnterpriseCadasterEvidenceService enterpriseCadasterEvidenceService;
     private readonly CompareLegalQueryTracePersistenceService legalQueryTracePersistence;
+    private readonly CompareFinalizeTracePersistenceService finalizeTracePersistence;
     private readonly CompareEvidenceComparisonService evidenceComparisonService;
     private readonly ICompareTaskLifecycleService? taskLifecycleService;
     private readonly ICompareReportAttachmentService? reportAttachmentService;
@@ -76,6 +77,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         IFiscalCadasterQueryService? fiscalCadasterQueryService = null,
         ICompareEnterpriseCadasterEvidenceService? enterpriseCadasterEvidenceService = null,
         CompareLegalQueryTracePersistenceService? legalQueryTracePersistence = null,
+        CompareFinalizeTracePersistenceService? finalizeTracePersistence = null,
         CompareEvidenceComparisonService? evidenceComparisonService = null,
         ICompareTaskLifecycleService? taskLifecycleService = null,
         ICompareReportAttachmentService? reportAttachmentService = null,
@@ -96,6 +98,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.fiscalCadasterQueryService = fiscalCadasterQueryService ?? new UnsupportedFiscalCadasterQueryService();
         this.enterpriseCadasterEvidenceService = enterpriseCadasterEvidenceService ?? new CompareEnterpriseCadasterEvidenceService();
         this.legalQueryTracePersistence = legalQueryTracePersistence ?? new CompareLegalQueryTracePersistenceService();
+        this.finalizeTracePersistence = finalizeTracePersistence ?? new CompareFinalizeTracePersistenceService();
         this.evidenceComparisonService = evidenceComparisonService ?? new CompareEvidenceComparisonService();
         this.taskLifecycleService = taskLifecycleService;
         this.reportAttachmentService = reportAttachmentService;
@@ -1298,15 +1301,6 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
 
         var reportAlreadyGenerated = ComparePdfReportExists();
-        if (!reportAlreadyGenerated)
-        {
-            var draftResult = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
-            if (draftResult is null)
-            {
-                return;
-            }
-        }
-
         if (!promptService.ConfirmFinalize(reportAlreadyGenerated))
         {
             StatusText = "Finalize cancelled.";
@@ -1388,47 +1382,78 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         if (!CanApproveCompare)
         {
             StatusText = "Finalize is blocked until documents and geometry are ready, at least one valuable evidence row is retained, and Notes are completed.";
+            TraceFinalizeStep("blocked_readiness", false, StatusText, BuildFinalizeTraceDetails());
             return;
         }
 
         var reportAlreadyGenerated = ComparePdfReportExists();
-        if (!reportAlreadyGenerated)
-        {
-            var draftResult = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
-            if (draftResult is null)
-            {
-                return;
-            }
-        }
-
         if (!promptService.ConfirmFinalize(reportAlreadyGenerated))
         {
             StatusText = "Finalize cancelled.";
+            TraceFinalizeStep("cancelled_by_user", false, StatusText, BuildFinalizeTraceDetails());
             return;
         }
 
+        TraceFinalizeStep(
+            "started",
+            true,
+            "Finalize started.",
+            BuildFinalizeTraceDetails(new Dictionary<string, string?>
+            {
+                ["report_already_generated"] = reportAlreadyGenerated.ToString(CultureInfo.InvariantCulture)
+            }));
         SaveDecision(CompareReviewDecisionValues.Approved, "Finalized");
+        TraceFinalizeStep(
+            "report_generated",
+            ComparePdfReportExists(),
+            ComparePdfReportExists()
+                ? "Finalize saved the decision and generated the PDF report."
+                : "Finalize saved the decision, but the PDF report was not found.",
+            BuildFinalizeTraceDetails());
         IsLoading = true;
         StatusText = "Preparing Compare report attachment.";
         try
         {
             if (!await UploadCompareReportIfConfiguredAsync(cancellationToken))
             {
+                TraceFinalizeStep("stopped_before_lifecycle", false, "Finalize stopped before transaction completion because report upload did not succeed.", BuildFinalizeTraceDetails());
                 return;
             }
 
             if (taskLifecycleService is null)
             {
+                TraceFinalizeStep("lifecycle_missing", false, "Finalize cannot complete the transaction because the lifecycle service is not configured.", BuildFinalizeTraceDetails());
                 return;
             }
 
             StatusText = "Finalizing Compare task.";
             var result = await taskLifecycleService.CompleteAsync(TransactionNumber, cancellationToken);
             StatusText = result.Message;
+            TraceFinalizeStep(
+                "lifecycle_complete_result",
+                result.Success,
+                result.Message,
+                BuildFinalizeTraceDetails(new Dictionary<string, string?>
+                {
+                    ["should_close_workspace"] = result.ShouldCloseWorkspace.ToString(CultureInfo.InvariantCulture)
+                }));
             if (result.Success && result.ShouldCloseWorkspace)
             {
                 await CleanupAfterTaskExitAsync(cancellationToken);
                 CloseRequested?.Invoke(this, EventArgs.Empty);
+                TraceFinalizeStep("close_requested", true, "Finalize requested the Compare window to close after cleanup.", BuildFinalizeTraceDetails());
+            }
+            else
+            {
+                TraceFinalizeStep(
+                    "cleanup_skipped",
+                    false,
+                    "Finalize did not clean the form or map because lifecycle completion did not return success with ShouldCloseWorkspace.",
+                    BuildFinalizeTraceDetails(new Dictionary<string, string?>
+                    {
+                        ["lifecycle_success"] = result.Success.ToString(CultureInfo.InvariantCulture),
+                        ["should_close_workspace"] = result.ShouldCloseWorkspace.ToString(CultureInfo.InvariantCulture)
+                    }));
             }
         }
         finally
@@ -1452,18 +1477,47 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             groupLayerName = $"Compare Review - {CompareWorkingGeometryService.NormalizeTransactionNumber(TransactionNumber)}";
         }
 
+        TraceFinalizeStep(
+            "cleanup_started",
+            true,
+            "Finalize cleanup started.",
+            BuildFinalizeTraceDetails(new Dictionary<string, string?>
+            {
+                ["group_layer_name"] = groupLayerName,
+                ["map_integration_service_configured"] = (mapIntegrationService is not null).ToString(CultureInfo.InvariantCulture)
+            }));
         if (mapIntegrationService is not null)
         {
             var cleanup = await mapIntegrationService.RemoveTransactionGeometryFromActiveMapAsync(
                 groupLayerName,
                 cancellationToken);
+            TraceFinalizeStep(
+                "map_cleanup_result",
+                cleanup.Success,
+                cleanup.Message,
+                BuildFinalizeTraceDetails(new Dictionary<string, string?>
+                {
+                    ["group_layer_name"] = groupLayerName
+                }));
             if (!cleanup.Success)
             {
                 StatusText = cleanup.Message;
             }
         }
+        else
+        {
+            TraceFinalizeStep(
+                "map_cleanup_skipped",
+                false,
+                "Map cleanup was skipped because no map integration service is configured.",
+                BuildFinalizeTraceDetails(new Dictionary<string, string?>
+                {
+                    ["group_layer_name"] = groupLayerName
+                }));
+        }
 
         ClearWorkspaceStateAfterTaskExit();
+        TraceFinalizeStep("form_cleanup_result", true, "Compare form state was cleared after Finalize.", BuildFinalizeTraceDetails());
     }
 
     private void ClearWorkspaceStateAfterTaskExit()
@@ -1492,19 +1546,104 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     {
         if (reportAttachmentService is null)
         {
+            TraceFinalizeStep("upload_skipped", false, "Compare report upload was skipped because no attachment service is configured.", BuildFinalizeTraceDetails());
             return true;
         }
 
         if (layout is null)
         {
             StatusText = "Open a Compare Case Folder before attaching the Compare report.";
+            TraceFinalizeStep("upload_blocked_no_case_folder", false, StatusText, BuildFinalizeTraceDetails());
             return false;
         }
 
         var pdfPath = Path.Combine(layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        TraceFinalizeStep(
+            "upload_started",
+            File.Exists(pdfPath),
+            File.Exists(pdfPath)
+                ? "Compare report upload started."
+                : "Compare report upload started, but the PDF file was not found.",
+            BuildFinalizeTraceDetails());
         var result = await reportAttachmentService.UploadAsync(transaction, pdfPath, cancellationToken);
         StatusText = result.Message;
+        TraceFinalizeStep(
+            "upload_result",
+            result.Success,
+            result.Message,
+            BuildFinalizeTraceDetails(new Dictionary<string, string?>
+            {
+                ["source_type"] = result.SourceType,
+                ["uploaded_pdf_path"] = result.PdfReportPath
+            }));
         return result.Success;
+    }
+
+    private void TraceFinalizeStep(
+        string step,
+        bool success,
+        string? message,
+        IReadOnlyDictionary<string, string?>? details = null)
+    {
+        finalizeTracePersistence.Append(
+            layout,
+            TransactionNumber,
+            getUtcNow(),
+            step,
+            success,
+            message ?? string.Empty,
+            details);
+    }
+
+    private IReadOnlyDictionary<string, string?> BuildFinalizeTraceDetails(
+        IReadOnlyDictionary<string, string?>? additional = null)
+    {
+        var details = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["transaction_id"] = transaction.TransactionId,
+            ["transaction_number"] = transaction.TransactionNumber,
+            ["task_id"] = transaction.TaskId,
+            ["case_folder_open"] = (layout is not null).ToString(CultureInfo.InvariantCulture),
+            ["report_attachment_service_configured"] = (reportAttachmentService is not null).ToString(CultureInfo.InvariantCulture),
+            ["task_lifecycle_service_configured"] = (taskLifecycleService is not null).ToString(CultureInfo.InvariantCulture),
+            ["map_integration_service_configured"] = (mapIntegrationService is not null).ToString(CultureInfo.InvariantCulture),
+            ["documents_available"] = documentsAvailable.ToString(CultureInfo.InvariantCulture),
+            ["geometry_available"] = geometryAvailable.ToString(CultureInfo.InvariantCulture),
+            ["current_compare_group_layer_name"] = currentCompareGroupLayerName
+        };
+
+        if (layout is not null)
+        {
+            details["case_folder"] = layout.RootDirectory;
+            details["working_directory"] = layout.WorkingDirectory;
+            details["reports_directory"] = layout.ReportsDirectory;
+            AddFileDetails(details, "json_report", Path.Combine(layout.ReportsDirectory, CompareReviewReportService.ReportFileName));
+            AddFileDetails(details, "pdf_report", Path.Combine(layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName));
+            AddFileDetails(details, "decision", Path.Combine(layout.WorkingDirectory, CompareReviewDecisionPersistenceService.DecisionArtifactFileName));
+        }
+
+        if (additional is not null)
+        {
+            foreach (var pair in additional)
+            {
+                details[pair.Key] = pair.Value;
+            }
+        }
+
+        return details;
+    }
+
+    private static void AddFileDetails(IDictionary<string, string?> details, string prefix, string path)
+    {
+        details[$"{prefix}_path"] = path;
+        var exists = File.Exists(path);
+        details[$"{prefix}_exists"] = exists.ToString(CultureInfo.InvariantCulture);
+        if (exists)
+        {
+            var info = new FileInfo(path);
+            details[$"{prefix}_bytes"] = info.Length.ToString(CultureInfo.InvariantCulture);
+            details[$"{prefix}_last_write_utc"] = info.LastWriteTimeUtc.ToString("O", CultureInfo.InvariantCulture);
+        }
     }
 
     private void SaveDecision(string decision, string displayStatus)

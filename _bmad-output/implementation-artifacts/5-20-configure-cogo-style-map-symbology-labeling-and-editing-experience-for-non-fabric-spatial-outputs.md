@@ -240,6 +240,8 @@ That keeps expectations accurate while still making the standard mode feel inten
 | 2026-07-02 | 1.4 | Patched review findings: supporting map-load failures are non-blocking and DWG imports can enforce configured CAD layer allowlists. | Codex |
 | 2026-07-02 | 1.5 | Patched parcel-fabric map path resolution so checked supporting survey point and DWG layers remain map-loadable under the hidden supporting sources subgroup. | Codex |
 | 2026-07-21 | 1.6 | Updated review cartography contract for PE Compute testing: transparent parcel fill, length-only line labels, and white-fill/black-outline points. | Mary / Codex |
+| 2026-07-21 | 1.7 | Implemented PE computed parcel review symbol polish: `parcel_points` black outline with white fill and `parcel_polygons` 60% transparency while preserving line labels. | Codex |
+| 2026-07-21 | 1.8 | Patched PE computed parcel review styling to use explicit ArcGIS layer transparency for polygons and corrected point marker layer ordering so the white fill remains visible. | Codex |
 
 ## Dev Agent Record
 
@@ -258,6 +260,7 @@ Codex GPT-5
 - Standardized non-fabric layer ordering to polygons, then lines, then points, matching the review-oriented COGO display contract from the story.
 - Added reviewer-friendly point, line, and polygon renderers plus resilient labeling that prefers `point_id`, length/distance fields, `parcel_name`, and `parcel_id`.
 - Updated PE Compute review styling so parcel points use white fill with black outline, parcel polygons use transparent fill, and line labels show only length.
+- Implemented the requested Create Spatial Units map styling refinement: `parcel_points` render as a black outer marker with a white inner fill, `parcel_polygons` now set ArcGIS layer transparency to 60% with an opaque fill symbol so the Contents pane and map display align, and `parcel_lines` styling and labels remain unchanged.
 - Added graceful warning behavior so missing label fields or styling issues degrade safely instead of breaking map loading.
 - Updated success messaging to clearly position the standard path as a COGO-ready non-fabric review surface, distinct from Parcel Fabric mode.
 - Added focused tests for layer ordering and non-fabric messaging.
@@ -267,6 +270,7 @@ Codex GPT-5
 - Added `spatial_output_dwg_allowed_layers` execution setting and `--dwg-allowed-layers` adapter argument so DWG imports can remove CAD rows outside the configured CAD layer allowlist.
 - Added Python unit coverage for DWG allowlist parsing/matching; targeted adapter tests pass with 11 tests.
 - Confirmed TR `100000379` generated `survey_point_layer` and `survey_cad_reference` in `output_summary.json`, then patched parcel-fabric path resolution so those supplemental paths are not dropped before map loading; full add-in harness passes with 286 tests.
+- Added regression coverage for the computed parcel review point halo and polygon transparency constants; full add-in harness passes with 474 tests after the symbol update.
 
 ### File List
 

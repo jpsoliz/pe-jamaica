@@ -1418,6 +1418,7 @@ internal static class WorkflowSessionTests
         var transactionNumber = records[0].GetProperty("Payload").GetProperty("transaction_number").GetString();
         TestAssert.Equal("100000206", transactionNumber, "Published enterprise record should still belong to the active transaction.");
         var pointRecord = records[0].GetProperty("Payload").GetProperty("records")[0];
+        TestAssert.Equal("txn-1", pointRecord.GetProperty("transaction_id").GetString(), "Point rows should use the Innola transaction id for enterprise disposition scope.");
         TestAssert.Equal("100000206", pointRecord.GetProperty("transaction_number").GetString(), "Point rows should include transaction scope metadata.");
         TestAssert.Equal("task-1", pointRecord.GetProperty("task_id").GetString(), "Point rows should include Innola task metadata.");
         TestAssert.Equal("published_to_working", pointRecord.GetProperty("review_state").GetString(), "Point rows should include working review state.");
@@ -1429,6 +1430,7 @@ internal static class WorkflowSessionTests
         var caseIndexRecords = caseIndexStore.RootElement.GetProperty("Records");
         TestAssert.Equal(1, caseIndexRecords.GetArrayLength(), "Case index should contain one row per transaction scope after republish.");
         var caseIndexPayload = caseIndexRecords[0].GetProperty("Payload").GetProperty("records")[0];
+        TestAssert.Equal("txn-1", caseIndexPayload.GetProperty("transaction_id").GetString(), "Case index should use the Innola transaction id for enterprise disposition scope.");
         TestAssert.Equal("100000206", caseIndexPayload.GetProperty("transaction_number").GetString(), "Case index should include transaction number.");
         TestAssert.Equal("spatial_review_pending", caseIndexPayload.GetProperty("workflow_stage").GetString(), "Case index should record workflow stage.");
         TestAssert.Equal("output-test", caseIndexPayload.GetProperty("run_id").GetString(), "Case index should link to current output run id.");

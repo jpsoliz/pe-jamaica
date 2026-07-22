@@ -990,7 +990,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             {
                 ["case_id"] = Path.GetFileName(layout.RootDirectory),
                 ["transaction_number"] = transaction?.TransactionNumber ?? manifest.TransactionId,
-                ["transaction_id"] = manifest.TransactionId,
+                ["transaction_id"] = transaction?.TransactionId ?? manifest.TransactionId,
                 ["task_id"] = transaction?.TaskId ?? string.Empty,
                 ["workflow_name"] = manifest.Payload.WorkflowProfile ?? transaction?.ProcessStep ?? "parcel_workflow",
                 ["workflow_stage"] = WorkflowState.SpatialReviewPending.ToContractValue(),
@@ -1047,7 +1047,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return new JsonObject
         {
             ["layer_role"] = layerRole,
-            ["transaction_id"] = manifest.TransactionId,
+            ["transaction_id"] = transaction?.TransactionId ?? manifest.TransactionId,
             ["transaction_number"] = transaction?.TransactionNumber ?? manifest.TransactionId,
             ["task_id"] = transaction?.TaskId ?? string.Empty,
             ["workflow_name"] = manifest.Payload.WorkflowProfile ?? transaction?.ProcessStep ?? "parcel_workflow",
@@ -1302,7 +1302,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         foreach (var record in records.OfType<JsonObject>())
         {
             SetIfMissing(record, "transaction_number", transaction?.TransactionNumber ?? manifest.TransactionId);
-            SetIfMissing(record, "transaction_id", manifest.TransactionId);
+            SetIfMissing(record, "transaction_id", transaction?.TransactionId ?? manifest.TransactionId);
             SetIfMissing(record, "task_id", transaction?.TaskId ?? string.Empty);
             SetIfMissing(record, "workflow_stage", WorkflowState.SpatialReviewPending.ToContractValue());
             SetIfMissing(record, "review_state", "published_to_working");

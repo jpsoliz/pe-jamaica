@@ -175,6 +175,9 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
+        var pdfReportPath = Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        Directory.CreateDirectory(fixture.Layout.ReportsDirectory);
+        File.WriteAllText(pdfReportPath, "stale report");
 
         viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
@@ -182,7 +185,19 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(1, attachmentService.UploadCalls, "Finalize should attach the generated Compare PDF report once.");
         TestAssert.Equal("TR100000674", attachmentService.LastTransactionNumber, "Report attachment should target the selected transaction.");
         TestAssert.True(File.Exists(attachmentService.LastPdfReportPath), "Report attachment should use an existing generated PDF.");
+        var uploadedPdfText = File.ReadAllText(attachmentService.LastPdfReportPath!);
+        TestAssert.True(uploadedPdfText.StartsWith("%PDF-1.4", StringComparison.Ordinal), "Finalize should regenerate the PDF before upload.");
+        TestAssert.True(uploadedPdfText.Contains("Evidence reconciled against the survey plan.", StringComparison.Ordinal), "Finalize should upload a report generated from the current notes.");
+        TestAssert.False(uploadedPdfText.Contains("stale report", StringComparison.Ordinal), "Finalize should overwrite stale PDF report content before upload.");
         TestAssert.Equal(1, lifecycle.CompleteCalls, "Finalize should complete only after the report attachment step succeeds.");
+        var tracePath = Path.Combine(fixture.Layout.WorkingDirectory, "compare_finalize_trace.json");
+        TestAssert.True(File.Exists(tracePath), "Finalize should write a diagnostic trace.");
+        var traceText = File.ReadAllText(tracePath);
+        TestAssert.True(traceText.Contains("\"step\": \"report_generated\"", StringComparison.Ordinal), "Finalize trace should record report generation.");
+        TestAssert.True(traceText.Contains("\"step\": \"upload_started\"", StringComparison.Ordinal), "Finalize trace should record upload start.");
+        TestAssert.True(traceText.Contains("\"step\": \"upload_result\"", StringComparison.Ordinal), "Finalize trace should record upload result.");
+        TestAssert.True(traceText.Contains("\"source_type\": \"st_compare_report\"", StringComparison.Ordinal), "Finalize trace should record Compare report attachment type.");
+        TestAssert.True(traceText.Contains("\"pdf_report_exists\": \"True\"", StringComparison.Ordinal), "Finalize trace should record generated PDF existence.");
     }
 
     public static void SaveDraftDoesNotCallTaskLifecycle()
@@ -335,12 +350,14 @@ internal static class CompareWorkspaceViewModelTests
     {
         using var fixture = CreateCaseFolderWithSource();
         var lifecycle = new RecordingCompareTaskLifecycleService();
+        var mapIntegration = new RecordingCompareMapIntegrationService();
         var viewModel = CreateViewModel(
             new MockLegalCadasterQueryService(new[]
             {
                 LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
             }),
-            lifecycle);
+            lifecycle,
+            mapIntegrationService: mapIntegration);
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
@@ -355,6 +372,13 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.False(viewModel.GeometryAvailable, "Successful Finalize should clear geometry availability after task close.");
         TestAssert.Equal(0, viewModel.ValuableEvidenceItems.Count, "Successful Finalize should clear retained evidence from the closed workspace.");
         TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task should be disabled after Finalize closes and clears the workspace.");
+        TestAssert.Equal(1, mapIntegration.CleanupCalls, "Successful Finalize should remove Compare map content after task close.");
+        var tracePath = Path.Combine(fixture.Layout.WorkingDirectory, "compare_finalize_trace.json");
+        TestAssert.True(File.Exists(tracePath), "Finalize should write cleanup diagnostics.");
+        var traceText = File.ReadAllText(tracePath);
+        TestAssert.True(traceText.Contains("\"step\": \"cleanup_started\"", StringComparison.Ordinal), "Finalize trace should record cleanup start.");
+        TestAssert.True(traceText.Contains("\"step\": \"map_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record map cleanup result.");
+        TestAssert.True(traceText.Contains("\"step\": \"form_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record form cleanup result.");
     }
 
     public static async Task FinalizeRequiresValuableEvidenceAndDecisionNotes()

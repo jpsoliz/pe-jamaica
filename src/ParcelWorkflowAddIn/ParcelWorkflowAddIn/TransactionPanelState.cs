@@ -1266,6 +1266,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         NotifyPropertyChanged(nameof(HasRows));
         NotifyPropertyChanged(nameof(IsEmpty));
+        NotifyPropertyChanged(nameof(CanRefresh));
         NotifyPropertyChanged(nameof(CanEditListCriteria));
         NotifyPropertyChanged(nameof(CanSearchTransactions));
         NotifyPropertyChanged(nameof(CanUseListControls));

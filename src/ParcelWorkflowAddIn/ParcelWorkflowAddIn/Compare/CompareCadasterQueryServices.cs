@@ -138,13 +138,21 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         this.timeoutSeconds = Math.Max(1, timeoutSeconds);
     }
 
-    public Task<LegalCadasterQueryResult> QueryByParcelIdAsync(
+    public async Task<LegalCadasterQueryResult> QueryByParcelIdAsync(
         string parcelId,
         CancellationToken cancellationToken = default)
     {
         var query = new LegalCadasterQuery("parcel_id", parcelId.Trim(), null, null);
         var payload = BuildSearchPayload(query);
-        return QueryInnolaSearchAsync(query, payload, cancellationToken);
+        var result = await QueryInnolaSearchAsync(query, payload, cancellationToken).ConfigureAwait(false);
+        if (!ShouldFallbackToBaUnitPidSearch(result))
+        {
+            return result;
+        }
+
+        return await CreateBaUnitSearchFallbackService()
+            .QueryByParcelIdAsync(parcelId, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<LegalCadasterQueryResult> QueryByVolumeFolioAsync(
@@ -168,7 +176,15 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             return capturedFixtureResult;
         }
 
-        return await QueryInnolaSearchAsync(query, BuildVolumeFolioPayload(volumeNumber, folioNumber), cancellationToken).ConfigureAwait(false);
+        var result = await QueryInnolaSearchAsync(query, BuildVolumeFolioPayload(volumeNumber, folioNumber), cancellationToken).ConfigureAwait(false);
+        if (!ShouldFallbackToBaUnitVolumeFolioSearch(result))
+        {
+            return result;
+        }
+
+        return await CreateBaUnitSearchFallbackService()
+            .QueryByVolumeFolioAsync(volume, folio, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private HttpRequestMessage CreateSearchRequest(Uri searchUri, string serverUrl, string payload, string accessToken, bool includeAccessToken)
@@ -443,6 +459,48 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             Start: source.Start,
             Limit: source.Limit);
         return JsonSerializer.Serialize(payload, SerializerOptions);
+    }
+
+    private bool ShouldFallbackToBaUnitVolumeFolioSearch(LegalCadasterQueryResult result)
+    {
+        return source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            && result.Success
+            && result.Status == CompareEvidenceStatus.NoRecordReturned
+            && result.Query.QueryKind.Equals("volume_folio", StringComparison.OrdinalIgnoreCase)
+            && result.RawDebug?.RawRecordCount == 0;
+    }
+
+    private bool ShouldFallbackToBaUnitPidSearch(LegalCadasterQueryResult result)
+    {
+        if (!source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            || !result.Query.QueryKind.Equals("parcel_id", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !result.Success
+            && result.Retryable
+            && result.Diagnostic?.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private InnolaBaUnitLegalCadasterQueryService CreateBaUnitSearchFallbackService()
+    {
+        var fallbackSource = source with
+        {
+            SourceName = "Innola BA Unit",
+            ServiceUrl = "search/",
+            Adapter = "innola_baunit_search",
+            SearchKind = "baunit",
+            Datamap = string.IsNullOrWhiteSpace(source.Datamap) ? "BaUnitSearchDM" : source.Datamap
+        };
+
+        return new InnolaBaUnitLegalCadasterQueryService(
+            fallbackSource,
+            getSession,
+            httpClient,
+            getUtcNow,
+            timeoutSeconds,
+            hasInnolaSessionCookie);
     }
 
     private string BuildSearchPayload(LegalCadasterQuery query)

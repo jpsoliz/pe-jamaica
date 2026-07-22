@@ -2740,6 +2740,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var result = await ShellState.LifecycleCoordinator.SaveAndCloseAsync();
         if (result.Success)
         {
+            await CleanupActiveTransactionReviewMapAsync(suspendedTransactionNumber).ConfigureAwait(true);
             await ReturnToTransactionListAsync(
                 suspendedTransactionNumber,
                 result.StatusMessage ?? "Transaction suspended.",
@@ -2793,6 +2794,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var result = ShellState.LifecycleCoordinator.CancelActiveProcess();
         if (result.Success)
         {
+            await CleanupActiveTransactionReviewMapAsync(cancelledTransactionNumber).ConfigureAwait(true);
             await ReturnToTransactionListAsync(
                 cancelledTransactionNumber,
                 "Transaction cancelled. Filters cleared.",
@@ -2847,7 +2849,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var result = await ShellState.LifecycleCoordinator.CompleteAsync();
         if (result.Success)
         {
-            await outputMapIntegrationService.RemoveTransactionOutputsFromActiveMapAsync(completedTransactionNumber).ConfigureAwait(true);
+            await CleanupActiveTransactionReviewMapAsync(completedTransactionNumber).ConfigureAwait(true);
             await ReturnToTransactionListAsync(
                 completedTransactionNumber,
                 result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.",
@@ -2859,6 +2861,21 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
         RefreshWorkflowProperties();
+    }
+
+    private async Task CleanupActiveTransactionReviewMapAsync(string? transactionNumber)
+    {
+        var cleanupResult = await outputMapIntegrationService
+            .RemoveTransactionOutputsFromActiveMapAsync(transactionNumber)
+            .ConfigureAwait(true);
+
+        if (!cleanupResult.Success
+            && !string.IsNullOrWhiteSpace(cleanupResult.Message)
+            && !cleanupResult.Message.Contains("No active map review group", StringComparison.OrdinalIgnoreCase)
+            && !cleanupResult.Message.Contains("No active ArcGIS Pro map", StringComparison.OrdinalIgnoreCase))
+        {
+            workflowSession.SetValidationFailure(cleanupResult.Message);
+        }
     }
 
     protected override void OnShow(bool isVisible)

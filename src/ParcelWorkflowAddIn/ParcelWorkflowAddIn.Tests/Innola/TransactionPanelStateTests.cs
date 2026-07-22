@@ -471,6 +471,55 @@ internal static class TransactionPanelStateTests
         TestAssert.True(panel.CanViewDocuments, "Documents should be enabled after load/start.");
     }
 
+    public static async Task ToolbarCommandsStaySynchronizedAcrossTransactionStates()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
+                Row("task-100000005", "TR100000005", "Compare Survey Plan", "tester", "2024-10-15T09:38:00-05:00")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock, new AlwaysReadyCompletionReadinessService()),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
+            compareWorkspaceLauncher: _ => { });
+
+        await panel.RefreshAsync();
+        AssertToolbarCommandState(panel, true, false, false, false, false, false, false, "without a selected row");
+
+        panel.SelectedRow = FindRow(panel, "TR100000004");
+        AssertToolbarCommandState(panel, true, true, false, false, false, false, false, "with a selected Compute row before load");
+
+        await panel.LoadSelectedTransactionAsync();
+        AssertToolbarCommandState(panel, true, true, false, false, true, true, false, "with a loaded but unclaimed Compute transaction");
+
+        await panel.StartSelectedTransactionAsync();
+        AssertToolbarCommandState(panel, false, false, false, true, true, true, true, "with an active Compute transaction");
+
+        await panel.SaveCurrentTransactionAsync();
+        AssertToolbarCommandState(panel, true, true, false, false, false, false, false, "after suspending the Compute transaction");
+
+        panel.SelectedRow = FindRow(panel, "TR100000005");
+        await panel.StartSelectedTransactionAsync();
+        AssertToolbarCommandState(panel, false, false, true, true, true, true, true, "with an active Compare transaction");
+
+        await panel.CompleteCurrentTransactionAsync();
+        AssertToolbarCommandState(panel, true, false, false, false, false, false, false, "after completing the Compare transaction");
+    }
+
     public static async Task AddDocumentsCopiesFilesIntoLoadedTransaction()
     {
         using var tempRoot = new TempDirectory();
@@ -948,6 +997,33 @@ internal static class TransactionPanelStateTests
     private static InnolaTransactionRow FindRow(TransactionPanelState panel, string transactionNumber)
     {
         return panel.Rows.First(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void AssertToolbarCommandState(
+        TransactionPanelState panel,
+        bool canRefresh,
+        bool canStart,
+        bool canReopenCompare,
+        bool canStop,
+        bool canViewDocuments,
+        bool canAddDocument,
+        bool canComplete,
+        string context)
+    {
+        TestAssert.Equal(canRefresh, panel.CanRefresh, $"Refresh property mismatch {context}.");
+        TestAssert.Equal(canRefresh, panel.RefreshCommand.CanExecute(null), $"Refresh command mismatch {context}.");
+        TestAssert.Equal(canStart, panel.CanStartTransaction, $"Start property mismatch {context}.");
+        TestAssert.Equal(canStart, panel.StartTransactionCommand.CanExecute(null), $"Start command mismatch {context}.");
+        TestAssert.Equal(canReopenCompare, panel.CanReopenCompare, $"CMP/Reopen Compare property mismatch {context}.");
+        TestAssert.Equal(canReopenCompare, panel.ReopenCompareCommand.CanExecute(null), $"CMP/Reopen Compare command mismatch {context}.");
+        TestAssert.Equal(canStop, panel.CanStopTask, $"Stop/Suspend property mismatch {context}.");
+        TestAssert.Equal(canStop, panel.StopTaskCommand.CanExecute(null), $"Stop/Suspend command mismatch {context}.");
+        TestAssert.Equal(canViewDocuments, panel.CanViewDocuments, $"View Documents property mismatch {context}.");
+        TestAssert.Equal(canViewDocuments, panel.ViewDocumentsCommand.CanExecute(null), $"View Documents command mismatch {context}.");
+        TestAssert.Equal(canAddDocument, panel.CanAddDocument, $"Add Document property mismatch {context}.");
+        TestAssert.Equal(canAddDocument, panel.AddDocumentCommand.CanExecute(null), $"Add Document command mismatch {context}.");
+        TestAssert.Equal(canComplete, panel.CanCompleteTask, $"Complete property mismatch {context}.");
+        TestAssert.Equal(canComplete, panel.CompleteTaskCommand.CanExecute(null), $"Complete command mismatch {context}.");
     }
 
     private static async Task WaitForAsync(Func<bool> condition)

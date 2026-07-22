@@ -233,6 +233,10 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 - Party-shaped result patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- compare` passed 102 compare-filtered tests.
 - Party-shaped result patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed with 0 warnings/errors.
 - Party-shaped result patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 461 tests.
+- Volume/Folio property-search fallback patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 475 tests.
+- Volume/Folio property-search fallback patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln` passed with 0 warnings/errors.
+- PID property-search fallback patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 476 tests.
+- PID property-search fallback patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln` passed with 0 warnings/errors.
 
 ### Completion Notes
 
@@ -244,6 +248,8 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 - Owner-name searches now send one Postman-style parameter, `owner`, normalized to an uppercase wildcard such as `%TRACEY%`; multi-row owner responses map into the results grid with Volume/Folio, Type, Tenure, PID, LandVal No., Owner, Parish, and Date Registered.
 - Party-shaped Innola rows are now split into Related Party Matches instead of appearing as blank or misleading property Search Results rows.
 - Related Party Matches can be kept as Valuable Evidence with a party-oriented summary, and kept party evidence is restored from Compare draft persistence with other retained evidence.
+- Volume/Folio searches now fall back from the Postman-style owner search route to the BA Unit/property search route when owner search returns zero raw rows, matching the Staff Portal Properties search behavior while preserving party-row safeguards.
+- PID searches now fall back from the Postman-style owner search route to the BA Unit/property search route when the owner route returns an Unauthorized retryable response, so PID `11140063` can resolve through the same property-search behavior seen in the Staff Portal without changing name or Volume/Folio search behavior.
 - Added tolerant response mapping for common record collection names and likely owner/parcel/volume/folio/title/land valuation/parish/role fields.
 - Updated Compare launch wiring so the live adapter can access the current in-memory Innola session without persisting secrets.
 - Resolved all 3 code review findings: manual Volume/Folio numeric validation now blocks service calls, live BA Unit searches use a timeout-linked cancellation token from `compare_cadaster_query_timeout_seconds`, and single-record objects under known response containers now map correctly.

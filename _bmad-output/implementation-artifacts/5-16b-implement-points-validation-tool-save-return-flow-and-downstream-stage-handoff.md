@@ -110,6 +110,7 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 | 2026-06-17 | 0.1 | Initial implementation story for save/close behavior in Points Validation Tool and downstream handoff into Create Spatial Units, Final Review, and Finalize. | Codex |
 | 2026-06-17 | 0.2 | Implemented dirty-only save, close/discard prompts, save-and-continue workflow handoff, and close-state messaging with focused tests. | Codex |
 | 2026-07-03 | 0.3 | Patched story scope to expand validation/save/handoff from points-only to points-and-lines review data. | Mary / Codex |
+| 2026-07-21 | 0.4 | Hardened Points Validation Tool footer actions and close/save messaging so disabled actions are hidden, Close remains pressable, and save availability is explained when closing with unsaved changes. | Codex |
 
 ## Dev Agent Record
 
@@ -126,6 +127,10 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 - Reused the existing approved-review snapshot path for the continue handoff so downstream `Create Spatial Units` still runs from saved validated review data rather than raw extraction output.
 - Added focused tests around the new close-state messaging and verified the full test harness passes.
 - Product alignment patch added the future requirement that line edits and line validation status participate in dirty-state save and downstream handoff; implementation may need a follow-up dev patch if current code only tracks point rows.
+- Follow-up hardening made footer actions reflect pressable state: `Validation Complete` is only shown when validation can complete, `Save` is only shown when dirty review changes can be saved, and `Close` remains visible as the escape path.
+- Added close-prompt messaging that tells the examiner whether `Save` is available before closing with unsaved point changes; if save is unavailable or fails, the tool now explains why it stays open instead of appearing unresponsive.
+- Explicitly notified `HasUnsavedReviewChanges` and `CanSaveReviewChangesFromWorkspace` from the parent dockpane so adding a point refreshes the validation window's Save/Close state immediately.
+- Regression coverage now includes footer action visibility, Close pressability, save-state notification, and close/save failure messaging.
 
 ## File List
 
@@ -135,6 +140,7 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceWindow.xaml.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/PointsValidationWorkspaceMessages.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/PointsValidationWorkspaceMessagesTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/JamaicaReviewWorkspaceXamlTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 - `_bmad-output/implementation-artifacts/5-16b-implement-points-validation-tool-save-return-flow-and-downstream-stage-handoff.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`

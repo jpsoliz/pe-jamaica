@@ -382,6 +382,52 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!httpResult.ErrorMessage!.Contains("token-abc", StringComparison.Ordinal), "HTTP failure must not expose token.");
     }
 
+    public static async Task AttachmentUploadRegistersCompareReportSourceType()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 7,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 8 },
+                  "link": { "@id": 9 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100000674",
+            "Compare Survey Plan",
+            "Compare",
+            DateTimeOffset.Parse("2026-07-22T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "compare_review_report.pdf",
+            "application/pdf",
+            Encoding.UTF8.GetBytes("%PDF-1.4 test"),
+            "st_compare_report");
+
+        TestAssert.True(result.Success, "Compare report upload and registration should succeed.");
+        TestAssert.Equal(3, handler.Requests.Count, "Upload should attach the file, load current sources, then register the source list.");
+        TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.Contains("sourceType=st_compare_report", StringComparison.Ordinal), "Attachment upload query should use st_compare_report.");
+        TestAssert.True(handler.Requests[2].Uri.AbsoluteUri.Contains("typeKeyId=source", StringComparison.Ordinal), "Final request should register administrative sources.");
+        TestAssert.True(handler.Requests[2].Body.Contains("\"type\":\"st_compare_report\"", StringComparison.Ordinal), "Registered source payload should preserve st_compare_report.");
+        TestAssert.True(!handler.Requests[2].Body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Compare report must not be rewritten to the survey plan registered type.");
+    }
+
     private sealed class CapturingHttpMessageHandler : HttpMessageHandler
     {
         private readonly string responseBody;

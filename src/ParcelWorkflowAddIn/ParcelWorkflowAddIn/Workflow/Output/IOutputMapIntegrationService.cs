@@ -337,6 +337,10 @@ internal static class OutputMapReviewStyling
     private const string FabricPointsLayer = "Points";
     private const string FabricConnectionLinesLayer = "Connection Lines";
     private const string FabricParcelTypeSuffix = "_Lines";
+    internal const double ParcelPointOutlineSize = 7.0;
+    internal const double ParcelPointFillSize = 5.0;
+    internal const int ParcelPolygonLayerTransparencyPercent = 60;
+    internal const int ParcelPolygonFillOpacityPercent = 100;
     public const string ComputedParcelReviewGroupName = "Computed Parcel Review";
     public const string SupportingSourcesGroupName = "Supporting Sources";
 
@@ -590,15 +594,15 @@ internal static class OutputMapReviewStyling
         {
             var outlineMarker = SymbolFactory.Instance.ConstructMarker(
                 ColorFactory.Instance.BlackRGB,
-                7.0,
+                ParcelPointOutlineSize,
                 SimpleMarkerStyle.Circle);
             var fillMarker = SymbolFactory.Instance.ConstructMarker(
                 ColorFactory.Instance.WhiteRGB,
-                5.0,
+                ParcelPointFillSize,
                 SimpleMarkerStyle.Circle);
             var pointSymbol = new CIMPointSymbol
             {
-                SymbolLayers = new CIMSymbolLayer[] { outlineMarker, fillMarker }
+                SymbolLayers = new CIMSymbolLayer[] { fillMarker, outlineMarker }
             };
             featureLayer.SetRenderer(new CIMSimpleRenderer
             {
@@ -634,12 +638,13 @@ internal static class OutputMapReviewStyling
     {
         try
         {
+            featureLayer.SetTransparency(ParcelPolygonLayerTransparencyPercent);
             var outline = SymbolFactory.Instance.ConstructStroke(
                 ColorFactory.Instance.CreateRGBColor(75, 104, 122),
                 1.25,
                 SimpleLineStyle.Solid);
             var polygonSymbol = SymbolFactory.Instance.ConstructPolygonSymbol(
-                ColorFactory.Instance.CreateRGBColor(222, 228, 232, 45),
+                ColorFactory.Instance.CreateRGBColor(222, 228, 232, ParcelPolygonFillOpacityPercent),
                 SimpleFillStyle.Solid,
                 outline);
             featureLayer.SetRenderer(new CIMSimpleRenderer

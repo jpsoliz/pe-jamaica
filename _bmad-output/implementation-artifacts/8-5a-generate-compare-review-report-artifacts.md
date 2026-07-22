@@ -29,9 +29,10 @@ This story does not change Commit promotion. It adds report generation for the C
 7. Given discrepancies exist, then the report includes discrepancy title, source, status, resolved flag, and blocking flag.
 8. Given a Compare decision is finalized, then `compare_review_decision.json` includes an evidence ref to the generated report JSON and PDF when available.
 9. Given Finalize is pressed and the Compare PDF report exists, then the add-in attaches `compare_review_report.pdf` to the Innola transaction using document/source type `st_compare_report` before completing the task.
-10. Given Finalize is pressed and no Compare PDF report exists yet, then the add-in generates the report first and asks the user to confirm task conclusion before completion.
+10. Given Finalize is pressed, then the add-in asks for confirmation, saves the current status, regenerates and overwrites the Compare PDF report, uploads it to the transaction, and then completes the task.
 11. Given report generation or attachment fails, then the Compare decision/draft save still completes where possible, a sanitized warning is shown, and no raw tokens or credentials are written to UI or artifacts.
 12. Given automated tests run, then report JSON content, PDF creation, decision evidence refs, Finalize attachment behavior, and failure handling are covered.
+13. Given Finalize is pressed, then the add-in writes a sanitized diagnostic trace under `working/compare_finalize_trace.json` showing report generation, upload start/result, lifecycle completion, map cleanup, and form cleanup outcomes.
 
 ## Tasks / Subtasks
 
@@ -51,7 +52,7 @@ This story does not change Commit promotion. It adds report generation for the C
   - [x] Generate JSON report on Save, Suspend pre-save, Block, and Finalize pre-save.
   - [x] Add report refs to `compare_review_decision.json` evidence refs when available.
   - [x] Preserve existing draft/decision saves when report generation fails.
-  - [x] Generate a report before Finalize confirmation when no PDF report exists yet.
+  - [x] Regenerate and overwrite the report during Finalize before upload, even when an older PDF already exists.
 
 - [x] Attach Compare PDF report on Finalize. (AC: 9-11)
   - [x] Add a Compare report attachment service using Innola attachment upload.
@@ -66,6 +67,7 @@ This story does not change Commit promotion. It adds report generation for the C
   - [ ] Finalized decision references report artifacts.
   - [x] Finalize attaches the generated PDF before completing task.
   - [ ] Report failure is non-fatal and sanitized.
+  - [x] Finalize writes diagnostics for report generation, upload, lifecycle, map cleanup, and form cleanup. (AC: 13)
 
 ## Developer Notes
 
@@ -87,6 +89,13 @@ Innola Finalize attachment:
 - File: `output/reports/compare_review_report.pdf`
 - Document/source type: `st_compare_report`
 - The PDF is regenerated and overwritten before attachment.
+- The uploaded source registration must preserve `st_compare_report`; it must not be rewritten to the resume/completed package registered type.
+
+Finalize diagnostics:
+
+- File: `working/compare_finalize_trace.json`
+- Records sanitized steps for `report_generated`, `upload_started`, `upload_result`, `lifecycle_complete_result`, `cleanup_started`, `map_cleanup_result`, and `form_cleanup_result`.
+- Includes paths, existence, byte size, and last-write timestamps for the JSON report, PDF report, and decision artifact when a Case Folder is open.
 
 ## Testing Notes
 
@@ -106,3 +115,6 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | 2026-07-17 | 0.3 | Added PDF report generation on Save and Finalize attachment as `st_compare_report`. | Codex |
 | 2026-07-17 | 0.4 | Refined PDF report body to numbered Valuable Evidence and Notes, and clarified Save confirmation message. | Codex |
 | 2026-07-17 | 0.5 | Added Finalize pre-check to generate missing report before user confirmation. | Codex |
+| 2026-07-22 | 0.6 | Clarified button contract and changed Finalize to always regenerate/overwrite the PDF before upload. | Codex |
+| 2026-07-22 | 0.7 | Fixed Innola source registration so Compare report uploads remain attached as `st_compare_report`. | Codex |
+| 2026-07-22 | 0.8 | Added Finalize diagnostics for report generation, upload, lifecycle completion, map cleanup, and form cleanup. | Codex |

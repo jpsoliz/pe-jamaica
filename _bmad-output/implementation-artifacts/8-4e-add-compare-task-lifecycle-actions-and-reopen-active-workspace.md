@@ -181,7 +181,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 Manual validation target:
 
 - Open Compare for `TR100000668`.
-- Click `Close window`.
+- Click `Cancel`.
 - Confirm Transaction Panel still shows the active Compare task and exposes `Reopen Compare`.
 - Click `Reopen Compare`; confirm Compare opens without a new claim/start attempt.
 - Click `Save draft`; confirm the task remains active.
@@ -221,12 +221,18 @@ Manual validation target:
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 435 tests.
 - Review patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compare workspace"` passed 29 tests.
 - Review patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false` passed after rerunning serially; the first parallel build attempt hit a transient compiler output lock.
+- Button contract patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- compare` passed 110 tests.
+- Button contract patch: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` passed 476 tests.
+- Button contract patch: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln` passed with 0 warnings/errors.
 
 ### Completion Notes
 
 - Added `ICompareTaskLifecycleService` and `CompareTaskLifecycleResult`.
-- Compare now exposes `Save draft`, `Suspend task`, `Complete task`, and `Close window` with distinct behavior.
-- `Save draft` only writes Compare draft artifacts; suspend and complete save/confirm Compare state then call the lifecycle bridge.
+- Compare now exposes `Save`, `Suspend`, `Finalize`, and `Cancel` with distinct behavior.
+- `Save` writes the current Compare status and regenerates the PDF report without releasing or completing the transaction task.
+- `Suspend` saves current status through the lifecycle bridge, uploads the resume/status package to the transaction, then clears the Compare form and map content.
+- `Finalize` saves current status, regenerates and uploads the PDF report to the transaction, completes the lifecycle task, then clears the Compare form and map content.
+- `Cancel` closes the Compare workspace without saving and clears the Compare form and map content.
 - Successful suspend/complete asks the window to close after Transaction Panel cleanup; failures keep Compare open and preserve active task state.
 - Transaction Panel now exposes gated `ReopenCompareCommand` for active Compare-stage tasks and passes a lifecycle bridge to Compare launches.
 - Reopen Compare uses the already active transaction and does not call claim/start again.

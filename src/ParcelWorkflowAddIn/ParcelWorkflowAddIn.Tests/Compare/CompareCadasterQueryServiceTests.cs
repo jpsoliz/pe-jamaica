@@ -120,7 +120,22 @@ internal static class CompareCadasterQueryServiceTests
 
     public static async Task FactoryCreatesInnolaBaUnitLegalAdapter()
     {
-        var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
+        var handler = new CapturingHttpMessageHandler(
+            """
+            {
+              "records": [
+                {
+                  "owners": "Jane Brown",
+                  "pid": "PID-123",
+                  "volume": 1549,
+                  "folio": 583,
+                  "titleno": "RP100"
+                }
+              ],
+              "total": 1,
+              "success": true
+            }
+            """);
         var settings = InnolaTransactionSettings.Default with
         {
             Mode = "live",
@@ -296,11 +311,11 @@ internal static class CompareCadasterQueryServiceTests
 
         await service.QueryByVolumeFolioAsync("1549", "583");
 
-        TestAssert.Equal(HttpMethod.Post, handler.LastMethod, "Owner search should POST.");
-        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.LastUri?.ToString(), "Owner search URI mismatch.");
-        TestAssert.Equal("token-abc", handler.LastAccessToken, "Owner search should use Innola Access-token auth.");
+        TestAssert.True(handler.RequestUris.Count > 0, "Owner search should issue at least one request.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.RequestUris[0]?.ToString(), "Owner search URI mismatch.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[0], "Owner search should use Innola Access-token auth.");
         TestAssert.Equal("XMLHttpRequest", handler.LastRequestedWith, "Owner search should mimic Innola web AJAX requests.");
-        using var document = JsonDocument.Parse(handler.LastRequestBody);
+        using var document = JsonDocument.Parse(handler.RequestBodies[0]);
         var root = document.RootElement;
         TestAssert.Equal("SearchRequest", root.GetProperty("@c").GetString(), "Postman owner search class marker mismatch.");
         TestAssert.Equal("owner", root.GetProperty("searchKind").GetString(), "Postman owner searchKind mismatch.");
@@ -311,6 +326,104 @@ internal static class CompareCadasterQueryServiceTests
         var parameters = root.GetProperty("params");
         TestAssert.Equal(1549, parameters.GetProperty("volume").GetInt32(), "Owner search volume should be serialized as a number.");
         TestAssert.Equal(583, parameters.GetProperty("folio").GetInt32(), "Owner search folio should be serialized as a number.");
+    }
+
+    public static async Task InnolaOwnerVolumeFolioFallsBackToBaUnitWhenOwnerSearchIsEmpty()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"records":[],"total":0,"success":true,"error":null}""", HttpStatusCode.OK),
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "registrationdate": "2026-07-21T00:00:00.000+00:00",
+                   "pid": "N/A",
+                   "baunit_type": "bu_type_land",
+                   "titleno": "RP99999999",
+                   "volume": 1328,
+                   "folio": 856,
+                   "tenurevalue": "Fee Simple",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByVolumeFolioAsync("1328", "856");
+
+        TestAssert.True(result.Success, "BA Unit fallback should succeed when owner search is empty.");
+        TestAssert.Equal(CompareEvidenceStatus.Ready, result.Status, "Fallback record should be ready.");
+        TestAssert.Equal(2, handler.RequestCount, "Volume/Folio should try owner search first, then BA Unit fallback.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.RequestUris[0]?.ToString(), "First query should use owner search.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/search/", handler.RequestUris[1]?.ToString(), "Fallback query should use BA Unit property search.");
+        TestAssert.Equal("1328", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("856", result.Records[0].Folio, "Fallback folio should map.");
+        TestAssert.Equal("RP99999999", result.Records[0].TitleRecordId, "Fallback title should map.");
+        TestAssert.Equal("Land", result.Records[0].PropertyType, "Fallback property type should map.");
+    }
+
+    public static async Task InnolaOwnerPidSearchFallsBackToBaUnitWhenOwnerSearchIsUnauthorized()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""
+             {
+               "type": "about:blank",
+               "title": "Unauthorized",
+               "status": 401,
+               "detail": "Full authentication is required to access this resource"
+             }
+             """, HttpStatusCode.Unauthorized),
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "pid": "11140063",
+                   "owners": "RANGLIN, MATTHEW, SMITH, CHERRIEN",
+                   "baunit_type": "bu_type_land",
+                   "titleno": "RP10342601",
+                   "volume": 1508,
+                   "folio": 408,
+                   "tenurevalue": "Fee Simple",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByParcelIdAsync("11140063");
+
+        TestAssert.True(result.Success, "BA Unit fallback should succeed when PID owner search is unauthorized.");
+        TestAssert.Equal(CompareEvidenceStatus.Ready, result.Status, "Fallback PID record should be ready.");
+        TestAssert.Equal(2, handler.RequestCount, "PID should try owner search first, then BA Unit fallback.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.RequestUris[0]?.ToString(), "First PID query should use owner search.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/search/", handler.RequestUris[1]?.ToString(), "PID fallback query should use BA Unit property search.");
+        TestAssert.Equal("11140063", result.Records[0].ParcelId, "Fallback PID should map.");
+        TestAssert.Equal("RANGLIN, MATTHEW, SMITH, CHERRIEN", result.Records[0].OwnerName, "Fallback owner should map.");
+        TestAssert.Equal("1508", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("408", result.Records[0].Folio, "Fallback folio should map.");
+        TestAssert.Equal("RP10342601", result.Records[0].TitleRecordId, "Fallback title should map.");
     }
 
     public static async Task InnolaOwnerPidLandValAndNameSearchPostPostmanEnvelope()
@@ -1467,6 +1580,8 @@ internal static class CompareCadasterQueryServiceTests
 
         public Uri? LastUri { get; private set; }
 
+        public List<Uri?> RequestUris { get; } = new();
+
         public HttpMethod? LastMethod { get; private set; }
 
         public string? LastAccessToken { get; private set; }
@@ -1489,6 +1604,7 @@ internal static class CompareCadasterQueryServiceTests
         {
             RequestCount++;
             LastUri = request.RequestUri;
+            RequestUris.Add(LastUri);
             LastMethod = request.Method;
             LastAccessToken = request.Headers.TryGetValues("Access-token", out var values)
                 ? values.FirstOrDefault()

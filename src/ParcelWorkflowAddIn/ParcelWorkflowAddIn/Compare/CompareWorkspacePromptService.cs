@@ -34,7 +34,7 @@ public sealed class MessageBoxCompareWorkspacePromptService : ICompareWorkspaceP
     public bool ConfirmSave()
     {
         return MessageBox.Show(
-            "Save the current Compare data and regenerate the report?",
+            "Save the current Compare status and regenerate the PDF report?",
             "Compare Workspace",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question) == MessageBoxResult.Yes;
@@ -43,7 +43,7 @@ public sealed class MessageBoxCompareWorkspacePromptService : ICompareWorkspaceP
     public bool ConfirmSuspend()
     {
         return MessageBox.Show(
-            "Suspend this Compare task? Current progress will be saved, the Compare map layers will be removed, and the workspace will close.",
+            "Suspend this Compare task? Current status will be saved and uploaded to the transaction, then the form and Compare map content will be cleared.",
             "Compare Workspace",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question) == MessageBoxResult.Yes;
@@ -52,8 +52,8 @@ public sealed class MessageBoxCompareWorkspacePromptService : ICompareWorkspaceP
     public bool ConfirmFinalize(bool reportAlreadyGenerated)
     {
         var message = reportAlreadyGenerated
-            ? "Finalize this Compare task and move it to the next stage? The existing report will be regenerated and attached to the transaction."
-            : "A Compare report has not been generated yet. Generate the report, finalize this task, and move it to the next stage?";
+            ? "Finalize this Compare task? The current status will be saved, the PDF report will be regenerated and uploaded to the transaction, and the form and Compare map content will be cleared."
+            : "Finalize this Compare task? A PDF report will be generated, uploaded to the transaction, and the form and Compare map content will be cleared.";
         return MessageBox.Show(
             message,
             "Compare Workspace",

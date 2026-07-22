@@ -324,6 +324,7 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 - Strengthened Enterprise closeout readiness so Finalize requires approved disposition evidence, matching output summary/publish run ids, matching transaction metadata, and successful nonempty Enterprise publish evidence.
 - Expanded completed working package contents to include full output artifacts, including generated GDB contents and extracted geometry artifacts, while preserving lightweight Suspend/Save-and-Close package behavior.
 - Restore now exposes Compute disposition, Enterprise disposition, and Compute examination report artifacts and warns when restored disposition evidence disagrees with the current output summary run.
+- Patched Enterprise working-layer publish metadata so feature rows and case-index rows store the Innola GUID in `transaction_id` and the readable transaction number in `transaction_number`, matching the disposition query scope used by Finalize.
 
 ### File List
 
@@ -371,3 +372,4 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 | 2026-07-03 | 1.1 | Patched review finding so Compute examination report receives planned working-package metadata before package zip/upload. | Amelia / Codex |
 | 2026-07-03 | 1.2 | Finished remaining 7.9 closeout: REST disposition guards, Spatial Unit refs in case index/manifest, full output package contents, stronger readiness, and disposition restore artifacts. | Amelia / Codex |
 | 2026-07-06 | 1.3 | Patched story to require explicit Enterprise `working_case_index` fields `spatial_unit_id` and `spatial_unit_api_status` for Spatial Unit closeout reference writeback. | Mary / Codex |
+| 2026-07-21 | 1.4 | Patched Enterprise working-layer transaction metadata so Finalize disposition writeback can find rows by the configured `transaction_id` scope. | Codex |

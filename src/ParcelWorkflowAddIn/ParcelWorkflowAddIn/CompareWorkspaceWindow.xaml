@@ -302,13 +302,13 @@
                       Height="28"
                       Content="Save"
                       Command="{Binding SaveProgressCommand}"
-                      ToolTip="Saves notes, selected evidence, and Compare decision state without changing task ownership or stage." />
+                      ToolTip="Saves the current Compare status and regenerates the PDF report without changing task ownership or stage." />
               <Button Margin="4,0,4,0" Height="28" Content="Suspend" Command="{Binding SuspendTaskCommand}" />
               <Button Margin="4,0,0,0"
                       Height="28"
                       Content="Finalize"
                       Command="{Binding ApproveCompareCommand}"
-                      ToolTip="Finalizes the Compare decision when a valuable evidence row is retained, Notes are completed, and readiness checks pass." />
+                      ToolTip="Saves the current Compare status, regenerates and uploads the PDF report, finalizes the transaction task, and clears the workspace." />
             </UniformGrid>
           </StackPanel>
         </Grid>
@@ -321,7 +321,12 @@
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
-      <Button Grid.Column="1" Width="100" Margin="0,6,8,6" Content="Close window" Click="CloseButton_Click" />
+      <Button Grid.Column="1"
+              Width="100"
+              Margin="0,6,8,6"
+              Content="Cancel"
+              ToolTip="Cancels the Compare workspace without saving, then clears the form and Compare map content."
+              Click="CloseButton_Click" />
     </Grid>
   </Grid>
 </controls:ProWindow>

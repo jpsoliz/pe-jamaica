@@ -36,6 +36,17 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", ordered[2], "Point layer should load last.");
     }
 
+    public static void ComputedParcelReviewSymbologyUsesPointHaloAndTransparentPolygons()
+    {
+        TestAssert.Equal(7.0, OutputMapReviewStyling.ParcelPointOutlineSize, "Parcel point black outline size should remain larger than the white fill.");
+        TestAssert.Equal(5.0, OutputMapReviewStyling.ParcelPointFillSize, "Parcel point white fill size should sit inside the black outline.");
+        TestAssert.True(
+            OutputMapReviewStyling.ParcelPointOutlineSize > OutputMapReviewStyling.ParcelPointFillSize,
+            "Parcel points should render as black border with white fill.");
+        TestAssert.Equal(60, OutputMapReviewStyling.ParcelPolygonLayerTransparencyPercent, "Parcel polygon layer transparency should be set to 60%.");
+        TestAssert.Equal(100, OutputMapReviewStyling.ParcelPolygonFillOpacityPercent, "Parcel polygon fill color should remain opaque so layer-level transparency controls the visible result.");
+    }
+
     public static void BuildSuccessMessageUsesNonFabricReviewLanguage()
     {
         var summary = new OutputSummaryDocument(

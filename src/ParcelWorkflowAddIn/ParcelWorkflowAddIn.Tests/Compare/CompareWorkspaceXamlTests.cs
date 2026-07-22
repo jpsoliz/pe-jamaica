@@ -62,10 +62,10 @@ internal static class CompareWorkspaceXamlTests
         TestAssert.True(
             xaml.Contains("Content=\"Save\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding SaveProgressCommand}\"", StringComparison.Ordinal),
-            "Compare should expose Save as an evidence-only draft save command.");
+            "Compare should expose Save as a draft save and report-generation command.");
         TestAssert.True(
-            xaml.Contains("Saves notes, selected evidence, and Compare decision state", StringComparison.Ordinal),
-            "Save should explain that it persists evidence without changing task lifecycle.");
+            xaml.Contains("Saves the current Compare status and regenerates the PDF report", StringComparison.Ordinal),
+            "Save should explain that it saves the current status and regenerates the PDF report.");
         TestAssert.True(
             xaml.Contains("Content=\"Suspend\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding SuspendTaskCommand}\"", StringComparison.Ordinal),
@@ -77,11 +77,12 @@ internal static class CompareWorkspaceXamlTests
             || xaml.Contains("Command=\"{Binding BlockCompareCommand}\"", StringComparison.Ordinal),
             "Compare should not expose Block or Complete task in the simplified action row.");
         TestAssert.True(
-            xaml.Contains("Content=\"Close window\"", StringComparison.Ordinal),
-            "Compare should clearly label the window-only close action.");
+            xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal)
+            && xaml.Contains("Cancels the Compare workspace without saving", StringComparison.Ordinal),
+            "Compare should label the no-save cleanup action as Cancel.");
         TestAssert.True(
-            xaml.Contains("Finalizes the Compare decision", StringComparison.Ordinal),
-            "Finalize should explain its decision semantics.");
+            xaml.Contains("regenerates and uploads the PDF report", StringComparison.Ordinal),
+            "Finalize should explain that it saves, regenerates and uploads the PDF report, then clears the workspace.");
         TestAssert.True(
             xaml.Contains("Content=\"Finalize\"", StringComparison.Ordinal)
             && !xaml.Contains("Content=\"Approve Compare\"", StringComparison.Ordinal)

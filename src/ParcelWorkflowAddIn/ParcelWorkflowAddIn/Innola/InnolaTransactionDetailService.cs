@@ -180,7 +180,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
                 var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                 Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={response.StatusCode}; Body={responseBody}.");
                 return InnolaAttachmentUploadResult.Failure(
-                    $"Could not upload saved resume package ({response.StatusCode}). Try again.",
+                    $"Could not upload attachment ({response.StatusCode}). Try again.",
                     response.StatusCode.ToString());
             }
 
@@ -207,7 +207,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
             Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={exception.GetType().Name}.");
-            return InnolaAttachmentUploadResult.Failure("Could not upload saved resume package. Try again.", exception.GetType().Name);
+            return InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", exception.GetType().Name);
         }
     }
 
@@ -520,7 +520,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return ShellState.CompletedAttachmentRegisteredType;
         }
 
-        return ShellState.ResumeAttachmentRegisteredType;
+        return sourceType;
     }
 
     private static int GetNextAtId(IReadOnlyList<JsonNode> sources)
