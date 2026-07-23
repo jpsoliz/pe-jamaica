@@ -332,7 +332,7 @@ internal static class WorkflowSessionTests
         TestAssert.True(!session.CanRunExtractionReview, "Approved review should lock draft extraction rerun.");
     }
 
-    public static void WorkflowSessionManualCogoFallbackRequiresExtractedReviewArtifact()
+    public static void WorkflowSessionManualModeRequiresReviewDataOrRecommendation()
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
@@ -344,12 +344,12 @@ internal static class WorkflowSessionTests
 
         var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
 
-        TestAssert.True(!switched, "Manual COGO fallback should require an extracted review artifact.");
-        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Failed manual fallback should keep the existing review state.");
-        TestAssert.True(session.StatusText.Contains("only available after extracted point review data exists", StringComparison.OrdinalIgnoreCase), "Manual fallback failure should explain the missing review artifact.");
+        TestAssert.True(!switched, "Manual Mode should require review data or a manual-review recommendation.");
+        TestAssert.Equal(WorkflowState.ReviewPending, session.CurrentState, "Failed Manual Mode switch should keep the existing review state.");
+        TestAssert.True(session.StatusText.Contains("available after extracted point review data exists", StringComparison.OrdinalIgnoreCase), "Manual Mode failure should explain when it becomes available.");
     }
 
-    public static void WorkflowSessionManualCogoFallbackSetsManualStateAndBlocksValidation()
+    public static void WorkflowSessionManualCogoFallbackSetsManualModeAndKeepsPointReviewEditable()
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
@@ -362,14 +362,11 @@ internal static class WorkflowSessionTests
         session.ReopenCaseFolder(layout.RootDirectory);
 
         var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
-        var validation = session.RunValidationAsync("tester").GetAwaiter().GetResult();
 
-        TestAssert.True(switched, "Manual COGO fallback should succeed when extracted review data exists.");
-        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Manual fallback should prepare the spatial editing path and move the workflow into map review.");
-        TestAssert.True(session.CurrentOutputSummary is not null, "Manual fallback should produce an output summary for the configured edit workspace.");
-        TestAssert.Equal(ReviewResultOwnership.ManualSpatialReview, session.CurrentOutputSummary!.Payload.ReviewResultOwner, "Manual fallback should mark the review result as owned by the manual spatial branch.");
-        TestAssert.True(!session.CanRunValidation, "Validation should stay blocked once the case has moved into the manual spatial branch.");
-        TestAssert.True(!validation.Success, "Validation should not run from the manual review branch.");
+        TestAssert.True(switched, "Manual Mode should succeed when extracted review data exists.");
+        TestAssert.Equal(WorkflowState.ReviewManualPending, session.CurrentState, "Manual Mode should keep the workflow in editable point review.");
+        TestAssert.True(session.CurrentOutputSummary is null, "Manual Mode should not produce spatial output before point review approval.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")), "Manual Mode should keep review data available for point editing.");
     }
 
     public static void WorkflowSessionReportsReopenFailuresWithoutReplacingActiveCase()
@@ -1026,8 +1023,8 @@ internal static class WorkflowSessionTests
         TestAssert.True(session.ExtractionResultRequiresDecision, "Weak extraction should require a decision gate.");
         TestAssert.True(!session.HasUsableExtractionReview, "Weak extraction should not be treated as usable review.");
         TestAssert.True(session.StatusText.Contains("Re-process extraction", StringComparison.OrdinalIgnoreCase)
-                        || session.StatusText.Contains("Manual COGO Review", StringComparison.OrdinalIgnoreCase),
-            "Weak extraction guidance should explain rerun vs manual review.");
+                        || session.StatusText.Contains("Manual Mode", StringComparison.OrdinalIgnoreCase),
+            "Weak extraction guidance should explain rerun vs Manual Mode.");
     }
 
     public static void WorkflowSessionRerunExtractionTracksAttemptsAndEscalatesManualGuidance()
@@ -1114,6 +1111,53 @@ internal static class WorkflowSessionTests
         TestAssert.True(session.CanChooseManualCogoReview, "Manual review should be selectable after repeated weak extraction even when no review artifact was produced.");
     }
 
+    public static void WorkflowSessionManualModeCreatesBlankEditableReviewWhenExtractionHasNoRows()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 6, 12, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var session = new WorkflowSession(
+            store,
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            new ManifestPreflightService(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((layout, manifest) =>
+            {
+                Directory.CreateDirectory(layout.LogsDirectory);
+                File.WriteAllText(Path.Combine(layout.LogsDirectory, "process.log"), "Extraction produced zero review rows.");
+                return new WorkflowScriptExecutionResult(true, null, null, Array.Empty<AvailableArtifact>());
+            }),
+            new ExtractionReviewPersistenceService(),
+            new FakeValidationExecutionService(blocked: false),
+            new ValidationSummaryPersistenceService(),
+            new FakeOutputExecutionService(shouldFail: false),
+            new OutputSummaryPersistenceService(),
+            new FakeEnterpriseWorkingLayerPublishService(success: true, attempted: false),
+            new JsonEnterpriseWorkingStateRestoreService(() => InnolaTransactionSettings.Default),
+            new JsonEnterpriseWorkingDispositionService(() => InnolaTransactionSettings.Default),
+            new ComputeReviewDispositionPersistenceService(),
+            new SpatialReviewApprovalPersistenceService(),
+            new ExtractionDecisionGateService(() => 1),
+            new WorkflowLifecycleAuditService(),
+            () => InnolaTransactionSettings.Default with { ManualReviewRetryThreshold = 1 });
+        var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunManifestPreflight("tester");
+        _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+
+        var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
+        var review = session.LoadExtractionReview();
+
+        TestAssert.True(switched, "Manual Mode should be selectable after repeated weak extraction without review rows.");
+        TestAssert.Equal(WorkflowState.ReviewManualPending, session.CurrentState, "Manual Mode should keep the case in editable point review.");
+        TestAssert.True(review is not null, "Manual Mode should create a blank editable review artifact when extraction produced no review rows.");
+        TestAssert.Equal(0, review!.Rows.Count, "Blank Manual Mode review should start with no rows so the examiner can add points.");
+        TestAssert.Equal("manual_mode", review.ExtractionSource, "Blank Manual Mode review should be identified as a manual-mode artifact.");
+    }
+
     public static void ExtractionDecisionGateExplainsImageOnlyPxaSurveyPlanZeroRows()
     {
         var document = new ExtractionReviewDocument
@@ -1174,9 +1218,9 @@ internal static class WorkflowSessionTests
         var decisionState = JsonSerializer.Deserialize<ExtractionDecisionGateState>(
             File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_decision_gate.json")));
 
-        TestAssert.True(switched, "Manual COGO Review should be selectable after weak extraction.");
-        TestAssert.Equal(WorkflowState.SpatialReviewPending, session.CurrentState, "Manual COGO Review should prepare the configured map-edit path after weak extraction.");
-        TestAssert.Equal(ReviewResultOwnership.ManualSpatialReview, session.CurrentOutputSummary?.Payload.ReviewResultOwner, "Weak extraction manual branch should mark the output summary as manual-owned.");
+        TestAssert.True(switched, "Manual Mode should be selectable after weak extraction.");
+        TestAssert.Equal(WorkflowState.ReviewManualPending, session.CurrentState, "Manual Mode should stay in editable point review after weak extraction.");
+        TestAssert.True(session.CurrentOutputSummary is null, "Manual Mode should not create output geometry before review approval.");
         TestAssert.Equal("manual_cogo_review", decisionState!.LastRoute, "Decision gate state should record the manual route.");
     }
 

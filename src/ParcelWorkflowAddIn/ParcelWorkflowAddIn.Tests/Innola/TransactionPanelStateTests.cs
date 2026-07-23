@@ -107,6 +107,54 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("Selected transaction: TR100000009.", panel.StatusText, "Selection status mismatch.");
     }
 
+    public static async Task MyTasksFilterMatchesLoggedInUserOnly()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000004", "Computation Check", "survey", "2024-10-15T09:24:00-05:00") with { AssignedUser = "tester" },
+                Row("task-2", "TR100000005", "Compute Survey Plan", "survey", "2024-10-15T09:38:00-05:00") with { AssignedUser = "tester2" },
+                Row("task-3", "TR100000006", "Compute Survey Plan", "survey", "2024-10-15T09:53:00-05:00") with { AssignedUser = "Test User (tester)" },
+                Row("task-4", "TR100000007", "Compute Survey Plan", "survey", "2024-10-15T10:08:00-05:00") with { AssignedUser = "Test User" },
+                Row("task-5", "TR100000008", "Compute Survey Plan", "survey", "2024-10-15T10:23:00-05:00") with { AssignedUser = null }
+            })
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+        panel.SelectedFilter = "My tasks";
+
+        TestAssert.Equal(3, panel.Rows.Count, "My tasks should only show rows assigned to the logged-in user.");
+        TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000004"), "Exact assigned user should match.");
+        TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000006"), "Display text containing the username token should match.");
+        TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000007"), "Display-name-only assignee should match the logged-in user.");
+        TestAssert.True(!panel.Rows.Any(row => row.TransactionNumber == "TR100000005"), "Substring user names should not match.");
+    }
+
+    public static async Task GroupTasksFilterMatchesLoggedInGroupsOnly()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000004", "Computation Check", "ROLE_Survey", "2024-10-15T09:24:00-05:00"),
+                Row("task-2", "TR100000005", "Compute Survey Plan", "finance", "2024-10-15T09:38:00-05:00"),
+                Row("task-3", "TR100000006", "Compute Survey Plan", "qc", "2024-10-15T09:53:00-05:00"),
+                Row("task-4", "TR100000007", "Compute Survey Plan", "", "2024-10-15T10:08:00-05:00")
+            })
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+        panel.SelectedFilter = "Group tasks";
+
+        TestAssert.Equal(2, panel.Rows.Count, "Group tasks should only show rows assigned to one of the logged-in user's groups.");
+        TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000004"), "ROLE_ prefixed group should match the user's survey group.");
+        TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000006"), "Direct group should match the user's qc group.");
+        TestAssert.True(!panel.Rows.Any(row => row.TransactionNumber == "TR100000005"), "Unrelated groups should not match.");
+    }
+
     public static async Task SearchTextRefreshesFromServerForMissingTransactionNumber()
     {
         var previousDelay = TransactionPanelState.SearchRefreshDelay;

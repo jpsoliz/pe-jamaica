@@ -81,7 +81,7 @@ public sealed class ExtractionReviewPersistenceService
 
     public ExtractionReviewSaveResult Save(CaseFolderLayout layout, ExtractionReviewDocument document, string? operatorId)
     {
-        if (document.Rows.Count == 0)
+        if (document.Rows.Count == 0 && !IsManualModeDocument(document))
         {
             return ExtractionReviewSaveResult.Failed("Review data is empty. Run extraction before saving review changes.");
         }
@@ -100,6 +100,16 @@ public sealed class ExtractionReviewPersistenceService
         InvalidateApprovedArtifact(layout, document.ReviewHash);
         var summary = Summarize(document);
         return new ExtractionReviewSaveResult(true, "Review changes saved to the Case Folder.", document, summary);
+    }
+
+    private static bool IsManualModeDocument(ExtractionReviewDocument document)
+    {
+        if (string.Equals(document.ExtractionSource, "manual_mode", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return document.RootMetadata["manual_mode"]?.GetValue<bool>() == true;
     }
 
     public ExtractionReviewApprovalResult Approve(CaseFolderLayout layout, ExtractionReviewDocument document, string? operatorId)

@@ -1212,17 +1212,83 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         if (SelectedFilter.Equals("My tasks", StringComparison.OrdinalIgnoreCase))
         {
-            return source.Where(row => !string.IsNullOrWhiteSpace(row.AssignedUser)
-                && session.CurrentUser is not null
-                && row.AssignedUser.Contains(session.CurrentUser.Username, StringComparison.OrdinalIgnoreCase));
+            return source.Where(row => MatchesCurrentUser(row.AssignedUser));
         }
 
         if (SelectedFilter.Equals("Group tasks", StringComparison.OrdinalIgnoreCase))
         {
-            return source.Where(row => !string.IsNullOrWhiteSpace(row.AssignedGroup));
+            return source.Where(row => MatchesCurrentGroup(row.AssignedGroup));
         }
 
         return source;
+    }
+
+    private bool MatchesCurrentUser(string? assignedUser)
+    {
+        if (session.CurrentUser is null || string.IsNullOrWhiteSpace(assignedUser))
+        {
+            return false;
+        }
+
+        var userTokens = new[]
+            {
+                session.CurrentSession?.Username,
+                session.CurrentUser.Username,
+                session.CurrentUser.DisplayName
+            }
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Select(token => token!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return SplitAssignmentTokens(assignedUser).Any(token =>
+            userTokens.Any(userToken => IsUserTokenMatch(token, userToken)));
+    }
+
+    private bool MatchesCurrentGroup(string? assignedGroup)
+    {
+        if (string.IsNullOrWhiteSpace(assignedGroup) || session.CurrentUser is null)
+        {
+            return false;
+        }
+
+        var userGroups = session.CurrentUser.Groups
+            .Concat(session.CurrentUser.Roles)
+            .Select(NormalizeGroupToken)
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (userGroups.Count == 0)
+        {
+            return false;
+        }
+
+        return SplitAssignmentTokens(assignedGroup)
+            .Select(NormalizeGroupToken)
+            .Any(userGroups.Contains);
+    }
+
+    private static IEnumerable<string> SplitAssignmentTokens(string value)
+    {
+        return value
+            .Split(new[] { ',', ';', '|', '/', '\\', '(', ')', '[', ']', '{', '}' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(token => token.Split(new[] { " - ", ":", "=", "\t", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(token => !string.IsNullOrWhiteSpace(token));
+    }
+
+    private static bool IsUserTokenMatch(string token, string username)
+    {
+        return token.Equals(username, StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + "@", StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + " ", StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + " - ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeGroupToken(string token)
+    {
+        var normalized = token.Trim();
+        return normalized.StartsWith("ROLE_", StringComparison.OrdinalIgnoreCase)
+            ? normalized[5..]
+            : normalized;
     }
 
     private IEnumerable<InnolaTransactionRow> ApplySearch(IEnumerable<InnolaTransactionRow> source)

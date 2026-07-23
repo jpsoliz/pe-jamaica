@@ -60,6 +60,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand addReviewSegmentCommand;
     private readonly RelayCommand editReviewSegmentCommand;
     private readonly RelayCommand excludeReviewSegmentCommand;
+    private readonly RelayCommand rebuildBoundaryPointsCommand;
     private readonly RelayCommand removeManualPointCommand;
     private readonly RelayCommand cancelPendingManualPointCommand;
     private readonly RelayCommand saveReviewCommand;
@@ -142,6 +143,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         addReviewSegmentCommand = new RelayCommand(AddReviewSegment, () => HasLoadedReviewData && !IsReviewLocked && IsPxaSurveyPlanReview && !pointEditorOpen);
         editReviewSegmentCommand = new RelayCommand(EditReviewSegment, parameter => HasLoadedReviewData && !IsReviewLocked && parameter is ExtractionReviewSegmentViewModel && !pointEditorOpen);
         excludeReviewSegmentCommand = new RelayCommand(ExcludeReviewSegment, parameter => HasLoadedReviewData && !IsReviewLocked && parameter is ExtractionReviewSegmentViewModel && !pointEditorOpen);
+        rebuildBoundaryPointsCommand = new RelayCommand(RebuildBoundaryPoints, () => HasLoadedReviewData && !IsReviewLocked && IsPxaSurveyPlanReview && ReviewSegments.Any(segment => segment.IncludeInBoundary) && !pointEditorOpen);
         removeManualPointCommand = new RelayCommand(RemoveSelectedManualPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !pointEditorOpen);
         cancelPendingManualPointCommand = new RelayCommand(CancelPendingManualPointEdit, () => CanCancelPendingManualPointEdit);
         saveReviewCommand = new RelayCommand(SaveReviewChanges, () => CanSaveReviewChangesFromWorkspace);
@@ -472,6 +474,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand ExcludeReviewSegmentCommand => excludeReviewSegmentCommand;
 
+    public ICommand RebuildBoundaryPointsCommand => rebuildBoundaryPointsCommand;
+
     public ICommand RemoveManualPointCommand => removeManualPointCommand;
 
     public ICommand CancelPendingManualPointCommand => cancelPendingManualPointCommand;
@@ -710,7 +714,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             WorkflowState.ExtractionRunning => "Validate Points and Lines preparation is running from the current compute plan.",
             WorkflowState.ExtractionFailed => "Validate Points and Lines preparation failed. Review the status line, then try again.",
-            WorkflowState.ReviewManualPending => "Manual review workspace is being prepared. The extracted review stays available as reference, but it is not treated as approved.",
+            WorkflowState.ReviewManualPending => "Manual Mode is active. Edit, add, or remove points in Points Validation Tool before saving and approving the review.",
             WorkflowState.ReviewApproved => "Validate Points and Lines is approved. Points and Lines Validation Tool is now read-only for this saved case state.",
             WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "Validate Points and Lines is approved. Create Spatial Units now owns the next workflow gate and the validation tool remains read-only.",
             WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points and Lines is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
@@ -735,9 +739,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? "No extraction attempt has been recorded yet."
             : workflowSession.CurrentExtractionDecisionGate.StronglyRecommendManual
                 ? $"Attempt {workflowSession.CurrentExtractionDecisionGate.AttemptCount}. Manual review is now strongly recommended."
-                : $"Attempt {workflowSession.CurrentExtractionDecisionGate.AttemptCount}. You can rerun extraction, or continue with the manual review workspace.";
+                : $"Attempt {workflowSession.CurrentExtractionDecisionGate.AttemptCount}. You can rerun extraction, or continue in Manual Mode.";
 
-    public bool HasLoadedReviewData => loadedReviewDocument is not null && ReviewRows.Count > 0;
+    public bool HasLoadedReviewData => loadedReviewDocument is not null;
 
     public ExtractionReviewRowViewModel? SelectedReviewRow
     {
@@ -779,14 +783,18 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ReviewWorkspaceTitle => "Points Validation Tool";
 
-    public bool CanOpenExperimentalReviewWorkspace => CanUseWorkflowActions && HasActiveCase && workflowSession.HasUsableExtractionReview;
+    public bool CanOpenExperimentalReviewWorkspace =>
+        CanUseWorkflowActions
+        && HasActiveCase
+        && (HasLoadedReviewData || workflowSession.HasUsableExtractionReview || IsManualCogoFallbackSelected);
 
-    public bool ShowExperimentalReviewWorkspaceAction => workflowSession.HasUsableExtractionReview;
+    public bool ShowExperimentalReviewWorkspaceAction =>
+        workflowSession.HasUsableExtractionReview || IsManualCogoFallbackSelected;
 
     public bool IsManualCogoFallbackSelected => workflowSession.CurrentState == WorkflowState.ReviewManualPending;
 
     public bool ShowManualCogoFallbackAction =>
-        HasExtractionArtifact
+        workflowSession.CanChooseManualCogoReview
         && workflowSession.CurrentState is WorkflowState.ReviewPending or WorkflowState.ReviewManualPending;
 
     public string SelectedReviewSourceTitle => SelectedReviewSource is null
@@ -995,7 +1003,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         !HasLoadedReviewData
             ? "Continue point review in Points Validation Tool to inspect and correct the extracted parcel points."
             : IsManualCogoFallbackSelected
-                ? $"{ReviewSummary.TotalRows} point row(s) loaded. Manual review workspace is active, so the extracted review stays available as reference only and is not treated as approved."
+                ? $"{ReviewSummary.TotalRows} point row(s) loaded. Manual Mode is active; edit, add, or remove points before saving and approving the review."
             : IsReviewApproved
                 ? $"{ReviewSummary.TotalRows} point row(s) loaded. Validate Points is approved and locked for editing."
                 : IsManualReviewEditMode
@@ -1072,7 +1080,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         !HasLoadedReviewData
             ? "Review data not loaded."
             : IsManualCogoFallbackSelected
-                ? "Manual review workspace is active. Use the ArcGIS Pro map for editing, keep the transaction attachments as source context, and do not treat the extracted review as approved for Create Spatial Units."
+                ? "Manual Mode is active. Use Points Validation Tool to edit, add, or remove points. Save and approve when the reviewed points are ready for Create Spatial Units."
             : IsReviewApproved
                 ? "Validate Points is approved. Points Validation Tool stays available for verification, and the next steps are Create Spatial Units followed by Final Review."
             : IsManualReviewEditMode
@@ -1091,7 +1099,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 : IsManualReviewEditMode
                     ? "Editing"
                 : IsManualCogoFallbackSelected
-                    ? "Manual path"
+                    ? "Manual Mode"
                 : IsReviewApproved
                     ? "Approved"
                     : "Loaded";
@@ -1130,7 +1138,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         workflowSession.CurrentState switch
         {
             WorkflowState.SpatialReviewApproved => "Final Review is complete. The reviewed parcel layers are ready for final transaction completion.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace prepared the editable parcel layers. Use the ArcGIS Pro map to refine geometry while keeping the transaction PDFs open as source reference.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode prepared editable parcel layers. Use the ArcGIS Pro map to refine geometry while keeping the transaction PDFs open as source reference.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Open or reuse the generated parcel layers in ArcGIS Pro, inspect geometry in-map, and apply any needed snapping or COGO edits after Create Spatial Units finishes.",
             _ => "Final Review becomes available after spatial unit creation succeeds."
         };
@@ -1139,7 +1147,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         workflowSession.CurrentState switch
         {
             WorkflowState.SpatialReviewApproved => "Final Review has been approved. If spatial units are regenerated later, this approval will be cleared automatically and the geometry must be reviewed again.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace prepared. Edit the prepared map layers directly in ArcGIS Pro and save progress there before final approval.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode prepared map layers. Edit them directly in ArcGIS Pro and save progress there before final approval.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Use the ArcGIS Pro map as the editing surface. Standard edit, snapping, and COGO-capable tools should be used there rather than inside this dock pane.",
             _ => "Run Create Spatial Units first. When geometry is available, this stage will guide the in-map review handoff."
         };
@@ -1230,7 +1238,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning => "Passed",
             WorkflowState.OutputCreated => "Passed",
             WorkflowState.ReviewApproved => "Ready",
-            WorkflowState.ReviewManualPending => "Manual path",
+            WorkflowState.ReviewManualPending => "Manual Mode",
             _ => "Not started"
         };
 
@@ -1242,7 +1250,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             if (summary is null)
             {
                 return workflowSession.CurrentState == WorkflowState.ReviewManualPending
-                    ? "Create Spatial Units is not the active path while the manual review workspace is selected."
+                    ? "Create Spatial Units becomes available after Manual Mode points are saved and approved."
                     : workflowSession.CurrentState == WorkflowState.ReviewApproved
                     ? "Approved point-review data is ready for spatial-unit checks."
                     : "Create Spatial Units has not produced a summary yet.";
@@ -1268,10 +1276,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ValidationBlocked => "Create Spatial Units checks completed with blocking findings. Review the validation summary before spatial creation.",
             WorkflowState.ValidationPassed => "Create Spatial Units checks passed. Run Create Spatial Units to generate the transaction-local geodatabase.",
             WorkflowState.OutputRunning => "Create Spatial Units checks passed. Create Spatial Units is currently building the local geometry package.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual review workspace now owns the reviewed geometry. Continue in Final Review and use the transaction PDFs as the source reference while editing.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode owns the reviewed geometry. Continue in Final Review and use the transaction PDFs as the source reference while editing.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Create Spatial Units checks passed. Spatial outputs are created and now need Final Review in the ArcGIS Pro map.",
             WorkflowState.SpatialReviewApproved => "Create Spatial Units passed. Final Review is approved, so final completion may proceed when transaction-level readiness is met.",
-            WorkflowState.ReviewManualPending => "Manual review workspace is active. Continue with transaction PDFs as source context and ArcGIS Pro map editing instead of running Create Spatial Units on extracted review approval.",
+            WorkflowState.ReviewManualPending => "Manual Mode is active. Edit, add, or remove points in Points Validation Tool, then save and approve the review before Create Spatial Units.",
             WorkflowState.ReviewApproved => "Run Create Spatial Units checks on the approved point-review data before spatial creation.",
             _ => "Create Spatial Units becomes available after Validate Points is approved."
         };
@@ -1392,13 +1400,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private async Task UseManualCogoFallbackAsync()
     {
         var confirmation = MessageBox.Show(
-            "Prepare the manual review workspace for this case? The extracted point review will stay available as reference, but it will not be treated as approved for Create Spatial Units.",
-            "Prepare Manual Review Workspace",
+            "Enable Manual Mode for this case? You can edit, add, or remove points in Points Validation Tool before saving and approving the review.",
+            "Enable Manual Mode",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
         if (confirmation != MessageBoxResult.Yes)
         {
-            workflowSession.SetValidationFailure("Manual review workspace preparation cancelled.");
+            workflowSession.SetValidationFailure("Manual Mode cancelled.");
             RefreshWorkflowProperties();
             return;
         }
@@ -1407,7 +1415,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var switched = await workflowSession.UseManualCogoReviewAsync(Environment.UserName).ConfigureAwait(true);
         if (switched)
         {
-            await LoadSpatialReviewLayersAsync().ConfigureAwait(true);
+            if (await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true))
+            {
+                await OpenExperimentalReviewWorkspaceAsync().ConfigureAwait(true);
+            }
         }
 
         RefreshWorkflowProperties();
@@ -1546,7 +1557,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
-    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable()
+    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable(bool useDerivedCoordinatesAsAnchors = false)
     {
         if (loadedReviewDocument is null || loadedReviewDocument.Segments.Count == 0)
         {
@@ -1560,7 +1571,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         SyncReviewMetadataBackToDocument();
         var beforeRowCount = loadedReviewDocument.Rows.Count;
-        var result = surveyPlanBoundarySolver.Apply(loadedReviewDocument, ResolveReviewDocumentAreaSqM(loadedReviewDocument));
+        var result = surveyPlanBoundarySolver.Apply(
+            loadedReviewDocument,
+            ResolveReviewDocumentAreaSqM(loadedReviewDocument),
+            useDerivedCoordinatesAsAnchors);
         var rowsChanged = SyncReviewRowViewModelsFromDocument();
         if (rowsChanged)
         {
@@ -2058,6 +2072,48 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewDirty = true;
         reviewContentVersion++;
         workflowSession.SetValidationFailure($"Boundary segment {targetSegment.FromPoint}->{targetSegment.ToPoint} excluded from boundary. Save review to persist the change.");
+        RefreshWorkflowProperties();
+    }
+
+    private void RebuildBoundaryPoints()
+    {
+        if (IsReviewLocked)
+        {
+            workflowSession.SetValidationFailure("Review is already approved and locked.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (!IsPxaSurveyPlanReview)
+        {
+            workflowSession.SetValidationFailure("Rebuild points from boundary is available for PXA survey-plan review.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        if (loadedReviewDocument is null)
+        {
+            workflowSession.SetValidationFailure("Review data is not loaded.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var solverResult = ApplyBoundarySolverIfAvailable(useDerivedCoordinatesAsAnchors: true);
+        if (solverResult is null)
+        {
+            workflowSession.SetValidationFailure("No reviewed boundary segments are available to rebuild points.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        reviewDirty = true;
+        reviewContentVersion++;
+        var action = string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase)
+            ? "Rebuild points found blockers"
+            : solverResult.DerivedPointCount == 0
+                ? "Rebuild points completed; existing reviewed point coordinates were preserved"
+                : $"Rebuild points completed; {solverResult.DerivedPointCount} derived point(s) were updated";
+        workflowSession.SetValidationFailure($"{action}. Save review to persist the change. {BuildBoundarySolverSummaryText()}");
         RefreshWorkflowProperties();
     }
 
@@ -3649,6 +3705,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         addReviewSegmentCommand.RaiseCanExecuteChanged();
         editReviewSegmentCommand.RaiseCanExecuteChanged();
         excludeReviewSegmentCommand.RaiseCanExecuteChanged();
+        rebuildBoundaryPointsCommand.RaiseCanExecuteChanged();
         removeManualPointCommand.RaiseCanExecuteChanged();
         cancelPendingManualPointCommand.RaiseCanExecuteChanged();
         saveReviewCommand.RaiseCanExecuteChanged();

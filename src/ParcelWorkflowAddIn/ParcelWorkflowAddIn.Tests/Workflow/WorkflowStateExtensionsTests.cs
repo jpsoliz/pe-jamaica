@@ -9,7 +9,7 @@ internal static class WorkflowStateExtensionsTests
         TestAssert.Equal("Supporting Document Check", WorkflowState.Intake.ToDisplayName(), "Intake display name mismatch.");
         TestAssert.Equal("Structure Check Running", WorkflowState.PreflightRunning.ToDisplayName(), "Structure check running display name mismatch.");
         TestAssert.Equal("Validate Points Ready", WorkflowState.ReviewPending.ToDisplayName(), "Validate points ready display name mismatch.");
-        TestAssert.Equal("Manual Review Workspace Preparing", WorkflowState.ReviewManualPending.ToDisplayName(), "Manual review workspace display name mismatch.");
+        TestAssert.Equal("Manual Mode", WorkflowState.ReviewManualPending.ToDisplayName(), "Manual Mode display name mismatch.");
         TestAssert.Equal("Create Spatial Units Ready", WorkflowState.ReviewApproved.ToDisplayName(), "Create spatial units ready display name mismatch.");
         TestAssert.Equal("Create Spatial Units Running", WorkflowState.OutputRunning.ToDisplayName(), "Create spatial units running display name mismatch.");
         TestAssert.Equal("Final Review Ready", WorkflowState.OutputCreated.ToDisplayName(), "Final review ready display name mismatch.");

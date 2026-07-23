@@ -6,6 +6,8 @@ baseline_commit: handoff-2026-06-17
 
 Status: review
 
+> 2026-07-22 product update: this story documents the earlier spatial-editing manual branch. The current Manual Mode enhancement supersedes that immediate routing behavior for point review: Manual Mode remains in Points Validation Tool, allows point add/remove/edit from partial or blank extraction review data, and reaches map/GDB output only after the review is saved and approved.
+
 ## Story
 
 As a cadastral examiner who decides automated point review is not good enough,  
@@ -103,6 +105,7 @@ Codex GPT-5
 - The output adapter now accepts a manual review ownership route and can prepare empty or partial edit workspaces without requiring `approved_review.json`.
 - Manual branch cases persist `review_result_owner = manual_spatial_review` in `output_summary.json`, which keeps downstream map review semantics distinct from extracted-review approval.
 - Enterprise-backed review mode stays non-authoritative on the manual branch; the local/map editing path is prepared without implying final shared sync.
+- Superseding note: current Manual Mode behavior does not prepare spatial output immediately. It keeps review editable in Points Validation Tool and requires save/approval before Create Spatial Units.
 
 ### File List
 
@@ -123,3 +126,4 @@ Codex GPT-5
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial story for routing the manual review branch into the configured local GDB, parcel fabric, or enterprise working-layer editing path. | Codex |
 | 2026-06-17 | 1.0 | Implemented manual branch workspace preparation, manual ownership persistence, and focused workflow/session coverage. | Codex |
+| 2026-07-22 | 1.1 | Added superseding Manual Mode note: manual point review now stays in Points Validation Tool until saved and approved. | Codex |

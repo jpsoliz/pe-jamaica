@@ -1,6 +1,6 @@
 {
   "package_name": "Sidwell Parcel Workflow target-computer tools",
-  "created_at": "2026-07-22T11:35:34.8249378-05:00",
+  "created_at": "2026-07-22T22:29:37.9852626-05:00",
   "configuration": "Release",
   "includes": [
     "ParcelWorkflowAddIn.esriAddInX",

@@ -39,7 +39,7 @@ public static class WorkflowStateExtensions
             WorkflowState.ExtractionRunning => "Validate Points Running",
             WorkflowState.ExtractionFailed => "Validate Points Blocked",
             WorkflowState.ReviewPending => "Validate Points Ready",
-            WorkflowState.ReviewManualPending => "Manual Review Workspace Preparing",
+            WorkflowState.ReviewManualPending => "Manual Mode",
             WorkflowState.ReviewApproved => "Create Spatial Units Ready",
             WorkflowState.ValidationRunning => "Create Spatial Units Running",
             WorkflowState.ValidationBlocked => "Create Spatial Units Blocked",

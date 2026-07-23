@@ -123,6 +123,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand ExcludeReviewSegmentCommand => parent.ExcludeReviewSegmentCommand;
 
+    public ICommand RebuildBoundaryPointsCommand => parent.RebuildBoundaryPointsCommand;
+
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
     public ICommand CancelPendingManualPointCommand => parent.CancelPendingManualPointCommand;
@@ -990,6 +992,27 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     private PointCollection BuildPreviewPoints()
     {
+        if (IsPxaSurveyPlanReview)
+        {
+            var segmentDerivedPoints = BuildPreviewPointsFromReviewedSegments(VisibleSegments, true);
+            if (segmentDerivedPoints.Count > 0)
+            {
+                return ScaleToPreview(segmentDerivedPoints);
+            }
+
+            var segmentPathRows = BuildPreviewRowsInReviewedSegmentPath(VisibleRows, VisibleSegments, true);
+            if (segmentPathRows.Length > 0)
+            {
+                var segmentPathPoints = segmentPathRows
+                    .Select((row, index) => TryBuildActualPoint(row, index))
+                    .ToArray();
+                if (segmentPathPoints.All(item => item.HasValue))
+                {
+                    return ScaleToPreview(segmentPathPoints.Select(item => item!.Value).ToArray());
+                }
+            }
+        }
+
         var rows = BuildPreviewRowsInReviewedSegmentOrder();
         if (rows.Length == 0)
         {
@@ -1003,9 +1026,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         if (actualPoints.All(item => item.HasValue))
         {
             var source = actualPoints.Select(item => item!.Value).ToArray();
-            return ScaleToPreview(IsPxaSurveyPlanReview && VisibleSegments.Count > 0
-                ? source
-                : ClosePreviewRingIfNeeded(source));
+            var shouldCloseRing = !IsPxaSurveyPlanReview
+                || ReviewedSegmentChainCloses(VisibleSegments);
+            return ScaleToPreview(shouldCloseRing
+                ? ClosePreviewRingIfNeeded(source)
+                : source);
         }
 
         return BuildSyntheticPreview(rows.Length);
@@ -1031,19 +1056,27 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     private ExtractionReviewRowViewModel[] BuildPreviewRowsInReviewedSegmentOrder()
     {
-        var visibleRows = VisibleRows.ToArray();
-        if (visibleRows.Length == 0 || VisibleSegments.Count == 0 || !IsPxaSurveyPlanReview)
+        return BuildPreviewRowsInReviewedSegmentOrder(VisibleRows, VisibleSegments, IsPxaSurveyPlanReview);
+    }
+
+    internal static ExtractionReviewRowViewModel[] BuildPreviewRowsInReviewedSegmentOrder(
+        IReadOnlyCollection<ExtractionReviewRowViewModel> visibleRows,
+        IReadOnlyCollection<ExtractionReviewSegmentViewModel> visibleSegments,
+        bool isPxaSurveyPlanReview)
+    {
+        var rows = visibleRows.ToArray();
+        if (rows.Length == 0 || visibleSegments.Count == 0 || !isPxaSurveyPlanReview)
         {
-            return visibleRows;
+            return rows;
         }
 
-        var rowsByPoint = visibleRows
+        var rowsByPoint = rows
             .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
             .GroupBy(row => row.PointIdentifier.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var orderedRows = new List<ExtractionReviewRowViewModel>();
-        foreach (var segment in VisibleSegments
+        foreach (var segment in visibleSegments
                      .Where(segment => segment.IncludeInBoundary)
                      .OrderBy(segment => segment.Sequence ?? int.MaxValue)
                      .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
@@ -1053,7 +1086,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             AddSegmentPointIfKnown(segment.ToPoint);
         }
 
-        foreach (var row in visibleRows)
+        foreach (var row in rows)
         {
             if (!orderedRows.Contains(row))
             {
@@ -1076,8 +1109,120 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 return;
             }
 
+            if (orderedRows.Contains(row))
+            {
+                return;
+            }
+
             orderedRows.Add(row);
         }
+    }
+
+    internal static ExtractionReviewRowViewModel[] BuildPreviewRowsInReviewedSegmentPath(
+        IReadOnlyCollection<ExtractionReviewRowViewModel> visibleRows,
+        IReadOnlyCollection<ExtractionReviewSegmentViewModel> visibleSegments,
+        bool isPxaSurveyPlanReview)
+    {
+        var rows = visibleRows.ToArray();
+        if (rows.Length == 0 || visibleSegments.Count == 0 || !isPxaSurveyPlanReview)
+        {
+            return rows;
+        }
+
+        var rowsByPoint = rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
+            .GroupBy(row => row.PointIdentifier.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var orderedRows = new List<ExtractionReviewRowViewModel>();
+        var orderedSegments = visibleSegments
+            .Where(segment => segment.IncludeInBoundary)
+            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (orderedSegments.Length == 0)
+        {
+            return Array.Empty<ExtractionReviewRowViewModel>();
+        }
+
+        AddSegmentPointIfKnown(orderedSegments[0].FromPoint);
+        foreach (var segment in orderedSegments)
+        {
+            AddSegmentPointIfKnown(segment.ToPoint);
+        }
+
+        return orderedRows.ToArray();
+
+        void AddSegmentPointIfKnown(string? pointId)
+        {
+            var key = (pointId ?? string.Empty).Trim();
+            if (key.Length == 0 || !rowsByPoint.TryGetValue(key, out var row))
+            {
+                return;
+            }
+
+            orderedRows.Add(row);
+        }
+    }
+
+    internal static IReadOnlyList<Point> BuildPreviewPointsFromReviewedSegments(
+        IReadOnlyCollection<ExtractionReviewSegmentViewModel> visibleSegments,
+        bool isPxaSurveyPlanReview)
+    {
+        if (visibleSegments.Count == 0 || !isPxaSurveyPlanReview)
+        {
+            return Array.Empty<Point>();
+        }
+
+        var orderedSegments = visibleSegments
+            .Where(segment => segment.IncludeInBoundary)
+            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (orderedSegments.Length == 0)
+        {
+            return Array.Empty<Point>();
+        }
+
+        var points = new List<Point> { new(0d, 0d) };
+        var easting = 0d;
+        var northing = 0d;
+        foreach (var segment in orderedSegments)
+        {
+            var delta = SurveyPlanBearingParser.ParseDelta(segment.BearingText, segment.DistanceText);
+            if (!delta.Success)
+            {
+                return Array.Empty<Point>();
+            }
+
+            easting += delta.DeltaEasting;
+            northing += delta.DeltaNorthing;
+            points.Add(new Point(easting, northing));
+        }
+
+        return points.Count > 1 ? points : Array.Empty<Point>();
+    }
+
+    internal static bool ReviewedSegmentChainCloses(IReadOnlyCollection<ExtractionReviewSegmentViewModel> visibleSegments)
+    {
+        var orderedSegments = visibleSegments
+            .Where(segment => segment.IncludeInBoundary)
+            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (orderedSegments.Length == 0)
+        {
+            return false;
+        }
+
+        var firstPoint = (orderedSegments[0].FromPoint ?? string.Empty).Trim();
+        var lastPoint = (orderedSegments[^1].ToPoint ?? string.Empty).Trim();
+        return firstPoint.Length > 0
+               && lastPoint.Length > 0
+               && string.Equals(firstPoint, lastPoint, StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyList<PreviewPath> BuildPreviewPaths()

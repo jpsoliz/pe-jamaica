@@ -1006,13 +1006,13 @@ public sealed class WorkflowSession
     {
         if (string.IsNullOrWhiteSpace(CaseFolderPath))
         {
-            StatusText = "Create or reopen a Case Folder before preparing the manual review workspace.";
+            StatusText = "Create or reopen a Case Folder before enabling Manual Mode.";
             return false;
         }
 
         if (!CanChooseManualCogoReview)
         {
-            StatusText = "Manual review workspace is only available after extracted point review data exists for this case.";
+            StatusText = "Manual Mode is available after extracted point review data exists or manual review is recommended for this case.";
             return false;
         }
 
@@ -1029,7 +1029,7 @@ public sealed class WorkflowSession
             or NotSupportedException
             or ArgumentException)
         {
-            StatusText = $"Manual review workspace could not start because the manifest could not be read. {exception.Message}";
+            StatusText = $"Manual Mode could not start because the manifest could not be read. {exception.Message}";
             return false;
         }
 
@@ -1037,73 +1037,43 @@ public sealed class WorkflowSession
         RemoveOutputArtifacts(layout);
         SetWorkflowState(layout, WorkflowState.ReviewManualPending);
         RecordManualReviewDecision(layout, operatorId);
-        StatusText = "Manual review workspace is being prepared from the current case review data.";
-
-        outputRunActive = true;
         currentOutputSummary = null;
-
-        try
+        var reviewDocument = extractionReviewService.Load(layout);
+        if (reviewDocument is null)
         {
-            var result = await outputExecutionService.RunManualReviewAsync(layout, manifest, operatorId, cancellationToken).ConfigureAwait(false);
-            if (!result.Success || result.Summary is null || string.IsNullOrWhiteSpace(result.SummaryPath))
+            reviewDocument = new ExtractionReviewDocument
             {
-                SetWorkflowState(layout, WorkflowState.ReviewManualPending);
-                StatusText = result.ErrorMessage ?? "Manual COGO review workspace could not be prepared.";
+                TransactionNumber = manifest.Payload.InnolaTransaction?.TransactionNumber ?? manifest.TransactionId,
+                ExtractionSource = "manual_mode"
+            };
+            reviewDocument.RootMetadata["manual_mode"] = true;
+            reviewDocument.RootMetadata["manual_mode_source"] = "empty_manual_review";
+            var saveResult = extractionReviewService.Save(layout, reviewDocument, operatorId);
+            if (!saveResult.Success || saveResult.Document is null)
+            {
+                StatusText = saveResult.Message;
                 return false;
             }
 
-            currentOutputSummary = result.Summary;
-            var publishResult = EnterpriseWorkingLayerPublishResult.Skipped("Manual review workspace keeps enterprise-backed collaboration optional until reviewed geometry is finalized.");
+            reviewDocument = saveResult.Document;
+        }
 
-            foreach (var artifactPath in outputSummaryPersistenceService.GetArtifactPaths(layout, currentOutputSummary))
-            {
-                if (File.Exists(artifactPath) || Directory.Exists(artifactPath))
-                {
-                    UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(artifactPath), artifactPath));
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(publishResult.SummaryPath) && File.Exists(publishResult.SummaryPath))
-            {
-                UpsertAvailableArtifact(new AvailableArtifact(Path.GetFileName(publishResult.SummaryPath), publishResult.SummaryPath));
-            }
-
-            RemoveSpatialReviewArtifacts(layout);
-            SetWorkflowState(layout, WorkflowState.SpatialReviewPending);
-            workflowLifecycleAuditService.Record(
-                layout,
-                TransactionId ?? string.Empty,
-                "manual_cogo_workspace_prepared",
-                "succeeded",
-                operatorId,
-                "Manual review workspace prepared and moved the case into Final Review.",
-                manifest.Payload.InnolaTransaction?.TaskId,
-                manifest.Payload.InnolaTransaction?.TransactionNumber,
-                currentOutputSummary.Payload.ReviewWorkspaceMode);
-            StatusText = "Manual review workspace prepared. The ArcGIS Pro map is ready for editing, and the transaction PDFs remain the source reference.";
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            SetWorkflowState(layout, WorkflowState.ReviewManualPending);
-            StatusText = "Manual review workspace preparation was cancelled.";
-            return false;
-        }
-        catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or JsonException
-            or ArgumentException)
-        {
-            SetWorkflowState(layout, WorkflowState.ReviewManualPending);
-            StatusText = $"Manual review workspace failed to prepare. {exception.Message}";
-            return false;
-        }
-        finally
-        {
-            outputRunActive = false;
-        }
+        UpsertAvailableArtifact(new AvailableArtifact("extraction_review_data.json", Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
+        workflowLifecycleAuditService.Record(
+            layout,
+            TransactionId ?? string.Empty,
+            "manual_mode_enabled",
+            "succeeded",
+            operatorId,
+            "Manual Mode selected from the extraction decision gate.",
+            manifest.Payload.InnolaTransaction?.TaskId,
+            manifest.Payload.InnolaTransaction?.TransactionNumber,
+            null);
+        StatusText = reviewDocument.Rows.Count == 0
+            ? "Manual Mode enabled. Add points manually in Points Validation Tool, then save and approve the review."
+            : "Manual Mode enabled. Edit, add, or remove points in Points Validation Tool, then save and approve the review.";
+        await Task.CompletedTask.ConfigureAwait(false);
+        return true;
     }
 
     public ExtractionReviewApprovalResult ApproveExtractionReview(ExtractionReviewDocument document, string? operatorId)
@@ -1395,7 +1365,7 @@ public sealed class WorkflowSession
 
         if (string.Equals(currentOutputSummary.Payload.ReviewResultOwner, ReviewResultOwnership.ManualSpatialReview, StringComparison.OrdinalIgnoreCase))
         {
-            StatusText = "Enterprise publish is skipped for manual review workspace cases until the manual-to-enterprise promotion path is completed.";
+            StatusText = "Enterprise publish is skipped for Manual Mode cases until the manual-to-enterprise promotion path is completed.";
             return EnterpriseWorkingLayerPublishResult.Skipped(StatusText);
         }
 
@@ -1915,7 +1885,7 @@ public sealed class WorkflowSession
             "point_review_route_decision",
             "manual_cogo_review",
             operatorId,
-            "Manual review workspace selected from the extraction decision gate.",
+            "Manual Mode selected from the extraction decision gate.",
             null,
             null,
             null);

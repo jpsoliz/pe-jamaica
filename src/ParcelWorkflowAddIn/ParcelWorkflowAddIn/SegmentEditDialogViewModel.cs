@@ -40,8 +40,8 @@ internal sealed class SegmentEditDialogViewModel : INotifyPropertyChanged
     public string DialogTitle => isNewSegment ? "Add Boundary Segment" : "Edit Boundary Segment";
 
     public string DialogSummary => isNewSegment
-        ? "Add a reviewed boundary segment from the source plan. Save Review persists it and reruns the boundary solver."
-        : "Update the reviewed boundary segment values. These values drive the PXA boundary solver and parcel preview.";
+        ? "Add a reviewed boundary segment from the source plan. Mark Use for points only when it should generate parcel points."
+        : "Update the reviewed boundary segment values. Segments marked Use for points drive the PXA point solver and parcel preview.";
 
     public string SegmentLabel => $"{FromPoint} -> {ToPoint}";
 

@@ -984,12 +984,12 @@
                             Height="28"
                             VerticalAlignment="Top"
                             Visibility="{Binding ShowReprocessExtractionAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <Button Content="Use Manual Review Workspace"
+                    <Button Content="Manual Mode"
                             Command="{Binding UseManualCogoFallbackCommand}"
                             IsEnabled="{Binding CanUseManualCogoFallback}"
                             Style="{StaticResource SmallButtonStyle}"
                             Margin="0,0,4,0"
-                            MinWidth="170"
+                            MinWidth="112"
                             Height="28"
                             VerticalAlignment="Top"
                             Visibility="{Binding ShowManualCogoFallbackAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -1030,7 +1030,7 @@
                         CornerRadius="4"
                         Visibility="{Binding IsManualCogoFallbackSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
                   <DockPanel LastChildFill="False">
-                    <TextBlock Text="Manual review workspace prepared. Keep the transaction PDF attachments as your source reference, continue editing in the ArcGIS Pro map, and return here only when you need the extracted review as reference."
+                    <TextBlock Text="Manual Mode is active. Keep the transaction PDF attachments as source reference, then edit, add, or remove points in Points Validation Tool before saving and approving the review."
                                FontSize="11"
                                Foreground="#1F2933"
                                TextWrapping="Wrap"

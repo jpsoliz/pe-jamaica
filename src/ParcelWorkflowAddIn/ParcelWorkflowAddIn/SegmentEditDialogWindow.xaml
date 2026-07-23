@@ -135,7 +135,7 @@
                    Text="{Binding DistanceText, UpdateSourceTrigger=PropertyChanged}" />
         </Grid>
 
-        <CheckBox Content="Use in boundary solver"
+        <CheckBox Content="Use for point generation"
                   IsChecked="{Binding IncludeInBoundary}"
                   Margin="0,0,0,10" />
 
@@ -201,7 +201,7 @@
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
-      <TextBlock Text="Save recalculates the reviewed boundary chain and preview."
+      <TextBlock Text="Save segment recalculates points from segments marked Use for point generation."
                  VerticalAlignment="Center"
                  Foreground="#52616B"
                  TextWrapping="Wrap"

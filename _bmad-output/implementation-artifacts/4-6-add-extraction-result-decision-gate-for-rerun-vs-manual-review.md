@@ -18,13 +18,13 @@ so that weak automated output does not get confused with file-readiness errors a
 2. Given extraction produces no matches, zero usable rows, unusable grouping, invalid coordinate conditions above threshold, or other configured critical extraction-quality failures, when the result is returned, then the add-in shows a clear result-decision prompt instead of presenting that outcome as a Files Checks failure.
 3. Given the result-decision prompt is shown, when the examiner reviews the choices, then the available actions are:
    - `Re-process extraction`
-   - `Use Manual COGO Review`
+   - `Manual Mode`
    - `Open Jamaica COGO Tool` only when usable extracted review artifacts exist
 4. Given `Re-process extraction` is chosen, when the add-in runs extraction again, then the rerun is recorded as a new extraction attempt with timestamp, method, and attempt count in the audit/log trail.
 5. Given AI-assisted extraction is enabled, when the examiner reruns extraction, then the system does not promise a better result and the operator guidance explains that rerun results may differ but may still remain insufficient.
 6. Given the rerun still produces no usable results or remains below the configured quality threshold, when the add-in returns control to the examiner, then the prompt strongly recommends the manual path rather than trapping the user in repeated weak reruns.
 7. Given extraction produces usable review rows, when the decision gate resolves successfully, then `Open Jamaica COGO Tool` becomes the primary next action for point review.
-8. Given the examiner chooses manual review, when the decision is confirmed, then the workflow records that extracted review was not approved and transitions into the manual review branch without treating the automated result as accepted.
+8. Given the examiner chooses Manual Mode, when the decision is confirmed, then the workflow records that extracted review was not approved and opens the Points Validation Tool in an editable manual state without treating the automated result as accepted.
 9. Given this story is complete, then the add-in distinguishes:
    - file-readiness failures in `Files Checks`
    - extraction-quality failures in `Point Review`
@@ -69,6 +69,7 @@ so that weak automated output does not get confused with file-readiness errors a
 ### Scope Boundaries
 
 - This story does not implement the downstream manual editing surface itself.
+- 2026-07-22 update: the user-facing manual option is now `Manual Mode`. It keeps the examiner in Points Validation Tool for point add/edit/remove and can start from partial extracted rows or a blank editable review artifact after weak/empty extraction.
 - This story does not redesign Jamaica COGO Tool internals.
 - This story does not finalize GDB/map-edit output generation; it only decides the route into the next review path.
 
@@ -101,9 +102,10 @@ Codex GPT-5
 ### Completion Notes List
 
 - Added a dedicated extraction decision-gate service that evaluates weak vs usable extracted review output and persists attempt state in `working/extraction_decision_gate.json`.
-- Point Review now distinguishes weak extraction routing from Files Checks failures, supports rerun guidance, and escalates toward Manual COGO Review after repeated weak attempts.
+- Point Review now distinguishes weak extraction routing from Files Checks failures, supports rerun guidance, and escalates toward Manual Mode after repeated weak attempts.
 - The Point Review card now shows a decision banner and only exposes Jamaica COGO Tool as the next action when extracted review artifacts are usable.
-- Manual COGO Review selection now records the route decision into the extraction decision-gate state and lifecycle audit trail.
+- Manual Mode selection now records the route decision into the extraction decision-gate state and lifecycle audit trail.
+- Manual Mode can create a blank editable `extraction_review_data.json` when extraction produced no rows, allowing the examiner to manually add points before save/approval.
 - Added workflow-session test coverage for weak extraction routing, rerun attempt tracking, and manual-branch selection.
 
 ### File List
@@ -120,3 +122,4 @@ Codex GPT-5
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial story for a post-extraction decision gate that separates extraction-quality routing from Files Checks and offers rerun vs manual-review choices. | Codex |
 | 2026-06-17 | 1.0 | Implemented extraction decision-gate evaluation, rerun tracking, Point Review routing guidance, and workflow-session tests. | Codex |
+| 2026-07-22 | 1.1 | Renamed the manual action to Manual Mode and clarified that it opens editable Points Validation Tool review, including blank review creation for weak/empty extraction. | Codex |

@@ -358,7 +358,7 @@ internal static class OutputMapReviewStyling
 
         if (string.Equals(summary.Payload.ReviewResultOwner, ReviewResultOwnership.ManualSpatialReview, StringComparison.OrdinalIgnoreCase))
         {
-            return $"Manual review workspace layers were added to the active map and zoomed for editing. This standard review surface supports COGO-style labels, snapping, and map-based parcel correction without requiring Parcel Fabric.{diagnosticSuffix}";
+            return $"Manual Mode layers were added to the active map and zoomed for editing. This standard review surface supports COGO-style labels, snapping, and map-based parcel correction without requiring Parcel Fabric.{diagnosticSuffix}";
         }
 
         if (string.Equals(summary.Payload.ReviewWorkspaceMode, Innola.InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseParcelFabric, StringComparison.OrdinalIgnoreCase))

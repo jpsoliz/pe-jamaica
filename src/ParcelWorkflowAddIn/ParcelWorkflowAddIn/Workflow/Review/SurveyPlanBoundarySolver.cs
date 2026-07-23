@@ -9,9 +9,12 @@ public sealed class SurveyPlanBoundarySolver
     private const double CoordinateConflictToleranceM = 0.25d;
     private const double ClosureWarningToleranceM = 1.0d;
 
-    public SurveyPlanBoundarySolverResult Apply(ExtractionReviewDocument document, double? documentAreaSqM)
+    public SurveyPlanBoundarySolverResult Apply(
+        ExtractionReviewDocument document,
+        double? documentAreaSqM,
+        bool useDerivedCoordinatesAsAnchors = false)
     {
-        var result = Solve(document, documentAreaSqM);
+        var result = Solve(document, documentAreaSqM, useDerivedCoordinatesAsAnchors);
         ApplyDerivedRows(document, result);
         document.RootMetadata["boundary_solver"] = JsonSerializer.SerializeToNode(new
         {
@@ -28,7 +31,10 @@ public sealed class SurveyPlanBoundarySolver
         return result;
     }
 
-    public SurveyPlanBoundarySolverResult Solve(ExtractionReviewDocument document, double? documentAreaSqM)
+    public SurveyPlanBoundarySolverResult Solve(
+        ExtractionReviewDocument document,
+        double? documentAreaSqM,
+        bool useDerivedCoordinatesAsAnchors = false)
     {
         var findings = new List<string>();
         var segments = document.Segments
@@ -41,7 +47,7 @@ public sealed class SurveyPlanBoundarySolver
             return SurveyPlanBoundarySolverResult.Blocked(findings);
         }
 
-        var coordinates = LoadPointCoordinates(document.Rows, findings);
+        var coordinates = LoadPointCoordinates(document.Rows, findings, useDerivedCoordinatesAsAnchors);
         var derivedPoints = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
         var parsedSegments = new List<SolverSegment>();
         foreach (var segment in segments)
@@ -170,12 +176,15 @@ public sealed class SurveyPlanBoundarySolver
             findings);
     }
 
-    private static Dictionary<string, SolverPoint> LoadPointCoordinates(IReadOnlyList<ExtractionReviewRow> rows, List<string> findings)
+    private static Dictionary<string, SolverPoint> LoadPointCoordinates(
+        IReadOnlyList<ExtractionReviewRow> rows,
+        List<string> findings,
+        bool useDerivedCoordinatesAsAnchors)
     {
         var coordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
         {
-            if (IsDerivedFromReviewedSegments(row))
+            if (!useDerivedCoordinatesAsAnchors && IsDerivedFromReviewedSegments(row))
             {
                 continue;
             }

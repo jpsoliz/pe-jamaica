@@ -134,7 +134,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
 
         if (string.IsNullOrWhiteSpace(context.ExecutionSettings.CreateParcelScriptPath) || !File.Exists(context.ExecutionSettings.CreateParcelScriptPath))
         {
-            return WorkflowScriptStepExecutionResult.Failed("Legacy CreateParcelFromFile.py fallback is not available for extraction. Re-run extraction with a supported text/AI route, or switch to the manual review workspace.");
+            return WorkflowScriptStepExecutionResult.Failed("Legacy CreateParcelFromFile.py fallback is not available for extraction. Re-run extraction with a supported text/AI route, or switch to Manual Mode.");
         }
 
         WriteGeneratedConfig(

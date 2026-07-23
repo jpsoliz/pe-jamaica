@@ -2,28 +2,28 @@
 baseline_commit: handoff-2026-06-17
 ---
 
-# Story 5.17: Add Manual COGO Fallback Branch From Point Review
+# Story 5.17: Add Manual Mode Fallback Branch From Point Review
 
 Status: review
 
 ## Story
 
 As a cadastral examiner reviewing extracted points from transaction PDFs,  
-I want a clear manual COGO fallback when automated point review is not good enough,  
-so that I can continue the case using regular ArcGIS Pro/COGO editing instead of being blocked by weak extraction results.
+I want a clear Manual Mode fallback when automated point review is not good enough,  
+so that I can add, remove, and edit point review rows before Create Spatial Units instead of being blocked by weak extraction results.
 
 ## Acceptance Criteria
 
 1. Given extraction has produced a review artifact for the active transaction, when the examiner reaches `Point Review`, then the workflow offers a primary path to review the extracted data in the Jamaica COGO Tool.
-2. Given extraction exists but the examiner decides the automated result is not good enough, when the examiner chooses the manual fallback option, then the workflow branches into a manual COGO-oriented path rather than forcing continued use of the extracted review surface.
+2. Given extraction exists but the examiner decides the automated result is not good enough, when the examiner chooses the manual fallback option, then the workflow enables Manual Mode in Points Validation Tool rather than forcing continued reliance on the extracted rows.
 3. Given the source of data for this workflow remains the transaction PDF attachments, when the manual fallback is chosen, then the workflow keeps the transaction source context available and does not require a separate non-transaction file-pick flow.
-4. Given the manual fallback path is chosen, when the workflow updates state, then the shell clearly records that the case moved from extracted-point review into a manual review path and explains what the user should do next.
+4. Given the manual fallback path is chosen, when the workflow updates state, then the shell clearly records that Manual Mode is active and explains that the user can add, remove, and edit points before save/approval.
 5. Given the examiner remains on the extracted-point path, when Jamaica COGO review is approved, then the workflow continues toward `Create Spatial Outputs` and later `Map Review`.
 6. Given the manual fallback path is chosen, when the user returns to the main shell, then the workflow does not misleadingly present the extracted review as fully approved.
 7. Given the Jamaica COGO Tool is only valid when extracted review artifacts exist, when extraction produced no usable review artifact, then the shell does not offer the Jamaica COGO Tool as if it were available.
 8. Given this story is complete, then the compute workflow supports both:
-   - extracted-point review through Jamaica COGO Tool, and
-   - a deliberate manual COGO fallback branch for insufficient automated results.
+   - extracted-point review through Points Validation Tool, and
+   - a deliberate Manual Mode branch for insufficient automated results.
 
 ## Tasks / Subtasks
 
@@ -37,7 +37,7 @@ so that I can continue the case using regular ArcGIS Pro/COGO editing instead of
   - [x] Prevent launch messaging that implies the tool is available without extracted review data.
 
 - [x] Add the manual COGO branch behavior. (AC: 2-4, 6, 8)
-  - [x] Add a user-facing action such as `Use Manual COGO Review`.
+  - [x] Add a user-facing action named `Manual Mode`.
   - [x] Update shell messaging to explain the manual path.
   - [x] Ensure the workflow can proceed without falsely marking extracted review approved.
 
@@ -56,15 +56,16 @@ so that I can continue the case using regular ArcGIS Pro/COGO editing instead of
 ### Workflow Direction
 
 - `Point Review` is the decision stage.
-- `Jamaica COGO Tool` is the extracted-review workspace.
-- `Use Manual COGO Review` is the examiner-controlled fallback when extracted data is insufficient.
-- Later `Map Review` remains the in-map editing/spatial correction stage.
+- `Points Validation Tool` is the extracted-review and manual point-review workspace.
+- `Manual Mode` is the examiner-controlled fallback when extracted data is partial, empty, or insufficient.
+- Later `Final Review` remains the in-map editing/spatial correction stage after Create Spatial Units.
 
 ### Scope Boundaries
 
 - This story does not redesign the Jamaica COGO Tool internals.
 - This story does not replace transaction-driven PDF sourcing with a separate local file chooser.
 - This story does not implement final authoritative sync behavior.
+- 2026-07-22 update: Manual Mode no longer routes immediately to the configured spatial/map-editing path. It keeps the case in editable point review, can create a blank review artifact, and requires save/approval before Create Spatial Units.
 
 ### Suggested Files To Review
 
@@ -96,9 +97,10 @@ Codex GPT-5
 ### Completion Notes List
 
 - Added explicit manual fallback workflow state `review_manual_pending` and mapped it through display, contract, reopen, and workspace-planning layers.
-- Added shell-level `Use Manual COGO Review` action with guidance text so examiners can branch away from weak extraction results without falsely approving extracted review.
+- Renamed the shell-level manual action to `Manual Mode` with guidance text so examiners can branch away from weak extraction results without falsely approving extracted review.
 - Tightened Jamaica COGO Tool availability so the tool is only offered when extracted review artifacts exist for the active case.
 - Preserved manual-fallback intent across extraction-review saves and reopen flows.
+- Manual Mode now keeps Points Validation Tool editable for add/remove/edit point workflows and supports blank review artifact creation when extraction has no rows.
 - Added automated coverage for workflow state mapping, workspace routing, reopen support, and manual-fallback session behavior.
 - Verified the add-in project build and the full custom test runner pass cleanly.
 
@@ -123,3 +125,4 @@ Codex GPT-5
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial story for manual COGO fallback branching from Point Review while keeping Jamaica COGO Tool as the extracted-review workspace. | Codex |
 | 2026-06-17 | 1.0 | Implemented manual COGO fallback branching, gated Jamaica COGO Tool launch on extracted-review artifacts, and added regression coverage for state/reopen behavior. | Codex |
+| 2026-07-22 | 1.1 | Updated the fallback to Manual Mode in Points Validation Tool, including blank/partial review editing and save-before-approval semantics. | Codex |

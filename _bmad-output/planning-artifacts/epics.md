@@ -853,7 +853,7 @@ So that extraction-quality failures are handled after Point Review rather than b
 **When** extraction runs from `Point Review`
 **Then** the add-in evaluates extraction result quality separately from file-readiness checks
 **And** zero rows, no usable matches, unusable grouping, invalid coordinate thresholds, and similar weak-result conditions trigger a result-decision prompt rather than a Files Checks failure
-**And** the examiner can choose `Re-process extraction`, `Use Manual COGO Review`, or `Open Jamaica COGO Tool` when usable extracted review artifacts exist
+**And** the examiner can choose `Re-process extraction`, `Manual Mode`, or `Open Jamaica COGO Tool` when usable extracted review artifacts exist
 **And** reruns are logged with attempt count and timestamp
 **And** manual branch selection does not falsely mark extracted review approved.
 

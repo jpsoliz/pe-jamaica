@@ -194,8 +194,8 @@ public sealed class ExtractionDecisionGateService
             ? issues[0]
             : "Extraction review needs a routing decision.";
         var guidance = stronglyRecommendManual
-            ? $"Extraction is still below the quality threshold after {state.AttemptCount} attempt(s). Manual review workspace is recommended. AI-assisted reruns may differ, but they may still remain insufficient."
-            : "Extraction results are not strong enough yet. Re-process extraction if you want another attempt, or switch to the manual review workspace.";
+            ? $"Extraction is still below the quality threshold after {state.AttemptCount} attempt(s). Manual Mode is recommended. AI-assisted reruns may differ, but they may still remain insufficient."
+            : "Extraction results are not strong enough yet. Re-process extraction if you want another attempt, or switch to Manual Mode.";
 
         return new ExtractionDecisionGateResult(
             RequiresDecision: true,

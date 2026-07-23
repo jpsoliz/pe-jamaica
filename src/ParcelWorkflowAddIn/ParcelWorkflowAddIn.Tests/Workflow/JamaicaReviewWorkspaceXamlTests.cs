@@ -1,5 +1,7 @@
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
+using ParcelWorkflowAddIn.Workflow.Review;
+
 internal static class JamaicaReviewWorkspaceXamlTests
 {
     public static void PxaReviewUsesTabScopedCommandsAndHidesGlobalPointToolbar()
@@ -15,6 +17,13 @@ internal static class JamaicaReviewWorkspaceXamlTests
         TestAssert.True(
             xaml.Contains("Command=\"{Binding ExcludeReviewSegmentCommand}\"", StringComparison.Ordinal),
             "Boundary Segments tab should expose Exclude segment in its tab-scoped command strip.");
+        TestAssert.True(
+            xaml.Contains("Command=\"{Binding RebuildBoundaryPointsCommand}\"", StringComparison.Ordinal)
+            && xaml.Contains("Rebuild points from boundary", StringComparison.Ordinal),
+            "Boundary Segments tab should expose explicit point rebuild from reviewed boundary segments.");
+        TestAssert.True(
+            xaml.Contains("Header=\"Use for points\"", StringComparison.Ordinal),
+            "Boundary segment grids should label the solver include flag as Use for points.");
         TestAssert.True(
             xaml.Contains("<TabItem Header=\"Points\">", StringComparison.Ordinal)
             && xaml.Contains("Review printed, derived, and manually added points for this parcel.", StringComparison.Ordinal),
@@ -69,6 +78,124 @@ internal static class JamaicaReviewWorkspaceXamlTests
             dockpaneCode.Contains("NotifyPropertyChanged(nameof(HasUnsavedReviewChanges));", StringComparison.Ordinal)
             && dockpaneCode.Contains("NotifyPropertyChanged(nameof(CanSaveReviewChangesFromWorkspace));", StringComparison.Ordinal),
             "The dockpane should explicitly notify derived dirty/save state after review edits.");
+    }
+
+    public static void PxaParcelPreviewUsesUniqueReviewedSegmentPointOrder()
+    {
+        var rows = new[]
+        {
+            Row("A", "703671.70", "668854.41"),
+            Row("B", "703710.10", "668915.10"),
+            Row("C", "703683.70", "668899.20"),
+            Row("D", "703700.10", "668861.00"),
+            Row("E", "703718.40", "668832.60"),
+            Row("F", "703760.50", "668877.30"),
+            Row("G", "703830.80", "668948.90"),
+            Row("H", "703846.20", "668936.10")
+        };
+        var segments = new[]
+        {
+            Segment(1, "A", "C"),
+            Segment(2, "C", "D"),
+            Segment(3, "D", "E"),
+            Segment(4, "E", "B"),
+            Segment(5, "B", "F"),
+            Segment(6, "F", "G"),
+            Segment(7, "G", "H"),
+            Segment(8, "H", "A")
+        };
+
+        var orderedRows = JamaicaReviewWorkspaceViewModel.BuildPreviewRowsInReviewedSegmentOrder(rows, segments, true);
+
+        TestAssert.Equal("A,C,D,E,B,F,G,H", string.Join(",", orderedRows.Select(row => row.PointIdentifier)), "PXA preview should follow reviewed segment order without adding the closing point as a duplicate row.");
+        TestAssert.True(JamaicaReviewWorkspaceViewModel.ReviewedSegmentChainCloses(segments), "The preview should recognize the explicit H-A closing segment.");
+    }
+
+    public static void PxaParcelPreviewGeometryPreservesRepeatedSegmentVertices()
+    {
+        var rows = new[]
+        {
+            Row("A", "0", "0"),
+            Row("Y", "1", "0"),
+            Row("C", "2", "0"),
+            Row("D", "2", "1"),
+            Row("E", "3", "1"),
+            Row("F", "4", "1"),
+            Row("G", "5", "1"),
+            Row("B", "5", "0"),
+            Row("X", "4", "0"),
+            Row("W", "3", "0")
+        };
+        var segments = new[]
+        {
+            Segment(1, "A", "Y"),
+            Segment(2, "Y", "C"),
+            Segment(3, "C", "D"),
+            Segment(4, "D", "E"),
+            Segment(5, "E", "F"),
+            Segment(6, "F", "G"),
+            Segment(7, "G", "B"),
+            Segment(8, "B", "X"),
+            Segment(9, "X", "W"),
+            Segment(10, "W", "C"),
+            Segment(11, "C", "D"),
+            Segment(12, "D", "A")
+        };
+
+        var uniqueRows = JamaicaReviewWorkspaceViewModel.BuildPreviewRowsInReviewedSegmentOrder(rows, segments, true);
+        var geometryRows = JamaicaReviewWorkspaceViewModel.BuildPreviewRowsInReviewedSegmentPath(rows, segments, true);
+
+        TestAssert.Equal("A,Y,C,D,E,F,G,B,X,W", string.Join(",", uniqueRows.Select(row => row.PointIdentifier)), "The point review order should stay unique.");
+        TestAssert.Equal("A,Y,C,D,E,F,G,B,X,W,C,D,A", string.Join(",", geometryRows.Select(row => row.PointIdentifier)), "The preview geometry should follow the reviewed segment path, including repeated vertices.");
+    }
+
+    public static void PxaParcelPreviewCanUseReviewedSegmentBearingsWhenRowsConflict()
+    {
+        var segments = new[]
+        {
+            Segment(1, "13", "14", "N90°00'E", "10"),
+            Segment(2, "14", "15", "N00°00'E", "5"),
+            Segment(3, "15", "16", "N90°00'W", "10"),
+            Segment(4, "16", "13", "S00°00'E", "5")
+        };
+
+        var points = JamaicaReviewWorkspaceViewModel.BuildPreviewPointsFromReviewedSegments(segments, true);
+
+        TestAssert.Equal(5, points.Count, "The preview should derive one vertex per reviewed segment plus the starting vertex.");
+        TestAssert.True(Math.Abs(points[^1].X) < 0.001d && Math.Abs(points[^1].Y) < 0.001d, "Segment-derived preview should close when the reviewed bearings and distances close.");
+    }
+
+    private static ExtractionReviewRowViewModel Row(string pointIdentifier, string easting, string northing)
+    {
+        return new ExtractionReviewRowViewModel(
+            new ExtractionReviewRow
+            {
+                ParcelGroupId = "parcel-001",
+                PointIdentifier = pointIdentifier,
+                Easting = easting,
+                Northing = northing
+            },
+            () => { });
+    }
+
+    private static ExtractionReviewSegmentViewModel Segment(int sequence, string fromPoint, string toPoint)
+    {
+        return Segment(sequence, fromPoint, toPoint, "N90°00'E", "1");
+    }
+
+    private static ExtractionReviewSegmentViewModel Segment(int sequence, string fromPoint, string toPoint, string bearing, string distance)
+    {
+        return new ExtractionReviewSegmentViewModel(
+            new ExtractionReviewSegment
+            {
+                Sequence = sequence,
+                FromPoint = fromPoint,
+                ToPoint = toPoint,
+                BearingText = bearing,
+                DistanceText = distance,
+                IncludeInBoundary = true
+            },
+            () => { });
     }
 
     private static string FindWorkspaceXaml()

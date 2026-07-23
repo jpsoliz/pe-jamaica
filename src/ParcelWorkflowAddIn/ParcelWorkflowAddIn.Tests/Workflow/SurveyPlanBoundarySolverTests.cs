@@ -182,4 +182,41 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.True(!result.Findings.Any(finding => finding.Contains("conflict", StringComparison.OrdinalIgnoreCase)), "Previously derived rows should be recalculated instead of treated as printed-coordinate conflicts.");
         TestAssert.True(double.Parse(document.Rows.First(row => row.PointIdentifier == "16").Easting, System.Globalization.CultureInfo.InvariantCulture) > 700000d, "Point 16 should be recalculated from the reviewed boundary segments.");
     }
+
+    public static void RebuildCanUseDerivedRowsAsAnchorsForNewSegments()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000854",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-a",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "A",
+            Easting = "1000",
+            Northing = "1000",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-b",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "B",
+            Easting = "1030",
+            Northing = "1000",
+            ExtractionStatus = "derived_from_reviewed_segments",
+            RowProvenance = "derived_from_reviewed_segments"
+        });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "A", ToPoint = "B", BearingText = "N90°00'E", DistanceText = "30" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "B", ToPoint = "S", BearingText = "S00°00'E", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-3", Sequence = 3, FromPoint = "S", ToPoint = "T", BearingText = "N90°00'W", DistanceText = "20" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        solver.Apply(document, null, useDerivedCoordinatesAsAnchors: true);
+
+        TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "S" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Explicit rebuild should derive new point S from existing derived point B.");
+        TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "T" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Explicit rebuild should continue deriving downstream points from the rebuilt chain.");
+    }
 }
