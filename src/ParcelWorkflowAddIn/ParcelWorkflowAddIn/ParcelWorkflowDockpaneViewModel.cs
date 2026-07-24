@@ -1977,7 +1977,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    internal void RemoveSelectedManualPointFromWorkspace()
+    {
+        RemoveSelectedManualPoint(confirmDeletion: false);
+    }
+
     private void RemoveSelectedManualPoint()
+    {
+        RemoveSelectedManualPoint(confirmDeletion: true);
+    }
+
+    private void RemoveSelectedManualPoint(bool confirmDeletion)
     {
         ClearPendingManualPointIfStale();
         if (IsReviewLocked)
@@ -1995,6 +2005,26 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var rowToRemove = SelectedReviewRow;
+        if (confirmDeletion)
+        {
+            var pointLabel = string.IsNullOrWhiteSpace(rowToRemove.PointIdentifier)
+                ? "the selected point"
+                : $"point {rowToRemove.PointIdentifier}";
+            var owner = FrameworkApplication.Current?.MainWindow;
+            var confirmation = MessageBox.Show(
+                owner,
+                $"Delete {pointLabel} from this review?{Environment.NewLine}{Environment.NewLine}This removes the point from the current Points Validation Tool list. Save the review to persist the change.",
+                "Delete point",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                workflowSession.SetValidationFailure("Point delete cancelled.");
+                RefreshWorkflowProperties();
+                return;
+            }
+        }
+
         var currentParcelGroupId = NormalizeReviewParcelGroupId(rowToRemove.ParcelGroupId);
         var removedSequence = rowToRemove.SequenceInGroup;
         loadedReviewDocument.Rows.Remove(rowToRemove.Model);

@@ -8,6 +8,13 @@ from adapters import survey_plan_ocr_vision_extraction
 
 
 class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
+    def test_prompt_warns_not_to_invent_sequential_reference_labels(self):
+        prompt = survey_plan_ocr_vision_extraction._prompt("single_parcel_survey_plan_vision_v1")
+
+        self.assertIn("Do not invent sequential labels from printed reference labels", prompt)
+        self.assertIn("if the plan has reference points A and B but an unlabeled boundary vertex follows A", prompt)
+        self.assertIn("use a temporary generated label in the opposite style", prompt)
+
     def test_mock_vision_response_writes_review_rows_segments_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

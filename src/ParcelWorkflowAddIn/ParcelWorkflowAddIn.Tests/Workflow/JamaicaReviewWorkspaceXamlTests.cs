@@ -59,12 +59,18 @@ internal static class JamaicaReviewWorkspaceXamlTests
             windowCode.Contains("Delete point", StringComparison.Ordinal)
             && windowCode.Contains("MessageBoxButton.YesNo", StringComparison.Ordinal)
             && windowCode.Contains("MessageBoxImage.Warning", StringComparison.Ordinal)
+            && windowCode.Contains("FrameworkApplication.Current?.MainWindow", StringComparison.Ordinal)
             && windowCode.Contains("viewModel.RemoveSelectedPointFromWorkspace()", StringComparison.Ordinal),
-            "Point delete should ask for confirmation and only then invoke the remove workflow.");
+            "Point delete should ask for an ArcGIS Pro main-window-owned confirmation and only then invoke the remove workflow.");
         TestAssert.True(
-            workspaceViewModelCode.Contains("RemoveManualPointCommand.Execute(null);", StringComparison.Ordinal)
+            workspaceViewModelCode.Contains("parent.RemoveSelectedManualPointFromWorkspace();", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("RefreshProjection();", StringComparison.Ordinal),
             "The workspace should refresh the visible point list immediately after a confirmed point delete.");
+        TestAssert.True(
+            File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs")).Contains("Delete point", StringComparison.Ordinal)
+            && File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs")).Contains("MessageBoxButton.YesNo", StringComparison.Ordinal)
+            && File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs")).Contains("MessageBoxImage.Warning", StringComparison.Ordinal),
+            "The shared point remove command should ask for confirmation so no delete route can bypass the prompt.");
     }
 
     public static void FooterActionsOnlyShowWhenPressableAndSaveStateIsExplicitlyNotified()

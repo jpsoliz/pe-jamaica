@@ -945,7 +945,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             return false;
         }
 
-        RemoveManualPointCommand.Execute(null);
+        parent.RemoveSelectedManualPointFromWorkspace();
         RefreshProjection();
         OnPropertyChanged(nameof(CanRemoveSelectedPoint));
         return true;

@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Controls;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -52,8 +53,9 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         var pointLabel = string.IsNullOrWhiteSpace(viewModel.SelectedVisibleRow?.PointIdentifier)
             ? "the selected point"
             : $"point {viewModel.SelectedVisibleRow.PointIdentifier}";
+        var owner = FrameworkApplication.Current?.MainWindow ?? this;
         var result = MessageBox.Show(
-            this,
+            owner,
             $"Delete {pointLabel} from this review?{Environment.NewLine}{Environment.NewLine}This removes the point from the current Points Validation Tool list. Save the review to persist the change.",
             "Delete point",
             MessageBoxButton.YesNo,
@@ -67,7 +69,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         if (!viewModel.RemoveSelectedPointFromWorkspace())
         {
             MessageBox.Show(
-                this,
+                owner,
                 "The selected point could not be deleted. Select a point and try again.",
                 "Delete point unavailable",
                 MessageBoxButton.OK,
