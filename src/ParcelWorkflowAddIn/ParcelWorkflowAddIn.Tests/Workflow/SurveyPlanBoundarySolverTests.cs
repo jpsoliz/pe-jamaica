@@ -543,6 +543,53 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.True(result.Findings.Any(finding => finding.Contains("matched generated point 7", StringComparison.OrdinalIgnoreCase)), "Solver should explain the generated/reference point merge.");
     }
 
+    public static void ExplicitRebuildReplacesStaleManualPointListWithReviewedBoundaryChain()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000872",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-5",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "5",
+            Easting = "0",
+            Northing = "0",
+            ExtractionStatus = "printed_coordinate",
+            SequenceInGroup = 1
+        });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-2", ParcelGroupId = "parcel-001", PointIdentifier = "2", Easting = "100", Northing = "100", ExtractionStatus = "manual", IsManual = true, SequenceInGroup = 7 });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-f", ParcelGroupId = "parcel-001", PointIdentifier = "F", Easting = "110", Northing = "110", ExtractionStatus = "manual", IsManual = true, SequenceInGroup = 3 });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-is", ParcelGroupId = "parcel-001", PointIdentifier = "IS", Easting = "120", Northing = "120", ExtractionStatus = "manual", IsManual = true, SequenceInGroup = 5 });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-lk", ParcelGroupId = "parcel-001", PointIdentifier = "Lk.", Easting = "130", Northing = "130", ExtractionStatus = "manual", IsManual = true, SequenceInGroup = 5 });
+
+        AddSegment(document, 1, "5", "6", "N0°00'E", "10");
+        AddSegment(document, 2, "6", "7", "N90°00'E", "10");
+        AddSegment(document, 3, "7", "8", "S0°00'E", "10");
+        AddSegment(document, 4, "8", "5", "N90°00'W", "10");
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(
+            document,
+            null,
+            useDerivedCoordinatesAsAnchors: true,
+            repairPrematureClosingLabels: true,
+            replaceConflictingCoordinatesFromReviewedSegments: true,
+            mergeGeneratedBoundaryPointsWithReferenceRows: false,
+            removeInactiveManualRows: true);
+
+        TestAssert.True(!string.Equals(result.Status, "blocked", StringComparison.OrdinalIgnoreCase), $"Explicit rebuild should solve the reviewed chain. Findings: {string.Join(" | ", result.Findings)}");
+        var pointIds = document.Rows
+            .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+            .Select(row => row.PointIdentifier)
+            .ToArray();
+        TestAssert.Equal("5,6,7,8", string.Join(",", pointIds), "Explicit rebuild should replace stale manual points with one row per reviewed boundary segment.");
+        TestAssert.Equal(4, document.Rows.Count, "Explicit rebuild should leave the same active point row count as the boundary segment count.");
+        TestAssert.False(document.Rows.Any(row => row.PointIdentifier is "2" or "F" or "IS" or "Lk."), "Stale manual/reference points outside the reviewed boundary chain should be removed.");
+    }
+
     public static void RebuildGeneratesRowsForTr100000857ReviewedSegmentChain()
     {
         var document = new ExtractionReviewDocument

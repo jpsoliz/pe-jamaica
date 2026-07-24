@@ -3,8 +3,8 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     Title="About"
-                    Width="320"
-                    Height="170"
+                    Width="380"
+                    Height="190"
                     WindowStartupLocation="CenterOwner">
   <Grid Margin="14">
     <Grid.RowDefinitions>
@@ -13,13 +13,17 @@
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
-    <TextBlock Text="Cadastre tools Parcel Workflow [Compute]"
-               FontWeight="SemiBold" />
-    <TextBlock x:Name="ReleaseVersionTextBlock"
+    <StackPanel>
+      <TextBlock Text="Cadastre tool for NLA"
+                 FontWeight="SemiBold" />
+      <TextBlock Text="Developed by Sidwell Co. - 2026"
+                 Margin="0,8,0,0" />
+    </StackPanel>
+    <TextBlock x:Name="AddInDetailsTextBlock"
                Grid.Row="1"
                Margin="0,10,0,0"
-               Text="Release 0.1.7"
-               TextWrapping="Wrap" />
+               TextWrapping="Wrap"
+               Text="Add in version: 0.1.8&#x0a;Add in date: -" />
     <Button Grid.Row="3"
             Width="80"
             HorizontalAlignment="Right"

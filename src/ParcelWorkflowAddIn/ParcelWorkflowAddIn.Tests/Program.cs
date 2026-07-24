@@ -372,6 +372,7 @@ var tests = new (string Name, Action Run)[]
     ("survey plan solver rebuild removes stale derived rows", SurveyPlanBoundarySolverTests.RebuildRemovesStaleDerivedRowsNoLongerReferencedByBoundary),
     ("survey plan solver rebuild removes inactive extracted rows", SurveyPlanBoundarySolverTests.RebuildRemovesInactiveExtractedRowsNoLongerReferencedByBoundary),
     ("survey plan solver rebuild merges generated point with reference coordinate", SurveyPlanBoundarySolverTests.RebuildMergesGeneratedPointThatMatchesExtractedReferenceCoordinate),
+    ("survey plan solver explicit rebuild replaces stale manual point list", SurveyPlanBoundarySolverTests.ExplicitRebuildReplacesStaleManualPointListWithReviewedBoundaryChain),
     ("survey plan solver rebuild generates TR100000857 reviewed segment chain rows", SurveyPlanBoundarySolverTests.RebuildGeneratesRowsForTr100000857ReviewedSegmentChain),
     ("review persistence saves edited row and preserves originals", ExtractionReviewPersistenceServiceTests.LoadEditAndSaveReviewArtifactPersistsOverrides),
     ("review persistence saves manual row", ExtractionReviewPersistenceServiceTests.ManualPointSavePersistsAsManualRow),

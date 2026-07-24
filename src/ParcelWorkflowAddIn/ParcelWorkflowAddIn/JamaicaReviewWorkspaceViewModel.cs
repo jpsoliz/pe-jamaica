@@ -790,6 +790,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ShowSaveReviewAction));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewContentVersion):
+                RefreshProjection();
                 OnPropertyChanged(nameof(ParcelInterpretationSummary));
                 OnPropertyChanged(nameof(ParcelInterpretationIssues));
                 OnPropertyChanged(nameof(ActiveParcelDiagnosticsSummary));

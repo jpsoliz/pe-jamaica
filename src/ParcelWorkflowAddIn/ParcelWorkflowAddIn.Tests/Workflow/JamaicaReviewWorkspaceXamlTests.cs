@@ -93,6 +93,10 @@ internal static class JamaicaReviewWorkspaceXamlTests
             workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.HasUnsavedReviewChanges):", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.CanSaveReviewChangesFromWorkspace):", StringComparison.Ordinal),
             "The workspace should directly refresh Save when the parent dirty/save state changes.");
+        TestAssert.True(
+            workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.ReviewContentVersion):", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("RefreshProjection();", StringComparison.Ordinal),
+            "The workspace should rebuild visible point rows when reviewed content changes in place.");
         var windowCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceWindow.xaml.cs"));
         TestAssert.True(
             windowCode.Contains("Save is available for these point changes.", StringComparison.Ordinal)
@@ -106,6 +110,11 @@ internal static class JamaicaReviewWorkspaceXamlTests
             dockpaneCode.Contains("NotifyPropertyChanged(nameof(HasUnsavedReviewChanges));", StringComparison.Ordinal)
             && dockpaneCode.Contains("NotifyPropertyChanged(nameof(CanSaveReviewChangesFromWorkspace));", StringComparison.Ordinal),
             "The dockpane should explicitly notify derived dirty/save state after review edits.");
+        TestAssert.True(
+            dockpaneCode.Contains("&& !IsPxaReviewedBoundarySegmentChainClosed()", StringComparison.Ordinal)
+            && dockpaneCode.Contains("private bool IsPxaReviewedBoundarySegmentChainClosed()", StringComparison.Ordinal)
+            && dockpaneCode.Contains("return string.Equals(firstFrom, finalTo, StringComparison.OrdinalIgnoreCase);", StringComparison.Ordinal),
+            "PXA validation completion should not remain blocked by stale solver metadata when the reviewed segment chain is currently closed.");
     }
 
     public static void PxaParcelPreviewUsesUniqueReviewedSegmentPointOrder()

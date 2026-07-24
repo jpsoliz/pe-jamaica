@@ -14,7 +14,9 @@ public sealed class SurveyPlanBoundarySolver
         double? documentAreaSqM,
         bool useDerivedCoordinatesAsAnchors = false,
         bool repairPrematureClosingLabels = false,
-        bool replaceConflictingCoordinatesFromReviewedSegments = false)
+        bool replaceConflictingCoordinatesFromReviewedSegments = false,
+        bool mergeGeneratedBoundaryPointsWithReferenceRows = true,
+        bool removeInactiveManualRows = false)
     {
         var result = Solve(
             document,
@@ -22,12 +24,12 @@ public sealed class SurveyPlanBoundarySolver
             useDerivedCoordinatesAsAnchors,
             repairPrematureClosingLabels,
             replaceConflictingCoordinatesFromReviewedSegments);
-        if (replaceConflictingCoordinatesFromReviewedSegments)
+        if (replaceConflictingCoordinatesFromReviewedSegments && mergeGeneratedBoundaryPointsWithReferenceRows)
         {
             result = MergeGeneratedBoundaryPointsWithReferenceRows(document, result);
         }
 
-        ApplyDerivedRows(document, result, replaceConflictingCoordinatesFromReviewedSegments);
+        ApplyDerivedRows(document, result, replaceConflictingCoordinatesFromReviewedSegments, removeInactiveManualRows);
         document.RootMetadata["boundary_solver"] = JsonSerializer.SerializeToNode(new
         {
             status = result.Status,
@@ -473,7 +475,8 @@ public sealed class SurveyPlanBoundarySolver
     private static void ApplyDerivedRows(
         ExtractionReviewDocument document,
         SurveyPlanBoundarySolverResult result,
-        bool replaceExistingCoordinatesFromReviewedSegments)
+        bool replaceExistingCoordinatesFromReviewedSegments,
+        bool removeInactiveManualRows)
     {
         var maxSequence = document.Rows
             .Where(row => row.SequenceInGroup.HasValue)
@@ -537,10 +540,13 @@ public sealed class SurveyPlanBoundarySolver
             });
         }
 
-        ApplyReviewedBoundarySequence(document, replaceExistingCoordinatesFromReviewedSegments);
+        ApplyReviewedBoundarySequence(document, replaceExistingCoordinatesFromReviewedSegments, removeInactiveManualRows);
     }
 
-    private static void ApplyReviewedBoundarySequence(ExtractionReviewDocument document, bool removeInactiveRows)
+    private static void ApplyReviewedBoundarySequence(
+        ExtractionReviewDocument document,
+        bool removeInactiveRows,
+        bool removeInactiveManualRows)
     {
         var orderedPointIds = BuildReviewedBoundaryPointOrder(document);
         if (orderedPointIds.Count == 0)
@@ -548,7 +554,7 @@ public sealed class SurveyPlanBoundarySolver
             return;
         }
 
-        RemoveInactiveBoundaryRows(document, orderedPointIds, removeInactiveRows);
+        RemoveInactiveBoundaryRows(document, orderedPointIds, removeInactiveRows, removeInactiveManualRows);
 
         var sequence = 1;
         foreach (var pointId in orderedPointIds)
@@ -571,7 +577,8 @@ public sealed class SurveyPlanBoundarySolver
     private static void RemoveInactiveBoundaryRows(
         ExtractionReviewDocument document,
         IReadOnlyCollection<string> orderedPointIds,
-        bool removeAllNonManualInactiveRows)
+        bool removeAllNonManualInactiveRows,
+        bool removeInactiveManualRows)
     {
         var activePointIds = new HashSet<string>(
             orderedPointIds.Select(NormalizePointId).Where(pointId => !string.IsNullOrWhiteSpace(pointId)),
@@ -583,7 +590,7 @@ public sealed class SurveyPlanBoundarySolver
             var pointId = NormalizePointId(row.PointIdentifier);
             if (string.IsNullOrWhiteSpace(pointId)
                 || activePointIds.Contains(pointId)
-                || row.IsManual
+                || (row.IsManual && !removeInactiveManualRows)
                 || (!removeAllNonManualInactiveRows && !IsDerivedFromReviewedSegments(row)))
             {
                 continue;
