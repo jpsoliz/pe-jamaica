@@ -24,10 +24,18 @@
                Text="Server"
                FontWeight="SemiBold"
                VerticalAlignment="Center" />
-    <TextBox x:Name="ServerTextBox"
-             Grid.Row="0"
-             Grid.Column="1"
-             Margin="10,0,0,6" />
+    <Border Grid.Row="0"
+            Grid.Column="1"
+            Margin="10,0,0,6"
+            BorderBrush="#B8C2CC"
+            BorderThickness="1"
+            Background="#F3F6F7"
+            Padding="4,2"
+            ToolTip="Server address is loaded from configuration.">
+      <TextBlock x:Name="ServerTextBlock"
+                 VerticalAlignment="Center"
+                 TextTrimming="CharacterEllipsis" />
+    </Border>
 
     <TextBlock Grid.Row="1"
                Text="User"

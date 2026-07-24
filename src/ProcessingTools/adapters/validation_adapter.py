@@ -646,8 +646,9 @@ def _compute_closure_results(
         allow_open_boundary = bool(profile.get("allow_open_boundary", False))
         severity = str(profile.get("severity") or "blocker")
         boundary_solver = review_data.get("boundary_solver") if isinstance(review_data.get("boundary_solver"), dict) else {}
+        solver_status = str(boundary_solver.get("status") or "").strip().lower()
         solver_passed = (
-            str(boundary_solver.get("status") or "").strip().lower() == "passed"
+            solver_status in {"passed", "warning"}
             and str(boundary_solver.get("geometry_source") or "").strip().lower() == "reviewed_boundary_segments"
         )
 

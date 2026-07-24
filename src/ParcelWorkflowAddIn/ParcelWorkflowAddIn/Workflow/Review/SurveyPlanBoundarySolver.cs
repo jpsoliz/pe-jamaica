@@ -12,10 +12,22 @@ public sealed class SurveyPlanBoundarySolver
     public SurveyPlanBoundarySolverResult Apply(
         ExtractionReviewDocument document,
         double? documentAreaSqM,
-        bool useDerivedCoordinatesAsAnchors = false)
+        bool useDerivedCoordinatesAsAnchors = false,
+        bool repairPrematureClosingLabels = false,
+        bool replaceConflictingCoordinatesFromReviewedSegments = false)
     {
-        var result = Solve(document, documentAreaSqM, useDerivedCoordinatesAsAnchors);
-        ApplyDerivedRows(document, result);
+        var result = Solve(
+            document,
+            documentAreaSqM,
+            useDerivedCoordinatesAsAnchors,
+            repairPrematureClosingLabels,
+            replaceConflictingCoordinatesFromReviewedSegments);
+        if (replaceConflictingCoordinatesFromReviewedSegments)
+        {
+            result = MergeGeneratedBoundaryPointsWithReferenceRows(document, result);
+        }
+
+        ApplyDerivedRows(document, result, replaceConflictingCoordinatesFromReviewedSegments);
         document.RootMetadata["boundary_solver"] = JsonSerializer.SerializeToNode(new
         {
             status = result.Status,
@@ -31,10 +43,98 @@ public sealed class SurveyPlanBoundarySolver
         return result;
     }
 
+    private static SurveyPlanBoundarySolverResult MergeGeneratedBoundaryPointsWithReferenceRows(
+        ExtractionReviewDocument document,
+        SurveyPlanBoundarySolverResult result)
+    {
+        if (result.DerivedPoints.Count == 0)
+        {
+            return result;
+        }
+
+        var activePointIds = new HashSet<string>(BuildReviewedBoundaryPointOrder(document), StringComparer.OrdinalIgnoreCase);
+        var replacements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var findings = result.Findings.ToList();
+
+        foreach (var derivedPoint in result.DerivedPoints)
+        {
+            if (replacements.ContainsKey(derivedPoint.PointId))
+            {
+                continue;
+            }
+
+            var matchingReference = document.Rows
+                .Select(row => new
+                {
+                    Row = row,
+                    PointId = NormalizePointId(row.PointIdentifier)
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.PointId)
+                               && !activePointIds.Contains(item.PointId)
+                               && !item.Row.IsManual
+                               && !IsDerivedFromReviewedSegments(item.Row)
+                               && TryParseCoordinate(item.Row.Easting, out _)
+                               && TryParseCoordinate(item.Row.Northing, out _))
+                .FirstOrDefault(item =>
+                {
+                    TryParseCoordinate(item.Row.Easting, out var easting);
+                    TryParseCoordinate(item.Row.Northing, out var northing);
+                    return Distance(
+                        new SolverPoint(item.PointId, easting, northing, item.Row.ExtractionStatus, item.Row.SourceEvidence),
+                        derivedPoint) <= CoordinateConflictToleranceM;
+                });
+
+            if (matchingReference is null)
+            {
+                continue;
+            }
+
+            replacements[derivedPoint.PointId] = matchingReference.PointId;
+            activePointIds.Remove(derivedPoint.PointId);
+            activePointIds.Add(matchingReference.PointId);
+            findings.Add($"Rebuild matched generated point {derivedPoint.PointId} to extracted reference point {matchingReference.PointId}; the reference point was kept in the boundary sequence.");
+        }
+
+        if (replacements.Count == 0)
+        {
+            return result;
+        }
+
+        foreach (var segment in document.Segments.Where(segment => segment.EffectiveIncludeInBoundary))
+        {
+            var fromPoint = NormalizePointId(segment.EffectiveFromPoint);
+            if (replacements.TryGetValue(fromPoint, out var replacementFromPoint))
+            {
+                ApplyReviewedFromPoint(segment, replacementFromPoint);
+            }
+
+            var toPoint = NormalizePointId(segment.EffectiveToPoint);
+            if (replacements.TryGetValue(toPoint, out var replacementToPoint))
+            {
+                ApplyReviewedToPoint(segment, replacementToPoint);
+            }
+        }
+
+        var derivedPoints = result.DerivedPoints
+            .Where(point => !replacements.ContainsKey(point.PointId))
+            .ToArray();
+        var status = string.Equals(result.Status, "blocked", StringComparison.OrdinalIgnoreCase)
+            ? result.Status
+            : findings.Count > 0 ? "warning" : result.Status;
+        return result with
+        {
+            Status = status,
+            DerivedPoints = derivedPoints,
+            Findings = findings
+        };
+    }
+
     public SurveyPlanBoundarySolverResult Solve(
         ExtractionReviewDocument document,
         double? documentAreaSqM,
-        bool useDerivedCoordinatesAsAnchors = false)
+        bool useDerivedCoordinatesAsAnchors = false,
+        bool repairPrematureClosingLabels = false,
+        bool replaceConflictingCoordinatesFromReviewedSegments = false)
     {
         var findings = new List<string>();
         var segments = document.Segments
@@ -45,6 +145,11 @@ public sealed class SurveyPlanBoundarySolver
         {
             findings.Add("No reviewed boundary segments are available.");
             return SurveyPlanBoundarySolverResult.Blocked(findings);
+        }
+
+        if (repairPrematureClosingLabels)
+        {
+            RepairPrematureClosingPointLabels(segments, findings);
         }
 
         var coordinates = LoadPointCoordinates(document.Rows, findings, useDerivedCoordinatesAsAnchors);
@@ -88,7 +193,7 @@ public sealed class SurveyPlanBoundarySolver
                         fromCoordinate.Northing + segment.DeltaNorthing,
                         "derived_from_reviewed_segments",
                         $"{segment.FromPoint}->{segment.ToPoint}");
-                    changed |= AddOrCompareCoordinate(coordinates, derivedPoints, derived, findings);
+                    changed |= AddOrCompareCoordinate(coordinates, derivedPoints, derived, findings, replaceConflictingCoordinatesFromReviewedSegments);
                 }
 
                 if (coordinates.TryGetValue(segment.ToPoint, out var toCoordinate))
@@ -99,7 +204,7 @@ public sealed class SurveyPlanBoundarySolver
                         toCoordinate.Northing - segment.DeltaNorthing,
                         "derived_from_reviewed_segments",
                         $"{segment.FromPoint}->{segment.ToPoint}");
-                    changed |= AddOrCompareCoordinate(coordinates, derivedPoints, derived, findings);
+                    changed |= AddOrCompareCoordinate(coordinates, derivedPoints, derived, findings, replaceConflictingCoordinatesFromReviewedSegments);
                 }
             }
 
@@ -176,6 +281,127 @@ public sealed class SurveyPlanBoundarySolver
             findings);
     }
 
+    private static int RepairPrematureClosingPointLabels(IReadOnlyList<ExtractionReviewSegment> segments, List<string> findings)
+    {
+        if (segments.Count < 3)
+        {
+            return 0;
+        }
+
+        var firstPoint = NormalizePointId(segments[0].EffectiveFromPoint);
+        if (string.IsNullOrWhiteSpace(firstPoint))
+        {
+            return 0;
+        }
+
+        var finalToPoint = NormalizePointId(segments[^1].EffectiveToPoint);
+        var preserveFinalClosure = string.Equals(firstPoint, finalToPoint, StringComparison.OrdinalIgnoreCase)
+            || ReviewedSegmentDeltasClose(segments);
+        var labels = segments
+            .SelectMany(segment => new[] { NormalizePointId(segment.EffectiveFromPoint), NormalizePointId(segment.EffectiveToPoint) })
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .ToArray();
+        var usedLabels = new HashSet<string>(labels, StringComparer.OrdinalIgnoreCase);
+        var generator = PointLabelGenerator.Create(labels);
+        var visitedBoundaryLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { firstPoint };
+        var currentPoint = firstPoint;
+        var repairs = 0;
+        var generatedLabels = new List<string>();
+
+        for (var index = 0; index < segments.Count; index++)
+        {
+            var segment = segments[index];
+            var fromPoint = NormalizePointId(segment.EffectiveFromPoint);
+            var toPoint = NormalizePointId(segment.EffectiveToPoint);
+
+            if (index > 0
+                && !string.IsNullOrWhiteSpace(currentPoint)
+                && !string.Equals(fromPoint, currentPoint, StringComparison.OrdinalIgnoreCase)
+                && visitedBoundaryLabels.Contains(fromPoint))
+            {
+                ApplyReviewedFromPoint(segment, currentPoint);
+                fromPoint = currentPoint;
+                repairs++;
+            }
+
+            if (index == segments.Count - 1 && preserveFinalClosure)
+            {
+                if (!string.Equals(toPoint, firstPoint, StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyReviewedToPoint(segment, firstPoint);
+                    toPoint = firstPoint;
+                    repairs++;
+                }
+            }
+            else if (visitedBoundaryLabels.Contains(toPoint))
+            {
+                var replacement = generator.Next(usedLabels);
+                usedLabels.Add(replacement);
+                generatedLabels.Add(replacement);
+                ApplyReviewedToPoint(segment, replacement);
+                toPoint = replacement;
+                repairs++;
+            }
+
+            if (!string.IsNullOrWhiteSpace(toPoint))
+            {
+                visitedBoundaryLabels.Add(toPoint);
+            }
+
+            currentPoint = toPoint;
+        }
+
+        if (repairs > 0)
+        {
+            findings.Add($"Rebuild repaired repeated point labels before final closure at {firstPoint}; generated intermediate point label(s): {string.Join(", ", generatedLabels.Distinct(StringComparer.OrdinalIgnoreCase))}.");
+        }
+
+        return repairs;
+    }
+
+    private static bool ReviewedSegmentDeltasClose(IReadOnlyList<ExtractionReviewSegment> segments)
+    {
+        var deltaEasting = 0d;
+        var deltaNorthing = 0d;
+        foreach (var segment in segments)
+        {
+            var delta = SurveyPlanBearingParser.ParseDelta(segment.EffectiveBearingText, segment.EffectiveDistanceText);
+            if (!delta.Success)
+            {
+                return false;
+            }
+
+            deltaEasting += delta.DeltaEasting;
+            deltaNorthing += delta.DeltaNorthing;
+        }
+
+        return Math.Sqrt(deltaEasting * deltaEasting + deltaNorthing * deltaNorthing) <= ClosureWarningToleranceM;
+    }
+
+    private static void ApplyReviewedFromPoint(ExtractionReviewSegment segment, string pointId)
+    {
+        if (string.Equals(segment.EffectiveFromPoint, pointId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        segment.ReviewFromPoint = pointId;
+        segment.RawSegment["review_from_point"] = pointId;
+        segment.IsEdited = true;
+    }
+
+    private static void ApplyReviewedToPoint(ExtractionReviewSegment segment, string pointId)
+    {
+        if (string.Equals(segment.EffectiveToPoint, pointId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        segment.ReviewToPoint = pointId;
+        segment.RawSegment["review_to_point"] = pointId;
+        segment.IsEdited = true;
+    }
+
     private static Dictionary<string, SolverPoint> LoadPointCoordinates(
         IReadOnlyList<ExtractionReviewRow> rows,
         List<string> findings,
@@ -218,13 +444,22 @@ public sealed class SurveyPlanBoundarySolver
         Dictionary<string, SolverPoint> coordinates,
         Dictionary<string, SolverPoint> derivedPoints,
         SolverPoint derived,
-        List<string> findings)
+        List<string> findings,
+        bool replaceConflictingCoordinatesFromReviewedSegments)
     {
         if (coordinates.TryGetValue(derived.PointId, out var existing))
         {
             if (Distance(existing, derived) > CoordinateConflictToleranceM)
             {
-                findings.Add($"Derived coordinate conflict for point {derived.PointId} from segment {derived.SourceSegment}; printed/reviewed coordinate was preserved.");
+                if (replaceConflictingCoordinatesFromReviewedSegments)
+                {
+                    coordinates[derived.PointId] = derived;
+                    derivedPoints[derived.PointId] = derived;
+                    findings.Add($"Point {derived.PointId} was recalculated from the reviewed boundary path at segment {derived.SourceSegment}.");
+                    return true;
+                }
+
+                findings.Add($"Point {derived.PointId} has existing coordinates that do not match the reviewed boundary path at segment {derived.SourceSegment}. If the boundary notes are correct, rebuild/replace this point from the reviewed segments; otherwise edit the segment bearing or distance.");
             }
 
             return false;
@@ -235,7 +470,10 @@ public sealed class SurveyPlanBoundarySolver
         return true;
     }
 
-    private static void ApplyDerivedRows(ExtractionReviewDocument document, SurveyPlanBoundarySolverResult result)
+    private static void ApplyDerivedRows(
+        ExtractionReviewDocument document,
+        SurveyPlanBoundarySolverResult result,
+        bool replaceExistingCoordinatesFromReviewedSegments)
     {
         var maxSequence = document.Rows
             .Where(row => row.SequenceInGroup.HasValue)
@@ -252,7 +490,8 @@ public sealed class SurveyPlanBoundarySolver
                 string.Equals(NormalizePointId(row.PointIdentifier), point.PointId, StringComparison.OrdinalIgnoreCase));
             if (existingRow is not null)
             {
-                if (IsDerivedFromReviewedSegments(existingRow)
+                if (replaceExistingCoordinatesFromReviewedSegments
+                    || IsDerivedFromReviewedSegments(existingRow)
                     || !TryParseCoordinate(existingRow.Easting, out _)
                     || !TryParseCoordinate(existingRow.Northing, out _))
                 {
@@ -298,16 +537,18 @@ public sealed class SurveyPlanBoundarySolver
             });
         }
 
-        ApplyReviewedBoundarySequence(document);
+        ApplyReviewedBoundarySequence(document, replaceExistingCoordinatesFromReviewedSegments);
     }
 
-    private static void ApplyReviewedBoundarySequence(ExtractionReviewDocument document)
+    private static void ApplyReviewedBoundarySequence(ExtractionReviewDocument document, bool removeInactiveRows)
     {
         var orderedPointIds = BuildReviewedBoundaryPointOrder(document);
         if (orderedPointIds.Count == 0)
         {
             return;
         }
+
+        RemoveInactiveBoundaryRows(document, orderedPointIds, removeInactiveRows);
 
         var sequence = 1;
         foreach (var pointId in orderedPointIds)
@@ -324,6 +565,31 @@ public sealed class SurveyPlanBoundarySolver
             row.RawRow["sequence"] = row.SequenceInGroup;
             row.RawRow["seq"] = row.SequenceInGroup;
             row.RawRow["review_sequence"] = row.SequenceInGroup;
+        }
+    }
+
+    private static void RemoveInactiveBoundaryRows(
+        ExtractionReviewDocument document,
+        IReadOnlyCollection<string> orderedPointIds,
+        bool removeAllNonManualInactiveRows)
+    {
+        var activePointIds = new HashSet<string>(
+            orderedPointIds.Select(NormalizePointId).Where(pointId => !string.IsNullOrWhiteSpace(pointId)),
+            StringComparer.OrdinalIgnoreCase);
+
+        for (var index = document.Rows.Count - 1; index >= 0; index--)
+        {
+            var row = document.Rows[index];
+            var pointId = NormalizePointId(row.PointIdentifier);
+            if (string.IsNullOrWhiteSpace(pointId)
+                || activePointIds.Contains(pointId)
+                || row.IsManual
+                || (!removeAllNonManualInactiveRows && !IsDerivedFromReviewedSegments(row)))
+            {
+                continue;
+            }
+
+            document.Rows.RemoveAt(index);
         }
     }
 
@@ -595,3 +861,79 @@ internal sealed record SolverSegment(
     string ToPoint,
     double DeltaEasting,
     double DeltaNorthing);
+
+internal sealed class PointLabelGenerator
+{
+    private readonly bool numericStyle;
+    private int nextNumericLabel;
+
+    private PointLabelGenerator(bool numericStyle, int nextNumericLabel)
+    {
+        this.numericStyle = numericStyle;
+        this.nextNumericLabel = nextNumericLabel;
+    }
+
+    public static PointLabelGenerator Create(IReadOnlyList<string> labels)
+    {
+        var numericLabels = labels
+            .Select(label => int.TryParse(label, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : (int?)null)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .ToArray();
+        var alphabeticCount = labels.Count(label => IsAlphabeticLabel(label));
+        var numericStyle = alphabeticCount >= numericLabels.Length;
+        return new PointLabelGenerator(
+            numericStyle,
+            numericLabels.Length == 0 ? 1 : numericLabels.Max() + 1);
+    }
+
+    public string Next(HashSet<string> usedLabels)
+    {
+        return numericStyle
+            ? NextNumeric(usedLabels)
+            : NextAlphabetic(usedLabels);
+    }
+
+    private string NextNumeric(HashSet<string> usedLabels)
+    {
+        while (usedLabels.Contains(nextNumericLabel.ToString(CultureInfo.InvariantCulture)))
+        {
+            nextNumericLabel++;
+        }
+
+        return nextNumericLabel++.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string NextAlphabetic(HashSet<string> usedLabels)
+    {
+        for (var value = 1; value < 10000; value++)
+        {
+            var label = ToAlphabeticLabel(value);
+            if (!usedLabels.Contains(label))
+            {
+                return label;
+            }
+        }
+
+        throw new InvalidOperationException("Unable to generate a unique alphabetic point label.");
+    }
+
+    private static bool IsAlphabeticLabel(string label)
+    {
+        return !string.IsNullOrWhiteSpace(label)
+            && label.All(character => character is >= 'A' and <= 'Z' or >= 'a' and <= 'z');
+    }
+
+    private static string ToAlphabeticLabel(int value)
+    {
+        var buffer = new Stack<char>();
+        while (value > 0)
+        {
+            value--;
+            buffer.Push((char)('A' + value % 26));
+            value /= 26;
+        }
+
+        return new string(buffer.ToArray());
+    }
+}

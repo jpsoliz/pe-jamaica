@@ -47,6 +47,34 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         Close();
     }
 
+    private void RemovePointButton_Click(object sender, RoutedEventArgs e)
+    {
+        var pointLabel = string.IsNullOrWhiteSpace(viewModel.SelectedVisibleRow?.PointIdentifier)
+            ? "the selected point"
+            : $"point {viewModel.SelectedVisibleRow.PointIdentifier}";
+        var result = MessageBox.Show(
+            this,
+            $"Delete {pointLabel} from this review?{Environment.NewLine}{Environment.NewLine}This removes the point from the current Points Validation Tool list. Save the review to persist the change.",
+            "Delete point",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (!viewModel.RemoveSelectedPointFromWorkspace())
+        {
+            MessageBox.Show(
+                this,
+                "The selected point could not be deleted. Select a point and try again.",
+                "Delete point unavailable",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         await RefreshPdfViewerAsync();

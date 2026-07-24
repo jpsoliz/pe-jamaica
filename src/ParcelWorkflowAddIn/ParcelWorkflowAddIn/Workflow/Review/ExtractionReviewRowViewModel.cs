@@ -257,6 +257,8 @@ public sealed class ExtractionReviewRowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Unresolved));
         OnPropertyChanged(nameof(UnresolvedReason));
         OnPropertyChanged(nameof(ReviewNotes));
+        OnPropertyChanged(nameof(IsEdited));
+        OnPropertyChanged(nameof(HasMissingRequiredValues));
         onRowChanged();
     }
 

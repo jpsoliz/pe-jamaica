@@ -45,6 +45,28 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "PXA point and segment edit dialogs should be owned by the active review workspace window.");
     }
 
+    public static void PointDeleteUsesConfirmationAndRefreshesVisibleRows()
+    {
+        var xaml = File.ReadAllText(FindWorkspaceXaml());
+        var windowCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceWindow.xaml.cs"));
+        var workspaceViewModelCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceViewModel.cs"));
+
+        TestAssert.True(
+            xaml.Contains("Click=\"RemovePointButton_Click\"", StringComparison.Ordinal)
+            && xaml.Contains("IsEnabled=\"{Binding CanRemoveSelectedPoint}\"", StringComparison.Ordinal),
+            "Point delete buttons should route through the window so deletion can be confirmed before the remove command runs.");
+        TestAssert.True(
+            windowCode.Contains("Delete point", StringComparison.Ordinal)
+            && windowCode.Contains("MessageBoxButton.YesNo", StringComparison.Ordinal)
+            && windowCode.Contains("MessageBoxImage.Warning", StringComparison.Ordinal)
+            && windowCode.Contains("viewModel.RemoveSelectedPointFromWorkspace()", StringComparison.Ordinal),
+            "Point delete should ask for confirmation and only then invoke the remove workflow.");
+        TestAssert.True(
+            workspaceViewModelCode.Contains("RemoveManualPointCommand.Execute(null);", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("RefreshProjection();", StringComparison.Ordinal),
+            "The workspace should refresh the visible point list immediately after a confirmed point delete.");
+    }
+
     public static void FooterActionsOnlyShowWhenPressableAndSaveStateIsExplicitlyNotified()
     {
         var xaml = File.ReadAllText(FindWorkspaceXaml());
@@ -163,6 +185,42 @@ internal static class JamaicaReviewWorkspaceXamlTests
 
         TestAssert.Equal(5, points.Count, "The preview should derive one vertex per reviewed segment plus the starting vertex.");
         TestAssert.True(Math.Abs(points[^1].X) < 0.001d && Math.Abs(points[^1].Y) < 0.001d, "Segment-derived preview should close when the reviewed bearings and distances close.");
+    }
+
+    public static void VisibleRowsAreRebuiltFromLiveReviewRowsAfterDelete()
+    {
+        var liveRows = new List<ExtractionReviewRowViewModel>
+        {
+            Row("A", "0", "0"),
+            Row("B", "1", "1"),
+            Row("C", "2", "2")
+        };
+        liveRows[0].Model.SequenceInGroup = 1;
+        liveRows[1].Model.SequenceInGroup = 2;
+        liveRows[2].Model.SequenceInGroup = 3;
+
+        var staleGroupSnapshot = liveRows.ToArray();
+        liveRows.RemoveAt(1);
+
+        var visibleRows = JamaicaReviewWorkspaceViewModel.BuildVisibleRowsForParcel(liveRows, "parcel-001");
+
+        TestAssert.Equal("A,C", string.Join(",", visibleRows.Select(row => row.PointIdentifier)), "Visible PXA point rows should be rebuilt from live ReviewRows after a delete.");
+        TestAssert.True(staleGroupSnapshot.Any(row => row.PointIdentifier == "B"), "The test must simulate a stale parcel-group snapshot that still contains the deleted point.");
+    }
+
+    public static void LoginServerAddressIsConfigurationOnly()
+    {
+        var xaml = File.ReadAllText(FindSourceFile("LoginWindow.xaml"));
+        var code = File.ReadAllText(FindSourceFile("LoginWindow.xaml.cs"));
+
+        TestAssert.True(
+            !xaml.Contains("x:Name=\"ServerTextBox\"", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"ServerTextBlock\"", StringComparison.Ordinal),
+            "Login server address should be display-only text, not an editable TextBox.");
+        TestAssert.True(
+            code.Contains("ServerTextBlock.Text = ShellState.ConfiguredServerUrl;", StringComparison.Ordinal)
+            && code.Contains("ShellState.Session.LoginAsync(ShellState.ConfiguredServerUrl", StringComparison.Ordinal),
+            "Login server address should continue to come from the configured Innola server URL and never from user-edited text.");
     }
 
     private static ExtractionReviewRowViewModel Row(string pointIdentifier, string easting, string northing)

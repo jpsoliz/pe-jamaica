@@ -13,6 +13,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <PackageType>Addin</PackageType>
     <ArcGISProSdkTargets>C:\Program Files\ArcGIS\Pro\bin\Esri.ProApp.SDK.Desktop.targets</ArcGISProSdkTargets>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

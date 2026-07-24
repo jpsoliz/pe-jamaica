@@ -137,6 +137,55 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SegmentId));
     }
 
+    public bool RefreshFromModel()
+    {
+        var previousSequence = sequence;
+        var previousFromPoint = fromPoint;
+        var previousToPoint = toPoint;
+        var previousBearingText = bearingText;
+        var previousDistanceText = distanceText;
+        var previousIncludeInBoundary = includeInBoundary;
+        var previousStatus = status;
+        var previousReviewNotes = reviewNotes;
+        var previousAdjacentOwner = adjacentOwner;
+        var previousIsEdited = IsEdited;
+
+        sequence = Model.ReviewSequence ?? Model.Sequence;
+        fromPoint = Model.EffectiveFromPoint;
+        toPoint = Model.EffectiveToPoint;
+        bearingText = Model.EffectiveBearingText;
+        distanceText = string.IsNullOrWhiteSpace(Model.EffectiveDistanceText)
+            ? Model.EffectiveLengthText
+            : Model.EffectiveDistanceText;
+        includeInBoundary = Model.EffectiveIncludeInBoundary;
+        status = string.IsNullOrWhiteSpace(Model.ReviewStatus) ? Model.Status : Model.ReviewStatus;
+        reviewNotes = Model.ReviewNotes;
+        adjacentOwner = Model.AdjacentOwner;
+
+        NotifyIfChanged(previousSequence, sequence, nameof(Sequence));
+        NotifyIfChanged(previousFromPoint, fromPoint, nameof(FromPoint));
+        NotifyIfChanged(previousToPoint, toPoint, nameof(ToPoint));
+        NotifyIfChanged(previousBearingText, bearingText, nameof(BearingText));
+        NotifyIfChanged(previousDistanceText, distanceText, nameof(DistanceText));
+        NotifyIfChanged(previousIncludeInBoundary, includeInBoundary, nameof(IncludeInBoundary));
+        NotifyIfChanged(previousStatus, status, nameof(Status));
+        NotifyIfChanged(previousReviewNotes, reviewNotes, nameof(ReviewNotes));
+        NotifyIfChanged(previousAdjacentOwner, adjacentOwner, nameof(AdjacentOwner));
+        NotifyIfChanged(previousIsEdited, IsEdited, nameof(IsEdited));
+        OnPropertyChanged(nameof(SegmentId));
+
+        return previousSequence != sequence
+            || !string.Equals(previousFromPoint, fromPoint, StringComparison.Ordinal)
+            || !string.Equals(previousToPoint, toPoint, StringComparison.Ordinal)
+            || !string.Equals(previousBearingText, bearingText, StringComparison.Ordinal)
+            || !string.Equals(previousDistanceText, distanceText, StringComparison.Ordinal)
+            || previousIncludeInBoundary != includeInBoundary
+            || !string.Equals(previousStatus, status, StringComparison.Ordinal)
+            || !string.Equals(previousReviewNotes, reviewNotes, StringComparison.Ordinal)
+            || !string.Equals(previousAdjacentOwner, adjacentOwner, StringComparison.Ordinal)
+            || previousIsEdited != IsEdited;
+    }
+
     private bool IsChanged()
     {
         return Model.ReviewSequence != Model.OriginalValues.Sequence
@@ -163,6 +212,14 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         SyncBackToModel();
         OnPropertyChanged(propertyName);
         onSegmentChanged();
+    }
+
+    private void NotifyIfChanged<T>(T previous, T current, string propertyName)
+    {
+        if (!EqualityComparer<T>.Default.Equals(previous, current))
+        {
+            OnPropertyChanged(propertyName);
+        }
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

@@ -416,7 +416,8 @@
                 </Viewbox>
               </Button>
               <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                      Command="{Binding RemoveManualPointCommand}"
+                      Click="RemovePointButton_Click"
+                      IsEnabled="{Binding CanRemoveSelectedPoint}"
                       AutomationProperties.Name="Remove selected point"
                       ToolTip="Remove selected point">
                 <Viewbox Width="16" Height="16">
@@ -906,7 +907,8 @@
                       </Viewbox>
                     </Button>
                     <Button Style="{StaticResource ReviewActionIconButtonStyle}"
-                            Command="{Binding RemoveManualPointCommand}"
+                            Click="RemovePointButton_Click"
+                            IsEnabled="{Binding CanRemoveSelectedPoint}"
                             AutomationProperties.Name="Remove selected point"
                             ToolTip="Remove selected point">
                       <Viewbox Width="16" Height="16">

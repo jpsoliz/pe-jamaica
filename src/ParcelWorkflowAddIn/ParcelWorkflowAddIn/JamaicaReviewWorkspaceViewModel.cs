@@ -127,6 +127,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand RemoveManualPointCommand => parent.RemoveManualPointCommand;
 
+    public bool CanRemoveSelectedPoint => RemoveManualPointCommand.CanExecute(null);
+
     public ICommand CancelPendingManualPointCommand => parent.CancelPendingManualPointCommand;
 
     public ICommand SaveReviewCommand => parent.SaveReviewCommand;
@@ -344,6 +346,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             {
                 removeCommand.RaiseCanExecuteChanged();
             }
+
+            OnPropertyChanged(nameof(CanRemoveSelectedPoint));
         }
     }
 
@@ -909,7 +913,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     private void RebuildVisibleRows()
     {
-        var rows = SelectedParcelGroup?.Rows ?? parent.ReviewRows.ToArray();
+        var rows = BuildVisibleRowsForParcel(parent.ReviewRows, SelectedParcelGroup?.GroupId);
         VisibleRows.Clear();
         foreach (var row in rows)
         {
@@ -931,6 +935,39 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ParcelContextPreviewPaths));
         OnPropertyChanged(nameof(SelectedPointPreview));
         OnPropertyChanged(nameof(SelectedRowSummary));
+        OnPropertyChanged(nameof(CanRemoveSelectedPoint));
+    }
+
+    internal bool RemoveSelectedPointFromWorkspace()
+    {
+        if (!CanRemoveSelectedPoint)
+        {
+            return false;
+        }
+
+        RemoveManualPointCommand.Execute(null);
+        RefreshProjection();
+        OnPropertyChanged(nameof(CanRemoveSelectedPoint));
+        return true;
+    }
+
+    internal static IReadOnlyList<ExtractionReviewRowViewModel> BuildVisibleRowsForParcel(
+        IEnumerable<ExtractionReviewRowViewModel> rows,
+        string? selectedParcelGroupId)
+    {
+        var source = string.IsNullOrWhiteSpace(selectedParcelGroupId)
+            ? rows
+            : rows.Where(row => string.Equals(ResolveParcelGroupKey(row.ParcelGroupId), selectedParcelGroupId, StringComparison.OrdinalIgnoreCase));
+
+        return source
+            .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+            .ThenBy(row => row.PointIdentifier, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string ResolveParcelGroupKey(string? parcelGroupId)
+    {
+        return string.IsNullOrWhiteSpace(parcelGroupId) ? "Ungrouped" : parcelGroupId;
     }
 
     private void RebuildVisibleSegments()

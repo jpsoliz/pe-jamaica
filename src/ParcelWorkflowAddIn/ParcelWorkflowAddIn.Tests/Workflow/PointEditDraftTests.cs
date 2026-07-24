@@ -87,4 +87,38 @@ internal static class PointEditDraftTests
         TestAssert.Equal("Need second check", row.UnresolvedReason, "Committed draft should update unresolved reason.");
         TestAssert.Equal("Updated in modal", row.ReviewNotes, "Committed draft should update review notes.");
     }
+
+    public static void RowViewModelApplyCommittedEditNotifiesDerivedState()
+    {
+        var row = new ExtractionReviewRow
+        {
+            RowId = "row-1",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "P1",
+            Easting = "1",
+            Northing = "1"
+        };
+        var changedProperties = new List<string>();
+        var viewModel = new ExtractionReviewRowViewModel(row, () => { });
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (!string.IsNullOrWhiteSpace(args.PropertyName))
+            {
+                changedProperties.Add(args.PropertyName);
+            }
+        };
+
+        viewModel.ApplyCommittedEdit(new PointEditDraft
+        {
+            RowId = "row-1",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "P1",
+            Easting = "2",
+            Northing = "3",
+            ExtractionStatus = "Adjusted"
+        });
+
+        TestAssert.True(changedProperties.Contains(nameof(ExtractionReviewRowViewModel.IsEdited)), "Point edit should notify derived edited state.");
+        TestAssert.True(changedProperties.Contains(nameof(ExtractionReviewRowViewModel.HasMissingRequiredValues)), "Point edit should notify missing-required state.");
+    }
 }

@@ -1026,8 +1026,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private ParcelScopedReviewValidationResult NormalizeReviewValidationResultForActiveReview(ParcelScopedReviewValidationResult result)
     {
-        if (!IsPxaSurveyPlanReview
-            || !string.Equals(ReadBoundarySolverStatus(), "passed", StringComparison.OrdinalIgnoreCase))
+        if (!IsPxaReviewedBoundarySolverUsable())
         {
             return result;
         }
@@ -1043,28 +1042,58 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 }
                 : item)
             .ToArray();
+        var readinessResults = result.ReadinessResults
+            .Select(item => string.Equals(item.Category, "boundary_completeness", StringComparison.OrdinalIgnoreCase)
+                            && item.Status == ReadinessValidationStatus.Blocker
+                ? item with
+                {
+                    Status = ReadinessValidationStatus.Passed,
+                    Message = "PXA reviewed boundary segment solver passed; point-row sequence completeness is superseded by the reviewed segment chain.",
+                    BoundaryGapCount = 0,
+                    AffectedSegmentIds = Array.Empty<string>()
+                }
+                : item)
+            .ToArray();
         var parcelIssues = result.ParcelIssues
-            .Where(pair => !IsOnlyPxaClosureIssue(pair.Value))
+            .Where(pair => !IsSupersededPxaPointRowIssue(pair.Value))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         var issues = result.Issues
-            .Where(issue => !IsOnlyPxaClosureIssue(issue))
+            .Where(issue => !IsSupersededPxaPointRowIssue(issue))
             .ToArray();
         return result with
         {
             Issues = issues,
             ParcelIssues = parcelIssues,
-            ClosureResults = closureResults
+            ClosureResults = closureResults,
+            ReadinessResults = readinessResults
         };
     }
 
-    private static bool IsOnlyPxaClosureIssue(string? value)
+    private bool IsPxaReviewedBoundarySolverUsable()
+    {
+        if (!IsPxaSurveyPlanReview || loadedReviewDocument?.RootMetadata["boundary_solver"] is not JsonObject solver)
+        {
+            return false;
+        }
+
+        var status = ReadReviewJsonString(solver, "status") ?? string.Empty;
+        var geometrySource = ReadReviewJsonString(solver, "geometry_source") ?? string.Empty;
+        return !string.Equals(status, "blocked", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(status)
+            && string.Equals(geometrySource, "reviewed_boundary_segments", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSupersededPxaPointRowIssue(string? value)
     {
         var text = value ?? string.Empty;
-        return text.Contains("exceeds the configured closure tolerance", StringComparison.OrdinalIgnoreCase)
-            && !text.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+        var isClosureIssue = text.Contains("exceeds the configured closure tolerance", StringComparison.OrdinalIgnoreCase)
+            && !text.Contains("duplicate point id", StringComparison.OrdinalIgnoreCase)
             && !text.Contains("missing", StringComparison.OrdinalIgnoreCase)
             && !text.Contains("invalid", StringComparison.OrdinalIgnoreCase)
             && !text.Contains("unresolved", StringComparison.OrdinalIgnoreCase);
+        var isSequenceIssue = text.Contains("duplicate sequence value", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("missing sequence value", StringComparison.OrdinalIgnoreCase);
+        return isClosureIssue || isSequenceIssue;
     }
 
     public bool CanChangeReviewParcelSelection => !IsManualReviewEditMode && !pointEditorOpen;
@@ -1557,7 +1586,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
-    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable(bool useDerivedCoordinatesAsAnchors = false)
+    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable(
+        bool useDerivedCoordinatesAsAnchors = false,
+        bool repairPrematureClosingLabels = false,
+        bool replaceConflictingCoordinatesFromReviewedSegments = false)
     {
         if (loadedReviewDocument is null || loadedReviewDocument.Segments.Count == 0)
         {
@@ -1574,19 +1606,56 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var result = surveyPlanBoundarySolver.Apply(
             loadedReviewDocument,
             ResolveReviewDocumentAreaSqM(loadedReviewDocument),
-            useDerivedCoordinatesAsAnchors);
+            useDerivedCoordinatesAsAnchors,
+            repairPrematureClosingLabels,
+            replaceConflictingCoordinatesFromReviewedSegments);
+        var segmentsChanged = SyncReviewSegmentViewModelsFromDocument();
         var rowsChanged = SyncReviewRowViewModelsFromDocument();
+        if (segmentsChanged)
+        {
+            NotifyPropertyChanged(nameof(ReviewSegments));
+        }
+
         if (rowsChanged)
         {
             NotifyPropertyChanged(nameof(ReviewRows));
         }
 
-        if (loadedReviewDocument.Rows.Count != beforeRowCount || rowsChanged)
+        if (loadedReviewDocument.Rows.Count != beforeRowCount || rowsChanged || segmentsChanged)
         {
             reviewContentVersion++;
         }
 
         return result;
+    }
+
+    private bool SyncReviewSegmentViewModelsFromDocument()
+    {
+        if (loadedReviewDocument is null)
+        {
+            return false;
+        }
+
+        var segmentsChanged = false;
+        var knownSegmentsById = ReviewSegments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.SegmentId))
+            .ToDictionary(segment => segment.SegmentId, StringComparer.Ordinal);
+        foreach (var segment in loadedReviewDocument.Segments.OrderBy(segment => segment.EffectiveSequence))
+        {
+            var segmentId = string.IsNullOrWhiteSpace(segment.SegmentId)
+                ? $"segment-{segment.EffectiveSequence}"
+                : segment.SegmentId;
+            if (knownSegmentsById.TryGetValue(segmentId, out var existingSegment))
+            {
+                segmentsChanged = existingSegment.RefreshFromModel() || segmentsChanged;
+                continue;
+            }
+
+            ReviewSegments.Add(new ExtractionReviewSegmentViewModel(segment, OnReviewSegmentChanged));
+            segmentsChanged = true;
+        }
+
+        return segmentsChanged;
     }
 
     private bool SyncReviewRowViewModelsFromDocument()
@@ -1597,6 +1666,23 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var rowsChanged = false;
+        var activeModels = loadedReviewDocument.Rows.ToHashSet();
+        for (var index = ReviewRows.Count - 1; index >= 0; index--)
+        {
+            if (activeModels.Contains(ReviewRows[index].Model))
+            {
+                continue;
+            }
+
+            if (ReferenceEquals(SelectedReviewRow, ReviewRows[index]))
+            {
+                SelectedReviewRow = null;
+            }
+
+            ReviewRows.RemoveAt(index);
+            rowsChanged = true;
+        }
+
         var knownRowsById = ReviewRows
             .Where(row => !string.IsNullOrWhiteSpace(row.RowId))
             .ToDictionary(row => row.RowId, StringComparer.Ordinal);
@@ -1910,10 +1996,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         var rowToRemove = SelectedReviewRow;
         var currentParcelGroupId = NormalizeReviewParcelGroupId(rowToRemove.ParcelGroupId);
+        var removedSequence = rowToRemove.SequenceInGroup;
         loadedReviewDocument.Rows.Remove(rowToRemove.Model);
         ReviewRows.Remove(rowToRemove);
         RefreshReviewRowSequences(currentParcelGroupId);
-        var nextRow = ReviewRows.FirstOrDefault(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), currentParcelGroupId, StringComparison.OrdinalIgnoreCase))
+        var remainingParcelRows = ReviewRows
+            .Where(row => string.Equals(NormalizeReviewParcelGroupId(row.ParcelGroupId), currentParcelGroupId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+            .ToArray();
+        var nextRow = remainingParcelRows.FirstOrDefault(row => removedSequence.HasValue && (row.SequenceInGroup ?? int.MaxValue) >= removedSequence.Value)
+            ?? remainingParcelRows.LastOrDefault()
             ?? ReviewRows.LastOrDefault();
         SetReviewWorkspaceParcelContext(currentParcelGroupId, rowToRemove.Model.ParcelName, rowToRemove.TraverseId, refreshProperties: false);
         SelectedReviewRow = nextRow;
@@ -1926,6 +2018,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             pendingManualRowId = null;
         }
+        NotifyPropertyChanged(nameof(ReviewRows));
         RefreshWorkflowProperties();
     }
 
@@ -2098,7 +2191,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        var solverResult = ApplyBoundarySolverIfAvailable(useDerivedCoordinatesAsAnchors: true);
+        var solverResult = ApplyBoundarySolverIfAvailable(
+            useDerivedCoordinatesAsAnchors: true,
+            repairPrematureClosingLabels: true,
+            replaceConflictingCoordinatesFromReviewedSegments: true);
         if (solverResult is null)
         {
             workflowSession.SetValidationFailure("No reviewed boundary segments are available to rebuild points.");
@@ -2112,7 +2208,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ? "Rebuild points found blockers"
             : solverResult.DerivedPointCount == 0
                 ? "Rebuild points completed; existing reviewed point coordinates were preserved"
-                : $"Rebuild points completed; {solverResult.DerivedPointCount} derived point(s) were updated";
+                : $"Rebuild points completed; {solverResult.DerivedPointCount} point coordinate(s) were updated from reviewed segments";
         workflowSession.SetValidationFailure($"{action}. Save review to persist the change. {BuildBoundarySolverSummaryText()}");
         RefreshWorkflowProperties();
     }
@@ -2290,7 +2386,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         SyncReviewMetadataBackToDocument();
-        ApplyBoundarySolverIfAvailable();
+        ApplyBoundarySolverIfAvailable(
+            useDerivedCoordinatesAsAnchors: IsPxaSurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaSurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaSurveyPlanReview);
 
         var saveResult = workflowSession.SaveExtractionReview(loadedReviewDocument, Environment.UserName);
         if (saveResult.Success && saveResult.Document is not null)
@@ -2369,7 +2468,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         SyncReviewMetadataBackToDocument();
-        var solverResult = ApplyBoundarySolverIfAvailable();
+        var solverResult = ApplyBoundarySolverIfAvailable(
+            useDerivedCoordinatesAsAnchors: IsPxaSurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaSurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaSurveyPlanReview);
         if (solverResult is not null && string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase))
         {
             workflowSession.SetValidationFailure(BuildBoundarySolverSummaryText());

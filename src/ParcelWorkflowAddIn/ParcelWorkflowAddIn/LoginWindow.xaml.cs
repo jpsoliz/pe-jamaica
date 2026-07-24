@@ -12,7 +12,7 @@ public partial class LoginWindow : ProWindow
     public LoginWindow()
     {
         InitializeComponent();
-        ServerTextBox.Text = ShellState.ConfiguredServerUrl;
+        ServerTextBlock.Text = ShellState.ConfiguredServerUrl;
         StatusTextBlock.Text = ShellState.Session.StatusText;
     }
 
@@ -24,7 +24,7 @@ public partial class LoginWindow : ProWindow
         try
         {
             using var timeout = new CancellationTokenSource(LoginTimeout);
-            var result = await ShellState.Session.LoginAsync(ServerTextBox.Text, UsernameTextBox.Text, PasswordBox.Password, timeout.Token);
+            var result = await ShellState.Session.LoginAsync(ShellState.ConfiguredServerUrl, UsernameTextBox.Text, PasswordBox.Password, timeout.Token);
             StatusTextBlock.Text = ShellState.Session.StatusText;
 
             if (result.Success)
