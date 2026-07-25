@@ -14,6 +14,12 @@
 - [DECISIONS](project-management/DECISIONS.md) — approved decisions and rationale.
 - [LESSONS_LEARNED](retrospectives/LESSONS_LEARNED.md) — sprint-level learnings and follow-up actions.
 
+## Deployment
+
+- [Windows installer requirements](deployment/windows-installer-requirements.md) — Mary requirements and acceptance criteria for the target-machine installer.
+- [WiX installer architecture](deployment/wix-installer-architecture.md) — Winston architecture decision for MSI/Burn and Python environment setup.
+- [ArcGIS Pro 3.7 environment installer inputs](deployment/arcgispro37/README.md) — reference files and package inventory for the target-machine installer.
+
 ## Planning artifacts (BMAD)
 
 - [_bmad-output/planning-artifacts/epics.md](../_bmad-output/planning-artifacts/epics.md)
