@@ -1,19 +1,22 @@
-{
-  "package_name": "Sidwell Parcel Workflow target-computer tools",
-  "created_at": "2026-07-24T06:26:58.1343595-05:00",
-  "configuration": "Release",
-  "includes": [
-    "ParcelWorkflowAddIn.esriAddInX",
-    "ProcessingTools",
-    "Contracts",
-    "scripts/install_target_tools.ps1",
-    "scripts/install_target_tools.bat"
-  ],
-  "target_default_root": "C:\\Sidwell\\ParcelWorkflow",
-  "notes": [
-    "Python runtime is not bundled by default because it is large and external to the repository.",
-    "Manually copy arcgispro-survey-ai to C:\\Sidwell\\ParcelWorkflow\\python-env on the target computer, or run install_target_tools.ps1 with -PythonExe.",
-    "Run scripts/install_target_tools.ps1 on the target computer to copy tools and configure the add-in package paths.",
-    "If PowerShell is blocked by MachinePolicy AllSigned, run scripts/install_target_tools.bat instead."
-  ]
+﻿{
+    "package_name":  "Sidwell Parcel Workflow target-computer tools",
+    "created_at":  "2026-07-24T12:36:13.8601133-05:00",
+    "configuration":  "Release",
+    "includes":  [
+                     "ParcelWorkflowAddIn.esriAddInX",
+                     "ProcessingTools",
+                     "Contracts",
+                     "scripts/install_target_tools.ps1",
+                     "scripts/install_target_tools.bat"
+                 ],
+    "target_default_root":  "C:\\Sidwell\\ParcelWorkflow",
+    "notes":  [
+                  "Python runtime is not bundled by default because it is large and external to the repository.",
+                  "The target installer first uses the target computer ArcGIS Pro Python at C:\\Program Files\\ArcGIS\\Pro\\bin\\Python\\envs\\arcgispro-py3\\python.exe.",
+                  "C:\\Sidwell\\ParcelWorkflow\\python-env\\arcgispro-survey-ai\\python.exe is only used when explicitly passed or when ArcGIS Pro Python cannot be found.",
+                  "The target installer verifies that the selected Python can see ArcPy before configuring the add-in package; ArcGIS license initialization failures in a command-line probe are treated as warnings.",
+                  "The target installer sets case_folder_output_root to C:\\Sidwell\\ParcelWorkflow\\ParcelWorkflowCases in the configured add-in package.",
+                  "Run scripts/install_target_tools.ps1 or scripts/install_target_tools.bat on the target computer to copy tools and configure the add-in package paths.",
+                  "If PowerShell is blocked by MachinePolicy AllSigned, run scripts/install_target_tools.bat instead."
+              ]
 }

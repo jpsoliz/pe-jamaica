@@ -114,17 +114,28 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             });
         }
 
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            InnolaHttp.BuildUri(
-                session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}administrative/ladm-objects/create/multi?transactionId={Uri.EscapeDataString(transactionId)}"));
-        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-        request.Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json");
+        var uri = InnolaHttp.BuildUri(
+            session.ServerUrl,
+            $"{InnolaSettings.V4RestPath}administrative/ladm-objects/create/multi?transactionId={Uri.EscapeDataString(transactionId)}");
+        var requestBodyJson = requestBody.ToJsonString();
+        using var request = CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson);
 
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
+            {
+                using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, requestBodyJson);
+                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                if (cookieOnlyResponse.IsSuccessStatusCode)
+                {
+                    var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return ResolveArray(JsonNode.Parse(cookieOnlyBody))
+                        .Select(node => node as JsonObject ?? new JsonObject())
+                        .ToArray();
+                }
+            }
+
             throw new HttpRequestException($"Spatial Unit default creation failed: {response.StatusCode}");
         }
 
@@ -141,17 +152,31 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         CancellationToken cancellationToken)
     {
         var payload = new JsonArray(spatialUnits.Select(unit => unit.DeepClone()).ToArray());
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            InnolaHttp.BuildUri(
-                session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={SpatialUnitTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}"));
-        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+        var uri = InnolaHttp.BuildUri(
+            session.ServerUrl,
+            $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={SpatialUnitTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}");
+        var payloadJson = payload.ToJsonString();
+        using var request = CreateJsonPostRequest(uri, session.AccessToken, payloadJson);
 
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
+            {
+                using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, payloadJson);
+                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                if (cookieOnlyResponse.IsSuccessStatusCode)
+                {
+                    var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var cookieOnlyResolved = ResolveArray(JsonNode.Parse(cookieOnlyBody))
+                        .Select(node => node as JsonObject)
+                        .Where(node => node is not null)
+                        .Cast<JsonObject>()
+                        .ToArray();
+                    return cookieOnlyResolved.Length == 0 ? spatialUnits : cookieOnlyResolved;
+                }
+            }
+
             throw new HttpRequestException($"Spatial Unit save failed: {response.StatusCode}");
         }
 
@@ -162,6 +187,22 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             .Cast<JsonObject>()
             .ToArray();
         return resolved.Length == 0 ? spatialUnits : resolved;
+    }
+
+    private static HttpRequestMessage CreateJsonPostRequest(Uri uri, string? accessToken, string json)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, uri);
+        InnolaHttp.ApplyAuthHeaders(request, accessToken);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        return request;
+    }
+
+    private static bool ShouldRetryWithCookieOnly(System.Net.HttpStatusCode statusCode, string serverUrl, string? accessToken)
+    {
+        return statusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+            && !string.IsNullOrWhiteSpace(accessToken)
+            && !accessToken.Equals(InnolaHttp.SessionCookieAccessToken, StringComparison.Ordinal)
+            && InnolaHttpClientFactory.HasCookie(serverUrl, "INNOLAID");
     }
 
     private static JsonObject PopulateSpatialUnit(

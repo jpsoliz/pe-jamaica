@@ -98,14 +98,27 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
 
     private async Task<IReadOnlyList<JsonObject>> FetchPlansAsync(InnolaSession session, string transactionId, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            BuildPlanUri(session, transactionId));
-        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+        var uri = BuildPlanUri(session, transactionId);
+        using var request = CreateRequest(HttpMethod.Get, uri, session.AccessToken);
 
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
+            {
+                using var cookieOnlyRequest = CreateRequest(HttpMethod.Get, uri, InnolaHttp.SessionCookieAccessToken);
+                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                if (cookieOnlyResponse.IsSuccessStatusCode)
+                {
+                    var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return ResolveArray(JsonNode.Parse(cookieOnlyBody))
+                        .Select(node => node as JsonObject)
+                        .Where(node => node is not null)
+                        .Cast<JsonObject>()
+                        .ToArray();
+                }
+            }
+
             throw new HttpRequestException($"Plan Check GET failed: {response.StatusCode}");
         }
 
@@ -124,15 +137,28 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         CancellationToken cancellationToken)
     {
         var payload = new JsonArray(plans.Select(plan => plan.DeepClone()).ToArray());
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            BuildPlanUri(session, transactionId));
-        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+        var uri = BuildPlanUri(session, transactionId);
+        var payloadJson = payload.ToJsonString();
+        using var request = CreateRequest(HttpMethod.Post, uri, session.AccessToken, payloadJson);
 
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
+            {
+                using var cookieOnlyRequest = CreateRequest(HttpMethod.Post, uri, InnolaHttp.SessionCookieAccessToken, payloadJson);
+                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                if (cookieOnlyResponse.IsSuccessStatusCode)
+                {
+                    var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return ResolveArray(JsonNode.Parse(cookieOnlyBody))
+                        .Select(node => node as JsonObject)
+                        .Where(node => node is not null)
+                        .Cast<JsonObject>()
+                        .ToArray();
+                }
+            }
+
             throw new HttpRequestException($"Plan Check POST failed: {response.StatusCode}");
         }
 
@@ -142,6 +168,26 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             .Where(node => node is not null)
             .Cast<JsonObject>()
             .ToArray();
+    }
+
+    private static HttpRequestMessage CreateRequest(HttpMethod method, Uri uri, string? accessToken, string? json = null)
+    {
+        var request = new HttpRequestMessage(method, uri);
+        InnolaHttp.ApplyAuthHeaders(request, accessToken);
+        if (json is not null)
+        {
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private static bool ShouldRetryWithCookieOnly(System.Net.HttpStatusCode statusCode, string serverUrl, string? accessToken)
+    {
+        return statusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+            && !string.IsNullOrWhiteSpace(accessToken)
+            && !accessToken.Equals(InnolaHttp.SessionCookieAccessToken, StringComparison.Ordinal)
+            && InnolaHttpClientFactory.HasCookie(serverUrl, "INNOLAID");
     }
 
     private static Uri BuildPlanUri(InnolaSession session, string transactionId)

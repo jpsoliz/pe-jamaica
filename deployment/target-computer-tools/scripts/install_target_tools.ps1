@@ -42,6 +42,52 @@ function Copy-LargeDirectory {
     }
 }
 
+function Get-DefaultArcGisProPythonExe {
+    $candidates = @()
+
+    if ($env:ProgramFiles) {
+        $candidates += Join-Path $env:ProgramFiles 'ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe'
+    }
+
+    $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ($programFilesX86) {
+        $candidates += Join-Path $programFilesX86 'ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe'
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    return ''
+}
+
+function Test-PythonHasArcPy {
+    param(
+        [Parameter(Mandatory)][string]$CandidatePythonExe
+    )
+
+    if (-not (Test-Path -LiteralPath $CandidatePythonExe)) {
+        return $false
+    }
+
+    $output = & $CandidatePythonExe -c "import arcpy; print('arcpy_import:ok'); print(arcpy.GetInstallInfo())" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        return $true
+    }
+
+    $joinedOutput = $output -join [Environment]::NewLine
+    if ($joinedOutput.Contains("license has not been initialized", [System.StringComparison]::OrdinalIgnoreCase)) {
+        Write-Warning "ArcPy is present, but the ArcGIS product license was not initialized in this installer session: $CandidatePythonExe"
+        return $true
+    }
+
+    Write-Warning "Python cannot import ArcPy: $CandidatePythonExe"
+    Write-Warning $joinedOutput
+    return $false
+}
+
 function Set-JsonStringProperty {
     param(
         [Parameter(Mandatory)]$JsonObject,
@@ -81,7 +127,9 @@ function Update-AddInPackageSettings {
 
         $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
         $toolsRoot = Join-Path $ConfiguredInstallRoot 'ProcessingTools'
+        $caseFolderRoot = Join-Path $ConfiguredInstallRoot 'ParcelWorkflowCases'
         Set-JsonStringProperty -JsonObject $settings -Name 'arcgis_python_executable' -Value $ConfiguredPythonExe
+        Set-JsonStringProperty -JsonObject $settings -Name 'case_folder_output_root' -Value $caseFolderRoot
         Set-JsonStringProperty -JsonObject $settings -Name 'output_adapter_script_path' -Value (Join-Path $toolsRoot 'adapters/output_adapter.py')
         Set-JsonStringProperty -JsonObject $settings -Name 'validation_adapter_script_path' -Value (Join-Path $toolsRoot 'adapters/validation_adapter.py')
         Set-JsonStringProperty -JsonObject $settings -Name 'validation_rules_path' -Value (Join-Path $toolsRoot 'rules/rules.yaml')
@@ -131,34 +179,46 @@ $targetProcessingTools = Join-Path $resolvedInstallRoot 'ProcessingTools'
 $targetContracts = Join-Path $resolvedInstallRoot 'Contracts'
 $targetAddInDir = Join-Path $resolvedInstallRoot 'AddIn'
 $configuredAddInPath = Join-Path $targetAddInDir 'ParcelWorkflowAddIn.configured.esriAddInX'
+$targetCaseFolderRoot = Join-Path $resolvedInstallRoot 'ParcelWorkflowCases'
+$targetPythonEnv = Join-Path $resolvedInstallRoot 'python-env\arcgispro-survey-ai'
+$targetPythonExe = Join-Path $targetPythonEnv 'python.exe'
 
 New-Item -ItemType Directory -Path $resolvedInstallRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $targetAddInDir -Force | Out-Null
 
 if (-not [string]::IsNullOrWhiteSpace($SourcePythonEnvRoot)) {
-    $targetPythonEnv = Join-Path $resolvedInstallRoot 'python-env'
     Copy-LargeDirectory -Source $SourcePythonEnvRoot -Destination $targetPythonEnv
-    $PythonExe = Join-Path $targetPythonEnv 'python.exe'
+    $PythonExe = $targetPythonExe
 }
-elseif ([string]::IsNullOrWhiteSpace($PythonExe) -and (Test-Path -LiteralPath (Join-Path $bundledPythonEnv 'python.exe'))) {
-    $targetPythonEnv = Join-Path $resolvedInstallRoot 'python-env'
-    Copy-LargeDirectory -Source $bundledPythonEnv -Destination $targetPythonEnv
-    $PythonExe = Join-Path $targetPythonEnv 'python.exe'
-}
-elseif ([string]::IsNullOrWhiteSpace($PythonExe) -and (Test-Path -LiteralPath (Join-Path $resolvedInstallRoot 'python-env\python.exe'))) {
-    $PythonExe = Join-Path $resolvedInstallRoot 'python-env\python.exe'
+elseif ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    $defaultArcGisPython = Get-DefaultArcGisProPythonExe
+    if (-not [string]::IsNullOrWhiteSpace($defaultArcGisPython)) {
+        $PythonExe = $defaultArcGisPython
+    }
+    elseif (Test-Path -LiteralPath $targetPythonExe) {
+        $PythonExe = $targetPythonExe
+    }
+    elseif (Test-Path -LiteralPath (Join-Path $bundledPythonEnv 'python.exe')) {
+        Copy-LargeDirectory -Source $bundledPythonEnv -Destination $targetPythonEnv
+        $PythonExe = $targetPythonExe
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    throw "Python environment was not found. Manually copy arcgispro-survey-ai to '$resolvedInstallRoot\python-env', provide -PythonExe, or provide -SourcePythonEnvRoot."
+    throw "ArcGIS Pro Python was not found. Copy the ArcGIS Pro Python clone to '$targetPythonEnv', install ArcGIS Pro, provide -PythonExe with an ArcGIS Pro Python path, or provide -SourcePythonEnvRoot for an ArcGIS Pro cloned environment."
 }
 
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     throw "Python executable not found: $PythonExe"
 }
 
+if (-not (Test-PythonHasArcPy -CandidatePythonExe $PythonExe)) {
+    throw "ArcPy is not available in the selected Python environment: $PythonExe. Re-run the installer with -PythonExe pointing to the target computer's ArcGIS Pro Python, for example 'C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe'."
+}
+
 Copy-CleanDirectory -Source $sourceProcessingTools -Destination $targetProcessingTools
 Copy-CleanDirectory -Source $sourceContracts -Destination $targetContracts
+New-Item -ItemType Directory -Path $targetCaseFolderRoot -Force | Out-Null
 
 if (Test-Path -LiteralPath $sourceAddIn) {
     Update-AddInPackageSettings `
@@ -179,6 +239,7 @@ Write-Host "Installed target tools to: $resolvedInstallRoot"
 Write-Host "Python executable: $PythonExe"
 Write-Host "Processing tools: $targetProcessingTools"
 Write-Host "Contracts: $targetContracts"
+Write-Host "Case folders: $targetCaseFolderRoot"
 if (Test-Path -LiteralPath $configuredAddInPath) {
     Write-Host "Configured add-in package: $configuredAddInPath"
 }

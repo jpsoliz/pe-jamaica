@@ -99,6 +99,34 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal(0, handler.Requests.Count, "Unauthorized service must not issue HTTP requests.");
     }
 
+    public static async Task RetriesCookieOnlyWhenAccessTokenRejected()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteOutputSummary(layout);
+        InnolaHttpClientFactory.EnsureCookie("https://eltrs-dev.innola-solutions.com/", "INNOLAID", "cookie-value");
+        var handler = new RecordingHandler(
+            new[]
+            {
+                "[{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-1\",\"uid\":\"draft-uid-1\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-2\",\"uid\":\"draft-uid-2\"}]",
+                "[{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000004\",\"suid\":\"900001\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000005\",\"suid\":\"900002\"}]"
+            },
+            new[] { HttpStatusCode.Unauthorized, HttpStatusCode.OK, HttpStatusCode.OK });
+        var service = new InnolaSpatialUnitService(new HttpClient(handler));
+
+        var result = await service.CreateOrUpdateAsync(
+            Session(),
+            Transaction(),
+            layout.RootDirectory,
+            Disposition(layout));
+
+        TestAssert.True(result.Success, "Spatial Unit save should retry with cookie-only auth after token Unauthorized.");
+        TestAssert.Equal(3, handler.Requests.Count, "Spatial Unit service should retry default creation once, then save.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[0], "First default creation request should send Access-Token.");
+        TestAssert.True(handler.AccessTokens[1] is null, "Cookie-only default creation retry should omit Access-Token.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[2], "Save request should still use Access-Token when default retry succeeds.");
+    }
+
     private static InnolaSession Session()
     {
         return new InnolaSession(
@@ -252,22 +280,33 @@ internal static class InnolaSpatialUnitServiceTests
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly Queue<string> responses;
+        private readonly Queue<HttpStatusCode> statusCodes;
 
         public RecordingHandler(IEnumerable<string> responses)
+            : this(responses, Array.Empty<HttpStatusCode>())
+        {
+        }
+
+        public RecordingHandler(IEnumerable<string> responses, IEnumerable<HttpStatusCode> statusCodes)
         {
             this.responses = new Queue<string>(responses);
+            this.statusCodes = new Queue<HttpStatusCode>(statusCodes);
         }
 
         public List<Uri> Requests { get; } = new();
 
         public List<string> Bodies { get; } = new();
 
+        public List<string?> AccessTokens { get; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request.RequestUri!);
+            AccessTokens.Add(request.Headers.TryGetValues("Access-Token", out var values) ? values.FirstOrDefault() : null);
             Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
             var response = responses.Count > 0 ? responses.Dequeue() : "{}";
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            var statusCode = statusCodes.Count > 0 ? statusCodes.Dequeue() : HttpStatusCode.OK;
+            return new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };

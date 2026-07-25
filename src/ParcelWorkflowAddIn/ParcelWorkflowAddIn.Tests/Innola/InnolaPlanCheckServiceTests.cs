@@ -151,6 +151,42 @@ internal static class InnolaPlanCheckServiceTests
         TestAssert.Equal(0, handler.Requests.Count, "Unauthorized Plan Check service must not issue HTTP requests.");
     }
 
+    public static async Task RetriesCookieOnlyWhenAccessTokenRejected()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteReport(layout);
+        WriteOutputSummary(layout);
+        InnolaHttpClientFactory.EnsureCookie("https://eltrs-dev.innola-solutions.com/", "INNOLAID", "cookie-value");
+        var handler = new RecordingHandler(
+            new[]
+            {
+                "{}",
+                """
+                [
+                  {
+                    "@c": "Plan",
+                    "id": "plan-1",
+                    "checkList": [
+                      { "@c": "PlanCheck", "id": "closure", "checkType": "plan_check_type_closure", "passed": null, "description": null }
+                    ]
+                  }
+                ]
+                """,
+                "[{\"@c\":\"Plan\",\"id\":\"plan-1\",\"checkList\":[]}]"
+            },
+            new[] { HttpStatusCode.Unauthorized, HttpStatusCode.OK, HttpStatusCode.OK });
+        var service = new InnolaPlanCheckService(new HttpClient(handler));
+
+        var result = await service.WriteAsync(Session(), Transaction(), layout.RootDirectory, Disposition(layout));
+
+        TestAssert.True(result.Success, "Plan Check writeback should retry with cookie-only auth after token Unauthorized.");
+        TestAssert.Equal(3, handler.Requests.Count, "Plan Check service should retry GET once, then POST.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[0], "First GET should send Access-Token.");
+        TestAssert.True(handler.AccessTokens[1] is null, "Cookie-only GET retry should omit Access-Token.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[2], "POST should still use Access-Token when GET retry succeeds.");
+    }
+
     private static InnolaSession Session()
     {
         return new InnolaSession(
@@ -252,10 +288,17 @@ internal static class InnolaPlanCheckServiceTests
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly Queue<string> responses;
+        private readonly Queue<HttpStatusCode> statusCodes;
 
         public RecordingHandler(IEnumerable<string> responses)
+            : this(responses, Array.Empty<HttpStatusCode>())
+        {
+        }
+
+        public RecordingHandler(IEnumerable<string> responses, IEnumerable<HttpStatusCode> statusCodes)
         {
             this.responses = new Queue<string>(responses);
+            this.statusCodes = new Queue<HttpStatusCode>(statusCodes);
         }
 
         public List<Uri> Requests { get; } = new();
@@ -270,7 +313,8 @@ internal static class InnolaPlanCheckServiceTests
             Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
             AccessTokens.Add(request.Headers.TryGetValues("Access-Token", out var values) ? values.FirstOrDefault() : null);
             var response = responses.Count > 0 ? responses.Dequeue() : "{}";
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            var statusCode = statusCodes.Count > 0 ? statusCodes.Dequeue() : HttpStatusCode.OK;
+            return new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };

@@ -69,10 +69,15 @@ set "SOURCE_ADDIN=%PACKAGE_ROOT%\ParcelWorkflowAddIn.esriAddInX"
 set "SOURCE_PROCESSING_TOOLS=%PACKAGE_ROOT%\ProcessingTools"
 set "SOURCE_CONTRACTS=%PACKAGE_ROOT%\Contracts"
 set "BUNDLED_PYTHON_ENV=%PACKAGE_ROOT%\python-env"
+set "DEFAULT_ARCGIS_PYTHON=%ProgramFiles%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
+set "DEFAULT_ARCGIS_PYTHON_X86=%ProgramFiles(x86)%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
+set "TARGET_PYTHON_ENV=%INSTALL_ROOT%\python-env\arcgispro-survey-ai"
+set "TARGET_PYTHON_EXE=%TARGET_PYTHON_ENV%\python.exe"
 set "TARGET_PROCESSING_TOOLS=%INSTALL_ROOT%\ProcessingTools"
 set "TARGET_CONTRACTS=%INSTALL_ROOT%\Contracts"
 set "TARGET_ADDIN_DIR=%INSTALL_ROOT%\AddIn"
 set "CONFIGURED_ADDIN=%TARGET_ADDIN_DIR%\ParcelWorkflowAddIn.configured.esriAddInX"
+set "TARGET_CASE_FOLDER_ROOT=%INSTALL_ROOT%\ParcelWorkflowCases"
 
 echo Script root: "%SCRIPT_ROOT%"
 echo Deployment root: "%DEPLOYMENT_ROOT%"
@@ -119,28 +124,30 @@ if not "%SOURCE_PYTHON_ENV_ROOT%"=="" (
     echo ERROR: Source Python environment must contain python.exe: "%SOURCE_PYTHON_ENV_ROOT%"
     exit /b 1
   )
-  echo Copying Python environment to "%INSTALL_ROOT%\python-env"...
-  call :copy_large_directory "%SOURCE_PYTHON_ENV_ROOT%" "%INSTALL_ROOT%\python-env"
+  echo Copying Python environment to "%TARGET_PYTHON_ENV%"...
+  call :copy_large_directory "%SOURCE_PYTHON_ENV_ROOT%" "%TARGET_PYTHON_ENV%"
   if errorlevel 1 exit /b 1
-  set "PYTHON_EXE=%INSTALL_ROOT%\python-env\python.exe"
+  set "PYTHON_EXE=%TARGET_PYTHON_EXE%"
 ) else (
   if "%PYTHON_EXE%"=="" (
-    if exist "%BUNDLED_PYTHON_ENV%\python.exe" (
-      echo Copying bundled Python environment to "%INSTALL_ROOT%\python-env"...
-      call :copy_large_directory "%BUNDLED_PYTHON_ENV%" "%INSTALL_ROOT%\python-env"
+    if exist "%DEFAULT_ARCGIS_PYTHON%" (
+      set "PYTHON_EXE=%DEFAULT_ARCGIS_PYTHON%"
+    ) else if exist "%DEFAULT_ARCGIS_PYTHON_X86%" (
+      set "PYTHON_EXE=%DEFAULT_ARCGIS_PYTHON_X86%"
+    ) else if exist "%TARGET_PYTHON_EXE%" (
+      set "PYTHON_EXE=%TARGET_PYTHON_EXE%"
+    ) else if exist "%BUNDLED_PYTHON_ENV%\python.exe" (
+      echo Copying bundled Python environment to "%TARGET_PYTHON_ENV%"...
+      call :copy_large_directory "%BUNDLED_PYTHON_ENV%" "%TARGET_PYTHON_ENV%"
       if errorlevel 1 exit /b 1
-      set "PYTHON_EXE=%INSTALL_ROOT%\python-env\python.exe"
-    ) else (
-      if exist "%INSTALL_ROOT%\python-env\python.exe" (
-        set "PYTHON_EXE=%INSTALL_ROOT%\python-env\python.exe"
-      )
+      set "PYTHON_EXE=%TARGET_PYTHON_EXE%"
     )
   )
 )
 
 if "%PYTHON_EXE%"=="" (
-  echo ERROR: Python environment was not found.
-  echo Copy arcgispro-survey-ai to "%INSTALL_ROOT%\python-env", or run with /PythonExe "C:\Path\To\python.exe", or /SourcePythonEnvRoot "C:\Path\To\arcgispro-survey-ai".
+  echo ERROR: ArcGIS Pro Python was not found.
+  echo Copy the ArcGIS Pro Python clone to "%TARGET_PYTHON_ENV%", install ArcGIS Pro, run with /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe", or use /SourcePythonEnvRoot for an ArcGIS Pro cloned environment.
   exit /b 1
 )
 
@@ -168,9 +175,11 @@ echo Copying Contracts...
 call :copy_clean_directory "%SOURCE_CONTRACTS%" "%TARGET_CONTRACTS%"
 if errorlevel 1 exit /b 1
 
+if not exist "%TARGET_CASE_FOLDER_ROOT%\" mkdir "%TARGET_CASE_FOLDER_ROOT%" >nul 2>nul
+
 if exist "%SOURCE_ADDIN%" (
   echo Configuring add-in package...
-  call :configure_addin "%SOURCE_ADDIN%" "%CONFIGURED_ADDIN%" "%PYTHON_EXE%" "%INSTALL_ROOT%"
+  call :configure_addin "%SOURCE_ADDIN%" "%CONFIGURED_ADDIN%" "%PYTHON_EXE%" "%INSTALL_ROOT%" "%TARGET_CASE_FOLDER_ROOT%"
   if errorlevel 1 exit /b 1
 
   if "%SKIP_ADDIN_INSTALL%"=="0" (
@@ -186,6 +195,7 @@ echo Installed target tools to: "%INSTALL_ROOT%"
 echo Python executable: "%PYTHON_EXE%"
 echo Processing tools: "%TARGET_PROCESSING_TOOLS%"
 echo Contracts: "%TARGET_CONTRACTS%"
+echo Case folders: "%TARGET_CASE_FOLDER_ROOT%"
 if exist "%CONFIGURED_ADDIN%" echo Configured add-in package: "%CONFIGURED_ADDIN%"
 exit /b 0
 
@@ -304,6 +314,7 @@ set "CFG_SOURCE_ADDIN=%~1"
 set "CFG_DEST_ADDIN=%~2"
 set "CFG_PYTHON_EXE=%~3"
 set "CFG_INSTALL_ROOT=%~4"
+set "CFG_CASE_FOLDER_ROOT=%~5"
 set "CFG_SCRIPT=%TEMP%\sidwell_configure_addin_%RANDOM%%RANDOM%.py"
 
 > "%CFG_SCRIPT%" echo import json
@@ -312,7 +323,7 @@ set "CFG_SCRIPT=%TEMP%\sidwell_configure_addin_%RANDOM%%RANDOM%.py"
 >> "%CFG_SCRIPT%" echo import sys
 >> "%CFG_SCRIPT%" echo import tempfile
 >> "%CFG_SCRIPT%" echo import zipfile
->> "%CFG_SCRIPT%" echo source_addin, dest_addin, python_exe, install_root = sys.argv[1:5]
+>> "%CFG_SCRIPT%" echo source_addin, dest_addin, python_exe, install_root, case_folder_root = sys.argv[1:6]
 >> "%CFG_SCRIPT%" echo tools_root = os.path.join(install_root, "ProcessingTools")
 >> "%CFG_SCRIPT%" echo temp_root = tempfile.mkdtemp(prefix="sidwell-addin-package-")
 >> "%CFG_SCRIPT%" echo try:
@@ -326,6 +337,7 @@ set "CFG_SCRIPT=%TEMP%\sidwell_configure_addin_%RANDOM%%RANDOM%.py"
 >> "%CFG_SCRIPT%" echo ^    with open(settings_path, "r", encoding="utf-8-sig") as handle:
 >> "%CFG_SCRIPT%" echo ^        settings = json.load(handle)
 >> "%CFG_SCRIPT%" echo ^    settings["arcgis_python_executable"] = python_exe
+>> "%CFG_SCRIPT%" echo ^    settings["case_folder_output_root"] = case_folder_root
 >> "%CFG_SCRIPT%" echo ^    settings["output_adapter_script_path"] = os.path.join(tools_root, "adapters", "output_adapter.py")
 >> "%CFG_SCRIPT%" echo ^    settings["validation_adapter_script_path"] = os.path.join(tools_root, "adapters", "validation_adapter.py")
 >> "%CFG_SCRIPT%" echo ^    settings["validation_rules_path"] = os.path.join(tools_root, "rules", "rules.yaml")
@@ -346,7 +358,7 @@ set "CFG_SCRIPT=%TEMP%\sidwell_configure_addin_%RANDOM%%RANDOM%.py"
 >> "%CFG_SCRIPT%" echo finally:
 >> "%CFG_SCRIPT%" echo ^    shutil.rmtree(temp_root, ignore_errors=True)
 
-"%CFG_PYTHON_EXE%" "%CFG_SCRIPT%" "%CFG_SOURCE_ADDIN%" "%CFG_DEST_ADDIN%" "%CFG_PYTHON_EXE%" "%CFG_INSTALL_ROOT%"
+"%CFG_PYTHON_EXE%" "%CFG_SCRIPT%" "%CFG_SOURCE_ADDIN%" "%CFG_DEST_ADDIN%" "%CFG_PYTHON_EXE%" "%CFG_INSTALL_ROOT%" "%CFG_CASE_FOLDER_ROOT%"
 set "CFG_RESULT=%ERRORLEVEL%"
 del "%CFG_SCRIPT%" >nul 2>nul
 if not "%CFG_RESULT%"=="0" (

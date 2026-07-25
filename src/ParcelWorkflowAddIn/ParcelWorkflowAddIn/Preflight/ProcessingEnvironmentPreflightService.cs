@@ -392,8 +392,13 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
             + "        elapsed=(time.perf_counter()-start)*1000\n"
             + "        print('python_probe_package:'+m+':ok:'+str(round(elapsed,3)) )\n"
             + "        print('package:'+m+':ok')\n"
-            + "    except Exception:\n"
+            + "    except Exception as ex:\n"
             + "        elapsed=(time.perf_counter()-start)*1000\n"
+            + "        message=str(ex).lower()\n"
+            + "        if m.lower()=='arcpy' and 'license has not been initialized' in message:\n"
+            + "            print('python_probe_package:'+m+':ok_license_uninitialized:'+str(round(elapsed,3)) )\n"
+            + "            print('package:'+m+':ok')\n"
+            + "            continue\n"
             + "        print('python_probe_package:'+m+':missing:'+str(round(elapsed,3)) )\n"
             + "        print('package:'+m+':missing')\n";
     }

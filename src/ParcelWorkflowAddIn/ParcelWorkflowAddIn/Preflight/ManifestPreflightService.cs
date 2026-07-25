@@ -876,6 +876,16 @@ public sealed class ManifestPreflightService
                     source.SourceRole,
                     probeResult.Correction));
             }
+            else if (IsArcPyLicenseInitializationWarning(probeResult.Message))
+            {
+                warnings.Add(PreflightCheck.WarningForCategory(
+                    "dwg",
+                    "dwg_source_sublayers",
+                    check.Message,
+                    copiedPath,
+                    source.SourceRole,
+                    probeResult.Correction));
+            }
             else
             {
                 blockers.Add(check);
@@ -891,6 +901,12 @@ public sealed class ManifestPreflightService
             source.SourceRole));
 
         ValidateRequiredDwgCadLayers(source, copiedPath, probeResult, blockers, warnings, passed);
+    }
+
+    private static bool IsArcPyLicenseInitializationWarning(string? message)
+    {
+        return !string.IsNullOrWhiteSpace(message)
+            && message.Contains("license has not been initialized", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ValidateRequiredDwgCadLayers(

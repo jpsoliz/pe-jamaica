@@ -27,12 +27,17 @@ function Copy-CleanDirectory {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     Copy-Item -Path (Join-Path $Source '*') -Destination $Destination -Recurse -Force
 
-    Get-ChildItem -LiteralPath $Destination -Recurse -Force -Directory |
-        Where-Object { $_.Name -in @('__pycache__', '.pytest_cache') } |
-        Remove-Item -Recurse -Force
+    $cacheDirectories = Get-ChildItem -LiteralPath $Destination -Recurse -Force -Directory |
+        Where-Object { $_.Name -in @('__pycache__', '.pytest_cache') }
+    foreach ($cacheDirectory in $cacheDirectories) {
+        Remove-Item -LiteralPath $cacheDirectory.FullName -Recurse -Force
+    }
 
-    Get-ChildItem -LiteralPath $Destination -Recurse -Force -Include '*.pyc', '*.pyo' |
-        Remove-Item -Force
+    $compiledPythonFiles = Get-ChildItem -LiteralPath $Destination -Recurse -Force -File |
+        Where-Object { $_.Extension -in @('.pyc', '.pyo') }
+    foreach ($compiledPythonFile in $compiledPythonFiles) {
+        Remove-Item -LiteralPath $compiledPythonFile.FullName -Force
+    }
 }
 
 function Copy-LargeDirectory {
@@ -103,8 +108,11 @@ $manifest = [ordered]@{
     target_default_root = 'C:\Sidwell\ParcelWorkflow'
     notes = @(
         'Python runtime is not bundled by default because it is large and external to the repository.',
-        'Manually copy arcgispro-survey-ai to C:\Sidwell\ParcelWorkflow\python-env on the target computer, or run install_target_tools.ps1 with -PythonExe.',
-        'Run scripts/install_target_tools.ps1 on the target computer to copy tools and configure the add-in package paths.',
+        'The target installer first uses the target computer ArcGIS Pro Python at C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe.',
+        'C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe is only used when explicitly passed or when ArcGIS Pro Python cannot be found.',
+        'The target installer verifies that the selected Python can see ArcPy before configuring the add-in package; ArcGIS license initialization failures in a command-line probe are treated as warnings.',
+        'The target installer sets case_folder_output_root to C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases in the configured add-in package.',
+        'Run scripts/install_target_tools.ps1 or scripts/install_target_tools.bat on the target computer to copy tools and configure the add-in package paths.',
         'If PowerShell is blocked by MachinePolicy AllSigned, run scripts/install_target_tools.bat instead.'
     )
 }
