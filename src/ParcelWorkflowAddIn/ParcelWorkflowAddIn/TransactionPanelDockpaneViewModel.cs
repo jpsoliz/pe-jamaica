@@ -20,7 +20,8 @@ internal sealed class TransactionPanelDockpaneViewModel : DockPane
             computeWorkflowStages: ShellState.ComputeWorkflowStages,
             compareWorkflowStages: ShellState.CompareWorkflowStages,
             compareWorkspaceLauncher: ShellState.OpenCompareWorkspace,
-            compareWorkspaceLifecycleLauncher: ShellState.OpenCompareWorkspace);
+            compareWorkspaceLifecycleLauncher: ShellState.OpenCompareWorkspace,
+            supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen);
     }
 
     public TransactionPanelState State { get; }

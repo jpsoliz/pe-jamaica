@@ -62,6 +62,8 @@ $packageDir = Join-Path $stageRoot 'package'
 $scriptsDir = Join-Path $stageRoot 'scripts'
 $processingToolsSource = Join-Path $Root 'src/ProcessingTools'
 $contractsSource = Join-Path $Root 'src/Contracts'
+$installerScriptsSource = Join-Path $Root 'installer/scripts'
+$arcGisPro37DocsSource = Join-Path $Root 'docs/deployment/arcgispro37'
 $addinSource = Join-Path $Root "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/bin/$Configuration/net8.0-windows/ParcelWorkflowAddIn.esriAddInX"
 
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
@@ -80,6 +82,15 @@ if (-not $SkipAddInPackage) {
 
 Copy-CleanDirectory -Source $processingToolsSource -Destination (Join-Path $packageDir 'ProcessingTools')
 Copy-CleanDirectory -Source $contractsSource -Destination (Join-Path $packageDir 'Contracts')
+
+$installerPackageDir = Join-Path $packageDir 'installer'
+$installerScriptsDestination = Join-Path $installerPackageDir 'scripts'
+$installerRequirementsDestination = Join-Path $installerPackageDir 'arcgispro37'
+Copy-CleanDirectory -Source $installerScriptsSource -Destination $installerScriptsDestination
+New-Item -ItemType Directory -Path $installerRequirementsDestination -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $arcGisPro37DocsSource 'requirements-conda.txt') -Destination $installerRequirementsDestination -Force
+Copy-Item -LiteralPath (Join-Path $arcGisPro37DocsSource 'requirements-pip.txt') -Destination $installerRequirementsDestination -Force
+Copy-Item -LiteralPath (Join-Path $arcGisPro37DocsSource 'arcgispro-survey-ai-component-inventory.csv') -Destination $installerRequirementsDestination -Force
 
 if ($IncludePythonEnv) {
     if ([string]::IsNullOrWhiteSpace($SourcePythonEnvRoot)) {
@@ -102,15 +113,32 @@ $manifest = [ordered]@{
         'ParcelWorkflowAddIn.esriAddInX',
         'ProcessingTools',
         'Contracts',
+        'installer/scripts/setup_arcgispro37_environment.ps1',
+        'installer/scripts/setup_arcgispro37_environment.bat',
+        'installer/scripts/write_installation_summary.ps1',
+        'installer/arcgispro37/requirements-conda.txt',
+        'installer/arcgispro37/requirements-pip.txt',
         'scripts/install_target_tools.ps1',
         'scripts/install_target_tools.bat'
     )
     target_default_root = 'C:\Sidwell\ParcelWorkflow'
+    installer = [ordered]@{
+        technology = 'WiX Toolset'
+        package_project = 'installer/ParcelWorkflowInstaller.wixproj'
+        bootstrapper_project = 'installer/ParcelWorkflowBootstrapper.wixproj'
+        arcgis_pro_target_version = '3.7'
+        python_environment_name = 'arcgispro-survey-ai'
+        conda_requirements = 'installer/arcgispro37/requirements-conda.txt'
+        pip_requirements = 'installer/arcgispro37/requirements-pip.txt'
+    }
     notes = @(
         'Python runtime is not bundled by default because it is large and external to the repository.',
+        'For ArcGIS Pro 3.7 installs, use installer/scripts/setup_arcgispro37_environment.ps1 to clone arcgispro-py3 into arcgispro-survey-ai and install requirements.',
+        'Do not copy an ArcGIS Pro 3.6 cloned Python environment to an ArcGIS Pro 3.7 target computer.',
         'The target installer first uses the target computer ArcGIS Pro Python at C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe.',
-        'C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe is only used when explicitly passed or when ArcGIS Pro Python cannot be found.',
-        'The target installer verifies that the selected Python can see ArcPy before configuring the add-in package; ArcGIS license initialization failures in a command-line probe are treated as warnings.',
+        'The configured add-in should point to C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-survey-ai\python.exe after setup.',
+        'The target installer verifies that the cloned Python can import arcpy, openai, clip, open_clip, flask, pdfplumber, and pypdfium2.',
+        'The WiX installer can set OPENAI_API_KEY from a supplied OpenAiApiKey variable; the package stores only the environment variable name in add-in settings.',
         'The target installer sets case_folder_output_root to C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases in the configured add-in package.',
         'Run scripts/install_target_tools.ps1 or scripts/install_target_tools.bat on the target computer to copy tools and configure the add-in package paths.',
         'If PowerShell is blocked by MachinePolicy AllSigned, run scripts/install_target_tools.bat instead.'

@@ -27,6 +27,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> compareWorkflowStages;
     private readonly Action<string>? compareWorkspaceLauncher;
     private readonly Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher;
+    private readonly Action supportingDocumentsRefresher;
     private readonly Func<DateTimeOffset> clock;
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
@@ -86,7 +87,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IReadOnlyCollection<string>? computeWorkflowStages = null,
         IReadOnlyCollection<string>? compareWorkflowStages = null,
         Action<string>? compareWorkspaceLauncher = null,
-        Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null)
+        Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null,
+        Action? supportingDocumentsRefresher = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -108,6 +110,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             StringComparer.OrdinalIgnoreCase);
         this.compareWorkspaceLauncher = compareWorkspaceLauncher;
         this.compareWorkspaceLifecycleLauncher = compareWorkspaceLifecycleLauncher;
+        this.supportingDocumentsRefresher = supportingDocumentsRefresher ?? (() => { });
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
         this.autoRefreshOnLogin = autoRefreshOnLogin;
@@ -781,6 +784,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 }
 
                 pane.Activate();
+                SupportingDocumentsDockpaneViewModel.Show();
             };
 
             if (System.Windows.Application.Current is null)
@@ -1022,6 +1026,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             var failures = result.Results.Where(item => !item.Copied).Select(item => item.Message).Distinct().ToArray();
             if (copied > 0)
             {
+                supportingDocumentsRefresher();
                 ErrorText = failures.Length == 0 ? null : string.Join(" ", failures);
                 StatusText = failures.Length == 0
                     ? $"Added {copied} document{(copied == 1 ? string.Empty : "s")} to {session.LoadedTransactionNumber}."

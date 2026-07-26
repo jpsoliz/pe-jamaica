@@ -19,5 +19,6 @@ internal sealed class ShowParcelWorkflowDockpaneButton : Button
         }
 
         FrameworkApplication.DockPaneManager.Find(ParcelWorkflowDockpaneViewModel.DockPaneId)?.Activate();
+        SupportingDocumentsDockpaneViewModel.Show();
     }
 }

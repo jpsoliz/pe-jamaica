@@ -283,9 +283,10 @@
                  TextWrapping="Wrap" />
     </Border>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
+    <ScrollViewer Margin="8"
+                  VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Margin="12,4,12,10">
+      <StackPanel>
         <Border Style="{StaticResource CardBorderStyle}"
                 Background="#EEF4FF"
                 BorderBrush="#C7D7F3">

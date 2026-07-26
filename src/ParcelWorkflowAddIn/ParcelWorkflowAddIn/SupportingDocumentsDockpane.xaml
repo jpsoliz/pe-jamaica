@@ -1,0 +1,141 @@
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ParcelWorkflowAddIn"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=local:SupportingDocumentsDockpaneViewModel}"
+             Background="#F7F8FA"
+             FontFamily="Segoe UI">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+    <Style x:Key="CompactButtonStyle" TargetType="Button">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="BorderBrush" Value="#C9D2D8" />
+      <Setter Property="Background" Value="#FFFFFF" />
+    </Style>
+
+    <Style x:Key="PillBorderStyle" TargetType="Border">
+      <Setter Property="Background" Value="#F3F6F7" />
+      <Setter Property="BorderBrush" Value="#C9D2D8" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="Margin" Value="0,0,0,0" />
+    </Style>
+  </UserControl.Resources>
+
+  <DockPanel LastChildFill="True">
+    <Border DockPanel.Dock="Top"
+            Background="#FFFFFF"
+            BorderBrush="#C9D2D8"
+            BorderThickness="0,0,0,1"
+            Padding="12">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    Margin="8,0,0,0">
+          <Button Content="Open source"
+                  Command="{Binding OpenSupportingDocumentCommand}"
+                  Style="{StaticResource CompactButtonStyle}"
+                  Margin="0,0,6,0" />
+          <Button Content="Open folder"
+                  Command="{Binding RevealSupportingDocumentCommand}"
+                  Style="{StaticResource CompactButtonStyle}"
+                  Margin="0,0,6,0" />
+          <Button Content="Reload"
+                  Command="{Binding ReloadSupportingDocumentViewerCommand}"
+                  Style="{StaticResource CompactButtonStyle}" />
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Text="{Binding SupportingDocumentsTabTitle}"
+                     FontSize="15"
+                     FontWeight="SemiBold"
+                     Foreground="#1F2933" />
+          <ComboBox ItemsSource="{Binding SupportingDocumentOptions}"
+                    SelectedItem="{Binding SelectedSupportingDocument}"
+                    DisplayMemberPath="DisplayLabel"
+                    IsEnabled="{Binding HasSupportingDocumentOptions}"
+                    Margin="0,8,0,0"
+                    MinHeight="28" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border Margin="8"
+            BorderBrush="#C9D2D8"
+            BorderThickness="1"
+            Background="#FFFFFF"
+            Padding="10">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel LastChildFill="True"
+                   Margin="0,0,0,8">
+          <Border DockPanel.Dock="Right"
+                  Style="{StaticResource PillBorderStyle}">
+            <TextBlock Text="{Binding SupportingDocumentViewerLoadState}"
+                       FontSize="11"
+                       Foreground="#1F2933" />
+          </Border>
+          <StackPanel>
+            <TextBlock Text="{Binding SelectedSupportingDocumentTitle}"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933"
+                       TextWrapping="Wrap" />
+            <TextBlock Text="{Binding SelectedSupportingDocumentPath}"
+                       FontSize="11"
+                       Foreground="#52616B"
+                       TextWrapping="Wrap"
+                       Margin="0,2,0,0" />
+          </StackPanel>
+        </DockPanel>
+
+        <Grid Grid.Row="1">
+          <wv2:WebView2 x:Name="SupportingDocumentPdfWebView"
+                        Visibility="{Binding SupportingDocumentViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}" />
+          <TextBox Text="{Binding SupportingDocumentTextContent}"
+                   Visibility="{Binding SupportingDocumentViewerShowsText, Converter={StaticResource BooleanToVisibilityConverter}}"
+                   IsReadOnly="True"
+                   TextWrapping="NoWrap"
+                   AcceptsReturn="True"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   BorderThickness="0"
+                   FontFamily="Consolas"
+                   FontSize="12" />
+          <Border Background="#F3F6F7"
+                  BorderBrush="#E1E8ED"
+                  BorderThickness="1"
+                  Padding="12"
+                  Visibility="{Binding SupportingDocumentViewerShowsFallback, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel>
+              <TextBlock Text="{Binding SupportingDocumentViewerModeLabel}"
+                         FontSize="13"
+                         FontWeight="SemiBold"
+                         Foreground="#1F2933" />
+              <TextBlock Text="{Binding SupportingDocumentViewerFallbackMessage}"
+                         Margin="0,6,0,0"
+                         FontSize="12"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+              <TextBlock Text="{Binding SupportingDocumentEmptyText}"
+                         Margin="0,8,0,0"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+    </Border>
+  </DockPanel>
+</UserControl>

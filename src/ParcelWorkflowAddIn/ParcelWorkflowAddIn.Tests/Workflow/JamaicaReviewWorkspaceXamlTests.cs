@@ -30,6 +30,62 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "Points tab should own its point action strip instead of relying on the global PE toolbar.");
     }
 
+    public static void DockpaneExposesSupportingDocumentsWorkspace()
+    {
+        var workflowXaml = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpane.xaml"));
+        var xaml = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpane.xaml"));
+        var codeBehind = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpane.xaml.cs"));
+        var viewModelCode = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpaneViewModel.cs"));
+        var daml = File.ReadAllText(FindSourceFile("Config.daml"));
+        var transactionPanelCode = File.ReadAllText(FindSourceFile("TransactionPanelState.cs"));
+        var transactionPanelDockpaneCode = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
+        var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+
+        TestAssert.True(
+            !workflowXaml.Contains("Header=\"{Binding SupportingDocumentsTabTitle}\"", StringComparison.Ordinal)
+            && daml.Contains("id=\"ParcelWorkflow_SupportingDocumentsDockpane\"", StringComparison.Ordinal)
+            && daml.Contains("caption=\"Supporting Documents\"", StringComparison.Ordinal)
+            && daml.Contains("className=\"SupportingDocumentsDockpaneViewModel\"", StringComparison.Ordinal),
+            "Supporting Documents should be registered as a separate ArcGIS dockpane instead of an internal workflow tab.");
+        TestAssert.True(
+            xaml.Contains("ItemsSource=\"{Binding SupportingDocumentOptions}\"", StringComparison.Ordinal)
+            && xaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal),
+            "Supporting Documents workspace should expose a readable document picker.");
+        TestAssert.True(
+            xaml.Contains("x:Name=\"SupportingDocumentPdfWebView\"", StringComparison.Ordinal)
+            && xaml.Contains("SupportingDocumentTextContent", StringComparison.Ordinal)
+            && xaml.Contains("TextWrapping=\"NoWrap\"", StringComparison.Ordinal)
+            && xaml.Contains("SupportingDocumentViewerShowsFallback", StringComparison.Ordinal),
+            "Supporting Documents workspace should include embedded PDF, horizontally scrollable TXT, and fallback viewer modes.");
+        TestAssert.True(
+            codeBehind.Contains("SupportingDocumentPdfWebView", StringComparison.Ordinal)
+            && codeBehind.Contains("RefreshSupportingDocumentPdfViewerAsync", StringComparison.Ordinal),
+            "Supporting Documents PDF viewer should be wired through the dockpane code-behind.");
+        TestAssert.True(
+            codeBehind.Contains("MarkSupportingDocumentRenderFailure", StringComparison.Ordinal)
+            && codeBehind.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal)
+            && codeBehind.Contains("COMException", StringComparison.Ordinal),
+            "Supporting Documents PDF viewer should fall back to an error state when embedded rendering fails.");
+        TestAssert.True(
+            viewModelCode.Contains("ShellState.Session.SessionChanged", StringComparison.Ordinal)
+            && viewModelCode.Contains("Caption = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
+            && viewModelCode.Contains("TabText = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
+            && viewModelCode.Contains("SourceFileActionService", StringComparison.Ordinal)
+            && viewModelCode.Contains("ExecuteSourceFileAction", StringComparison.Ordinal)
+            && viewModelCode.Contains("RefreshIfOpen()", StringComparison.Ordinal)
+            && viewModelCode.Contains("HideIfOpen();", StringComparison.Ordinal)
+            && transactionPanelCode.Contains("SupportingDocumentsDockpaneViewModel.Show();", StringComparison.Ordinal)
+            && transactionPanelCode.Contains("supportingDocumentsRefresher();", StringComparison.Ordinal)
+            && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
+            && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
+            "Supporting Documents dockpane should validate file actions, use the active transaction title, appear and refresh with a loaded transaction, and clear or hide when the transaction is closed.");
+        var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
+        TestAssert.True(
+            projectionCode.Contains("return extension is \".pdf\" or \".txt\" or \".doc\" or \".docx\" or \".dwg\";", StringComparison.Ordinal)
+            && projectionCode.Contains("item.SourceFile.Copied && !string.IsNullOrWhiteSpace(item.SourceFile.CopiedPath)", StringComparison.Ordinal),
+            "Supporting Documents options should hide archives and unsupported or uncopied files.");
+    }
+
     public static void PxaReviewCloseAndEditDialogsUseOwnedWindows()
     {
         var windowCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceWindow.xaml.cs"));
@@ -290,6 +346,20 @@ internal static class JamaicaReviewWorkspaceXamlTests
             if (File.Exists(candidate))
             {
                 return candidate;
+            }
+
+            var sourceRoot = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn");
+            if (Directory.Exists(sourceRoot))
+            {
+                var recursiveCandidate = Directory.EnumerateFiles(sourceRoot, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(recursiveCandidate))
+                {
+                    return recursiveCandidate;
+                }
             }
 
             directory = directory.Parent;

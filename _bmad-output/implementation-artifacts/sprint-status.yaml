@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-07-21
+last_updated: 2026-07-26
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -156,3 +156,8 @@ development_status:
   8-5-persist-compare-decision-and-unlock-commit-stage: review
   8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
   epic-8-retrospective: optional
+
+  epic-9: in-progress
+  9-1-create-wix-based-target-machine-installer: in-progress
+  9-2-add-supporting-documents-full-panel-viewer: done
+  epic-9-retrospective: optional

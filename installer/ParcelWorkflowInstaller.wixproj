@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <ItemGroup>
+    <Compile Remove="Bundle.wxs" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputName>ParcelWorkflowInstaller</OutputName>
+    <OutputType>Package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <AcceptEula>wix7</AcceptEula>
+    <InstallerVersion Condition="'$(InstallerVersion)' == ''">0.1.0</InstallerVersion>
+    <DefineConstants>StageDir=$(MSBuildThisFileDirectory)..\deployment\target-computer-tools\package;InstallerDir=$(MSBuildThisFileDirectory);InstallerVersion=$(InstallerVersion)</DefineConstants>
+  </PropertyGroup>
+</Project>

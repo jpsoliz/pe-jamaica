@@ -17,6 +17,9 @@ It contains:
 - `ParcelWorkflowAddIn.esriAddInX`
 - `ProcessingTools/`
 - `Contracts/`
+- `installer/scripts/setup_arcgispro37_environment.ps1`
+- `installer/arcgispro37/requirements-conda.txt`
+- `installer/arcgispro37/requirements-pip.txt`
 - `scripts/install_target_tools.bat`
 - `deployment_manifest.json`
 
@@ -77,12 +80,9 @@ C:\Sidwell\ParcelWorkflow\ProcessingTools\admin
 C:\Sidwell\ParcelWorkflow\ProcessingTools\admin\provision_enterprise_working_layers.py
 C:\Sidwell\ParcelWorkflow\ProcessingTools\rules
 C:\Sidwell\ParcelWorkflow\ProcessingTools\rules\rules.yaml
-C:\Sidwell\ParcelWorkflow\python-env
-C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai
-C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe
 ```
 
-The add-in package is configured during install to use the `C:\Sidwell\ParcelWorkflow\ProcessingTools\...` paths above and to write cases/logs under `C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases`.
+The add-in package is configured during install to use the `C:\Sidwell\ParcelWorkflow\ProcessingTools\...` paths above, write cases/logs under `C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases`, and use the cloned ArcGIS Pro Python environment.
 
 ## Login Diagnostics
 
@@ -106,13 +106,27 @@ The trace does not write passwords, access tokens, authorization headers, cookie
 
 ## Python Environment
 
-The installer first uses the target computer's standard ArcGIS Pro Python:
+For ArcGIS Pro 3.7 target computers, the preferred path is to create a cloned environment from that computer's own ArcGIS Pro install:
+
+```cmd
+package\installer\scripts\setup_arcgispro37_environment.bat
+```
+
+This creates or validates an `arcgispro-survey-ai` clone from `arcgispro-py3`, installs the staged conda requirements first, installs the staged pip requirements second, and verifies the required imports.
+
+The installer first uses the target computer's standard ArcGIS Pro Python to create the clone:
 
 ```text
 C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe
 ```
 
-It verifies that the selected Python can see `arcpy` before it configures the add-in package. This is required for Structure Check and Create Spatial Units.
+The configured add-in should point to the cloned environment:
+
+```text
+C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-survey-ai\python.exe
+```
+
+It verifies that the cloned Python can see `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2`. This is required for Structure Check, extraction, and Create Spatial Units.
 
 For a standard ArcGIS Pro install, this should be enough:
 
@@ -120,33 +134,19 @@ For a standard ArcGIS Pro install, this should be enough:
 scripts\install_target_tools.bat
 ```
 
-The manually copied solution environment may remain here:
-
-```text
-C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe
-```
-
-Only pass that path explicitly if it was created from the same ArcGIS Pro version installed on the target computer and can import `arcpy`.
-
 If auto-detection is not possible, pass the ArcGIS Pro Python executable explicitly:
 
 ```cmd
 scripts\install_target_tools.bat /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
 ```
 
-If you intentionally need the copied solution environment, pass it explicitly:
+Only use a copied or bundled `python-env` as a support fallback when it was created from the same ArcGIS Pro installation/version on that target computer. It is not the default installer path. If one is intentionally used, pass it explicitly:
 
 ```cmd
 scripts\install_target_tools.bat /PythonExe "C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe"
 ```
 
-Only use a copied or bundled `python-env` when it was created from the same ArcGIS Pro installation/version on that target computer. A copied environment should be placed at:
-
-```text
-C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai\python.exe
-```
-
-If command-line Python reports `The Product License has not been initialized`, ArcPy is present but ArcGIS Pro did not initialize its license for that external probe. The installer and add-in treat that case as a warning, not as missing ArcPy. If Structure Check reports `ArcPy is not available in the configured Python environment`, re-run the installer with `/PythonExe` pointing to a Python executable that can load ArcPy. If Structure Check reports `DWG CAD probe returned 1: ImportError: version mis-match`, the configured Python environment is not binary-compatible with the target ArcGIS Pro/ArcPy install. Re-run the installer with `/PythonExe` pointing to the target computer's ArcGIS Pro Python, or recreate `C:\Sidwell\ParcelWorkflow\python-env\arcgispro-survey-ai` from that same ArcGIS Pro installation.
+If command-line Python reports `The Product License has not been initialized`, ArcPy is present but ArcGIS Pro did not initialize its license for that external probe. The installer and add-in treat that case as a warning, not as missing ArcPy. If Structure Check reports `ArcPy is not available in the configured Python environment`, re-run the installer with `/PythonExe` pointing to a Python executable that can load ArcPy. If Structure Check reports `DWG CAD probe returned 1: ImportError: version mis-match`, the configured Python environment is not binary-compatible with the target ArcGIS Pro/ArcPy install. Re-run the installer with `/PythonExe` pointing to the target computer's ArcGIS Pro Python, or recreate `arcgispro-survey-ai` from that same ArcGIS Pro installation.
 
 If you intentionally want to bundle the Python environment into this package, regenerate it with:
 

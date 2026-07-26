@@ -1,0 +1,15 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <ItemGroup>
+    <Compile Remove="Package.wxs" />
+    <PackageReference Include="WixToolset.BootstrapperApplications.wixext" Version="7.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputName>ParcelWorkflowSetup</OutputName>
+    <OutputType>Bundle</OutputType>
+    <AcceptEula>wix7</AcceptEula>
+    <InstallerVersion Condition="'$(InstallerVersion)' == ''">0.1.0</InstallerVersion>
+    <DefineConstants>InstallerVersion=$(InstallerVersion)</DefineConstants>
+  </PropertyGroup>
+</Project>

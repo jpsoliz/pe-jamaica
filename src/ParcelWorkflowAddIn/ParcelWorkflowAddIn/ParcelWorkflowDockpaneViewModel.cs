@@ -76,6 +76,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand zoomOutReviewViewerCommand;
     private readonly RelayCommand previousReviewViewerPageCommand;
     private readonly RelayCommand nextReviewViewerPageCommand;
+    private readonly RelayCommand openSupportingDocumentCommand;
+    private readonly RelayCommand revealSupportingDocumentCommand;
+    private readonly RelayCommand reloadSupportingDocumentViewerCommand;
     private readonly RelayCommand openExperimentalReviewWorkspaceCommand;
     private readonly RelayCommand startOrClaimTransactionCommand;
     private readonly RelayCommand suspendTransactionCommand;
@@ -112,6 +115,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RenderedReviewDocumentService renderedReviewDocumentService = new();
     private CancellationTokenSource? reviewViewerLoadCancellation;
     private ReviewSourceViewerState reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+    private string? selectedSupportingDocumentCopiedPath;
+    private int supportingDocumentViewerReloadVersion;
+    private ReviewSourceViewerState supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+    private string supportingDocumentTextContent = string.Empty;
+    private string? supportingDocumentTextLoadError;
     private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
     private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
     private bool importStructuredSurveyPoints;
@@ -159,6 +167,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         zoomOutReviewViewerCommand = new RelayCommand(ZoomOutReviewViewer, () => CanZoomReviewViewerOut);
         previousReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(-1), () => CanGoToPreviousReviewViewerPage);
         nextReviewViewerPageCommand = new RelayCommand(() => ChangeReviewViewerPage(1), () => CanGoToNextReviewViewerPage);
+        openSupportingDocumentCommand = new RelayCommand(OpenSupportingDocument, () => SelectedSupportingDocument is not null);
+        revealSupportingDocumentCommand = new RelayCommand(RevealSupportingDocument, () => SelectedSupportingDocument is not null);
+        reloadSupportingDocumentViewerCommand = new RelayCommand(ReloadSupportingDocumentViewer, () => SelectedSupportingDocument is not null);
         openExperimentalReviewWorkspaceCommand = new RelayCommand(async () => await OpenExperimentalReviewWorkspaceAsync(), () => CanOpenExperimentalReviewWorkspace);
         startOrClaimTransactionCommand = new RelayCommand(async () => await StartOrClaimTransactionAsync(), () => CanUseWorkflowActions && ShellState.Session.CanStartOrClaimTransaction);
         suspendTransactionCommand = new RelayCommand(async () => await SuspendTransactionAsync(), () => CanUseWorkflowActions && ShellState.Session.CanSaveProgress);
@@ -506,6 +517,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand NextReviewViewerPageCommand => nextReviewViewerPageCommand;
 
+    public ICommand OpenSupportingDocumentCommand => openSupportingDocumentCommand;
+
+    public ICommand RevealSupportingDocumentCommand => revealSupportingDocumentCommand;
+
+    public ICommand ReloadSupportingDocumentViewerCommand => reloadSupportingDocumentViewerCommand;
+
     public ICommand OpenExperimentalReviewWorkspaceCommand => openExperimentalReviewWorkspaceCommand;
 
     public ICommand StartOrClaimTransactionCommand => startOrClaimTransactionCommand;
@@ -761,6 +778,101 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     }
 
     public IReadOnlyList<SourceFileListItem> ReviewSourceOptions => SupportingDocumentDownloads;
+
+    public string SupportingDocumentsTabTitle =>
+        HasActiveCase
+            ? $"Supporting Documents [{SupportingDocumentWorkspaceProjection.FormatTransactionLabel(TransactionId)}]"
+            : "Supporting Documents";
+
+    public IReadOnlyList<SourceFileListItem> SupportingDocumentOptions => SupportingDocumentWorkspaceProjection.BuildReadableSupportingDocumentOptions(sourceFileItems);
+
+    public bool HasSupportingDocumentOptions => SupportingDocumentOptions.Count > 0;
+
+    public string SupportingDocumentEmptyText =>
+        HasActiveCase
+            ? "No readable supporting documents are available for this transaction."
+            : "Load a transaction to review supporting documents.";
+
+    public SourceFileListItem? SelectedSupportingDocument
+    {
+        get => ResolveSupportingDocument();
+        set
+        {
+            var nextPath = value?.SourceFile.CopiedPath;
+            if (!string.Equals(selectedSupportingDocumentCopiedPath, nextPath, StringComparison.OrdinalIgnoreCase))
+            {
+                selectedSupportingDocumentCopiedPath = nextPath;
+                RefreshSupportingDocumentViewerState();
+                RefreshWorkflowProperties();
+            }
+        }
+    }
+
+    public string SelectedSupportingDocumentTitle => SelectedSupportingDocument is null
+        ? "No document selected"
+        : $"{SelectedSupportingDocument.RoleLabel}: {SelectedSupportingDocument.FileLabel}";
+
+    public string SelectedSupportingDocumentPath => SelectedSupportingDocument?.SourceRelativePath ?? SupportingDocumentEmptyText;
+
+    public ReviewSourceViewerState SupportingDocumentViewerState => supportingDocumentViewerState;
+
+    public string SupportingDocumentViewerFileTitle => SupportingDocumentViewerShowsText
+        ? SelectedSupportingDocument?.FileLabel ?? "Text document"
+        : supportingDocumentViewerState.Title;
+
+    public string SupportingDocumentViewerRoleLabel => SelectedSupportingDocument?.RoleLabel ?? supportingDocumentViewerState.RoleLabel;
+
+    public string SupportingDocumentViewerDisplayPath => SelectedSupportingDocument?.SourceRelativePath ?? supportingDocumentViewerState.DisplayPath;
+
+    public string SupportingDocumentViewerModeLabel => SupportingDocumentViewerShowsText ? "Text preview" : supportingDocumentViewerState.ModeLabel;
+
+    public string SupportingDocumentViewerLoadState
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(supportingDocumentTextLoadError))
+            {
+                return "Text preview unavailable";
+            }
+
+            return SupportingDocumentViewerShowsText ? "Text ready" : supportingDocumentViewerState.LoadState;
+        }
+    }
+
+    public string SupportingDocumentViewerGuidance => SupportingDocumentViewerShowsText
+        ? "Review the copied text file in read-only mode."
+        : supportingDocumentViewerState.Guidance;
+
+    public string SupportingDocumentViewerFallbackMessage =>
+        !string.IsNullOrWhiteSpace(supportingDocumentTextLoadError)
+            ? supportingDocumentTextLoadError
+            : supportingDocumentViewerState.FallbackMessage;
+
+    public bool SupportingDocumentViewerUsesBrowser =>
+        supportingDocumentViewerState.UsesBrowser && !string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath);
+
+    public bool SupportingDocumentViewerShowsText =>
+        SelectedSupportingDocument is { } selected
+        && SupportingDocumentWorkspaceProjection.IsTextDocument(selected.SourceFile)
+        && string.IsNullOrWhiteSpace(supportingDocumentTextLoadError)
+        && !string.IsNullOrWhiteSpace(supportingDocumentTextContent);
+
+    public bool SupportingDocumentViewerShowsFallback =>
+        SelectedSupportingDocument is null
+        || (!SupportingDocumentViewerUsesBrowser && !SupportingDocumentViewerShowsText)
+        || !string.IsNullOrWhiteSpace(supportingDocumentTextLoadError);
+
+    public string SupportingDocumentTextContent => supportingDocumentTextContent;
+
+    public Uri? SupportingDocumentViewerBrowserUri =>
+        SupportingDocumentViewerUsesBrowser && !string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath)
+            ? new Uri(supportingDocumentViewerState.FullPath, UriKind.Absolute)
+            : null;
+
+    public string SupportingDocumentViewerNavigationKey =>
+        SupportingDocumentViewerUsesBrowser && !string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath)
+            ? $"{supportingDocumentViewerState.FullPath}|{supportingDocumentViewerReloadVersion}"
+            : $"no-supporting-browser|{supportingDocumentViewerReloadVersion}";
 
     public SourceFileListItem? SelectedReviewSource
     {
@@ -2804,6 +2916,29 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    private void OpenSupportingDocument()
+    {
+        if (SelectedSupportingDocument is { } source)
+        {
+            ExecuteSourceFileAction(source, SourceFileAction.Open);
+        }
+    }
+
+    private void RevealSupportingDocument()
+    {
+        if (SelectedSupportingDocument is { } source)
+        {
+            ExecuteSourceFileAction(source, SourceFileAction.Reveal);
+        }
+    }
+
+    private void ReloadSupportingDocumentViewer()
+    {
+        supportingDocumentViewerReloadVersion++;
+        RefreshSupportingDocumentViewerState();
+        RefreshWorkflowProperties();
+    }
+
     private async Task OpenExperimentalReviewWorkspaceAsync()
     {
         var loaded = await EnsureExtractionReviewLoadedAsync().ConfigureAwait(true);
@@ -2892,6 +3027,71 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             && string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
             ?? availableReviewSources.FirstOrDefault(item => string.Equals(item.SourceFile.FileName, resolved.FileName, StringComparison.OrdinalIgnoreCase))
             ?? availableReviewSources.FirstOrDefault();
+    }
+
+    private SourceFileListItem? ResolveSupportingDocument()
+    {
+        var availableDocuments = SupportingDocumentOptions;
+        if (availableDocuments.Count == 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedSupportingDocumentCopiedPath))
+        {
+            var selected = availableDocuments.FirstOrDefault(item =>
+                string.Equals(item.SourceFile.CopiedPath, selectedSupportingDocumentCopiedPath, StringComparison.OrdinalIgnoreCase));
+            if (selected is not null)
+            {
+                return selected;
+            }
+        }
+
+        return availableDocuments.FirstOrDefault();
+    }
+
+    private void RefreshSupportingDocumentViewerState()
+    {
+        var sourceFile = SelectedSupportingDocument?.SourceFile;
+        supportingDocumentTextContent = string.Empty;
+        supportingDocumentTextLoadError = null;
+
+        if (sourceFile is null)
+        {
+            selectedSupportingDocumentCopiedPath = null;
+            supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+            return;
+        }
+
+        selectedSupportingDocumentCopiedPath = sourceFile.CopiedPath;
+        if (SupportingDocumentWorkspaceProjection.IsTextDocument(sourceFile))
+        {
+            LoadSupportingDocumentText(sourceFile);
+        }
+
+        supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(sourceFile, InnolaTransactionSettings.Load().PdfViewerMode);
+    }
+
+    private void LoadSupportingDocumentText(SourceFileCopyResult sourceFile)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFile.CopiedPath) || !File.Exists(sourceFile.CopiedPath))
+        {
+            supportingDocumentTextLoadError = "The copied text file is missing from the case folder. Other supporting documents remain available.";
+            return;
+        }
+
+        try
+        {
+            supportingDocumentTextContent = File.ReadAllText(sourceFile.CopiedPath);
+            if (string.IsNullOrEmpty(supportingDocumentTextContent))
+            {
+                supportingDocumentTextContent = "The copied text file is empty.";
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            supportingDocumentTextLoadError = $"The copied text file could not be read: {exception.Message}";
+        }
     }
 
     private void RefreshReviewViewerState()
@@ -3697,6 +3897,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         LoadSupportingDocumentImportOptions();
         UpdateReviewRowValidationFlags();
         RefreshReviewViewerState();
+        RefreshSupportingDocumentViewerState();
         NotifyPropertyChanged(nameof(TransactionId));
         NotifyPropertyChanged(nameof(OutputLocation));
         NotifyPropertyChanged(nameof(CurrentWorkflowState));
@@ -3728,6 +3929,27 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ShowOutputsSummary));
         NotifyPropertyChanged(nameof(SourceFiles));
         NotifyPropertyChanged(nameof(SupportingDocumentDownloads));
+        NotifyPropertyChanged(nameof(SupportingDocumentsTabTitle));
+        NotifyPropertyChanged(nameof(SupportingDocumentOptions));
+        NotifyPropertyChanged(nameof(HasSupportingDocumentOptions));
+        NotifyPropertyChanged(nameof(SupportingDocumentEmptyText));
+        NotifyPropertyChanged(nameof(SelectedSupportingDocument));
+        NotifyPropertyChanged(nameof(SelectedSupportingDocumentTitle));
+        NotifyPropertyChanged(nameof(SelectedSupportingDocumentPath));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerState));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerFileTitle));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerRoleLabel));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerDisplayPath));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerModeLabel));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerLoadState));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerGuidance));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerFallbackMessage));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerUsesBrowser));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerShowsText));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerShowsFallback));
+        NotifyPropertyChanged(nameof(SupportingDocumentTextContent));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerBrowserUri));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerNavigationKey));
         NotifyPropertyChanged(nameof(SupportingDocumentInventory));
         NotifyPropertyChanged(nameof(HasStructuredSurveyPointsSource));
         NotifyPropertyChanged(nameof(HasAutoCadSurveySource));
@@ -3915,6 +4137,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         zoomOutReviewViewerCommand.RaiseCanExecuteChanged();
         previousReviewViewerPageCommand.RaiseCanExecuteChanged();
         nextReviewViewerPageCommand.RaiseCanExecuteChanged();
+        openSupportingDocumentCommand.RaiseCanExecuteChanged();
+        revealSupportingDocumentCommand.RaiseCanExecuteChanged();
+        reloadSupportingDocumentViewerCommand.RaiseCanExecuteChanged();
         openExperimentalReviewWorkspaceCommand.RaiseCanExecuteChanged();
         startOrClaimTransactionCommand.RaiseCanExecuteChanged();
         suspendTransactionCommand.RaiseCanExecuteChanged();
@@ -4341,9 +4566,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         reviewViewerLoadCancellation?.Dispose();
         reviewViewerLoadCancellation = null;
         reviewViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+        selectedSupportingDocumentCopiedPath = null;
+        supportingDocumentViewerReloadVersion = 0;
+        supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+        supportingDocumentTextContent = string.Empty;
+        supportingDocumentTextLoadError = null;
         ReviewRows.Clear();
         ReviewSegments.Clear();
         RefreshWorkflowProperties();
+        SupportingDocumentsDockpaneViewModel.HideIfOpen();
     }
 
     private async Task ReturnToTransactionListAsync(
@@ -4432,6 +4663,8 @@ internal sealed record SourceFileListItem(SourceFileCopyResult SourceFile)
     public string SourceRelativePath => $"source/{SourceFile.FileName}";
 
     public string RoleLabel => SourceRole.DisplayName(SourceFile.SourceRole);
+
+    public string DisplayLabel => $"{FileLabel} ({RoleLabel})";
 
     public string RowStatus => SourceFile.Copied ? "Copied" : SourceFile.Status;
 

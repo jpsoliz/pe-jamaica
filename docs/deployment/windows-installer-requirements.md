@@ -28,6 +28,14 @@ The installer must install or configure:
 - `C:\Sidwell\ParcelWorkflow\logs`.
 - ArcGIS Pro 3.7 compatible cloned Python environment named `arcgispro-survey-ai`.
 
+The default install root shown to users and written to logs is:
+
+```text
+C:\Sidwell\ParcelWorkflow
+```
+
+The installer UI must show the default install root and allow an operator to review it before installation. The first production UI should also show the detected ArcGIS Pro root, the target Python environment path, and the persistent diagnostic log folder before running post-install configuration.
+
 ## Python Environment Requirements
 
 The installer must not copy an existing ArcGIS Pro 3.6 cloned environment to an ArcGIS Pro 3.7 machine.
@@ -53,21 +61,55 @@ The installer must verify:
 
 ```powershell
 python -c "import arcpy; print('arcpy OK')"
-python -c "import openai; import flask; import pdfplumber; import pypdfium2; print('AI Survey env OK')"
+python -c "import openai; import clip; import open_clip; import flask; import pdfplumber; import pypdfium2; print('AI Survey env OK')"
 ```
+
+The `arcgispro-survey-ai` clone must live under the ArcGIS Pro Python environments folder, beside `arcgispro-py3`. If the environment already exists, the installer must verify required dependencies and imports before reusing it. If it does not exist, the installer must clone it from the target machine's `arcgispro-py3`.
+
+The conda requirements must include the OpenAI and CLIP packages required by the inventory:
+
+- `openai`
+- `openai-clip`
+- `open-clip-torch`
+
+## OpenAI API Key Requirements
+
+The installer must not embed or deploy a real OpenAI API key in the MSI, EXE, add-in package, source settings file, logs, or repository files.
+
+The add-in setting `openai_api_key_environment_variable` names the environment variable to read. The default is:
+
+```text
+OPENAI_API_KEY
+```
+
+For the current installer, the bootstrapper can receive the `OpenAiApiKey` variable and set the machine `OPENAI_API_KEY` environment variable during installation. The stock WiX UI does not show custom text boxes; production should replace it with a custom Burn Bootstrapper Application that asks for the key in a masked field. If a key is supplied, it must be stored as the configured machine/user environment variable or an approved Windows secret, and the secret value must never be written to support logs, add-in settings, or repository files.
+
+## Installer Package Requirements
+
+The first production installer should be a Burn EXE plus MSI, not MSI-only. The EXE is the operator entry point and coordinates prerequisites, ArcGIS Pro detection, Python environment setup, and logging. The MSI remains the deterministic payload installer for files, folders, upgrade, and uninstall.
+
+The installer model is mixed:
+
+- Per-machine for the shared install root under `C:\Sidwell\ParcelWorkflow`.
+- Per-user for ArcGIS Pro add-in registration or launch because ArcGIS Pro add-ins are installed into the user's profile.
+
+Code signing is strongly recommended before distribution outside the development/test team. Unsigned MSI/EXE packages can work for internal testing, but Windows SmartScreen, antivirus policy, or enterprise endpoint controls may warn or block. The release process should support unsigned developer builds and signed production builds.
 
 ## Acceptance Criteria
 
 1. Given ArcGIS Pro 3.7 is installed and licensed, when the installer runs, then it detects the ArcGIS Pro installation and default Python/conda location.
 2. Given ArcGIS Pro 3.7 is missing, when the installer runs, then installation blocks with a clear message before copying or configuring partial assets.
 3. Given the default `arcgispro-py3` environment exists, when Python setup runs, then the installer creates or reuses a separate `arcgispro-survey-ai` clone and never installs packages into `arcgispro-py3`.
-4. Given `arcgispro-survey-ai` already exists, when the installer runs, then it either validates and reuses it or repairs it according to an explicit reinstall/repair option.
+4. Given `arcgispro-survey-ai` already exists under the ArcGIS Pro envs folder, when the installer runs, then it validates required dependencies/imports and reuses it only when verification passes; otherwise it repairs it according to an explicit reinstall/repair option.
 5. Given requirements files are present, when Python setup runs, then conda packages install before pip packages.
-6. Given Python setup finishes, when verification runs, then `arcpy`, `openai`, `flask`, `pdfplumber`, and `pypdfium2` imports are checked and logged.
+6. Given Python setup finishes, when verification runs, then `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2` imports are checked and logged.
 7. Given verification fails, when the installer exits, then it shows the failing import or command and leaves a log file.
 8. Given installation succeeds, when the add-in is configured, then its embedded settings point to the installed `ProcessingTools`, `Contracts`, `ParcelWorkflowCases`, and cloned Python `python.exe`.
 9. Given installation succeeds, when ArcGIS Pro opens, then the add-in is registered and available.
 10. Given an upgrade runs, when existing case folders and logs exist, then they are preserved.
 11. Given uninstall runs, when user data exists, then add-in binaries/tools can be removed while case folders and logs are preserved unless the user chooses a full cleanup option.
 12. Given support needs diagnostics, when installation completes or fails, then logs identify version, install root, ArcGIS Pro path, Python path, and package versions without secrets.
-
+13. Given a production installer is prepared for distribution, when release packaging runs, then the build can produce a signed MSI/EXE if a code-signing certificate is configured, while still allowing unsigned developer/test builds.
+14. Given OpenAI extraction is enabled, when installation/configuration completes, then the add-in configuration references only the OpenAI API key environment variable name and never stores the API key value.
+15. Given the installer is run interactively, when the options/configuration page is shown, then the operator can review the install root, detected ArcGIS Pro path, target `arcgispro-survey-ai` environment path, and diagnostic log folder before install.
+16. Given the operator enters an OpenAI API key during installation, when the installer stores configuration, then the UI masks the key and logs only whether a key was provided, never the key value.

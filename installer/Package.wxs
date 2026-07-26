@@ -1,0 +1,120 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Sidwell Parcel Workflow"
+    Manufacturer="Sidwell"
+    Version="$(var.InstallerVersion)"
+    UpgradeCode="{C2740E9B-1F8D-4D6F-B455-F2F97C0126F1}"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Sidwell Parcel Workflow is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ROOTDRIVE" Value="C:\" />
+    <Property Id="INSTALLFOLDER" Value="C:\Sidwell\ParcelWorkflow" />
+    <Property Id="OPENAIAPIKEY" Secure="yes" Hidden="yes" />
+
+    <StandardDirectory Id="TARGETDIR">
+      <Directory Id="SidwellFolder" Name="Sidwell">
+        <Directory Id="INSTALLFOLDER" Name="ParcelWorkflow" ComponentGuidGenerationSeed="{8D7FD70C-7BE2-4378-B39D-85B78C06E717}">
+          <Directory Id="AddInFolder" Name="AddIn" />
+          <Directory Id="ContractsFolder" Name="Contracts" />
+          <Directory Id="ProcessingToolsFolder" Name="ProcessingTools" />
+          <Directory Id="ScriptsFolder" Name="scripts" />
+          <Directory Id="InstallerFolder" Name="installer" />
+          <Directory Id="CasesFolder" Name="ParcelWorkflowCases" />
+          <Directory Id="LogsFolder" Name="logs" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ProgramDataSidwellFolder" Name="Sidwell">
+        <Directory Id="ProgramDataParcelWorkflowFolder" Name="ParcelWorkflow">
+          <Directory Id="ProgramDataLogsFolder" Name="logs" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Parcel Workflow" Level="1">
+      <ComponentGroupRef Id="ParcelWorkflowPayload" />
+      <ComponentGroupRef Id="PreservedDataFolders" />
+      <ComponentRef Id="OpenAiApiKeyEnvironmentVariable" />
+    </Feature>
+
+    <SetProperty
+      Id="RunSetupArcGisPro37Environment"
+      Value="&quot;[InstallerFolder]scripts\setup_arcgispro37_environment.bat&quot; -I &quot;[INSTALLFOLDER].&quot; -L &quot;[ProgramDataLogsFolder].&quot;"
+      Before="RunSetupArcGisPro37Environment"
+      Sequence="execute"
+      Condition="NOT REMOVE" />
+    <CustomAction
+      Id="RunSetupArcGisPro37Environment"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec64"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <SetProperty
+      Id="RunRegisterParcelWorkflowAddIn"
+      Value="&quot;[InstallerFolder]scripts\register_parcel_workflow_addin.bat&quot; -I &quot;[INSTALLFOLDER].&quot; -L &quot;[ProgramDataLogsFolder].&quot;"
+      Before="RunRegisterParcelWorkflowAddIn"
+      Sequence="execute"
+      Condition="NOT REMOVE" />
+    <CustomAction
+      Id="RunRegisterParcelWorkflowAddIn"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec64"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <SetProperty
+      Id="RunWriteInstallationSummary"
+      Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoP -EP Bypass -F &quot;[InstallerFolder]scripts\write_installation_summary.ps1&quot; -I &quot;[INSTALLFOLDER].&quot; -L &quot;[ProgramDataLogsFolder].&quot;"
+      Before="RunWriteInstallationSummary"
+      Sequence="execute"
+      Condition="NOT REMOVE" />
+    <CustomAction
+      Id="RunWriteInstallationSummary"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec64"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RunSetupArcGisPro37Environment" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="RunRegisterParcelWorkflowAddIn" After="RunSetupArcGisPro37Environment" Condition="NOT REMOVE" />
+      <Custom Action="RunWriteInstallationSummary" After="RunRegisterParcelWorkflowAddIn" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ParcelWorkflowPayload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.StageDir)\ParcelWorkflowAddIn.esriAddInX" Directory="AddInFolder" />
+      <Files Include="$(var.StageDir)\Contracts\**" Directory="ContractsFolder" />
+      <Files Include="$(var.StageDir)\ProcessingTools\**" Directory="ProcessingToolsFolder" />
+      <Files Include="$(var.StageDir)\installer\**" Directory="InstallerFolder" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="PreservedDataFolders">
+      <Component Id="CreateCasesFolder" Directory="CasesFolder" Guid="{E4E74175-4B9C-424D-9B5A-EC88921C3B18}">
+        <CreateFolder />
+      </Component>
+      <Component Id="CreateLogsFolder" Directory="LogsFolder" Guid="{5D145BA6-3F98-40E7-B1EA-700B96C49A82}" Permanent="yes">
+        <CreateFolder />
+        <File Id="LocalLogsReadme" Source="$(var.InstallerDir)assets\logs\README.txt" Name="README.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="CreateProgramDataLogsFolder" Directory="ProgramDataLogsFolder" Guid="{63B3C0C7-26AB-4F1B-A4A4-BAD03EF5C8E5}" Permanent="yes">
+        <CreateFolder />
+        <File Id="ProgramDataLogsReadme" Source="$(var.InstallerDir)assets\logs\README.txt" Name="README.txt" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Sidwell\ParcelWorkflow" Name="ProgramDataLogsFolder" Type="string" Value="[ProgramDataLogsFolder]" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="OpenAiApiKeyEnvironmentVariable" Directory="INSTALLFOLDER" Guid="{0A29804F-AEB2-49E2-AE4B-3545B435491C}" Permanent="yes" Condition="OPENAIAPIKEY">
+      <Environment Id="SetOpenAiApiKey" Name="OPENAI_API_KEY" Value="[OPENAIAPIKEY]" Action="set" Part="all" System="yes" Permanent="yes" />
+      <RegistryValue Root="HKLM" Key="Software\Sidwell\ParcelWorkflow" Name="OpenAiApiKeyEnvironmentVariable" Type="string" Value="OPENAI_API_KEY" KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

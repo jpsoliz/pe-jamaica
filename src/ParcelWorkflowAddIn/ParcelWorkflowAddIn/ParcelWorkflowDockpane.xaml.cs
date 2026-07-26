@@ -106,4 +106,5 @@ public class ParcelWorkflowDockpane : UserControl
             lastViewerNavigationKey = navigationKey;
         }
     }
+
 }

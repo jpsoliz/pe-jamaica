@@ -1,0 +1,27 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle
+    Name="Sidwell Parcel Workflow Setup"
+    Manufacturer="Sidwell"
+    Version="$(var.InstallerVersion)"
+    UpgradeCode="{58781137-90B9-4CD3-AD91-3590B8B51AC2}">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        LicenseUrl=""
+        Theme="hyperlinkLicense"
+        LaunchTarget="[InstallFolder]\logs\installation_summary.txt"
+        ShowVersion="yes" />
+    </BootstrapperApplication>
+
+    <Variable Name="InstallFolder" Type="string" Value="C:\Sidwell\ParcelWorkflow" bal:Overridable="yes" />
+    <Variable Name="OpenAiApiKey" Type="string" Value="" Hidden="yes" bal:Overridable="yes" />
+
+    <Chain>
+      <MsiPackage SourceFile="ParcelWorkflowInstaller.msi">
+        <MsiProperty Name="ROOTDRIVE" Value="C:\" />
+        <MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+        <MsiProperty Name="OPENAIAPIKEY" Value="[OpenAiApiKey]" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>
