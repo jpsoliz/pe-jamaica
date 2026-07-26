@@ -19,6 +19,14 @@
       <Setter Property="Background" Value="#FFFFFF" />
     </Style>
 
+    <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource CompactButtonStyle}">
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="MinWidth" Value="30" />
+      <Setter Property="Padding" Value="6,4" />
+      <Setter Property="ToolTip" Value="Reload" />
+    </Style>
+
     <Style x:Key="PillBorderStyle" TargetType="Border">
       <Setter Property="Background" Value="#F3F6F7" />
       <Setter Property="BorderBrush" Value="#C9D2D8" />
@@ -39,28 +47,15 @@
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal"
                     Margin="8,0,0,0">
-          <Button Content="Open source"
-                  Command="{Binding OpenSupportingDocumentCommand}"
-                  Style="{StaticResource CompactButtonStyle}"
-                  Margin="0,0,6,0" />
-          <Button Content="Open folder"
-                  Command="{Binding RevealSupportingDocumentCommand}"
-                  Style="{StaticResource CompactButtonStyle}"
-                  Margin="0,0,6,0" />
-          <Button Content="Reload"
+          <Button Content="&#xE72C;"
                   Command="{Binding ReloadSupportingDocumentViewerCommand}"
-                  Style="{StaticResource CompactButtonStyle}" />
+                  Style="{StaticResource IconButtonStyle}" />
         </StackPanel>
         <StackPanel>
-          <TextBlock Text="{Binding SupportingDocumentsTabTitle}"
-                     FontSize="15"
-                     FontWeight="SemiBold"
-                     Foreground="#1F2933" />
           <ComboBox ItemsSource="{Binding SupportingDocumentOptions}"
                     SelectedItem="{Binding SelectedSupportingDocument}"
                     DisplayMemberPath="DisplayLabel"
                     IsEnabled="{Binding HasSupportingDocumentOptions}"
-                    Margin="0,8,0,0"
                     MinHeight="28" />
         </StackPanel>
       </DockPanel>
@@ -79,12 +74,6 @@
 
         <DockPanel LastChildFill="True"
                    Margin="0,0,0,8">
-          <Border DockPanel.Dock="Right"
-                  Style="{StaticResource PillBorderStyle}">
-            <TextBlock Text="{Binding SupportingDocumentViewerLoadState}"
-                       FontSize="11"
-                       Foreground="#1F2933" />
-          </Border>
           <StackPanel>
             <TextBlock Text="{Binding SelectedSupportingDocumentTitle}"
                        FontSize="13"
@@ -102,7 +91,7 @@
         <Grid Grid.Row="1">
           <wv2:WebView2 x:Name="SupportingDocumentPdfWebView"
                         Visibility="{Binding SupportingDocumentViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}" />
-          <TextBox Text="{Binding SupportingDocumentTextContent}"
+          <TextBox Text="{Binding SupportingDocumentTextContent, Mode=OneWay}"
                    Visibility="{Binding SupportingDocumentViewerShowsText, Converter={StaticResource BooleanToVisibilityConverter}}"
                    IsReadOnly="True"
                    TextWrapping="NoWrap"

@@ -127,3 +127,30 @@ The additional events still do not include `ArcGISPro.exe`, `ParcelWorkflowAddIn
 ### Updated Conclusion
 
 The latest attached log does not identify the reported ArcGIS Pro crash. The real blocker remains missing evidence from the target event where the faulting application is `ArcGISPro.exe`.
+
+## Follow-up: 2026-07-26 #3
+
+### New Evidence
+
+The user provided the ESRI ArcGIS Pro dump path:
+
+`C:\Users\js91482\AppData\Local\ESRI\ErrorReports\ArcGISPro_13.6.0.59527_0_07_26_2026_02_01_52.dmp`
+
+The dump exists and is about 10 MB. A readable string scan found:
+
+- `Last command`: `ParcelWorkflow_LoginButton`
+- `Last active dockpane`: `ParcelWorkflow_SupportingDocumentsDockpane`
+- `WPF.FocusedElementDataCtx`: `ParcelWorkflowAddIn.ParcelWorkflowDockpaneViewModel`
+- WPF binding error: `A TwoWay or OneWayToSource binding cannot work on the read-only property 'SupportingDocumentTextContent' of type 'ParcelWorkflowAddIn.SupportingDocumentsDockpaneViewModel'.`
+
+### Additional Findings
+
+The binding error maps to `SupportingDocumentsDockpane.xaml`, where `TextBox.Text` was bound to the read-only `SupportingDocumentTextContent` property without `Mode=OneWay`. `TextBox.Text` defaults to two-way binding, so WPF rejected the read-only source property while the Supporting Documents dockpane was active.
+
+### Resolution
+
+Patched `SupportingDocumentsDockpane.xaml` so `SupportingDocumentTextContent` is bound with `Mode=OneWay`. The add-in Release build passed, the test project Release build passed, and the full test harness passed 509 tests.
+
+### Updated Conclusion
+
+Confidence is now **Medium-High** that the crash was caused by the new Supporting Documents dockpane XAML binding trying to write back to a read-only view-model property. The next verification step is to package/reinstall the add-in and reproduce the login/transaction flow that previously created the ArcGIS Pro dump.
