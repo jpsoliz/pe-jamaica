@@ -683,6 +683,9 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         var caseType = InnolaHttp.ReadString(task, "transactionCode", "processKey")
             ?? ReadNested(transaction, "transactionType", "type")
             ?? ReadNested(application, "type");
+        var parish = InnolaHttp.ReadString(task, "parish", "Parish")
+            ?? ReadNested(transaction, "parish", "Parish")
+            ?? ReadNested(application, "parish", "Parish");
 
         return new InnolaTransactionDetail(
             transactionId,
@@ -696,7 +699,8 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             InnolaHttp.ReadString(task, "role", "group", "assignedGroup", "assigned_group"),
             InnolaHttp.ReadString(task, "assignee", "ownerUser", "owner_user"),
             InnolaHttp.ReadString(task, "status", "taskStatus", "task_status"),
-            ExtractAttachments(task));
+            ExtractAttachments(task),
+            parish);
     }
 
     private static IReadOnlyList<InnolaAttachmentMetadata> ExtractAttachments(JsonElement task)

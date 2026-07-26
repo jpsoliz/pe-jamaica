@@ -339,7 +339,7 @@ internal static class OutputMapReviewStyling
     private const string FabricParcelTypeSuffix = "_Lines";
     internal const double ParcelPointOutlineSize = 7.0;
     internal const double ParcelPointFillSize = 5.0;
-    internal const int ParcelPolygonLayerTransparencyPercent = 60;
+    internal const int ParcelPolygonLayerTransparencyPercent = 70;
     internal const int ParcelPolygonFillOpacityPercent = 100;
     public const string ComputedParcelReviewGroupName = "Computed Parcel Review";
     public const string SupportingSourcesGroupName = "Supporting Sources";
@@ -461,31 +461,31 @@ internal static class OutputMapReviewStyling
         var role = DetermineLayerRole(featureLayer.Name, fieldNames);
         if (role == ReviewLayerRole.Points)
         {
-            ApplyPointRenderer(featureLayer, warnings);
             if (ShouldApplyLabels(payload, role))
             {
                 ApplyPointLabels(featureLayer, definition, fieldNames, warnings);
             }
+            ApplyPointRenderer(featureLayer, warnings);
             return;
         }
 
         if (role == ReviewLayerRole.Lines)
         {
-            ApplyLineRenderer(featureLayer, warnings);
             if (ShouldApplyLabels(payload, role))
             {
                 ApplyLineLabels(featureLayer, definition, fieldNames, warnings);
             }
+            ApplyLineRenderer(featureLayer, warnings);
             return;
         }
 
         if (role == ReviewLayerRole.Polygons)
         {
-            ApplyPolygonRenderer(featureLayer, warnings);
             if (ShouldApplyLabels(payload, role))
             {
                 ApplyPolygonLabels(featureLayer, definition, fieldNames, warnings);
             }
+            ApplyPolygonRenderer(featureLayer, warnings);
         }
     }
 
@@ -638,7 +638,6 @@ internal static class OutputMapReviewStyling
     {
         try
         {
-            featureLayer.SetTransparency(ParcelPolygonLayerTransparencyPercent);
             var outline = SymbolFactory.Instance.ConstructStroke(
                 ColorFactory.Instance.CreateRGBColor(75, 104, 122),
                 1.25,
@@ -651,6 +650,7 @@ internal static class OutputMapReviewStyling
             {
                 Symbol = polygonSymbol.MakeSymbolReference()
             });
+            featureLayer.SetTransparency(ParcelPolygonLayerTransparencyPercent);
         }
         catch (Exception ex)
         {

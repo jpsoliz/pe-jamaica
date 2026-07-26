@@ -50,7 +50,16 @@ internal static class SupportingDocumentWorkspaceProjection
     private static bool IsReadableSupportingDocumentFile(SourceFileCopyResult sourceFile)
     {
         var extension = ResolveSourceFileExtension(sourceFile);
-        return extension is ".pdf" or ".txt" or ".doc" or ".docx" or ".dwg";
+        return extension is ".pdf"
+            or ".txt"
+            or ".doc"
+            or ".docx"
+            or ".dwg"
+            or ".png"
+            or ".jpg"
+            or ".jpeg"
+            or ".tif"
+            or ".tiff";
     }
 
     private static string ResolveSourceFileExtension(SourceFileCopyResult sourceFile)

@@ -141,7 +141,7 @@ public sealed partial class CaseFolderStore
         var issues = new List<RecoverabilityIssue>();
         AddMissingDirectoryIssues(layout, issues);
 
-        var sourceFiles = BuildSourceRows(manifest, issues);
+        var sourceFiles = BuildSourceRows(layout, manifest, issues);
         var artifacts = DiscoverAvailableArtifacts(layout);
         var resolvedState = ResolveWorkflowState(manifest.Payload.WorkflowState, issues);
 
@@ -243,7 +243,7 @@ public sealed partial class CaseFolderStore
         }
     }
 
-    private static IReadOnlyList<SourceFileCopyResult> BuildSourceRows(ManifestDocument manifest, List<RecoverabilityIssue> issues)
+    private static IReadOnlyList<SourceFileCopyResult> BuildSourceRows(CaseFolderLayout layout, ManifestDocument manifest, List<RecoverabilityIssue> issues)
     {
         var rows = new List<SourceFileCopyResult>();
         foreach (var source in manifest.Payload.SourceFiles)
@@ -276,7 +276,69 @@ public sealed partial class CaseFolderStore
                 source.SourceType));
         }
 
+        AddSourceDirectoryFallbackRows(layout, manifest, rows, issues);
+
         return rows;
+    }
+
+    private static void AddSourceDirectoryFallbackRows(
+        CaseFolderLayout layout,
+        ManifestDocument manifest,
+        List<SourceFileCopyResult> rows,
+        List<RecoverabilityIssue> issues)
+    {
+        if (!Directory.Exists(layout.SourceDirectory))
+        {
+            return;
+        }
+
+        var knownPaths = rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.CopiedPath))
+            .Select(row =>
+            {
+                try
+                {
+                    return Path.GetFullPath(row.CopiedPath!);
+                }
+                catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    return row.CopiedPath!;
+                }
+            })
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in Directory.EnumerateFiles(layout.SourceDirectory, "*", SearchOption.TopDirectoryOnly)
+                     .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (knownPaths.Contains(fullPath))
+            {
+                continue;
+            }
+
+            var info = new FileInfo(fullPath);
+            rows.Add(new SourceFileCopyResult(
+                fullPath,
+                fullPath,
+                info.Name,
+                string.IsNullOrWhiteSpace(info.Extension) ? string.Empty : info.Extension.ToLowerInvariant(),
+                info.Length,
+                null,
+                "copied",
+                "Copied source file discovered from the Case Folder source area.",
+                Copied: true,
+                SourceType: null));
+        }
+
+        if (manifest.Payload.SourceFiles.Count == 0 && rows.Count > 0)
+        {
+            issues.Add(new RecoverabilityIssue(
+                "source_files_discovered_from_folder",
+                "warning",
+                "Copied source files were discovered from the Case Folder source area because the manifest source list is empty.",
+                layout.SourceDirectory,
+                false));
+        }
     }
 
     private static IReadOnlyList<AvailableArtifact> DiscoverAvailableArtifacts(CaseFolderLayout layout)

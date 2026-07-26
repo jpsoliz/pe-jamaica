@@ -454,6 +454,7 @@ public partial class ConfigurationWindow : ProWindow
         ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked = document.ReadinessDefaultRequireChainConsistency;
         ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked = document.ReadinessDefaultDetectDuplicateEdges;
         RenderReadinessRules(document.ReadinessRules);
+        WorkingMapLayersGrid.ItemsSource = document.WorkingMapLayers.Select(layer => layer.Clone()).ToList();
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
         EnterpriseWorkingWorkspaceNameTextBox.Text = document.EnterpriseWorkingWorkspaceName;
@@ -568,6 +569,16 @@ public partial class ConfigurationWindow : ProWindow
         document.ReadinessDefaultRequireReferencedPoints = ReadinessDefaultRequireReferencedPointsCheckBox.IsChecked == true;
         document.ReadinessDefaultRequireChainConsistency = ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked == true;
         document.ReadinessDefaultDetectDuplicateEdges = ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked == true;
+        WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        document.WorkingMapLayers = WorkingMapLayersGrid.Items
+            .OfType<EditableWorkingMapLayer>()
+            .Where(layer => !string.IsNullOrWhiteSpace(layer.Name)
+                || !string.IsNullOrWhiteSpace(layer.SourceType)
+                || !string.IsNullOrWhiteSpace(layer.Url)
+                || !string.IsNullOrWhiteSpace(layer.Group))
+            .Select(layer => layer.Clone())
+            .ToList();
         document.EnterpriseWorkingEnabled = EnterpriseWorkingEnabledCheckBox.IsChecked == true;
         document.EnterpriseWorkingServiceRoot = EnterpriseWorkingServiceRootTextBox.Text.Trim();
         document.EnterpriseWorkingWorkspaceName = EnterpriseWorkingWorkspaceNameTextBox.Text.Trim();

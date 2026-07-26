@@ -192,7 +192,10 @@ public sealed class InnolaSessionManager
             row.ProcessStep,
             selectedAt,
             row.ApplicationId,
-            row.TransactionType);
+            row.TransactionType,
+            row.Status,
+            row.AssignedUser,
+            row.AssignedGroup);
         ClearLoadedTransactionCore();
         OnSessionChanged();
     }

@@ -15,6 +15,7 @@ public sealed record InnolaTransactionSettings(
     int ManualReviewRetryThreshold,
     EnterpriseWorkingReviewSettings EnterpriseWorkingReview,
     EnterpriseParcelFabricReviewSettings EnterpriseParcelFabricReview,
+    WorkingMapSettings WorkingMap,
     IReadOnlyList<string> SupportedTransactionTypes,
     string? SupportedTransactionTypesWarning,
     IReadOnlyList<string> ComputeWorkflowStages,
@@ -71,6 +72,7 @@ public sealed record InnolaTransactionSettings(
         2,
         EnterpriseWorkingReviewSettings.Default,
         EnterpriseParcelFabricReviewSettings.Default,
+        WorkingMapSettings.Default,
         SafeDefaultSupportedTransactionTypes,
         null,
         SafeDefaultComputeWorkflowStages,
@@ -122,6 +124,7 @@ public sealed record InnolaTransactionSettings(
             var pdfViewerMode = ResolvePdfViewerMode(root);
             var enterpriseWorkingReview = EnterpriseWorkingReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
             var enterpriseParcelFabricReview = EnterpriseParcelFabricReviewSettings.FromJson(root, reviewWorkspaceMode.Value);
+            var workingMap = WorkingMapSettings.FromJson(root);
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var compareWorkflowStages = ResolveCompareWorkflowStages(root);
@@ -154,6 +157,7 @@ public sealed record InnolaTransactionSettings(
                 manualReviewRetryThreshold,
                 enterpriseWorkingReview,
                 enterpriseParcelFabricReview,
+                workingMap,
                 supportedTypes.Values,
                 supportedTypes.Warning,
                 computeWorkflowStages.Values,

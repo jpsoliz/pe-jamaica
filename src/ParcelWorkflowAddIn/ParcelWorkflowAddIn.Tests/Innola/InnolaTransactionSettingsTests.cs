@@ -462,6 +462,84 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.EnterpriseParcelFabricReview.Warning?.Contains("records_layer_url", StringComparison.OrdinalIgnoreCase) == true, "Enterprise Parcel Fabric mode should warn when records layer target is missing.");
     }
 
+    public static void WorkingMapSettingsLoadFromConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "working_map": {
+                "enabled": true,
+                "map_name": "Jamaica",
+                "create_if_missing": true,
+                "reuse_existing": true,
+                "activate_on_transaction_load": true,
+                "cleanup_transaction_groups_on_close": true,
+                "default_basemap": "esri_world_imagery",
+                "alternate_basemaps": ["open_basemap", "world_topographic"],
+                "default_extent": {
+                  "name": "Jamaica",
+                  "wkid": 4326,
+                  "xmin": -78.6,
+                  "ymin": 17.6,
+                  "xmax": -76.1,
+                  "ymax": 18.7
+                },
+                "zoom_to_transaction_parish": true,
+                "parish_lookup": {
+                  "enabled": true,
+                  "layer_name": "Parishes",
+                  "name_field": "parish",
+                  "required": false
+                },
+                "reference_layers": [
+                  {
+                    "name": "Legal_Cadastre",
+                    "source_type": "map_service_url",
+                    "url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/MapServer",
+                    "group": "Cadastre Reference",
+                    "required": true,
+                    "visible": true,
+                    "order": 10,
+                    "opacity": 0.75,
+                    "min_scale": 500000,
+                    "max_scale": 0
+                  }
+                ]
+              }
+            }
+            """);
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.True(settings.WorkingMap.Enabled, "Working map should be enabled.");
+        TestAssert.Equal("Jamaica", settings.WorkingMap.MapName, "Working map name mismatch.");
+        TestAssert.True(settings.WorkingMap.ActivateOnTransactionLoad, "Working map should activate on transaction load.");
+        TestAssert.Equal("esri_world_imagery", settings.WorkingMap.DefaultBasemap, "Default basemap mismatch.");
+        TestAssert.Equal(2, settings.WorkingMap.AlternateBasemaps.Count, "Alternate basemap count mismatch.");
+        TestAssert.Equal(4326, settings.WorkingMap.DefaultExtent.Wkid, "Default extent WKID mismatch.");
+        TestAssert.True(settings.WorkingMap.ParishLookup.Enabled, "Parish lookup should be enabled.");
+        TestAssert.Equal("Parishes", settings.WorkingMap.ParishLookup.LayerName, "Parish lookup layer mismatch.");
+        TestAssert.True(settings.WorkingMap.ParishLookup.KnownExtents.ContainsKey("st elizabeth"), "Default parish extents should include St. Elizabeth.");
+        TestAssert.Equal(1, settings.WorkingMap.ReferenceLayers.Count, "Reference layer count mismatch.");
+        TestAssert.Equal("Legal_Cadastre", settings.WorkingMap.ReferenceLayers[0].Name, "Reference layer name mismatch.");
+        TestAssert.True(settings.WorkingMap.ReferenceLayers[0].Required, "Legal cadastre should be required.");
+        TestAssert.Equal(0.75, settings.WorkingMap.ReferenceLayers[0].Opacity, "Reference layer opacity mismatch.");
+        TestAssert.Equal(500000d, settings.WorkingMap.ReferenceLayers[0].MinScale, "Reference layer min scale mismatch.");
+    }
+
+    public static void MissingWorkingMapSettingsUseSafeDefaults()
+    {
+        using var settingsFile = WriteSettingsFile("{}");
+
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        TestAssert.True(settings.WorkingMap.Enabled, "Default working map should be enabled.");
+        TestAssert.Equal("Jamaica", settings.WorkingMap.MapName, "Default working map name mismatch.");
+        TestAssert.True(settings.WorkingMap.ReferenceLayers.Any(layer => layer.Name.Equals("Legal_Cadastre", StringComparison.OrdinalIgnoreCase)), "Default reference layers should include Legal_Cadastre.");
+        TestAssert.True(settings.WorkingMap.ReferenceLayers.Any(layer => layer.BasemapRole?.Equals("imagery", StringComparison.OrdinalIgnoreCase) == true), "Default reference layers should include imagery basemap reference.");
+        TestAssert.True(settings.WorkingMap.ParishLookup.KnownExtents.ContainsKey("st catherine"), "Default parish extents should include St. Catherine.");
+    }
+
     public static void ConfigurationSummaryFormatsSupportedTransactionTypes()
     {
         var summary = InnolaTransactionSettings.FormatSupportedTransactionTypesDisplay(new[]

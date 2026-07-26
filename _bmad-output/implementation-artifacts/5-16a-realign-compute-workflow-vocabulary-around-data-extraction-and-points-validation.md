@@ -108,6 +108,7 @@ Historical code identifiers may remain point-oriented until a dev story changes 
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial alignment story for revised compute-stage vocabulary and renaming Jamaica COGO Tool to Points Validation Tool in the user-facing process. | Codex |
 | 2026-06-17 | 1.0 | Implemented compute-workflow vocabulary realignment, renamed the review tool to Points Validation Tool, and updated related tests and helper copy. | Codex |
+| 2026-07-26 | 1.2 | Shortened the main action caption for returning to the point/line review workspace to `Continue Validation`. | Codex |
 | 2026-07-03 | 1.1 | Patched vocabulary target to expand Validate Points into Validate Points and Lines based on compute workflow notes. | Mary / Codex |
 
 ## Dev Agent Record

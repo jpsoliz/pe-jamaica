@@ -14,15 +14,17 @@ internal static class SupportingDocumentsWorkspaceTests
             Item("notes.txt", ".txt", copied: true),
             Item("survey.dwg", ".dwg", copied: true),
             Item("letter.docx", ".docx", copied: true),
+            Item("scan.png", ".png", copied: true),
+            Item("map.tif", ".tif", copied: true),
             Item("archive.zip", ".zip", copied: true),
             Item("bundle.rar", ".rar", copied: true),
-            Item("image.png", ".png", copied: true),
+            Item("bitmap.bmp", ".bmp", copied: true),
             Item("missing.pdf", ".pdf", copied: false)
         };
 
         var options = SupportingDocumentWorkspaceProjection.BuildReadableSupportingDocumentOptions(sourceFiles);
 
-        TestAssert.Equal("letter.docx,notes.txt,plan.pdf,survey.dwg", string.Join(",", options.Select(item => item.FileLabel)), "Supporting document viewer should list copied PDF/TXT/DOC/DOCX/DWG files only.");
+        TestAssert.Equal("letter.docx,map.tif,notes.txt,plan.pdf,scan.png,survey.dwg", string.Join(",", options.Select(item => item.FileLabel)), "Supporting document viewer should list copied PDF/TXT/DOC/DOCX/DWG/image files only.");
     }
 
     public static void SupportingDocumentsTabTitleUsesTransactionNumber()

@@ -57,6 +57,110 @@
     "allow_replace_transaction_scope": true,
     "require_active_map": true
   },
+  "working_map": {
+    "enabled": true,
+    "map_name": "Jamaica",
+    "create_if_missing": true,
+    "reuse_existing": true,
+    "activate_on_transaction_load": true,
+    "cleanup_transaction_groups_on_close": true,
+    "default_basemap": "esri_world_imagery",
+    "alternate_basemaps": [
+      "open_basemap",
+      "world_topographic"
+    ],
+    "default_extent": {
+      "name": "Jamaica",
+      "wkid": 4326,
+      "xmin": -78.6,
+      "ymin": 17.6,
+      "xmax": -76.1,
+      "ymax": 18.7
+    },
+    "zoom_to_transaction_parish": true,
+    "parish_lookup": {
+      "enabled": true,
+      "layer_name": "Parishes",
+      "name_field": "parish",
+      "required": false,
+      "known_extents": {}
+    },
+    "reference_layers": [
+      {
+        "name": "Esri World Imagery",
+        "source_type": "map_service_url",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+        "group": "Basemaps",
+        "basemap_role": "imagery",
+        "required": false,
+        "visible": true,
+        "order": 0,
+        "opacity": 1.0
+      },
+      {
+        "name": "Open Basemap Streets",
+        "source_type": "vector_tile_style_url",
+        "url": "https://www.arcgis.com/sharing/rest/content/items/643f29ef5ab94511912dd337c9e1a13b/resources/styles/root.json",
+        "group": "Basemaps",
+        "basemap_role": "streets",
+        "required": false,
+        "visible": false,
+        "order": 1,
+        "opacity": 1.0
+      },
+      {
+        "name": "World Topographic",
+        "source_type": "vector_tile_style_url",
+        "url": "https://cdn.arcgis.com/sharing/rest/content/items/7dc6cea0b1764a1f9af2e679f642f0f5/resources/styles/root.json",
+        "group": "Basemaps",
+        "basemap_role": "topographic",
+        "required": false,
+        "visible": false,
+        "order": 2,
+        "opacity": 1.0
+      },
+      {
+        "name": "World Hillshade",
+        "source_type": "map_service_url",
+        "url": "https://services.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer",
+        "group": "Terrain Reference",
+        "required": false,
+        "visible": false,
+        "order": 5,
+        "opacity": 0.65
+      },
+      {
+        "name": "Legal_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": true,
+        "visible": true,
+        "order": 10,
+        "opacity": 1.0
+      },
+      {
+        "name": "Fiscal_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": false,
+        "visible": false,
+        "order": 20,
+        "opacity": 1.0
+      },
+      {
+        "name": "Survey_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Survey_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": false,
+        "visible": false,
+        "order": 30,
+        "opacity": 1.0
+      }
+    ]
+  },
   "gsi_server_url": "",
   "gsi_username": "",
   "gsi_password_mode": "environment_variable",

@@ -714,11 +714,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string ExtractionReviewActionLabel =>
         HasLoadedReviewData
-            ? "Continue in Points and Lines Validation Tool"
+            ? "Continue Validation"
             : workflowSession.ExtractionResultRequiresDecision
                 ? "Re-process extraction"
                 : workflowSession.HasUsableExtractionReview
-                    ? "Continue in Points and Lines Validation Tool"
+                    ? "Continue Validation"
                     : HasExtractionReviewArtifact(workflowSession)
                         ? "Open review data"
                         : "Run";
@@ -4468,6 +4468,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
         RefreshWorkflowProperties();
+        TryShowSupportingDocumentsDockpane();
+    }
+
+    private static void TryShowSupportingDocumentsDockpane()
+    {
+        if (!SupportingDocumentsDockpaneViewModel.TryShow())
+        {
+            Debug.WriteLine("Supporting Documents dockpane could not be activated while syncing the loaded workflow case.");
+        }
     }
 
     private string ResolveActiveReviewParcelGroupId()

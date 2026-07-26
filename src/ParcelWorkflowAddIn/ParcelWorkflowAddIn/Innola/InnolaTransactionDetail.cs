@@ -12,4 +12,5 @@ public sealed record InnolaTransactionDetail(
     string? AssignedGroup,
     string? OwnerUser,
     string? ClaimStatus,
-    IReadOnlyList<InnolaAttachmentMetadata> Attachments);
+    IReadOnlyList<InnolaAttachmentMetadata> Attachments,
+    string? Parish = null);

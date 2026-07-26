@@ -2,6 +2,7 @@ using ParcelWorkflowAddIn.Settings;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Innola;
 using System.IO;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Settings;
 
@@ -174,10 +175,11 @@ internal static class SettingsWorkspaceServiceTests
         var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(rulesPath, settingsPath));
         var document = service.Load(settingsPath);
 
-        TestAssert.Equal(6, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
+        TestAssert.Equal(7, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
         TestAssert.Equal("General", SettingsWorkspaceDocument.TabNames[0], "First tab mismatch.");
         TestAssert.Equal("Structure Rules", SettingsWorkspaceDocument.TabNames[3], "Rules tab should use Structure Rules language.");
-        TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[5], "Last tab mismatch.");
+        TestAssert.Equal("Map Layers", SettingsWorkspaceDocument.TabNames[5], "Map layer tab mismatch.");
+        TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[6], "Last tab mismatch.");
         TestAssert.Equal("https://example.local/", document.InnolaServerUrl, "Innola server mismatch.");
         TestAssert.Equal("openai", document.OcrEngine, "OCR engine mismatch.");
         TestAssert.True(document.OpenAiEnabled, "OpenAI enabled mismatch.");
@@ -196,6 +198,7 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("https://gsi.local/", document.GsiServerUrl, "GSI server mismatch.");
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
+        TestAssert.True(document.WorkingMapLayers.Any(layer => layer.Name == "Open Basemap Streets"), "Working map layers should load configurable public basemap entries.");
         TestAssert.Equal(19, document.PreflightRules.Count, "Structure rules count mismatch.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Check Rules"), "Required DWG CAD layer rule should appear under Structure Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_source_presence" && rule.SectionName == "Georeference Check Rules"), "Georeference rule should appear under Georeference Check Rules.");
@@ -218,6 +221,33 @@ internal static class SettingsWorkspaceServiceTests
               "innola_process_step": "parcel_workflow",
               "supported_transaction_types": ["Plan Examination"],
               "compute_workflow_stages": ["Compute Survey Plan"],
+              "working_map": {
+                "enabled": true,
+                "map_name": "Jamaica",
+                "reference_layers": [
+                  {
+                    "name": "Open Basemap Streets",
+                    "source_type": "vector_tile_style_url",
+                    "url": "https://www.arcgis.com/sharing/rest/content/items/643f29ef5ab94511912dd337c9e1a13b/resources/styles/root.json",
+                    "group": "Basemaps",
+                    "basemap_role": "streets",
+                    "required": false,
+                    "visible": false,
+                    "order": 1,
+                    "opacity": 1.0
+                  },
+                  {
+                    "name": "Legal_Cadastre",
+                    "source_type": "map_service_url",
+                    "url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/MapServer",
+                    "group": "Cadastre Reference",
+                    "required": true,
+                    "visible": true,
+                    "order": 10,
+                    "opacity": 1.0
+                  }
+                ]
+              },
               "output_adapter_timeout_seconds": 120,
               "gsi_password_mode": "environment_variable",
               "gsi_password_env_var": "GSI_PASSWORD"
@@ -402,6 +432,17 @@ internal static class SettingsWorkspaceServiceTests
         document.GsiUsername = "gsi-user";
         document.GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect;
         document.GsiPassword = "masked-secret";
+        var openBasemapLayer = document.WorkingMapLayers.Single(layer => layer.Name == "Open Basemap Streets");
+        openBasemapLayer.Visible = true;
+        openBasemapLayer.Group = "Basemap Options";
+        document.WorkingMapLayers.Add(new EditableWorkingMapLayer
+        {
+            Name = "Custom Parish Reference",
+            SourceType = "map_service_url",
+            Url = "https://example.local/server/rest/services/Parishes/MapServer",
+            Group = "Administrative Reference",
+            Visible = false
+        });
         document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe").Enabled = false;
         document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe").Severity = "warning";
 
@@ -440,6 +481,16 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal(@"D:\cases\maintenance.json", reloaded.EnterpriseWorkingAdminLastMaintenanceAuditPath, "Enterprise admin audit path save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeDirect, reloaded.GsiPasswordMode, "GSI password mode save mismatch.");
         TestAssert.Equal("masked-secret", reloaded.GsiPassword, "GSI password save mismatch.");
+        var reloadedOpenBasemapLayer = reloaded.WorkingMapLayers.Single(layer => layer.Name == "Open Basemap Streets");
+        TestAssert.True(reloadedOpenBasemapLayer.Visible, "Open basemap visibility should save from settings.");
+        TestAssert.Equal("Basemap Options", reloadedOpenBasemapLayer.Group, "Open basemap group should save from settings.");
+        TestAssert.True(reloaded.WorkingMapLayers.Any(layer => layer.Name == "Custom Parish Reference"), "New working map layers should save from settings.");
+        using var savedJson = JsonDocument.Parse(File.ReadAllText(settingsPath));
+        var savedOpenBasemap = savedJson.RootElement.GetProperty("working_map").GetProperty("reference_layers")
+            .EnumerateArray()
+            .Single(layer => layer.GetProperty("name").GetString() == "Open Basemap Streets");
+        TestAssert.Equal("streets", savedOpenBasemap.GetProperty("basemap_role").GetString(), "Settings save should preserve existing hidden basemap metadata.");
+        TestAssert.Equal(1, savedOpenBasemap.GetProperty("order").GetInt32(), "Settings save should preserve existing layer order metadata.");
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
         TestAssert.True(!savedRule.Enabled, "Preflight rule enabled state save mismatch.");
         TestAssert.Equal("warning", savedRule.Severity, "Preflight rule severity save mismatch.");

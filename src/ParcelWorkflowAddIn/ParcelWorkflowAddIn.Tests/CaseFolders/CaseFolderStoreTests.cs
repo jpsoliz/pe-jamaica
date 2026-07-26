@@ -190,6 +190,23 @@ internal static class CaseFolderStoreTests
         TestAssert.True(result.RecoverabilityIssues.Any(issue => issue.Code == "missing_copied_source_file" && !issue.BlocksReopen), "Missing copied source file should be reported as non-blocking recoverability issue.");
     }
 
+    public static void ReopenCaseFolderDiscoversSourceFolderFilesWhenManifestSourceListIsEmpty()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => new DateTimeOffset(2026, 7, 26, 0, 0, 0, TimeSpan.Zero), () => "run-test");
+        var created = store.CreateCase(tempRoot.Path, "100000854", "tester");
+        var sourcePath = Path.Combine(created.Layout!.SourceDirectory, "DOC_PLAN_481131_J.pdf");
+        File.WriteAllText(sourcePath, "%PDF copied source placeholder");
+
+        var result = store.ReopenCaseFolder(created.Layout.RootDirectory);
+
+        TestAssert.True(result.Success, "Case with copied source files should reopen even when manifest source_files is empty.");
+        TestAssert.Equal(1, result.SourceFiles.Count, "Reopen should discover copied source files directly from the case source folder.");
+        TestAssert.Equal("DOC_PLAN_481131_J.pdf", result.SourceFiles[0].FileName, "Discovered source file should be exposed to the Supporting Documents tab.");
+        TestAssert.True(result.SourceFiles[0].Copied, "Discovered source file should be treated as a copied case document.");
+        TestAssert.True(result.RecoverabilityIssues.Any(issue => issue.Code == "source_files_discovered_from_folder" && !issue.BlocksReopen), "Folder fallback should be reported as a non-blocking restore warning.");
+    }
+
     public static void ReopenCaseFolderReportsUnknownWorkflowState()
     {
         using var tempRoot = new TempDirectory();

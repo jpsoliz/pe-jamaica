@@ -43,8 +43,21 @@ internal static class OutputMapReviewStylingTests
         TestAssert.True(
             OutputMapReviewStyling.ParcelPointOutlineSize > OutputMapReviewStyling.ParcelPointFillSize,
             "Parcel points should render as black border with white fill.");
-        TestAssert.Equal(60, OutputMapReviewStyling.ParcelPolygonLayerTransparencyPercent, "Parcel polygon layer transparency should be set to 60%.");
+        TestAssert.Equal(70, OutputMapReviewStyling.ParcelPolygonLayerTransparencyPercent, "Parcel polygon layer transparency should be set to 70%.");
         TestAssert.Equal(100, OutputMapReviewStyling.ParcelPolygonFillOpacityPercent, "Parcel polygon fill color should remain opaque so layer-level transparency controls the visible result.");
+    }
+
+    public static void ComputedParcelReviewAppliesLabelsBeforeRendererTransparency()
+    {
+        var source = File.ReadAllText(FindSourceFile("IOutputMapIntegrationService.cs"));
+        var polygonBlockStart = source.IndexOf("if (role == ReviewLayerRole.Polygons)", StringComparison.Ordinal);
+        var polygonBlockEnd = source.IndexOf("private static bool ShouldApplyLabels", StringComparison.Ordinal);
+
+        TestAssert.True(polygonBlockStart >= 0 && polygonBlockEnd > polygonBlockStart, "Polygon styling block should be present.");
+        var polygonBlock = source[polygonBlockStart..polygonBlockEnd];
+        TestAssert.True(
+            polygonBlock.IndexOf("ApplyPolygonLabels", StringComparison.Ordinal) < polygonBlock.IndexOf("ApplyPolygonRenderer", StringComparison.Ordinal),
+            "Polygon labels must be applied before renderer/transparency so label SetDefinition cannot overwrite the 70% polygon transparency.");
     }
 
     public static void BuildSuccessMessageUsesNonFabricReviewLanguage()
@@ -92,6 +105,31 @@ internal static class OutputMapReviewStylingTests
 
         TestAssert.True(message.Contains("COGO-ready non-fabric review layers", StringComparison.OrdinalIgnoreCase), "Normal mode message should describe the non-fabric review workspace.");
         TestAssert.True(message.Contains("Diagnostics: map load", StringComparison.OrdinalIgnoreCase), "Success message should include the output diagnostics summary.");
+    }
+
+    private static string FindSourceFile(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var sourceRoot = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn");
+            if (Directory.Exists(sourceRoot))
+            {
+                var candidate = Directory.EnumerateFiles(sourceRoot, fileName, SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate {fileName} from the test output directory.");
     }
 
     public static void BuildTransactionGroupLayerNameUsesTransactionNumber()

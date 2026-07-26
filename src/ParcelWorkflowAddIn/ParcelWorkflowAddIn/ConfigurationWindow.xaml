@@ -1170,6 +1170,46 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+      <TabItem Header="Map Layers">
+        <Grid Margin="0,8,0,0">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <TextBlock Text="Configure the reference and basemap layers prepared when a transaction opens. Layer planner metadata such as required, order, opacity, and basemap role is preserved when existing rows are edited."
+                     Foreground="#53636A"
+                     Margin="0,0,0,12"
+                     TextWrapping="Wrap" />
+
+          <DataGrid Grid.Row="1"
+                    x:Name="WorkingMapLayersGrid"
+                    AutoGenerateColumns="False"
+                    CanUserAddRows="True"
+                    CanUserDeleteRows="True"
+                    HeadersVisibility="Column"
+                    GridLinesVisibility="Horizontal"
+                    RowHeaderWidth="0">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Name"
+                                  Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="150" />
+              <DataGridTextColumn Header="Source type"
+                                  Binding="{Binding SourceType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="140" />
+              <DataGridTextColumn Header="URL"
+                                  Binding="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="*" />
+              <DataGridTextColumn Header="Group"
+                                  Binding="{Binding Group, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="150" />
+              <DataGridCheckBoxColumn Header="Visible"
+                                      Binding="{Binding Visible, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="80" />
+            </DataGrid.Columns>
+          </DataGrid>
+        </Grid>
+      </TabItem>
       <TabItem Header="Enterprise Admin">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="10">

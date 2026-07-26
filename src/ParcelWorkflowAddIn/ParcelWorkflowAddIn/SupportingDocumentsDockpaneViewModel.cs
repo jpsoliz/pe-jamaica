@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Review;
 using System.Diagnostics;
 using System.IO;
+using System.Windows.Media;
 using System.Windows.Input;
 
 namespace ParcelWorkflowAddIn;
@@ -19,6 +20,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     private readonly RelayCommand openSupportingDocumentCommand;
     private readonly RelayCommand revealSupportingDocumentCommand;
     private readonly RelayCommand reloadSupportingDocumentViewerCommand;
+    private readonly RenderedReviewDocumentService renderedReviewDocumentService = new();
     private string? activeCaseFolderPath;
     private string? transactionId;
     private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
@@ -27,6 +29,9 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     private ReviewSourceViewerState supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
     private string supportingDocumentTextContent = string.Empty;
     private string? supportingDocumentTextLoadError;
+    private string supportingDocumentViewerStatusDetail = "No supporting document selected.";
+    private ImageSource? supportingDocumentViewerImageSource;
+    private CancellationTokenSource? supportingDocumentViewerLoadCancellation;
 
     public SupportingDocumentsDockpaneViewModel()
     {
@@ -39,7 +44,27 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
 
     internal static void Show()
     {
-        FrameworkApplication.DockPaneManager.Find(DockPaneId)?.Activate();
+        _ = TryShow();
+    }
+
+    internal static bool TryShow()
+    {
+        try
+        {
+            if (FrameworkApplication.DockPaneManager.Find(DockPaneId) is not SupportingDocumentsDockpaneViewModel pane)
+            {
+                return false;
+            }
+
+            pane.ReloadActiveCaseFolder();
+            pane.Activate();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Supporting Documents dockpane activation failed: {exception.Message}");
+            return false;
+        }
     }
 
     internal static void HideIfOpen()
@@ -71,6 +96,27 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     public IReadOnlyList<SourceFileListItem> SupportingDocumentOptions => SupportingDocumentWorkspaceProjection.BuildReadableSupportingDocumentOptions(sourceFileItems);
 
     public bool HasSupportingDocumentOptions => SupportingDocumentOptions.Count > 0;
+
+    public string SupportingDocumentListSummary
+    {
+        get
+        {
+            if (!HasActiveCase)
+            {
+                return "Load a transaction to review supporting documents.";
+            }
+
+            var readableCount = SupportingDocumentOptions.Count;
+            if (readableCount > 0)
+            {
+                return $"{readableCount} readable document(s) available.";
+            }
+
+            return sourceFileItems.Count == 0
+                ? "No copied source files were restored for this transaction."
+                : $"{sourceFileItems.Count} copied source file(s), 0 readable document(s) for this panel.";
+        }
+    }
 
     public string SupportingDocumentEmptyText =>
         HasActiveCase
@@ -118,8 +164,13 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
             ? supportingDocumentTextLoadError
             : supportingDocumentViewerState.FallbackMessage;
 
+    public string SupportingDocumentViewerStatusDetail => supportingDocumentViewerStatusDetail;
+
     public bool SupportingDocumentViewerUsesBrowser =>
         supportingDocumentViewerState.UsesBrowser && !string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath);
+
+    public bool SupportingDocumentViewerUsesImage =>
+        supportingDocumentViewerState.UsesImage && supportingDocumentViewerImageSource is not null;
 
     public bool SupportingDocumentViewerShowsText =>
         SelectedSupportingDocument is { } selected
@@ -129,10 +180,12 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
 
     public bool SupportingDocumentViewerShowsFallback =>
         SelectedSupportingDocument is null
-        || (!SupportingDocumentViewerUsesBrowser && !SupportingDocumentViewerShowsText)
+        || (!SupportingDocumentViewerUsesBrowser && !SupportingDocumentViewerUsesImage && !SupportingDocumentViewerShowsText)
         || !string.IsNullOrWhiteSpace(supportingDocumentTextLoadError);
 
     public string SupportingDocumentTextContent => supportingDocumentTextContent;
+
+    public ImageSource? SupportingDocumentViewerImageSource => supportingDocumentViewerImageSource;
 
     public Uri? SupportingDocumentViewerBrowserUri =>
         SupportingDocumentViewerUsesBrowser && !string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath)
@@ -147,7 +200,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     private void SyncLoadedCaseFolder()
     {
         var loadedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath;
-        if (string.IsNullOrWhiteSpace(loadedCaseFolderPath) || !ShellState.IsSelectedTransactionComputeWorkflow)
+        if (string.IsNullOrWhiteSpace(loadedCaseFolderPath))
         {
             Reset();
             HideIfOpen();
@@ -174,7 +227,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         RefreshProperties();
     }
 
-    private void ReloadActiveCaseFolder()
+    internal void ReloadActiveCaseFolder()
     {
         var priorSelectedPath = selectedSupportingDocumentCopiedPath;
         activeCaseFolderPath = null;
@@ -213,6 +266,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         {
             selectedSupportingDocumentCopiedPath = null;
             supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+            supportingDocumentViewerStatusDetail = SupportingDocumentEmptyText;
             return;
         }
 
@@ -223,6 +277,51 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         }
 
         supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(sourceFile, InnolaTransactionSettings.Load().PdfViewerMode);
+        supportingDocumentViewerImageSource = null;
+        supportingDocumentViewerStatusDetail = string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath)
+            ? supportingDocumentViewerState.FallbackMessage
+            : $"Selected file: {supportingDocumentViewerState.FullPath}";
+        RefreshSupportingDocumentImageViewer(sourceFile);
+    }
+
+    private void RefreshSupportingDocumentImageViewer(SourceFileCopyResult sourceFile)
+    {
+        supportingDocumentViewerLoadCancellation?.Cancel();
+        supportingDocumentViewerLoadCancellation?.Dispose();
+        supportingDocumentViewerLoadCancellation = null;
+
+        if (!supportingDocumentViewerState.UsesImage || string.IsNullOrWhiteSpace(supportingDocumentViewerState.FullPath))
+        {
+            return;
+        }
+
+        var sourcePath = supportingDocumentViewerState.FullPath;
+        supportingDocumentViewerLoadCancellation = new CancellationTokenSource();
+        _ = RefreshSupportingDocumentImageViewerAsync(sourceFile, sourcePath, supportingDocumentViewerLoadCancellation.Token);
+    }
+
+    private async Task RefreshSupportingDocumentImageViewerAsync(SourceFileCopyResult sourceFile, string sourcePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            MarkSupportingDocumentRenderAttempt($"Rendering {sourceFile.FileName} from {sourcePath}");
+            var renderedPage = await renderedReviewDocumentService.RenderAsync(sourcePath, 0, cancellationToken).ConfigureAwait(true);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            supportingDocumentViewerImageSource = renderedPage.ImageSource;
+            MarkSupportingDocumentRenderReady("Embedded image loaded.");
+            RefreshProperties();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            MarkSupportingDocumentRenderFailure(exception.Message);
+        }
     }
 
     private void LoadSupportingDocumentText(SourceFileCopyResult sourceFile)
@@ -305,12 +404,32 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         supportingDocumentViewerState = ReviewSourceViewerStateProjector.BuildRenderFailure(
             SelectedSupportingDocument?.SourceFile,
             failureReason);
+        supportingDocumentViewerImageSource = null;
+        supportingDocumentViewerStatusDetail = supportingDocumentViewerState.FallbackMessage;
         RefreshProperties();
+    }
+
+    internal void MarkSupportingDocumentRenderAttempt(string message)
+    {
+        supportingDocumentViewerStatusDetail = message;
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerStatusDetail));
+    }
+
+    internal void MarkSupportingDocumentRenderReady(string message)
+    {
+        supportingDocumentViewerStatusDetail = message;
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerStatusDetail));
     }
 
     private void ReloadSupportingDocumentViewer()
     {
         supportingDocumentViewerReloadVersion++;
+        ReloadActiveCaseFolder();
+        if (activeCaseFolderPath is not null)
+        {
+            return;
+        }
+
         RefreshSupportingDocumentViewerState();
         RefreshProperties();
     }
@@ -325,6 +444,11 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         supportingDocumentViewerState = ReviewSourceViewerStateProjector.Build(null, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
         supportingDocumentTextContent = string.Empty;
         supportingDocumentTextLoadError = null;
+        supportingDocumentViewerImageSource = null;
+        supportingDocumentViewerLoadCancellation?.Cancel();
+        supportingDocumentViewerLoadCancellation?.Dispose();
+        supportingDocumentViewerLoadCancellation = null;
+        supportingDocumentViewerStatusDetail = "No supporting document selected.";
         RefreshProperties();
     }
 
@@ -336,17 +460,21 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(HasActiveCase));
         NotifyPropertyChanged(nameof(SupportingDocumentOptions));
         NotifyPropertyChanged(nameof(HasSupportingDocumentOptions));
+        NotifyPropertyChanged(nameof(SupportingDocumentListSummary));
         NotifyPropertyChanged(nameof(SupportingDocumentEmptyText));
         NotifyPropertyChanged(nameof(SelectedSupportingDocument));
         NotifyPropertyChanged(nameof(SelectedSupportingDocumentTitle));
         NotifyPropertyChanged(nameof(SelectedSupportingDocumentPath));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerModeLabel));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerLoadState));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerStatusDetail));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerFallbackMessage));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerUsesBrowser));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerUsesImage));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerShowsText));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerShowsFallback));
         NotifyPropertyChanged(nameof(SupportingDocumentTextContent));
+        NotifyPropertyChanged(nameof(SupportingDocumentViewerImageSource));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerBrowserUri));
         NotifyPropertyChanged(nameof(SupportingDocumentViewerNavigationKey));
         openSupportingDocumentCommand.RaiseCanExecuteChanged();

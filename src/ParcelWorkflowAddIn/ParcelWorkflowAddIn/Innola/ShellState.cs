@@ -1,6 +1,7 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Maps;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Net.Http;
 
@@ -38,7 +39,8 @@ internal static class ShellState
         new WorkflowRuleResolver(),
         WorkflowRuleSettingsLoader.Load,
         ResumePackages,
-        () => Settings.CaseFolderOutputRoot);
+        () => Settings.CaseFolderOutputRoot,
+        workingMapPreparationService: new ArcGisWorkingMapPreparationService());
 
     public static InnolaTransactionLifecycleCoordinator LifecycleCoordinator { get; } = new(
         Session,

@@ -39,6 +39,71 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(caseText.Contains("PDF", StringComparison.OrdinalIgnoreCase), "Fixture content should be written.");
     }
 
+    public static async Task InProgressTaskAssignedToCurrentUserReopensWithWorkflowActionsEnabled()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(
+            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+                with { Status = InnolaTransactionStatus.InProgress, AssignedUser = "Test User (tester)" },
+            FixedNow());
+        var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, "In-progress transaction load should succeed.");
+        TestAssert.True(manager.CanOpenParcelWorkflow, "In-progress transaction assigned to the current user should reopen with workflow actions enabled.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Lifecycle should be restored as active in progress.");
+        TestAssert.Equal("tester", manager.LifecycleOwnerUser, "Reopened active owner should be normalized to the logged-in username.");
+    }
+
+    public static async Task InProgressTaskAssignedToCurrentGroupReopensWithWorkflowActionsEnabled()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detail = Detail(
+            "task-100000004",
+            "100000004",
+            "TR100000004",
+            "Computation Check",
+            DefaultAttachments()) with { AssignedUser = null, AssignedGroup = "survey" };
+        manager.SelectTransaction(
+            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+                with { Status = InnolaTransactionStatus.InProgress, AssignedUser = null, AssignedGroup = "survey" },
+            FixedNow());
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, "In-progress group transaction load should succeed.");
+        TestAssert.True(manager.CanOpenParcelWorkflow, "In-progress transaction assigned to one of the current user's groups should reopen with workflow actions enabled.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Lifecycle should be restored as active in progress.");
+        TestAssert.Equal("tester", manager.LifecycleOwnerUser, "Reopened group task owner should be normalized to the logged-in username.");
+    }
+
+    public static async Task InProgressTaskAssignedToAnotherUserStaysLoadedOnly()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detail = Detail(
+            "task-100000004",
+            "100000004",
+            "TR100000004",
+            "Computation Check",
+            DefaultAttachments()) with { AssignedUser = "other.user", AssignedGroup = "survey" };
+        manager.SelectTransaction(
+            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+                with { Status = InnolaTransactionStatus.InProgress, AssignedUser = "other.user" },
+            FixedNow());
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, "In-progress transaction load should still load source files for review.");
+        TestAssert.True(!manager.CanOpenParcelWorkflow, "In-progress transaction assigned to another user should not enable workflow actions.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.Loaded, manager.LifecycleStatus, "Lifecycle should remain loaded when ownership does not match current user.");
+    }
+
     public static async Task LoadWithoutLoggedInSessionFailsWithoutEnablingParcelWorkflow()
     {
         using var tempRoot = new TempDirectory();
@@ -178,11 +243,22 @@ internal static class InnolaTransactionLoadServiceTests
         var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
 
         var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial same transaction Case Folder load should succeed.");
+        var firstManifest = ManifestSerializer.Read(first.Layout!.ManifestPath);
+        ManifestSerializer.Write(first.Layout.ManifestPath, firstManifest with
+        {
+            Payload = firstManifest.Payload with
+            {
+                WorkflowState = "review_approved"
+            }
+        });
+
         var second = await service.LoadSelectedTransactionAsync();
 
         TestAssert.True(first.Success && second.Success, "Existing same transaction Case Folder should reopen.");
         var manifest = ManifestSerializer.Read(second.Layout!.ManifestPath);
         TestAssert.Equal(2, manifest.Payload.AttachmentProvenance!.Count, "Reopen should not duplicate provenance.");
+        TestAssert.Equal("review_approved", manifest.Payload.WorkflowState, "Reopening an existing Case Folder must preserve the saved workflow stage.");
     }
 
     public static async Task ResumePackageRestoresSavedWorkflowState()

@@ -1394,6 +1394,49 @@ so that I can use parcel-aware editing, COGO, snapping, and review tools on the 
 **When** downstream promotion stories run  
 **Then** they can treat the working Parcel Fabric as the collaborative review surface while still applying separate final authoritative completion rules.
 
+### Story 5.26: Configure Default Working Map And Reference Layers
+
+As a cadastral examiner loading a Compute transaction,  
+I want the add-in to create or prepare the required ArcGIS Pro working map from configuration,  
+so that I do not need to manually open a predefined project before I can process, validate, and review the transaction.
+
+**Acceptance Criteria:**
+
+**Given** a supported Compute transaction is loaded and no active map exists  
+**When** the transaction load completes  
+**Then** the add-in creates or opens the configured working map without requiring a predefined `.aprx` project.
+
+**Given** the configured working map already exists  
+**When** another transaction is loaded  
+**Then** the add-in reuses the existing map and avoids duplicate maps or duplicate reference layers.
+
+**Given** basemap configuration includes Esri imagery and OpenStreetMap/Open Basemap options  
+**When** the map is prepared  
+**Then** the add-in applies the configured default basemap and treats the other as an available alternate rather than stacking incompatible basemaps.
+**And** public Esri World Imagery, World Topographic/Open Basemap vector styles, and World Hillshade can be configured by URL.
+
+**Given** operational reference layers such as `Legal_Cadastre` are configured  
+**When** the map is prepared  
+**Then** the add-in adds missing layers from configured URLs/item references, applies drawing order, grouping, visibility, and optional opacity, and does not duplicate existing layers.
+**And** `Fiscal_Cadastre`, `Legal_Cadastre`, and `Survey_Cadastre` MapServer URLs can be configured as operational reference layers.
+
+**Given** the transaction includes a parish value  
+**When** the map is prepared  
+**Then** the add-in zooms to the matching parish extent using a configured parish/reference layer, falling back to a default Jamaica extent when no match is found.
+
+**Given** optional reference layers are configured hidden by default  
+**When** the map is prepared  
+**Then** those layers appear in Contents unchecked so the examiner can turn them on manually.
+**And** optional context layers may include civic features, fishing beaches, hotels and attractions, enclosure boundaries, communities, major roads, contours, river network, and parishes when REST/Portal layer references are configured.
+
+**Given** a required configured layer cannot be loaded  
+**When** map preparation runs  
+**Then** the workflow reports a clear blocker or warning without leaking credentials, while optional layer failures do not block the transaction.
+
+**Given** a transaction is cancelled, suspended, finalized, or closed  
+**When** cleanup runs  
+**Then** transaction-specific review groups are removed while shared base/reference layers can remain for the next transaction.
+
 ## Appendix: Implementation & Testability Contract
 
 This appendix is binding for all implementation stories. It preserves the approved user-value backlog while defining the shared contracts needed to make the ArcGIS Pro add-in, Python/ArcPy processing wrappers, Case Folder artifacts, and QA fixtures consistent.

@@ -11,6 +11,7 @@ public sealed class SettingsWorkspaceDocument
         "Innola Integration",
         "Structure Rules",
         "Spatial Workspace",
+        "Map Layers",
         "Enterprise Admin"
     };
 
@@ -127,6 +128,40 @@ public sealed class SettingsWorkspaceDocument
 
     public List<EditablePreflightRule> PreflightRules { get; set; } = new();
     public List<EditableReadinessRule> ReadinessRules { get; set; } = new();
+    public List<EditableWorkingMapLayer> WorkingMapLayers { get; set; } = new();
+}
+
+public sealed class EditableWorkingMapLayer
+{
+    public string Name { get; set; } = string.Empty;
+    public string SourceType { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string Group { get; set; } = string.Empty;
+    public bool Visible { get; set; }
+
+    public static EditableWorkingMapLayer FromSettings(Innola.WorkingMapReferenceLayerSettings settings)
+    {
+        return new EditableWorkingMapLayer
+        {
+            Name = settings.Name,
+            SourceType = settings.SourceType,
+            Url = settings.Url,
+            Group = settings.Group,
+            Visible = settings.Visible
+        };
+    }
+
+    public EditableWorkingMapLayer Clone()
+    {
+        return new EditableWorkingMapLayer
+        {
+            Name = Name,
+            SourceType = SourceType,
+            Url = Url,
+            Group = Group,
+            Visible = Visible
+        };
+    }
 }
 
 public sealed class EditablePreflightRule

@@ -784,7 +784,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 }
 
                 pane.Activate();
-                SupportingDocumentsDockpaneViewModel.Show();
+                TryShowSupportingDocumentsDockpane(requestedTransactionNumber);
             };
 
             if (System.Windows.Application.Current is null)
@@ -804,6 +804,19 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         catch (Exception)
         {
             StatusText = string.Format(CultureInfo.CurrentCulture, notFoundMessage, requestedTransactionNumber);
+        }
+    }
+
+    private void TryShowSupportingDocumentsDockpane(string requestedTransactionNumber)
+    {
+        if (!SupportingDocumentsDockpaneViewModel.TryShow())
+        {
+            Debug.WriteLine(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Supporting Documents dockpane activation failed for transaction {0}.",
+                    requestedTransactionNumber));
+            StatusText = $"Transaction {requestedTransactionNumber} loaded. Supporting Documents could not open automatically; continue in Parcel Workflow.";
         }
     }
 

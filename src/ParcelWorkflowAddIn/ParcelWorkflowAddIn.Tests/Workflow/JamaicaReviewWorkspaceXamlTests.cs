@@ -49,18 +49,25 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "Supporting Documents should be registered as a separate ArcGIS dockpane instead of an internal workflow tab.");
         TestAssert.True(
             xaml.Contains("ItemsSource=\"{Binding SupportingDocumentOptions}\"", StringComparison.Ordinal)
-            && xaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal),
-            "Supporting Documents workspace should expose a readable document picker.");
+            && xaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal)
+            && xaml.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
+            && !xaml.Contains("x:Class=\"ParcelWorkflowAddIn.SupportingDocumentsDockpane\"", StringComparison.Ordinal),
+            "Supporting Documents workspace should expose a readable document picker and visible restore diagnostics.");
         TestAssert.True(
-            xaml.Contains("x:Name=\"SupportingDocumentPdfWebView\"", StringComparison.Ordinal)
+            xaml.Contains("x:Name=\"SupportingDocumentPdfViewerHost\"", StringComparison.Ordinal)
+            && xaml.Contains("SupportingDocumentViewerUsesImage", StringComparison.Ordinal)
+            && xaml.Contains("SupportingDocumentViewerImageSource", StringComparison.Ordinal)
             && xaml.Contains("SupportingDocumentTextContent", StringComparison.Ordinal)
             && xaml.Contains("TextWrapping=\"NoWrap\"", StringComparison.Ordinal)
             && xaml.Contains("SupportingDocumentViewerShowsFallback", StringComparison.Ordinal),
-            "Supporting Documents workspace should include embedded PDF, horizontally scrollable TXT, and fallback viewer modes.");
+            "Supporting Documents workspace should include image, lazy embedded PDF, horizontally scrollable TXT, and fallback viewer modes.");
         TestAssert.True(
-            codeBehind.Contains("SupportingDocumentPdfWebView", StringComparison.Ordinal)
+            codeBehind.Contains("Application.LoadComponent", StringComparison.Ordinal)
+            && codeBehind.Contains("EnsureSupportingDocumentPdfWebView", StringComparison.Ordinal)
+            && codeBehind.Contains("new WebView2", StringComparison.Ordinal)
+            && codeBehind.Contains("newViewModel.ReloadActiveCaseFolder();", StringComparison.Ordinal)
             && codeBehind.Contains("RefreshSupportingDocumentPdfViewerAsync", StringComparison.Ordinal),
-            "Supporting Documents PDF viewer should be wired through the dockpane code-behind.");
+            "Supporting Documents content should use the same ArcGIS dockpane XAML load pattern as the compute pane, create the PDF viewer lazily, and reload active case data when the view model is attached.");
         TestAssert.True(
             codeBehind.Contains("MarkSupportingDocumentRenderFailure", StringComparison.Ordinal)
             && codeBehind.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal)
@@ -68,22 +75,30 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "Supporting Documents PDF viewer should fall back to an error state when embedded rendering fails.");
         TestAssert.True(
             viewModelCode.Contains("ShellState.Session.SessionChanged", StringComparison.Ordinal)
+            && !viewModelCode.Contains("|| !ShellState.IsSelectedTransactionComputeWorkflow", StringComparison.Ordinal)
+            && viewModelCode.Contains("pane.ReloadActiveCaseFolder();", StringComparison.Ordinal)
+            && viewModelCode.Contains("RenderedReviewDocumentService", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentViewerUsesImage", StringComparison.Ordinal)
             && viewModelCode.Contains("Caption = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
             && viewModelCode.Contains("TabText = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
             && viewModelCode.Contains("SourceFileActionService", StringComparison.Ordinal)
             && viewModelCode.Contains("ExecuteSourceFileAction", StringComparison.Ordinal)
             && viewModelCode.Contains("RefreshIfOpen()", StringComparison.Ordinal)
             && viewModelCode.Contains("HideIfOpen();", StringComparison.Ordinal)
-            && transactionPanelCode.Contains("SupportingDocumentsDockpaneViewModel.Show();", StringComparison.Ordinal)
+            && transactionPanelCode.Contains("TryShowSupportingDocumentsDockpane(requestedTransactionNumber);", StringComparison.Ordinal)
+            && transactionPanelCode.Contains("Supporting Documents could not open automatically; continue in Parcel Workflow.", StringComparison.Ordinal)
             && transactionPanelCode.Contains("supportingDocumentsRefresher();", StringComparison.Ordinal)
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
+            && workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
-            "Supporting Documents dockpane should validate file actions, use the active transaction title, appear and refresh with a loaded transaction, and clear or hide when the transaction is closed.");
+            "Supporting Documents dockpane should validate file actions, use the active transaction title, appear best-effort and refresh with a loaded transaction, and clear or hide when the transaction is closed.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
-            projectionCode.Contains("return extension is \".pdf\" or \".txt\" or \".doc\" or \".docx\" or \".dwg\";", StringComparison.Ordinal)
+            projectionCode.Contains("or \".png\"", StringComparison.Ordinal)
+            && projectionCode.Contains("or \".tiff\"", StringComparison.Ordinal)
             && projectionCode.Contains("item.SourceFile.Copied && !string.IsNullOrWhiteSpace(item.SourceFile.CopiedPath)", StringComparison.Ordinal),
-            "Supporting Documents options should hide archives and unsupported or uncopied files.");
+            "Supporting Documents options should hide archives and unsupported or uncopied files while allowing documents and renderable images.");
     }
 
     public static void PxaReviewCloseAndEditDialogsUseOwnedWindows()

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Maps;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -21,6 +22,7 @@ public sealed class InnolaTransactionLoadService
     private readonly CaseResumePackageService resumePackageService;
     private readonly Func<string> getOutputRoot;
     private readonly Func<DateTimeOffset> getUtcNow;
+    private readonly IWorkingMapPreparationService workingMapPreparationService;
 
     public InnolaTransactionLoadService(
         InnolaSessionManager sessionManager,
@@ -29,7 +31,8 @@ public sealed class InnolaTransactionLoadService
         AttachmentSourceFileWriter attachmentWriter,
         SourceInputProfileDetector profileDetector,
         Func<string> getOutputRoot,
-        Func<DateTimeOffset>? getUtcNow = null)
+        Func<DateTimeOffset>? getUtcNow = null,
+        IWorkingMapPreparationService? workingMapPreparationService = null)
         : this(
             sessionManager,
             detailService,
@@ -40,7 +43,8 @@ public sealed class InnolaTransactionLoadService
             WorkflowRuleSettingsLoader.Load,
             new CaseResumePackageService(),
             getOutputRoot,
-            getUtcNow)
+            getUtcNow,
+            workingMapPreparationService)
     {
     }
 
@@ -54,7 +58,8 @@ public sealed class InnolaTransactionLoadService
         Func<WorkflowRuleSettings> getWorkflowRuleSettings,
         CaseResumePackageService resumePackageService,
         Func<string> getOutputRoot,
-        Func<DateTimeOffset>? getUtcNow = null)
+        Func<DateTimeOffset>? getUtcNow = null,
+        IWorkingMapPreparationService? workingMapPreparationService = null)
     {
         this.sessionManager = sessionManager;
         this.detailService = detailService;
@@ -66,6 +71,7 @@ public sealed class InnolaTransactionLoadService
         this.resumePackageService = resumePackageService;
         this.getOutputRoot = getOutputRoot;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
+        this.workingMapPreparationService = workingMapPreparationService ?? NoOpWorkingMapPreparationService.Instance;
     }
 
     public async Task<InnolaTransactionLoadResult> LoadSelectedTransactionAsync(CancellationToken cancellationToken = default)
@@ -225,6 +231,9 @@ public sealed class InnolaTransactionLoadService
         var supportingDocumentOptions = manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
         var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(sourceFiles, supportingDocumentOptions);
         var detectedProfile = profileDetector.Detect(effectiveSourceFiles);
+        var workflowState = resumeAttachment is null && !hasExistingCaseFolder
+            ? "intake"
+            : manifest.Payload.WorkflowState;
         var resolvedTransactionProfile = ComputeTransactionTypeProfileCatalog.ToResolved(transactionProfile);
         var ruleResolution = workflowRuleResolver.Resolve(new WorkflowRuleResolutionContext(
             detail.CaseType ?? selected.TransactionType,
@@ -239,9 +248,9 @@ public sealed class InnolaTransactionLoadService
         {
             Payload = manifest.Payload with
             {
-                WorkflowState = resumeAttachment is null ? "intake" : manifest.Payload.WorkflowState,
+                WorkflowState = workflowState,
                 SourceFiles = sourceFiles,
-                DetectedProfile = resumeAttachment is null ? detectedProfile : manifest.Payload.DetectedProfile ?? detectedProfile,
+                DetectedProfile = manifest.Payload.DetectedProfile ?? detectedProfile,
                 InnolaTransaction = new ManifestInnolaTransaction(
                     detail.TransactionId,
                     detail.TransactionNumber,
@@ -280,11 +289,24 @@ public sealed class InnolaTransactionLoadService
         }
 
         var wasRestoredFromResumePackage = resumeAttachment is not null;
+        var workingMapResult = await workingMapPreparationService
+            .PrepareWorkingMapAsync(transactionSettings.WorkingMap, detail, cancellationToken)
+            .ConfigureAwait(false);
+        if (!workingMapResult.Success)
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure(workingMapResult.Message);
+        }
+
         sessionManager.MarkTransactionLoaded(detail.TransactionNumber, layout.RootDirectory, loadedAt, wasRestoredFromResumePackage, restoredResumeManifest?.SavedAt);
+        RestoreAlreadyInProgressLifecycle(session, selected, detail, loadedAt);
         var loadModePrefix = resumeAttachment is null ? "Opened new case for" : "Restored from saved case for";
+        var mapWarningSuffix = workingMapResult.Warnings.Count == 0
+            ? string.Empty
+            : $" Working map warning: {string.Join(" ", workingMapResult.Warnings)}";
         var status = ruleResolution.Success
-            ? $"{loadModePrefix} {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}"
-            : $"{loadModePrefix} {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}";
+            ? $"{loadModePrefix} {detail.TransactionNumber} into Case Folder with workflow rule {ruleResolution.ScriptPlan!.RuleId}: {layout.RootDirectory}{mapWarningSuffix}"
+            : $"{loadModePrefix} {detail.TransactionNumber} into Case Folder. {ruleResolution.ErrorMessage}{mapWarningSuffix}";
         return InnolaTransactionLoadResult.Succeeded(layout, detectedProfile, wasRestoredFromResumePackage, status);
     }
 
@@ -311,6 +333,96 @@ public sealed class InnolaTransactionLoadService
         }
 
         return null;
+    }
+
+    private void RestoreAlreadyInProgressLifecycle(
+        InnolaSession session,
+        SelectedInnolaTransaction selected,
+        InnolaTransactionDetail detail,
+        string loadedAt)
+    {
+        if (selected.Status != InnolaTransactionStatus.InProgress || !CanRestoreActiveLifecycle(session.User, selected, detail))
+        {
+            return;
+        }
+
+        sessionManager.MarkTransactionClaimed(
+            session.User.Username,
+            session.User.DisplayName,
+            loadedAt,
+            $"Reopened active transaction {detail.TransactionNumber}.");
+    }
+
+    private static bool CanRestoreActiveLifecycle(
+        InnolaUserContext user,
+        SelectedInnolaTransaction selected,
+        InnolaTransactionDetail detail)
+    {
+        var assignments = new[]
+            {
+                detail.OwnerUser,
+                detail.AssignedUser,
+                selected.AssignedUser
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        var assignmentArray = assignments.ToArray();
+        if (assignmentArray.Length > 0)
+        {
+            return assignmentArray.Any(assignment => MatchesCurrentUser(user, assignment!));
+        }
+
+        var groupAssignments = new[]
+            {
+                detail.AssignedGroup,
+                selected.AssignedGroup
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        return groupAssignments.Any(assignment => MatchesCurrentGroup(user, assignment!));
+    }
+
+    private static bool MatchesCurrentUser(InnolaUserContext user, string assignedUser)
+    {
+        var userTokens = new[]
+            {
+                user.Username,
+                user.DisplayName
+            }
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .Select(token => token!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return SplitAssignmentTokens(assignedUser).Any(token =>
+            userTokens.Any(userToken => IsUserTokenMatch(token, userToken)));
+    }
+
+    private static IEnumerable<string> SplitAssignmentTokens(string value)
+    {
+        return value
+            .Split(new[] { ',', ';', '|', '/', '\\', '(', ')', '[', ']', '{', '}' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(token => token.Split(new[] { " - ", ":", "=", "\t", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(token => !string.IsNullOrWhiteSpace(token));
+    }
+
+    private static bool IsUserTokenMatch(string token, string username)
+    {
+        return token.Equals(username, StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + "@", StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + " ", StringComparison.OrdinalIgnoreCase)
+            || token.StartsWith(username + " - ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesCurrentGroup(InnolaUserContext user, string assignedGroup)
+    {
+        var userGroups = user.Groups
+            .Concat(user.Roles)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return SplitAssignmentTokens(assignedGroup).Any(token =>
+            userGroups.Any(group => token.Equals(group, StringComparison.OrdinalIgnoreCase)));
     }
 
     private async Task<ResumePackageRestoreResult> RestoreCaseFolderFromResumePackageAsync(

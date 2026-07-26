@@ -10,7 +10,8 @@ namespace ParcelWorkflowAddIn;
 public class SupportingDocumentsDockpane : UserControl
 {
     private string? lastSupportingDocumentNavigationKey;
-    private readonly WebView2? supportingDocumentPdfWebView;
+    private WebView2? supportingDocumentPdfWebView;
+    private Grid? supportingDocumentPdfViewerHost;
 
     public SupportingDocumentsDockpane()
     {
@@ -21,7 +22,7 @@ public class SupportingDocumentsDockpane : UserControl
         Resources = loadedControl.Resources;
         Background = loadedControl.Background;
         FontFamily = loadedControl.FontFamily;
-        supportingDocumentPdfWebView = loadedControl.FindName("SupportingDocumentPdfWebView") as WebView2;
+        supportingDocumentPdfViewerHost = loadedControl.FindName("SupportingDocumentPdfViewerHost") as Grid;
 
         Loaded += OnLoaded;
         DataContextChanged += OnDataContextChanged;
@@ -42,6 +43,7 @@ public class SupportingDocumentsDockpane : UserControl
         if (e.NewValue is SupportingDocumentsDockpaneViewModel newViewModel)
         {
             newViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            newViewModel.ReloadActiveCaseFolder();
         }
     }
 
@@ -75,7 +77,7 @@ public class SupportingDocumentsDockpane : UserControl
             return;
         }
 
-        if (supportingDocumentPdfWebView is null || DataContext is not SupportingDocumentsDockpaneViewModel viewModel)
+        if (DataContext is not SupportingDocumentsDockpaneViewModel viewModel)
         {
             return;
         }
@@ -83,7 +85,7 @@ public class SupportingDocumentsDockpane : UserControl
         if (!viewModel.SupportingDocumentViewerUsesBrowser || viewModel.SupportingDocumentViewerBrowserUri is null)
         {
             lastSupportingDocumentNavigationKey = null;
-            if (supportingDocumentPdfWebView.CoreWebView2 is not null)
+            if (supportingDocumentPdfWebView?.CoreWebView2 is not null)
             {
                 supportingDocumentPdfWebView.CoreWebView2.Navigate("about:blank");
             }
@@ -99,23 +101,22 @@ public class SupportingDocumentsDockpane : UserControl
         var navigationKey = viewModel.SupportingDocumentViewerNavigationKey;
         if (!string.IsNullOrWhiteSpace(navigationKey)
             && string.Equals(lastSupportingDocumentNavigationKey, navigationKey, StringComparison.Ordinal)
-            && supportingDocumentPdfWebView.CoreWebView2 is not null)
+            && supportingDocumentPdfWebView?.CoreWebView2 is not null)
         {
             return;
         }
 
-        supportingDocumentPdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
-        {
-            UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "SupportingDocumentsDockpane")
-        };
-
         try
         {
-            await supportingDocumentPdfWebView.EnsureCoreWebView2Async();
-            if (supportingDocumentPdfWebView.CoreWebView2 is not null)
+            viewModel.MarkSupportingDocumentRenderAttempt(
+                $"Loading {viewModel.SelectedSupportingDocument?.FileLabel ?? "selected document"} from {viewModel.SupportingDocumentViewerBrowserUri.LocalPath}");
+            var pdfWebView = EnsureSupportingDocumentPdfWebView();
+            await pdfWebView.EnsureCoreWebView2Async();
+            if (pdfWebView.CoreWebView2 is not null)
             {
-                supportingDocumentPdfWebView.CoreWebView2.Navigate(viewModel.SupportingDocumentViewerBrowserUri.AbsoluteUri);
+                pdfWebView.CoreWebView2.Navigate(viewModel.SupportingDocumentViewerBrowserUri.AbsoluteUri);
                 lastSupportingDocumentNavigationKey = navigationKey;
+                viewModel.MarkSupportingDocumentRenderAttempt("PDF navigation requested.");
             }
         }
         catch (Exception exception) when (exception is InvalidOperationException
@@ -128,6 +129,48 @@ public class SupportingDocumentsDockpane : UserControl
         {
             MarkRenderFailure(exception);
         }
+    }
+
+    private WebView2 EnsureSupportingDocumentPdfWebView()
+    {
+        if (supportingDocumentPdfViewerHost is null)
+        {
+            throw new InvalidOperationException("Supporting Documents PDF viewer host was not initialized.");
+        }
+
+        if (supportingDocumentPdfWebView is not null)
+        {
+            return supportingDocumentPdfWebView;
+        }
+
+        supportingDocumentPdfWebView = new WebView2
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            CreationProperties = new CoreWebView2CreationProperties
+            {
+                UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "SupportingDocumentsDockpane")
+            }
+        };
+        supportingDocumentPdfWebView.NavigationCompleted += OnSupportingDocumentNavigationCompleted;
+        supportingDocumentPdfViewerHost!.Children.Add(supportingDocumentPdfWebView);
+        return supportingDocumentPdfWebView;
+    }
+
+    private void OnSupportingDocumentNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (DataContext is not SupportingDocumentsDockpaneViewModel viewModel)
+        {
+            return;
+        }
+
+        if (e.IsSuccess)
+        {
+            viewModel.MarkSupportingDocumentRenderReady("Embedded PDF loaded.");
+            return;
+        }
+
+        viewModel.MarkSupportingDocumentRenderFailure($"PDF navigation failed: {e.WebErrorStatus}.");
     }
 
     private void MarkRenderFailure(Exception exception)

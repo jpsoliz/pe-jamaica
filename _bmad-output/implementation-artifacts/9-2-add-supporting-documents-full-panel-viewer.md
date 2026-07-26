@@ -112,6 +112,8 @@ ArcGIS Pro dockpane tabs
 - [x] [Review][Patch] Supporting Documents pane does not refresh after documents are added to the already-loaded transaction [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs:1003]
 - [x] [Review][Patch] Missing copied files make Open folder a no-op instead of helping inspect the case/source folder [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/SupportingDocumentsDockpaneViewModel.cs:239]
 - [x] [Review][Patch] DOCX/DWG fallback test uses missing files and can pass for the wrong reason [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/SupportingDocumentsWorkspaceTests.cs:49]
+- [x] [Review][Patch] Supporting Documents dockpane can open with a blank content surface because the view code-behind manually loads a second XAML control instead of using the dockpane's own `x:Class`/`InitializeComponent` binding path [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/SupportingDocumentsDockpane.xaml.cs:13]
+- [x] [Review][Patch] Supporting Documents pane can still render blank when WebView2 is constructed eagerly in XAML; create the PDF viewer lazily and show restored/readable document counts so data-load issues are visible [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/SupportingDocumentsDockpane.xaml:63]
 
 ## Developer Notes
 
@@ -144,6 +146,7 @@ ArcGIS Pro dockpane tabs
 - Added supporting-document viewer states: embedded PDF browser, read-only TXT surface, and preview-unavailable fallback with open/reveal actions.
 - Added tests for workspace bindings, supported-file filtering, transaction label formatting, PDF viewer projection, and TXT/DOCX/DWG mode routing.
 - Patched review findings: safe open/reveal actions, malformed copied-path handling, WebView2 render fallback, no-wrap TXT preview, add-documents refresh, missing copied-file reveal fallback, and stronger DOCX/DWG tests.
+- Patched the blank-pane risk again by lazy-creating WebView2 only when a PDF is selected and by showing restored/readable document counts in the pane header.
 
 ### File List
 
@@ -166,4 +169,7 @@ ArcGIS Pro dockpane tabs
 
 - 2026-07-26: Implemented Supporting Documents full-panel viewer and tests.
 - 2026-07-26: Corrected Supporting Documents placement to a separate ArcGIS Pro dockpane tab and updated launch/cleanup wiring.
+- 2026-07-26: Patched transaction launch so Supporting Documents activation is best-effort and cannot block Parcel Workflow from opening or continuing.
+- 2026-07-26: Patched the Supporting Documents reload icon to re-read the active case folder so documents copied after pane activation appear in the picker/viewer.
 - 2026-07-26: Patched code-review findings and marked story complete after Release build and 509-test validation.
+- 2026-07-26: Hardened Supporting Documents against blank dockpane content by replacing eager WebView2 XAML construction with a lazy PDF host and visible document-count diagnostics.

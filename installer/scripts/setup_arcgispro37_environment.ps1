@@ -69,6 +69,22 @@ trap {
         if (-not [string]::IsNullOrWhiteSpace($stackTrace)) {
             Add-Content -LiteralPath $fallbackLog -Value $stackTrace
         }
+
+        $status = [ordered]@{
+            schema_version = 'parcel_workflow_arcgispro37_environment_status_v1'
+            generated_at = (Get-Date).ToString('o')
+            success = $false
+            install_root = $InstallRoot
+            arcgis_pro_root = $ArcGisProRoot
+            environment_name = $EnvironmentName
+            target_python_exe = ''
+            conda_requirements = $CondaRequirements
+            pip_requirements = $PipRequirements
+            failed_phase = $script:CurrentSetupPhase
+            error = $message
+            log_path = $script:CurrentSetupLogPath
+        }
+        $status | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fallbackLogRoot 'setup_arcgispro37_environment_status.json') -Encoding UTF8
     }
     catch {
         $trapWriteMessage = if ($_ -and $_.Exception) { $_.Exception.Message } else { $_.ToString() }
@@ -172,6 +188,8 @@ function Invoke-LoggedCommand {
 
     Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] START $Phase"
     Add-Content -LiteralPath $LogPath -Value "$FilePath $($Arguments -join ' ')"
+    $script:CurrentSetupPhase = $Phase
+    $script:CurrentSetupLogPath = $LogPath
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
@@ -184,9 +202,11 @@ function Invoke-LoggedCommand {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     [void]$process.Start()
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     $exitCode = $process.ExitCode
 
     if (-not [string]::IsNullOrWhiteSpace($stdout)) {
@@ -201,6 +221,7 @@ function Invoke-LoggedCommand {
     if ($exitCode -ne 0) {
         throw "$Phase failed with exit code $exitCode. See log: $LogPath"
     }
+    $script:CurrentSetupPhase = ''
 }
 
 function ConvertTo-ProcessArgumentString {

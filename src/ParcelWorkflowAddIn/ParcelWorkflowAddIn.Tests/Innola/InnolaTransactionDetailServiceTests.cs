@@ -55,6 +55,44 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.Contains("/api/rest/scanning/source/source-1/body", StringComparison.Ordinal), "Scanning source body endpoint mismatch.");
     }
 
+    public static async Task LiveDetailMapsParishFromTaskOrNestedMetadata()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                {
+                  "id": "task-1",
+                  "name": "Computation Check",
+                  "transactionId": "tx-1",
+                  "transactionCode": "PE",
+                  "transaction": {
+                    "id": "tx-1",
+                    "transactionNo": "TR100000872",
+                    "transactionType": "Compute Survey Plan"
+                  },
+                  "application": {
+                    "parish": "St. Elizabeth",
+                    "sources": [
+                      {
+                        "id": "source-1",
+                        "fileName": "plan_map.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "plan",
+                        "size": 4
+                      }
+                    ]
+                  }
+                }
+                """, "application/json"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = Session();
+        var selected = new SelectedInnolaTransaction("task-1", "tx-1", "TR100000872", "Computation Check", "parcel_workflow", DateTimeOffset.UtcNow);
+
+        var detail = await service.GetTransactionDetailAsync(session, selected);
+
+        TestAssert.True(detail.Success, "Detail should load.");
+        TestAssert.Equal("St. Elizabeth", detail.Detail?.Parish, "Parish should map from nested application metadata.");
+    }
+
     public static async Task LiveDetailFallsBackToTransactionSourcesAndDownloadsBody()
     {
         var handler = new SequenceHandler(

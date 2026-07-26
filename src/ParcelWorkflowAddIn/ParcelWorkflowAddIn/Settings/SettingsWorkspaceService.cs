@@ -151,6 +151,9 @@ public sealed class SettingsWorkspaceService
             EnterpriseParcelFabricOverlaySource = transactionSettings.EnterpriseParcelFabricReview.OverlaySource,
             EnterpriseParcelFabricAllowReplaceTransactionScope = transactionSettings.EnterpriseParcelFabricReview.AllowReplaceTransactionScope,
             EnterpriseParcelFabricRequireActiveMap = transactionSettings.EnterpriseParcelFabricReview.RequireActiveMap,
+            WorkingMapLayers = transactionSettings.WorkingMap.ReferenceLayers
+                .Select(EditableWorkingMapLayer.FromSettings)
+                .ToList(),
             GsiServerUrl = ReadString(settingsRoot, "gsi_server_url") ?? string.Empty,
             GsiUsername = ReadString(settingsRoot, "gsi_username") ?? string.Empty,
             GsiPasswordMode = NormalizeGsiPasswordMode(ReadString(settingsRoot, "gsi_password_mode")),
@@ -476,6 +479,7 @@ public sealed class SettingsWorkspaceService
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
         root["enterprise_working_admin"] = CreateEnterpriseWorkingAdminNode(document);
         root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
+        root["working_map"] = CreateWorkingMapNode(document, root["working_map"] as JsonObject);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
         SetString(root, "gsi_username", document.GsiUsername);
         SetString(root, "gsi_password_mode", NormalizeGsiPasswordMode(document.GsiPasswordMode));
@@ -789,6 +793,100 @@ public sealed class SettingsWorkspaceService
             ["allow_replace_transaction_scope"] = document.EnterpriseParcelFabricAllowReplaceTransactionScope,
             ["require_active_map"] = document.EnterpriseParcelFabricRequireActiveMap
         };
+    }
+
+    private static JsonObject CreateWorkingMapNode(SettingsWorkspaceDocument document, JsonObject? existingRoot)
+    {
+        var workingMap = existingRoot?.DeepClone() as JsonObject ?? CreateDefaultWorkingMapNode();
+        workingMap["reference_layers"] = CreateWorkingMapReferenceLayerArray(document.WorkingMapLayers, existingRoot);
+        return workingMap;
+    }
+
+    private static JsonObject CreateDefaultWorkingMapNode()
+    {
+        var defaults = WorkingMapSettings.Default;
+        return new JsonObject
+        {
+            ["enabled"] = defaults.Enabled,
+            ["map_name"] = defaults.MapName,
+            ["create_if_missing"] = defaults.CreateIfMissing,
+            ["reuse_existing"] = defaults.ReuseExisting,
+            ["activate_on_transaction_load"] = defaults.ActivateOnTransactionLoad,
+            ["cleanup_transaction_groups_on_close"] = defaults.CleanupTransactionGroupsOnClose,
+            ["default_basemap"] = defaults.DefaultBasemap,
+            ["alternate_basemaps"] = CreateStringArray(defaults.AlternateBasemaps),
+            ["default_extent"] = new JsonObject
+            {
+                ["name"] = defaults.DefaultExtent.Name,
+                ["wkid"] = defaults.DefaultExtent.Wkid,
+                ["xmin"] = defaults.DefaultExtent.XMin,
+                ["ymin"] = defaults.DefaultExtent.YMin,
+                ["xmax"] = defaults.DefaultExtent.XMax,
+                ["ymax"] = defaults.DefaultExtent.YMax
+            },
+            ["zoom_to_transaction_parish"] = defaults.ZoomToTransactionParish,
+            ["parish_lookup"] = new JsonObject
+            {
+                ["enabled"] = defaults.ParishLookup.Enabled,
+                ["layer_name"] = defaults.ParishLookup.LayerName,
+                ["name_field"] = defaults.ParishLookup.NameField,
+                ["required"] = defaults.ParishLookup.Required,
+                ["known_extents"] = new JsonObject()
+            }
+        };
+    }
+
+    private static JsonArray CreateWorkingMapReferenceLayerArray(
+        IReadOnlyList<EditableWorkingMapLayer> layers,
+        JsonObject? existingWorkingMapRoot)
+    {
+        var existingLayers = ReadExistingWorkingMapLayers(existingWorkingMapRoot);
+        var nodes = layers
+            .Where(layer => !string.IsNullOrWhiteSpace(layer.Name)
+                || !string.IsNullOrWhiteSpace(layer.SourceType)
+                || !string.IsNullOrWhiteSpace(layer.Url)
+                || !string.IsNullOrWhiteSpace(layer.Group))
+            .Select((layer, index) =>
+            {
+                var node = existingLayers.TryGetValue(layer.Name.Trim(), out var existing)
+                    ? existing.DeepClone() as JsonObject ?? new JsonObject()
+                    : new JsonObject
+                    {
+                        ["required"] = false,
+                        ["order"] = index,
+                        ["opacity"] = 1.0
+                    };
+
+                node["name"] = layer.Name.Trim();
+                node["source_type"] = layer.SourceType.Trim();
+                node["url"] = layer.Url.Trim();
+                node["group"] = layer.Group.Trim();
+                node["visible"] = layer.Visible;
+                return (JsonNode?)node;
+            })
+            .ToArray();
+
+        return new JsonArray(nodes);
+    }
+
+    private static Dictionary<string, JsonObject> ReadExistingWorkingMapLayers(JsonObject? existingWorkingMapRoot)
+    {
+        var layers = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+        if (existingWorkingMapRoot?["reference_layers"] is not JsonArray existingArray)
+        {
+            return layers;
+        }
+
+        foreach (var item in existingArray.OfType<JsonObject>())
+        {
+            var name = ReadString(item, "name");
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                layers[name.Trim()] = item;
+            }
+        }
+
+        return layers;
     }
 
     private sealed record ReadinessSettingsRule(

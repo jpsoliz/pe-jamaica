@@ -98,7 +98,7 @@ development_status:
   4-9-add-georeference-check-stage-and-reportable-stage-findings-model: in-progress
   epic-4-retrospective: optional
 
-  epic-5: backlog
+  epic-5: in-progress
   5-1-generate-local-output-package-from-passed-validation: backlog
   5-2-create-gdb-feature-classes-and-geojson: backlog
   5-3-generate-reports-and-diagnostic-logs: backlog
@@ -117,6 +117,7 @@ development_status:
   5-21-add-optional-cogo-attributes-and-labels-to-non-fabric-spatial-output-layers: review
   5-25b-polish-points-validation-tool-visual-hierarchy-and-preview-readability: review
   5-25c-refine-points-validation-preview-modes-and-rule-status-readability: review
+  5-26-configure-default-working-map-and-reference-layers: in-progress
   epic-5-retrospective: optional
 
   epic-6: backlog
