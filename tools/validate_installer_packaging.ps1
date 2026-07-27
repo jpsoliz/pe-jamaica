@@ -57,11 +57,11 @@ Assert-Path $summaryScriptPath
 Assert-Path $condaRequirementsPath
 Assert-Path $pipRequirementsPath
 
-$condaRequirementNames = @(Get-Content -LiteralPath $condaRequirementsPath | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
-foreach ($requiredCondaPackage in @('openai', 'openai-clip', 'open-clip-torch')) {
+$pipRequirementNames = @(Get-Content -LiteralPath $pipRequirementsPath | ForEach-Object { ($_.Trim() -split '[=<>~! ]', 2)[0] } | Where-Object { $_ -and -not $_.StartsWith('#') })
+foreach ($requiredPipPackage in @('openai', 'openai-clip', 'open-clip-torch')) {
     Assert-True `
-        -Condition ($condaRequirementNames -contains $requiredCondaPackage) `
-        -Message "Conda requirements do not include required package: $requiredCondaPackage"
+        -Condition ($pipRequirementNames -contains $requiredPipPackage) `
+        -Message "Pip requirements do not include required package: $requiredPipPackage"
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -89,9 +89,10 @@ Assert-True -Condition ($condaCloneCommands.Count -eq 1) -Message 'Environment s
 $phaseNames = @($plan.commands | ForEach-Object { $_.phase })
 $condaInstallIndex = [array]::IndexOf($phaseNames, 'conda-install-requirements')
 $pipInstallIndex = [array]::IndexOf($phaseNames, 'pip-install-requirements')
-Assert-True -Condition ($condaInstallIndex -ge 0) -Message 'Conda requirements install was not planned.'
 Assert-True -Condition ($pipInstallIndex -ge 0) -Message 'Pip requirements install was not planned.'
-Assert-True -Condition ($condaInstallIndex -lt $pipInstallIndex) -Message 'Conda requirements must be installed before pip requirements.'
+if ($condaInstallIndex -ge 0) {
+    Assert-True -Condition ($condaInstallIndex -lt $pipInstallIndex) -Message 'Conda requirements must be installed before pip requirements.'
+}
 Assert-True -Condition ($phaseNames -contains 'verify-ai-survey-package-versions') -Message 'Package version verification was not planned.'
 
 & $summaryScriptPath `

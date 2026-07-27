@@ -150,7 +150,12 @@ if (Test-NonEmptyFile $setupStatusPath) {
         $setupStatus = Get-Content -LiteralPath $setupStatusPath -Raw | ConvertFrom-Json
         $setupSuccess = [bool]$setupStatus.success
         if ($setupSuccess) {
-            $setupDetail = "Environment '$($setupStatus.environment_name)' configured."
+            $setupWarnings = @($setupStatus.warnings | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            if ($setupWarnings.Count -gt 0) {
+                $setupDetail = "Environment '$($setupStatus.environment_name)' configured with warning(s): $($setupWarnings -join ' ')"
+            } else {
+                $setupDetail = "Environment '$($setupStatus.environment_name)' configured."
+            }
         } else {
             $setupDetail = 'Environment status file exists but does not report success.'
         }

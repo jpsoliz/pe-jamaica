@@ -137,7 +137,7 @@ $manifest = [ordered]@{
         'Do not copy an ArcGIS Pro 3.6 cloned Python environment to an ArcGIS Pro 3.7 target computer.',
         'The target installer first uses the target computer ArcGIS Pro Python at C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe.',
         'The configured add-in should point to C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-survey-ai\python.exe after setup.',
-        'The target installer verifies that the cloned Python can import arcpy, openai, clip, open_clip, flask, pdfplumber, and pypdfium2.',
+        'The target installer requires openai, flask, pdfplumber, and pypdfium2 imports; verifies OpenAI/CLIP package versions; and logs arcpy/clip/open_clip imports as diagnostics.',
         'The WiX installer can set OPENAI_API_KEY from a supplied OpenAiApiKey variable; the package stores only the environment variable name in add-in settings.',
         'The target installer sets case_folder_output_root to C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases in the configured add-in package.',
         'Run scripts/install_target_tools.ps1 or scripts/install_target_tools.bat on the target computer to copy tools and configure the add-in package paths.',

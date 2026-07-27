@@ -36,6 +36,9 @@ internal static class JamaicaReviewWorkspaceXamlTests
         var xaml = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpane.xaml"));
         var codeBehind = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpane.xaml.cs"));
         var viewModelCode = File.ReadAllText(FindSourceFile("SupportingDocumentsDockpaneViewModel.cs"));
+        var windowXaml = File.ReadAllText(FindSourceFile("SupportingDocumentsWindow.xaml"));
+        var windowCode = File.ReadAllText(FindSourceFile("SupportingDocumentsWindow.xaml.cs"));
+        var diagnosticsCode = File.ReadAllText(FindSourceFile("SupportingDocumentsDiagnostics.cs"));
         var daml = File.ReadAllText(FindSourceFile("Config.daml"));
         var transactionPanelCode = File.ReadAllText(FindSourceFile("TransactionPanelState.cs"));
         var transactionPanelDockpaneCode = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
@@ -43,48 +46,76 @@ internal static class JamaicaReviewWorkspaceXamlTests
 
         TestAssert.True(
             !workflowXaml.Contains("Header=\"{Binding SupportingDocumentsTabTitle}\"", StringComparison.Ordinal)
-            && daml.Contains("id=\"ParcelWorkflow_SupportingDocumentsDockpane\"", StringComparison.Ordinal)
-            && daml.Contains("caption=\"Supporting Documents\"", StringComparison.Ordinal)
-            && daml.Contains("className=\"SupportingDocumentsDockpaneViewModel\"", StringComparison.Ordinal),
-            "Supporting Documents should be registered as a separate ArcGIS dockpane instead of an internal workflow tab.");
+            && !daml.Contains("id=\"ParcelWorkflow_SupportingDocumentsDockpane\"", StringComparison.Ordinal)
+            && !daml.Contains("content className=\"SupportingDocumentsDockpane\"", StringComparison.Ordinal)
+            && xaml.Contains("x:Class=\"ParcelWorkflowAddIn.SupportingDocumentsDockpane\"", StringComparison.Ordinal)
+            && viewModelCode.Contains("ParcelWorkflow_SupportingDocumentsDockpane", StringComparison.Ordinal),
+            "Supporting Documents should not be registered as an ArcGIS dockpane while the Pro dockpane host renders blank; the transaction document UI is hosted in the WPF window.");
         TestAssert.True(
-            xaml.Contains("ItemsSource=\"{Binding SupportingDocumentOptions}\"", StringComparison.Ordinal)
-            && xaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal)
-            && xaml.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
-            && !xaml.Contains("x:Class=\"ParcelWorkflowAddIn.SupportingDocumentsDockpane\"", StringComparison.Ordinal),
-            "Supporting Documents workspace should expose a readable document picker and visible restore diagnostics.");
+            windowXaml.Contains("ItemsSource=\"{Binding SupportingDocumentOptions}\"", StringComparison.Ordinal)
+            && windowXaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal)
+            && windowXaml.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
+            && windowXaml.Contains("ToolTip=\"Refresh supporting documents\"", StringComparison.Ordinal)
+            && !windowXaml.Contains("Command=\"{Binding OpenSupportingDocumentCommand}\"", StringComparison.Ordinal)
+            && !windowXaml.Contains("Command=\"{Binding RevealSupportingDocumentCommand}\"", StringComparison.Ordinal)
+            && !windowXaml.Contains("Content=\"Open\"", StringComparison.Ordinal)
+            && !windowXaml.Contains("Content=\"Show file\"", StringComparison.Ordinal)
+            && windowXaml.Contains("x:Name=\"SupportingDocumentPdfViewerHost\"", StringComparison.Ordinal)
+            && !windowXaml.Contains("<wv2:WebView2", StringComparison.Ordinal),
+            "Supporting Documents WPF window should expose a readable document picker with refresh only and lazy-host the full PDF viewer.");
         TestAssert.True(
-            xaml.Contains("x:Name=\"SupportingDocumentPdfViewerHost\"", StringComparison.Ordinal)
-            && xaml.Contains("SupportingDocumentViewerUsesImage", StringComparison.Ordinal)
-            && xaml.Contains("SupportingDocumentViewerImageSource", StringComparison.Ordinal)
-            && xaml.Contains("SupportingDocumentTextContent", StringComparison.Ordinal)
-            && xaml.Contains("TextWrapping=\"NoWrap\"", StringComparison.Ordinal)
-            && xaml.Contains("SupportingDocumentViewerShowsFallback", StringComparison.Ordinal),
-            "Supporting Documents workspace should include image, lazy embedded PDF, horizontally scrollable TXT, and fallback viewer modes.");
+            !xaml.Contains("SupportingDocumentPdfViewerHost", StringComparison.Ordinal)
+            && !xaml.Contains("SupportingDocumentViewerUsesImage", StringComparison.Ordinal)
+            && !xaml.Contains("SupportingDocumentViewerImageSource", StringComparison.Ordinal)
+            && !xaml.Contains("SupportingDocumentTextContent", StringComparison.Ordinal)
+            && !xaml.Contains("WebView2", StringComparison.Ordinal),
+            "Supporting Documents dockpane should stay lightweight and avoid embedded viewer controls.");
         TestAssert.True(
-            codeBehind.Contains("Application.LoadComponent", StringComparison.Ordinal)
-            && codeBehind.Contains("EnsureSupportingDocumentPdfWebView", StringComparison.Ordinal)
-            && codeBehind.Contains("new WebView2", StringComparison.Ordinal)
+            codeBehind.Contains("InitializeComponent();", StringComparison.Ordinal)
             && codeBehind.Contains("newViewModel.ReloadActiveCaseFolder();", StringComparison.Ordinal)
-            && codeBehind.Contains("RefreshSupportingDocumentPdfViewerAsync", StringComparison.Ordinal),
-            "Supporting Documents content should use the same ArcGIS dockpane XAML load pattern as the compute pane, create the PDF viewer lazily, and reload active case data when the view model is attached.");
+            && codeBehind.Contains("SupportingDocumentsDiagnostics.Write", StringComparison.Ordinal)
+            && codeBehind.Contains("Supporting Documents lightweight dockpane constructed.", StringComparison.Ordinal)
+            && !codeBehind.Contains("WebView2", StringComparison.Ordinal)
+            && !codeBehind.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal),
+            "Supporting Documents dockpane content should use lightweight compiled XAML, log content construction, and reload active case data when the view model is attached.");
         TestAssert.True(
-            codeBehind.Contains("MarkSupportingDocumentRenderFailure", StringComparison.Ordinal)
-            && codeBehind.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal)
-            && codeBehind.Contains("COMException", StringComparison.Ordinal),
-            "Supporting Documents PDF viewer should fall back to an error state when embedded rendering fails.");
+            windowCode.Contains("SupportingDocumentsWindow : ProWindow", StringComparison.Ordinal)
+            && windowCode.Contains("ShowOrActivate", StringComparison.Ordinal)
+            && windowCode.Contains("ActiveViewModel", StringComparison.Ordinal)
+            && windowCode.Contains("new WebView2", StringComparison.Ordinal)
+            && windowCode.Contains("SupportingDocumentPdfViewerHost.Children.Add", StringComparison.Ordinal)
+            && windowCode.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal)
+            && windowCode.Contains("webView.CoreWebView2.Navigate", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentsWindow.ShowOrActivate(viewModel);", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentsWindow.ActiveViewModel ?? new SupportingDocumentsDockpaneViewModel()", StringComparison.Ordinal)
+            && !viewModelCode.Contains("DockPaneManager.Find", StringComparison.Ordinal)
+            && !viewModelCode.Contains(": DockPane", StringComparison.Ordinal),
+            "Supporting Documents should open the WPF ProWindow viewer with a plain view model and lazy PDF control, and must not activate or manually construct an ArcGIS dockpane host.");
+        TestAssert.True(
+            windowCode.Contains("MarkSupportingDocumentRenderFailure", StringComparison.Ordinal)
+            && windowCode.Contains("EnsureCoreWebView2Async", StringComparison.Ordinal)
+            && windowCode.Contains("SafeRefreshSupportingDocumentPdfViewerAsync", StringComparison.Ordinal),
+            "Supporting Documents window PDF viewer should fall back to an error state when embedded rendering fails.");
         TestAssert.True(
             viewModelCode.Contains("ShellState.Session.SessionChanged", StringComparison.Ordinal)
+            && viewModelCode.Contains("Supporting Documents view-model constructor entered.", StringComparison.Ordinal)
+            && viewModelCode.Contains("TryShow using WPF window.", StringComparison.Ordinal)
+            && viewModelCode.Contains("TryShow opened WPF window.", StringComparison.Ordinal)
+            && viewModelCode.Contains("SyncLoadedCaseFolder loaded case.", StringComparison.Ordinal)
+            && diagnosticsCode.Contains("supporting_documents_dockpane.log", StringComparison.Ordinal)
             && !viewModelCode.Contains("|| !ShellState.IsSelectedTransactionComputeWorkflow", StringComparison.Ordinal)
-            && viewModelCode.Contains("pane.ReloadActiveCaseFolder();", StringComparison.Ordinal)
+            && viewModelCode.Contains("viewModel.ReloadActiveCaseFolder();", StringComparison.Ordinal)
             && viewModelCode.Contains("RenderedReviewDocumentService", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentViewerUsesImage", StringComparison.Ordinal)
             && viewModelCode.Contains("Caption = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
             && viewModelCode.Contains("TabText = SupportingDocumentsTabTitle;", StringComparison.Ordinal)
+            && viewModelCode.Contains("INotifyPropertyChanged", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
             && viewModelCode.Contains("SourceFileActionService", StringComparison.Ordinal)
             && viewModelCode.Contains("ExecuteSourceFileAction", StringComparison.Ordinal)
             && viewModelCode.Contains("RefreshIfOpen()", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentsWindow.RefreshIfOpen();", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentsWindow.CloseIfOpen();", StringComparison.Ordinal)
             && viewModelCode.Contains("HideIfOpen();", StringComparison.Ordinal)
             && transactionPanelCode.Contains("TryShowSupportingDocumentsDockpane(requestedTransactionNumber);", StringComparison.Ordinal)
             && transactionPanelCode.Contains("Supporting Documents could not open automatically; continue in Parcel Workflow.", StringComparison.Ordinal)
@@ -92,7 +123,7 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
-            "Supporting Documents dockpane should validate file actions, use the active transaction title, appear best-effort and refresh with a loaded transaction, and clear or hide when the transaction is closed.");
+            "Supporting Documents WPF window should validate file actions, use the active transaction title, appear best-effort and refresh with a loaded transaction, and close when the transaction is closed.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
             projectionCode.Contains("or \".png\"", StringComparison.Ordinal)

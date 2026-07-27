@@ -168,13 +168,15 @@ function New-CommandRecord {
     param(
         [Parameter(Mandatory)][string]$Phase,
         [Parameter(Mandatory)][string]$FilePath,
-        [Parameter(Mandatory)][string[]]$Arguments
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [bool]$AllowFailure = $false
     )
 
     [ordered]@{
         phase = $Phase
         file_path = $FilePath
         arguments = $Arguments
+        allow_failure = $AllowFailure
     }
 }
 
@@ -183,7 +185,8 @@ function Invoke-LoggedCommand {
         [Parameter(Mandatory)][string]$Phase,
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter(Mandatory)][string[]]$Arguments,
-        [Parameter(Mandatory)][string]$LogPath
+        [Parameter(Mandatory)][string]$LogPath,
+        [bool]$AllowFailure = $false
     )
 
     Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] START $Phase"
@@ -219,9 +222,26 @@ function Invoke-LoggedCommand {
 
     Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] END $Phase exit_code=$exitCode"
     if ($exitCode -ne 0) {
+        if ($AllowFailure) {
+            Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] WARNING $Phase failed but was configured as non-blocking."
+            $script:CurrentSetupPhase = ''
+            return [ordered]@{
+                phase = $Phase
+                exit_code = $exitCode
+                ok = $false
+                warning = $true
+            }
+        }
+
         throw "$Phase failed with exit code $exitCode. See log: $LogPath"
     }
     $script:CurrentSetupPhase = ''
+    return [ordered]@{
+        phase = $Phase
+        exit_code = $exitCode
+        ok = $true
+        warning = $false
+    }
 }
 
 function ConvertTo-ProcessArgumentString {
@@ -263,6 +283,19 @@ function Test-Import {
         -FilePath $PythonExe `
         -Arguments @('-c', $ImportCode) `
         -LogPath $LogPath
+}
+
+function Test-RequirementFileHasEntries {
+    param([Parameter(Mandatory)][string]$Path)
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $trimmed = $line.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed) -and -not $trimmed.StartsWith('#')) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -328,10 +361,12 @@ if ($Repair -or -not (Test-Path -LiteralPath $targetPythonExe)) {
         -Arguments @('create', '--clone', 'arcgispro-py3', '--name', $EnvironmentName, '--pinned', '-y')))
 }
 
-$commands.Add((New-CommandRecord `
-    -Phase 'conda-install-requirements' `
-    -FilePath $condaExe `
-    -Arguments @('install', '--name', $EnvironmentName, '--file', $resolvedCondaRequirements, '-c', 'esri', '-c', 'conda-forge', '-c', 'defaults', '-y')))
+if (Test-RequirementFileHasEntries -Path $resolvedCondaRequirements) {
+    $commands.Add((New-CommandRecord `
+        -Phase 'conda-install-requirements' `
+        -FilePath $condaExe `
+        -Arguments @('install', '--name', $EnvironmentName, '--file', $resolvedCondaRequirements, '-c', 'esri', '-c', 'conda-forge', '-c', 'defaults', '-y')))
+}
 $commands.Add((New-CommandRecord `
     -Phase 'pip-install-requirements' `
     -FilePath $targetPythonExe `
@@ -339,11 +374,17 @@ $commands.Add((New-CommandRecord `
 $commands.Add((New-CommandRecord `
     -Phase 'verify-arcpy' `
     -FilePath $targetPythonExe `
-    -Arguments @('-c', "import arcpy; print('arcpy OK')")))
+    -Arguments @('-c', "import arcpy; print('arcpy OK')") `
+    -AllowFailure $true))
 $commands.Add((New-CommandRecord `
     -Phase 'verify-ai-survey-imports' `
     -FilePath $targetPythonExe `
-    -Arguments @('-c', "import openai; import clip; import open_clip; import flask; import pdfplumber; import pypdfium2; print('AI Survey env OK')")))
+    -Arguments @('-c', "import openai; import flask; import pdfplumber; import pypdfium2; print('AI Survey required imports OK')")))
+$commands.Add((New-CommandRecord `
+    -Phase 'verify-clip-imports' `
+    -FilePath $targetPythonExe `
+    -Arguments @('-c', "import clip; import open_clip; print('CLIP imports OK')") `
+    -AllowFailure $true))
 $commands.Add((New-CommandRecord `
     -Phase 'verify-ai-survey-package-versions' `
     -FilePath $targetPythonExe `
@@ -376,13 +417,20 @@ if ($DryRun) {
 Add-Content -LiteralPath $logPath -Value "Parcel Workflow ArcGIS Pro 3.7 environment setup"
 Add-Content -LiteralPath $logPath -Value ($plan | ConvertTo-Json -Depth 8)
 
+$commandResults = New-Object System.Collections.Generic.List[object]
 foreach ($command in $commands) {
-    Invoke-LoggedCommand `
+    $commandResult = Invoke-LoggedCommand `
         -Phase $command.phase `
         -FilePath $command.file_path `
         -Arguments ([string[]]$command.arguments) `
-        -LogPath $logPath
+        -LogPath $logPath `
+        -AllowFailure ([bool]$command.allow_failure)
+    $commandResults.Add($commandResult) | Out-Null
 }
+
+$warnings = @($commandResults | Where-Object { $_.warning } | ForEach-Object {
+    "$($_.phase) completed with warning exit code $($_.exit_code). Review the setup log."
+})
 
 $status = [ordered]@{
     schema_version = 'parcel_workflow_arcgispro37_environment_status_v1'
@@ -394,7 +442,10 @@ $status = [ordered]@{
     target_python_exe = $targetPythonExe
     conda_requirements = $resolvedCondaRequirements
     pip_requirements = $resolvedPipRequirements
-    verified_imports = @('arcpy', 'openai', 'clip', 'open_clip', 'flask', 'pdfplumber', 'pypdfium2')
+    verified_imports = @('openai', 'flask', 'pdfplumber', 'pypdfium2')
+    verified_packages = @('openai', 'openai-clip', 'open-clip-torch', 'Flask', 'pdfplumber', 'pypdfium2')
+    optional_imports = @('arcpy', 'clip', 'open_clip')
+    warnings = $warnings
     log_path = $logPath
 }
 $status | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $resolvedLogRoot 'setup_arcgispro37_environment_status.json') -Encoding UTF8

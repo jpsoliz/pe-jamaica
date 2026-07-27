@@ -1,0 +1,148 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.SupportingDocumentsWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    x:ClassModifier="internal"
+                    Title="{Binding SupportingDocumentsTabTitle}"
+                    Width="720"
+                    Height="760"
+                    MinWidth="560"
+                    MinHeight="520"
+                    WindowStartupLocation="CenterOwner"
+                    Background="#F7F8FA">
+  <controls:ProWindow.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+    <Style x:Key="CompactButtonStyle" TargetType="Button">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="BorderBrush" Value="#C9D2D8" />
+      <Setter Property="Background" Value="#FFFFFF" />
+    </Style>
+
+    <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource CompactButtonStyle}">
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="MinWidth" Value="30" />
+      <Setter Property="Padding" Value="6,4" />
+    </Style>
+  </controls:ProWindow.Resources>
+
+  <DockPanel LastChildFill="True">
+    <Border DockPanel.Dock="Top"
+            Background="#FFFFFF"
+            BorderBrush="#C9D2D8"
+            BorderThickness="0,0,0,1"
+            Padding="12">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    Margin="8,0,0,0">
+          <Button Content="&#xE72C;"
+                  Command="{Binding ReloadSupportingDocumentViewerCommand}"
+                  Style="{StaticResource IconButtonStyle}"
+                  ToolTip="Refresh supporting documents" />
+        </StackPanel>
+        <StackPanel>
+          <ComboBox ItemsSource="{Binding SupportingDocumentOptions}"
+                    SelectedItem="{Binding SelectedSupportingDocument, Mode=TwoWay}"
+                    DisplayMemberPath="DisplayLabel"
+                    IsEnabled="{Binding HasSupportingDocumentOptions}"
+                    MinHeight="28" />
+          <TextBlock Text="{Binding SupportingDocumentListSummary}"
+                     FontSize="11"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap"
+                     Margin="0,6,0,0" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border Margin="8"
+            BorderBrush="#C9D2D8"
+            BorderThickness="1"
+            Background="#FFFFFF"
+            Padding="10">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,8">
+          <TextBlock Text="{Binding SelectedSupportingDocumentTitle}"
+                     FontSize="13"
+                     FontWeight="SemiBold"
+                     Foreground="#1F2933"
+                     TextWrapping="Wrap" />
+          <TextBlock Text="{Binding SelectedSupportingDocumentPath}"
+                     FontSize="11"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap"
+                     Margin="0,2,0,0" />
+          <TextBlock Text="{Binding SupportingDocumentViewerStatusDetail}"
+                     FontSize="11"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap"
+                     Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+          <Border Background="#FFFFFF"
+                  BorderBrush="#E1E8ED"
+                  BorderThickness="1"
+                  Visibility="{Binding SupportingDocumentViewerUsesImage, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto">
+              <Image Source="{Binding SupportingDocumentViewerImageSource}"
+                     Stretch="Uniform"
+                     RenderOptions.BitmapScalingMode="HighQuality" />
+            </ScrollViewer>
+          </Border>
+
+          <Border Background="#FFFFFF"
+                  BorderBrush="#E1E8ED"
+                  BorderThickness="1"
+                  Visibility="{Binding SupportingDocumentViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid x:Name="SupportingDocumentPdfViewerHost" />
+          </Border>
+
+          <TextBox Text="{Binding SupportingDocumentTextContent, Mode=OneWay}"
+                   Visibility="{Binding SupportingDocumentViewerShowsText, Converter={StaticResource BooleanToVisibilityConverter}}"
+                   IsReadOnly="True"
+                   TextWrapping="NoWrap"
+                   AcceptsReturn="True"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   BorderThickness="0"
+                   FontFamily="Consolas"
+                   FontSize="12" />
+
+          <Border Background="#F3F6F7"
+                  BorderBrush="#E1E8ED"
+                  BorderThickness="1"
+                  Padding="12"
+                  Visibility="{Binding SupportingDocumentViewerShowsFallback, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Text="{Binding SupportingDocumentViewerModeLabel}"
+                         FontSize="13"
+                         FontWeight="SemiBold"
+                         Foreground="#1F2933" />
+              <TextBlock Text="{Binding SupportingDocumentViewerFallbackMessage}"
+                         Margin="0,6,0,0"
+                         FontSize="12"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+              <TextBlock Text="{Binding SupportingDocumentEmptyText}"
+                         Margin="0,8,0,0"
+                         FontSize="11"
+                         Foreground="#52616B"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+    </Border>
+  </DockPanel>
+</controls:ProWindow>

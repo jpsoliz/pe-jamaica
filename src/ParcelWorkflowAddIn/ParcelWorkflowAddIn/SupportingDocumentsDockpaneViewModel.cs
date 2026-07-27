@@ -1,9 +1,8 @@
-using ArcGIS.Desktop.Framework;
-using ArcGIS.Desktop.Framework.Contracts;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Review;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Media;
@@ -11,7 +10,7 @@ using System.Windows.Input;
 
 namespace ParcelWorkflowAddIn;
 
-internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
+internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChanged
 {
     internal const string DockPaneId = "ParcelWorkflow_SupportingDocumentsDockpane";
 
@@ -32,14 +31,20 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     private string supportingDocumentViewerStatusDetail = "No supporting document selected.";
     private ImageSource? supportingDocumentViewerImageSource;
     private CancellationTokenSource? supportingDocumentViewerLoadCancellation;
+    private string caption = "Supporting Documents";
+    private string tabText = "Supporting Documents";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public SupportingDocumentsDockpaneViewModel()
     {
+        SupportingDocumentsDiagnostics.Write("Supporting Documents view-model constructor entered.");
         openSupportingDocumentCommand = new RelayCommand(OpenSupportingDocument, () => SelectedSupportingDocument is not null);
         revealSupportingDocumentCommand = new RelayCommand(RevealSupportingDocument, () => SelectedSupportingDocument is not null);
         reloadSupportingDocumentViewerCommand = new RelayCommand(ReloadSupportingDocumentViewer, () => SelectedSupportingDocument is not null);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
+        SupportingDocumentsDiagnostics.Write($"Supporting Documents view-model constructed. Title: {SupportingDocumentsTabTitle}");
     }
 
     internal static void Show()
@@ -51,39 +56,61 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     {
         try
         {
-            if (FrameworkApplication.DockPaneManager.Find(DockPaneId) is not SupportingDocumentsDockpaneViewModel pane)
-            {
-                return false;
-            }
-
-            pane.ReloadActiveCaseFolder();
-            pane.Activate();
+            var viewModel = SupportingDocumentsWindow.ActiveViewModel ?? new SupportingDocumentsDockpaneViewModel();
+            SupportingDocumentsDiagnostics.Write($"TryShow using WPF window. Title before reload: {viewModel.SupportingDocumentsTabTitle}");
+            viewModel.ReloadActiveCaseFolder();
+            SupportingDocumentsWindow.ShowOrActivate(viewModel);
+            SupportingDocumentsDiagnostics.Write($"TryShow opened WPF window. Title after reload: {viewModel.SupportingDocumentsTabTitle}; documents={viewModel.SupportingDocumentOptions.Count}");
             return true;
         }
         catch (Exception exception)
         {
-            Debug.WriteLine($"Supporting Documents dockpane activation failed: {exception.Message}");
+            SupportingDocumentsDiagnostics.Write($"TryShow WPF window exception: {exception.GetType().Name}: {exception.Message}");
+            Debug.WriteLine($"Supporting Documents window activation failed: {exception.Message}");
             return false;
         }
     }
 
     internal static void HideIfOpen()
     {
-        FrameworkApplication.DockPaneManager.Find(DockPaneId)?.Hide();
+        SupportingDocumentsWindow.CloseIfOpen();
     }
 
     internal static void RefreshIfOpen()
     {
-        if (FrameworkApplication.DockPaneManager.Find(DockPaneId) is SupportingDocumentsDockpaneViewModel pane)
-        {
-            pane.ReloadActiveCaseFolder();
-        }
+        SupportingDocumentsWindow.RefreshIfOpen();
     }
 
     public string SupportingDocumentsTabTitle =>
         HasActiveCase
             ? $"Supporting Documents [{SupportingDocumentWorkspaceProjection.FormatTransactionLabel(transactionId)}]"
             : "Supporting Documents";
+
+    public string Caption
+    {
+        get => caption;
+        private set
+        {
+            if (!string.Equals(caption, value, StringComparison.Ordinal))
+            {
+                caption = value;
+                NotifyPropertyChanged(nameof(Caption));
+            }
+        }
+    }
+
+    public string TabText
+    {
+        get => tabText;
+        private set
+        {
+            if (!string.Equals(tabText, value, StringComparison.Ordinal))
+            {
+                tabText = value;
+                NotifyPropertyChanged(nameof(TabText));
+            }
+        }
+    }
 
     public bool HasActiveCase => !string.IsNullOrWhiteSpace(activeCaseFolderPath);
 
@@ -200,16 +227,19 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
     private void SyncLoadedCaseFolder()
     {
         var loadedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath;
+        SupportingDocumentsDiagnostics.Write($"SyncLoadedCaseFolder. LoadedCaseFolderPath='{loadedCaseFolderPath ?? "(null)"}'.");
         if (string.IsNullOrWhiteSpace(loadedCaseFolderPath))
         {
             Reset();
             HideIfOpen();
+            SupportingDocumentsDiagnostics.Write("SyncLoadedCaseFolder reset because no transaction is loaded.");
             return;
         }
 
         if (string.Equals(activeCaseFolderPath, loadedCaseFolderPath, StringComparison.OrdinalIgnoreCase))
         {
             RefreshProperties();
+            SupportingDocumentsDiagnostics.Write($"SyncLoadedCaseFolder refreshed existing active case. documents={SupportingDocumentOptions.Count}; sourceFiles={sourceFileItems.Count}");
             return;
         }
 
@@ -217,6 +247,8 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         if (!result.Success || result.Manifest is null)
         {
             Reset();
+            var issues = string.Join("; ", result.RecoverabilityIssues.Select(issue => issue.Message));
+            SupportingDocumentsDiagnostics.Write($"SyncLoadedCaseFolder failed to reopen case. Success={result.Success}; Issues='{issues}'.");
             return;
         }
 
@@ -225,10 +257,12 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         sourceFileItems = result.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
         RefreshSupportingDocumentViewerState();
         RefreshProperties();
+        SupportingDocumentsDiagnostics.Write($"SyncLoadedCaseFolder loaded case. transaction={transactionId}; sourceFiles={sourceFileItems.Count}; readableDocuments={SupportingDocumentOptions.Count}; selected='{SelectedSupportingDocument?.FileLabel ?? "(none)"}'.");
     }
 
     internal void ReloadActiveCaseFolder()
     {
+        SupportingDocumentsDiagnostics.Write($"ReloadActiveCaseFolder requested. PriorSelectedPath='{selectedSupportingDocumentCopiedPath ?? "(null)"}'.");
         var priorSelectedPath = selectedSupportingDocumentCopiedPath;
         activeCaseFolderPath = null;
         selectedSupportingDocumentCopiedPath = priorSelectedPath;
@@ -480,5 +514,10 @@ internal sealed class SupportingDocumentsDockpaneViewModel : DockPane
         openSupportingDocumentCommand.RaiseCanExecuteChanged();
         revealSupportingDocumentCommand.RaiseCanExecuteChanged();
         reloadSupportingDocumentViewerCommand.RaiseCanExecuteChanged();
+    }
+
+    private void NotifyPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

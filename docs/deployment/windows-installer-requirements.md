@@ -61,16 +61,19 @@ The installer must verify:
 
 ```powershell
 python -c "import arcpy; print('arcpy OK')"
-python -c "import openai; import clip; import open_clip; import flask; import pdfplumber; import pypdfium2; print('AI Survey env OK')"
+python -c "import openai; import flask; import pdfplumber; import pypdfium2; print('AI Survey required imports OK')"
+python -c "import importlib.metadata as m; packages=['openai','openai-clip','open-clip-torch','Flask','pdfplumber','pypdfium2']; print('package_versions:' + ';'.join(f'{p}={m.version(p)}' for p in packages))"
 ```
 
 The `arcgispro-survey-ai` clone must live under the ArcGIS Pro Python environments folder, beside `arcgispro-py3`. If the environment already exists, the installer must verify required dependencies and imports before reusing it. If it does not exist, the installer must clone it from the target machine's `arcgispro-py3`.
 
-The conda requirements must include the OpenAI and CLIP packages required by the inventory:
+The pip requirements must include the OpenAI and CLIP packages required by the inventory:
 
 - `openai`
 - `openai-clip`
 - `open-clip-torch`
+
+`clip` and `open_clip` import checks are diagnostic only because ArcGIS Pro/PyTorch/OpenMP DLL conflicts can cause `libiomp5md.dll` duplicate-runtime failures in elevated installer processes even when the packages are installed.
 
 ## OpenAI API Key Requirements
 
@@ -101,8 +104,8 @@ Code signing is strongly recommended before distribution outside the development
 2. Given ArcGIS Pro 3.7 is missing, when the installer runs, then installation blocks with a clear message before copying or configuring partial assets.
 3. Given the default `arcgispro-py3` environment exists, when Python setup runs, then the installer creates or reuses a separate `arcgispro-survey-ai` clone and never installs packages into `arcgispro-py3`.
 4. Given `arcgispro-survey-ai` already exists under the ArcGIS Pro envs folder, when the installer runs, then it validates required dependencies/imports and reuses it only when verification passes; otherwise it repairs it according to an explicit reinstall/repair option.
-5. Given requirements files are present, when Python setup runs, then conda packages install before pip packages.
-6. Given Python setup finishes, when verification runs, then `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2` imports are checked and logged.
+5. Given requirements files are present, when Python setup runs, then conda packages install before pip packages only when conda package entries are configured.
+6. Given Python setup finishes, when verification runs, then `openai`, `flask`, `pdfplumber`, and `pypdfium2` imports are checked as required; `openai-clip` and `open-clip-torch` package versions are checked; `arcpy`, `clip`, and `open_clip` imports are logged as diagnostics.
 7. Given verification fails, when the installer exits, then it shows the failing import or command and leaves a log file.
 8. Given installation succeeds, when the add-in is configured, then its embedded settings point to the installed `ProcessingTools`, `Contracts`, `ParcelWorkflowCases`, and cloned Python `python.exe`.
 9. Given installation succeeds, when ArcGIS Pro opens, then the add-in is registered and available.

@@ -24,8 +24,8 @@ The installer must preserve the working deployment scripts as a support fallback
 2. Given ArcGIS Pro 3.7 is installed, when the installer runs, then it detects ArcGIS Pro and the ArcGIS Pro Python/conda tooling.
 3. Given ArcGIS Pro 3.7 is missing, when the installer runs, then it fails before configuration with a clear message and install log.
 4. Given Python setup is required, when the installer runs, then it creates or validates a cloned environment named `arcgispro-survey-ai` under the target machine's ArcGIS Pro envs folder from that machine's own `arcgispro-py3`.
-5. Given Python setup runs, then it installs conda requirements before pip requirements using the repo-controlled files in `docs/deployment/arcgispro37`.
-6. Given Python setup completes, then verification confirms `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2` imports.
+5. Given Python setup runs, then it installs conda requirements before pip requirements only when the conda requirements file contains real package entries; a comment-only conda file is skipped and pip requirements still run using the repo-controlled files in `docs/deployment/arcgispro37`.
+6. Given Python setup completes, then verification confirms required imports for `openai`, `flask`, `pdfplumber`, and `pypdfium2`; verifies installed package versions for `openai`, `openai-clip`, and `open-clip-torch`; and logs `arcpy`, `clip`, and `open_clip` imports as diagnostics.
 7. Given the add-in is configured, then the embedded `WorkflowSettings.json` points to the target install root, target `ProcessingTools`, target `Contracts`, target `ParcelWorkflowCases`, and the cloned environment `python.exe`.
 8. Given installation succeeds, then the configured add-in is registered or launched for installation in ArcGIS Pro.
 9. Given installation is upgraded, then `ParcelWorkflowCases` and logs are preserved by default.
@@ -39,7 +39,8 @@ The installer must preserve the working deployment scripts as a support fallback
 17. Given post-install phases run, then the installer writes a machine-readable and human-readable installation summary that lists each phase, command/script, status, exit code, start/end time, and log file path.
 18. Given any non-optional phase fails, then the installer must clearly report that the installation did not complete successfully; it must not appear successful only because files were copied.
 19. Given optional Python/OpenAI setup is allowed to continue without rollback, then the installer summary must mark the install as `CompletedWithWarnings` or `RepairRequired` and identify the exact remediation step.
-20. Given Python/OpenAI setup completes or is reused, then the summary must include verified package/import status for `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2`.
+20. Given Python/OpenAI setup completes or is reused, then the summary must include verified package/import status for required AI/PDF packages and warnings for non-blocking ArcPy/CLIP diagnostics.
+21. Given ArcPy or CLIP import verification runs from an elevated installer context and ArcGIS named-user licensing or OpenMP runtime initialization fails for that process, then the installer records that verification as a warning and continues after required package/import checks pass.
 
 ## Tasks / Subtasks
 
@@ -60,7 +61,7 @@ The installer must preserve the working deployment scripts as a support fallback
   - [x] Detect ArcGIS Pro 3.7 and default conda/propy tooling.
   - [x] Clone `arcgispro-py3` to `arcgispro-survey-ai` when missing.
   - [x] Reuse or repair the clone according to explicit options.
-  - [x] Install conda requirements before pip requirements.
+  - [x] Install conda requirements before pip requirements when conda packages are configured; skip conda when the file is comment-only.
   - [x] Verify imports and write logs.
   - [x] Provide dry-run/mocked path mode for tests.
 
@@ -78,7 +79,7 @@ The installer must preserve the working deployment scripts as a support fallback
   - [x] Add PowerShell validation for stage manifest contents.
   - [x] Add dry-run tests for ArcGIS Pro detection and missing ArcGIS Pro failure.
   - [x] Add dry-run tests for environment clone command composition.
-  - [x] Add dry-run tests for conda-before-pip ordering.
+  - [x] Add dry-run tests for conda-before-pip ordering and pip execution when conda is intentionally empty.
   - [x] Add dry-run tests for add-in settings rewrite paths.
   - [x] Add staged requirements validation for `openai`, `openai-clip`, and `open-clip-torch`. (AC: 13)
 
@@ -171,7 +172,7 @@ Run installer script dry-run tests before testing on a real ArcGIS Pro workstati
 - 2026-07-26: Investigated v0.1.36 registration error `Illegal characters in path` at `register_parcel_workflow_addin.ps1:127`. Hardened installer script path parsing, added raw argument diagnostics, and changed WiX directory arguments to pass `...\.` so trailing directory backslashes cannot interfere with quoted PowerShell arguments.
 - 2026-07-26: Added install-time OpenAI environment variable support, install path summary output, and Python package-version verification so target installs can prove whether `openai`, `openai-clip`, and `open-clip-torch` were installed.
 - 2026-07-26: Investigated v0.1.37 logs. Add-in configuration/registration completed, but Python environment setup stopped during `conda-clone` because PowerShell treated Conda stderr warning text as a terminating error before checking the process exit code. Replaced native invocation with `System.Diagnostics.ProcessStartInfo` so stdout/stderr are logged and only the real exit code controls phase failure.
-- 2026-07-26: Installer dependency review found `openai-clip` and `open-clip-torch` in the ArcGIS Pro 3.7 inventory but missing from `requirements-conda.txt`. Added them, expanded import verification to `clip` and `open_clip`, documented OpenAI API key handling, and added staged requirement validation.
+- 2026-07-26: Installer dependency review initially found `openai-clip` and `open-clip-torch` in the ArcGIS Pro 3.7 inventory but missing from dependency validation. Later target logs showed the ArcGIS Pro 3.7 conda solver cannot resolve that AI stack against pinned ArcGIS packages, so AI dependencies are installed from `requirements-pip.txt` and comment-only conda requirements are skipped.
 - 2026-07-26: Investigated v0.1.39 target logs. MSI payload install succeeded, but `RunSetupArcGisPro37Environment` failed before Python setup installed OpenAI dependencies; the PowerShell trap dereferenced a null error record and masked the real failure. Hardened setup/registration trap logging and added installer UI requirements for folder review and masked OpenAI API key entry.
 - 2026-07-26: Reviewed v0.1.48 target summary with `CompletedWithWarnings`; payload, add-in registration, folders, and requirements were present, but `setup_arcgispro37_environment.bat` exited 1 during `conda-install-requirements` without a status file. Hardened environment setup to write `setup_arcgispro37_environment_status.json` on trap failures and to drain conda/pip stdout/stderr asynchronously so the real failing phase and command output are preserved.
 
@@ -232,3 +233,6 @@ Run installer script dry-run tests before testing on a real ArcGIS Pro workstati
 - 2026-07-26: Changed Python setup command execution to capture native stdout/stderr without PowerShell turning Conda warnings into terminating script errors.
 - 2026-07-26: Added OpenAI/CLIP dependency coverage, staged requirement validation, and explicit OpenAI API key handling guidance; generated installer version `0.1.39`.
 - 2026-07-26: Hardened installer setup/registration failure logging after v0.1.39 target logs showed the setup trap masking the Python setup failure.
+- 2026-07-27: Moved `openai`, `openai-clip`, and `open-clip-torch` from conda requirements to pip requirements after target logs showed conda solver conflicts with ArcGIS Pro 3.7 pins; setup now skips comment-only conda requirements and proceeds to pip installation.
+- 2026-07-27: Reviewed target logs where OpenAI packages installed successfully but `verify-arcpy` failed with `The Product License has not been initialized` from the elevated installer process. Made ArcPy verification non-blocking, retained it as a diagnostic warning, and kept AI/PDF package verification required.
+- 2026-07-27: Reviewed target logs where required OpenAI/PDF packages installed successfully and ArcPy warning was non-blocking, but combined `clip`/`open_clip` import failed with duplicate `libiomp5md.dll` OpenMP runtime initialization. Split verification so required imports exclude CLIP runtime imports, package-version checks still prove CLIP packages are installed, and CLIP imports are diagnostic warnings.

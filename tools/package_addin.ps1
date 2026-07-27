@@ -82,8 +82,8 @@ $updatedProjectText = Update-RequiredVersionText $updatedProjectText '<Informati
 
 $updatedConfigDamlText = Update-RequiredVersionText `
     $originalConfigDamlText `
-    '(<AddInInfo\b[^>]*\bversion=")\d+\.\d+\.\d+(")' `
-    "`${1}$nextVersion`${2}" `
+    '(<AddInInfo\b[\s\S]*?\bversion=)"?\d+\.\d+\.\d+(")' `
+    "`${1}`"$nextVersion`${2}" `
     'Config.daml AddInInfo version'
 
 Set-Content -LiteralPath $projectPath -Value $updatedProjectText -NoNewline
