@@ -104,7 +104,7 @@ public static class PortalAuthProviderTests
 
     public static void ArcGisProProviderUsesActivePortalTokenWhenAvailable()
     {
-        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakePortalManager));
+        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakePortalManager), useQueuedTask: false);
 
         var result = provider.GetTokenAsync(new PortalAuthRequest("https://portal.example/portal", null, "publish")).GetAwaiter().GetResult();
 
@@ -116,7 +116,7 @@ public static class PortalAuthProviderTests
 
     public static void ArcGisProProviderAcceptsActiveRootForConfiguredPortalPath()
     {
-        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeRootPortalManager));
+        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeRootPortalManager), useQueuedTask: false);
 
         var result = provider.GetTokenAsync(new PortalAuthRequest("https://portal.example/portal", null, "publish")).GetAwaiter().GetResult();
 
@@ -127,7 +127,7 @@ public static class PortalAuthProviderTests
 
     public static void ArcGisProProviderFallsBackWhenTokenMethodThrows()
     {
-        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeThrowingTokenPortalManager));
+        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeThrowingTokenPortalManager), useQueuedTask: false);
 
         var result = provider.GetTokenAsync(new PortalAuthRequest("https://portal.example/portal", null, "publish")).GetAwaiter().GetResult();
 
@@ -138,7 +138,7 @@ public static class PortalAuthProviderTests
 
     public static void ArcGisProProviderDoesNotMatchSiblingPortalPath()
     {
-        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeSiblingPortalManager));
+        var provider = new ArcGisProPortalAuthProvider(() => typeof(FakeSiblingPortalManager), useQueuedTask: false);
 
         var result = provider.GetTokenAsync(new PortalAuthRequest("https://portal.example/portal", null, "publish")).GetAwaiter().GetResult();
 

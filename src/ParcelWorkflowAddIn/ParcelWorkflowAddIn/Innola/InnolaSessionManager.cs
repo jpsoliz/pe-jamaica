@@ -341,11 +341,11 @@ public sealed class InnolaSessionManager
             return;
         }
 
+        ClearLoadedTransactionCore();
+        SelectedTransaction = null;
         LifecycleStatus = InnolaTransactionLifecycleStatus.Completed;
         CompletedAt = completedAt;
         LifecycleStatusText = statusText;
-        ClearLoadedTransactionCore();
-        SelectedTransaction = null;
         OnSessionChanged();
     }
 
@@ -356,11 +356,11 @@ public sealed class InnolaSessionManager
             return;
         }
 
+        ClearLoadedTransactionCore();
+        SelectedTransaction = null;
         LifecycleStatus = InnolaTransactionLifecycleStatus.Cancelled;
         CancelledAt = cancelledAt;
         LifecycleStatusText = statusText;
-        ClearLoadedTransactionCore();
-        SelectedTransaction = null;
         OnSessionChanged();
     }
 

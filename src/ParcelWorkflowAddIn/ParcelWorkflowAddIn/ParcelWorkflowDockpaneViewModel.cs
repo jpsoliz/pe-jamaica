@@ -3296,21 +3296,98 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var completedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
+        var completedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
         var result = await ShellState.LifecycleCoordinator.CompleteAsync();
         if (result.Success)
         {
-            await CleanupActiveTransactionReviewMapAsync(completedTransactionNumber).ConfigureAwait(true);
-            await ReturnToTransactionListAsync(
+            await CompleteTransactionSuccessUiAsync(
                 completedTransactionNumber,
                 result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.",
-                preserveSavedMarker: false,
-                suppressTransactionFromList: true,
-                refreshTransactions: true);
+                showCompletionDialog: true).ConfigureAwait(true);
+            return;
+        }
+
+        if (TryResolveCompletedTransactionStatus(completedCaseFolderPath, out var completedStatusText))
+        {
+            await CompleteTransactionSuccessUiAsync(
+                completedTransactionNumber,
+                completedStatusText,
+                showCompletionDialog: true).ConfigureAwait(true);
             return;
         }
 
         workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
         RefreshWorkflowProperties();
+    }
+
+    private async Task CompleteTransactionSuccessUiAsync(
+        string? transactionNumber,
+        string statusText,
+        bool showCompletionDialog)
+    {
+        await CleanupActiveTransactionReviewMapAsync(transactionNumber).ConfigureAwait(true);
+
+        if (showCompletionDialog)
+        {
+            var transactionLabel = string.IsNullOrWhiteSpace(transactionNumber)
+                ? "The transaction"
+                : $"Transaction {transactionNumber}";
+            MessageBox.Show(
+                $"{transactionLabel} was completed successfully.\n\n{statusText}",
+                "Finalize Complete",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        await ReturnToTransactionListAsync(
+            transactionNumber,
+            statusText,
+            preserveSavedMarker: false,
+            suppressTransactionFromList: true,
+            refreshTransactions: true).ConfigureAwait(true);
+    }
+
+    private static bool TryResolveCompletedTransactionStatus(string? caseFolderPath, out string statusText)
+    {
+        statusText = "Completed. Final package uploaded and transaction closed.";
+        if (string.IsNullOrWhiteSpace(caseFolderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+            var manifestPath = File.Exists(layout.ManifestPath)
+                ? layout.ManifestPath
+                : File.Exists(layout.LegacyManifestPath)
+                    ? layout.LegacyManifestPath
+                    : null;
+            if (manifestPath is null)
+            {
+                return false;
+            }
+
+            var manifest = ManifestSerializer.Read(manifestPath);
+            if (!string.Equals(manifest.Payload.InnolaLifecycle?.Status, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var packageStatus = manifest.Payload.InnolaLifecycle?.WorkingPackageUploadStatus;
+            statusText = string.Equals(packageStatus, "uploaded", StringComparison.OrdinalIgnoreCase)
+                ? "Completed. Final package uploaded and transaction closed."
+                : "Completed. Transaction closed.";
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException
+            or System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     private async Task CleanupActiveTransactionReviewMapAsync(string? transactionNumber)

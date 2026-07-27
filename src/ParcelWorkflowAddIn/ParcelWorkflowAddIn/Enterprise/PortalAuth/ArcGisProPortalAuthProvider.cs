@@ -6,15 +6,17 @@ public sealed class ArcGisProPortalAuthProvider : IPortalAuthProvider
 {
     public const string SourceName = "arcgis_pro_session";
     private readonly Func<Type?> portalManagerTypeResolver;
+    private readonly bool useQueuedTask;
 
     public ArcGisProPortalAuthProvider()
-        : this(() => Type.GetType("ArcGIS.Desktop.Core.ArcGISPortalManager, ArcGIS.Desktop.Core", throwOnError: false))
+        : this(() => Type.GetType("ArcGIS.Desktop.Core.ArcGISPortalManager, ArcGIS.Desktop.Core", throwOnError: false), useQueuedTask: true)
     {
     }
 
-    internal ArcGisProPortalAuthProvider(Func<Type?> portalManagerTypeResolver)
+    internal ArcGisProPortalAuthProvider(Func<Type?> portalManagerTypeResolver, bool useQueuedTask = true)
     {
         this.portalManagerTypeResolver = portalManagerTypeResolver;
+        this.useQueuedTask = useQueuedTask;
     }
 
     public async Task<PortalAuthResult> GetTokenAsync(
@@ -32,45 +34,9 @@ public sealed class ArcGisProPortalAuthProvider : IPortalAuthProvider
                     "ArcGIS Pro portal manager was not available in this process.");
             }
 
-            var manager = ResolveCurrentManager(managerType);
-            if (manager is null)
-            {
-                return PortalAuthResult.Failed(
-                    SourceName,
-                    "ArcGIS Pro portal manager did not expose a current instance.");
-            }
-
-            var portal = await ResolveActivePortalAsync(manager, cancellationToken).ConfigureAwait(false);
-            if (portal is null)
-            {
-                return PortalAuthResult.Failed(
-                    SourceName,
-                    "No active ArcGIS Pro portal session was found.");
-            }
-
-            var portalUri = ResolvePortalUri(portal);
-            if (!PortalMatchesRequest(portalUri, request.PortalUrl))
-            {
-                return PortalAuthResult.Failed(
-                    SourceName,
-                    $"Active ArcGIS Pro portal '{portalUri?.ToString() ?? "(unknown)"}' does not match configured portal '{request.PortalUrl}'.");
-            }
-
-            var token = await ResolvePortalTokenAsync(portal, cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                return PortalAuthResult.Succeeded(token, SourceName);
-            }
-
-            var queuedRetry = await TryResolvePortalTokenOnQueuedTaskAsync(managerType, request, cancellationToken).ConfigureAwait(false);
-            if (queuedRetry.Success)
-            {
-                return queuedRetry;
-            }
-
-            return PortalAuthResult.Failed(
-                SourceName,
-                $"Active ArcGIS Pro portal session did not return a token. {ResolvePortalSessionDiagnostic(portal)} Queued task retry: {queuedRetry.ErrorMessage}");
+            return useQueuedTask
+                ? await ResolvePortalTokenOnQueuedTaskAsync(managerType, request, cancellationToken).ConfigureAwait(false)
+                : ResolvePortalTokenOnCurrentThread(managerType, request, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -122,7 +88,7 @@ public sealed class ArcGisProPortalAuthProvider : IPortalAuthProvider
         return null;
     }
 
-    private static async Task<PortalAuthResult> TryResolvePortalTokenOnQueuedTaskAsync(
+    private static async Task<PortalAuthResult> ResolvePortalTokenOnQueuedTaskAsync(
         Type managerType,
         PortalAuthRequest request,
         CancellationToken cancellationToken)
@@ -137,7 +103,7 @@ public sealed class ArcGisProPortalAuthProvider : IPortalAuthProvider
         {
             return PortalAuthResult.Failed(
                 SourceName,
-                $"ArcGIS Pro queued task token retry failed: {exception.GetType().Name}.");
+                $"ArcGIS Pro queued task token retrieval failed: {exception.GetType().Name}.");
         }
     }
 

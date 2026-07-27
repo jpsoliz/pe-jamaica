@@ -103,6 +103,40 @@ internal static class InnolaSessionManagerTests
         TestAssert.Equal("Session expired. Log in again.", manager.StatusText, "Expiry status mismatch.");
     }
 
+    public static void CompletedTransactionKeepsTerminalStatusAndDisablesActiveCommands()
+    {
+        var manager = LoggedInManager();
+        var selected = new InnolaTransactionRow(
+            "task-100000854",
+            "txn-100000854",
+            "100000854",
+            "Compute Survey Plan",
+            "parcel_workflow",
+            InnolaTransactionStatus.InProgress,
+            "Compute Survey Plan",
+            "Test User",
+            "tester",
+            null,
+            DateTimeOffset.UtcNow,
+            true,
+            true,
+            null,
+            null);
+        manager.SelectTransaction(selected, DateTimeOffset.UtcNow);
+        manager.MarkTransactionLoaded("100000854", @"C:\Cases\100000854", "2026-07-27T16:39:00Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-07-27T16:39:01Z", "Transaction is in progress.");
+
+        manager.MarkTransactionCompleted("2026-07-27T16:39:03Z", "Completed. Final package uploaded and transaction closed.");
+
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.Completed, manager.LifecycleStatus, "Completed terminal state should be retained after clearing the active transaction.");
+        TestAssert.Equal("Completed. Final package uploaded and transaction closed.", manager.LifecycleStatusText, "Completed status message should remain visible after Finalize.");
+        TestAssert.True(!manager.CanSaveProgress, "Suspend/Save should be disabled after completion.");
+        TestAssert.True(!manager.CanCancelActiveProcess, "Cancel should be disabled after completion.");
+        TestAssert.True(!manager.CanCompleteTransaction, "Finalize should be disabled after completion.");
+        TestAssert.True(manager.CanSwitchTransaction, "A completed transaction should allow the user to refresh or select another task.");
+        TestAssert.True(!manager.IsTransactionLoaded, "Completed transaction should clear the active loaded transaction.");
+    }
+
     public static async Task SessionSecretsAreNotWrittenToSettingsOrCaseFolderFiles()
     {
         const string secretPassword = "super-secret-session-password";

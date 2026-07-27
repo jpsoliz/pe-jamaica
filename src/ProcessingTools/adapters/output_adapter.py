@@ -23,6 +23,7 @@ PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
 PARCEL_FABRIC_NAME = "local_parcel_fabric"
 PARCEL_FABRIC_PARCEL_TYPE_NAME = "compute_review"
 PARCEL_FABRIC_RECORD_PREFIX = "sidwell-record"
+_ARCPY_IMPORT_ERROR: str | None = None
 
 
 def run(input_json_path, output_json_path):
@@ -43,11 +44,14 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _load_arcpy():
+    global _ARCPY_IMPORT_ERROR
+    _ARCPY_IMPORT_ERROR = None
     try:
         import arcpy  # type: ignore
 
         return arcpy
-    except Exception:
+    except Exception as exc:
+        _ARCPY_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
         return None
 
 
@@ -2279,7 +2283,8 @@ def main(argv: list[str] | None = None) -> int:
             import_dwg_reference,
         )
     else:
-        raise RuntimeError("ArcPy is not available for output generation.")
+        detail = f" {_ARCPY_IMPORT_ERROR}" if _ARCPY_IMPORT_ERROR else ""
+        raise RuntimeError(f"ArcPy is not available for output generation.{detail}")
 
     effective_polygons = polygons if layer_paths.get("polygon_fc") else []
     _write_json(geojson_path, _build_geojson(output_points, output_segments, effective_polygons))

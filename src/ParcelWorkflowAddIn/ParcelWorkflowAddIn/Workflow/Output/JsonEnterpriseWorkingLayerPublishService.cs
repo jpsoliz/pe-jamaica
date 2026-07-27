@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -59,27 +60,28 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
-    private static readonly HttpClient HttpClient = new();
-
     private readonly Func<InnolaTransactionSettings> getSettings;
     private readonly IPortalAuthProvider portalAuthProvider;
+    private readonly HttpClient httpClient;
 
     public JsonEnterpriseWorkingLayerPublishService()
-        : this(InnolaTransactionSettings.Load, CompositePortalAuthProvider.CreateDefault())
+        : this(InnolaTransactionSettings.Load, CompositePortalAuthProvider.CreateDefault(), null)
     {
     }
 
     internal JsonEnterpriseWorkingLayerPublishService(Func<InnolaTransactionSettings> getSettings)
-        : this(getSettings, CompositePortalAuthProvider.CreateDefault())
+        : this(getSettings, CompositePortalAuthProvider.CreateDefault(), null)
     {
     }
 
     internal JsonEnterpriseWorkingLayerPublishService(
         Func<InnolaTransactionSettings> getSettings,
-        IPortalAuthProvider portalAuthProvider)
+        IPortalAuthProvider portalAuthProvider,
+        HttpClient? httpClient = null)
     {
         this.getSettings = getSettings;
         this.portalAuthProvider = portalAuthProvider;
+        this.httpClient = httpClient ?? CreateEnterpriseHttpClient(getSettings().ClientCertificate);
     }
 
     public async Task<EnterpriseWorkingLayerPublishResult> PublishAsync(
@@ -223,7 +225,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
                 transactionScopeField,
                 "Enterprise working-layer publish failed. Local output artifacts remain available.",
                 warnings: Array.Empty<string>(),
-                errors: new[] { exception.Message });
+                errors: DescribeException(exception));
         }
     }
 
@@ -505,7 +507,7 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         return new Uri(uri.GetLeftPart(UriPartial.Authority));
     }
 
-    private static async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken, Uri? referer = null)
+    private async Task<JsonObject> PostFormAsync(string url, IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken, Uri? referer = null)
     {
         using var content = new FormUrlEncodedContent(form);
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -517,10 +519,41 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             request.Headers.Referrer = referer;
         }
 
-        using var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return JsonNode.Parse(text)?.AsObject() ?? [];
+    }
+
+    private static HttpClient CreateEnterpriseHttpClient(InnolaClientCertificateSettings certificateSettings)
+    {
+        var handler = new HttpClientHandler
+        {
+            CheckCertificateRevocationList = certificateSettings.CheckCertificateRevocationList
+        };
+
+        if (certificateSettings.AllowInvalidServerCertificate)
+        {
+            handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+        }
+
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        return client;
+    }
+
+    private static IReadOnlyList<string> DescribeException(Exception exception)
+    {
+        var errors = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = string.IsNullOrWhiteSpace(current.Message)
+                ? current.GetType().Name
+                : $"{current.GetType().Name}: {current.Message}";
+            errors.Add(message);
+        }
+
+        return errors.Count == 0 ? new[] { exception.Message } : errors;
     }
 
     private static string GetArcGisPortalUrl(string targetUrl)
