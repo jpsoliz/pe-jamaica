@@ -176,6 +176,84 @@ function Update-AddInPackageSettings {
     }
 }
 
+function Get-AddInPackageId {
+    param(
+        [Parameter(Mandatory)][string]$AddInPath
+    )
+
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "sidwell-addin-id-$([guid]::NewGuid().ToString('N'))"
+    $tempZip = "$tempRoot.zip"
+    $expanded = Join-Path $tempRoot 'expanded'
+
+    try {
+        New-Item -ItemType Directory -Path $expanded -Force | Out-Null
+        Copy-Item -LiteralPath $AddInPath -Destination $tempZip -Force
+        Expand-Archive -LiteralPath $tempZip -DestinationPath $expanded -Force
+
+        $damlPath = Join-Path $expanded 'Config.daml'
+        if (-not (Test-Path -LiteralPath $damlPath)) {
+            throw "Config.daml was not found inside add-in package."
+        }
+
+        [xml]$daml = Get-Content -LiteralPath $damlPath -Raw
+        $addInInfo = $daml.GetElementsByTagName('AddInInfo') | Select-Object -First 1
+        if (-not $addInInfo -or [string]::IsNullOrWhiteSpace($addInInfo.id)) {
+            throw "AddInInfo id was not found in Config.daml."
+        }
+
+        return $addInInfo.id.Trim()
+    }
+    finally {
+        Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+}
+
+function Install-ConfiguredAddInForUserProfiles {
+    param(
+        [Parameter(Mandatory)][string]$ConfiguredAddInPath,
+        [Parameter(Mandatory)][string]$AddInId,
+        [Parameter(Mandatory)][string]$LogPath
+    )
+
+    $profileRoots = New-Object System.Collections.Generic.List[string]
+    $currentProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    if (-not [string]::IsNullOrWhiteSpace($currentProfile) -and (Test-Path -LiteralPath $currentProfile)) {
+        $profileRoots.Add([System.IO.Path]::GetFullPath($currentProfile))
+    }
+
+    $usersRoot = Join-Path $env:SystemDrive 'Users'
+    if (Test-Path -LiteralPath $usersRoot) {
+        foreach ($profile in Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue) {
+            if ($profile.Name -in @('All Users', 'Default', 'Default User', 'Public', 'WDAGUtilityAccount')) {
+                continue
+            }
+
+            $profileRoots.Add([System.IO.Path]::GetFullPath($profile.FullName))
+        }
+    }
+
+    $installedTargets = New-Object System.Collections.Generic.List[string]
+    foreach ($profileRoot in ($profileRoots | Select-Object -Unique)) {
+        $documentsPath = Join-Path $profileRoot 'Documents'
+        if (-not (Test-Path -LiteralPath $documentsPath)) {
+            Add-Content -LiteralPath $LogPath -Value "Skipped user add-in registration; Documents folder not found: $documentsPath"
+            continue
+        }
+
+        $targetFolder = Join-Path $documentsPath "ArcGIS\AddIns\ArcGISPro\$AddInId"
+        $targetPath = Join-Path $targetFolder 'ParcelWorkflowAddIn.esriAddInX'
+        New-Item -ItemType Directory -Path $targetFolder -Force | Out-Null
+        Copy-Item -LiteralPath $ConfiguredAddInPath -Destination $targetPath -Force
+        Add-Content -LiteralPath $LogPath -Value "Configured add-in copied for user profile: $targetPath"
+        $installedTargets.Add($targetPath)
+    }
+
+    return $installedTargets.ToArray()
+}
+
 $resolvedInstallRoot = Resolve-InstallerPathArgument $InstallRoot
 $resolvedLogRoot = if (-not [string]::IsNullOrWhiteSpace($LogRoot)) {
     Resolve-InstallerPathArgument $LogRoot
@@ -238,6 +316,9 @@ Update-AddInPackageSettings `
 Add-Content -LiteralPath $logPath -Value "ConfiguredAddIn=$configuredAddIn"
 Add-Content -LiteralPath $logPath -Value "PythonExe=$resolvedPythonExe"
 
+$addInId = Get-AddInPackageId -AddInPath $configuredAddIn
+$registeredUserAddIns = Install-ConfiguredAddInForUserProfiles -ConfiguredAddInPath $configuredAddIn -AddInId $addInId -LogPath $logPath
+
 $installSummary = [ordered]@{
     schema_version = 'parcel_workflow_install_path_summary_v1'
     generated_at = (Get-Date).ToString('o')
@@ -252,6 +333,8 @@ $installSummary = [ordered]@{
     openai_api_key_provided = (-not [string]::IsNullOrWhiteSpace($OpenAiApiKey))
     openai_api_key_present = $openAiKeyPresent
     openai_api_key_target = $OpenAiApiKeyTarget
+    addin_id = $addInId
+    registered_user_addins = $registeredUserAddIns
 }
 $installSummary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $resolvedLogRoot 'install_path_summary.json') -Encoding UTF8
 

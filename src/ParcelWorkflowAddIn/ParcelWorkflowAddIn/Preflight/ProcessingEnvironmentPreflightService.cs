@@ -265,10 +265,11 @@ public sealed class ProcessingEnvironmentPreflightService : IProcessingEnvironme
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            var launchFailure = Sanitize($"{exception.GetType().Name}: {exception.Message}");
             blockers.Add(PreflightCheck.BlockerForCategory(
                 "python",
                 "python_executable_invokable",
-                "Configured Python executable could not be invoked.",
+                $"Configured Python executable could not be invoked. {launchFailure}",
                 settings.PythonExecutable,
                 null,
                 "Repair the configured Python environment or update arcgis_python_executable."));

@@ -215,6 +215,24 @@ internal static class ProcessingEnvironmentPreflightServiceTests
         TestAssert.True(!blocker.Message.Contains("token", StringComparison.OrdinalIgnoreCase), "Timeout blocker should not leak tokens.");
     }
 
+    public static void PythonLaunchExceptionIsReported()
+    {
+        using var tempRoot = new TempDirectory();
+        var pythonPath = Path.Combine(tempRoot.Path, "python.exe");
+        File.WriteAllText(pythonPath, "fake");
+        var layout = CreateBareLayout(tempRoot.Path);
+        var service = new ProcessingEnvironmentPreflightService(
+            Settings(pythonPath),
+            new ThrowingProcessRunner(new UnauthorizedAccessException("Access to python.exe is denied.")),
+            new FakeArcGisProEnvironmentProvider("3.6.0"));
+
+        var result = service.RunAsync(layout).GetAwaiter().GetResult();
+
+        var blocker = result.Blockers.Single(check => check.CheckId == "python_executable_invokable");
+        TestAssert.True(blocker.Message.Contains("UnauthorizedAccessException", StringComparison.OrdinalIgnoreCase), "Launch blocker should include the exception type.");
+        TestAssert.True(blocker.Message.Contains("denied", StringComparison.OrdinalIgnoreCase), "Launch blocker should include the sanitized exception message.");
+    }
+
     public static void UnknownArcGisVersionRuleCanEscalateToBlocker()
     {
         using var tempRoot = new TempDirectory();
@@ -396,6 +414,26 @@ internal static class ProcessingEnvironmentPreflightServiceTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class ThrowingProcessRunner : IProcessRunner
+    {
+        private readonly Exception exception;
+
+        public ThrowingProcessRunner(Exception exception)
+        {
+            this.exception = exception;
+        }
+
+        public Task<ProcessRunResult> RunAsync(
+            string executablePath,
+            string arguments,
+            TimeSpan timeout,
+            IReadOnlyDictionary<string, string?>? environmentVariables = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw exception;
         }
     }
 

@@ -70,7 +70,7 @@
 
     <SetProperty
       Id="RunWriteInstallationSummary"
-      Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoP -EP Bypass -F &quot;[InstallerFolder]scripts\write_installation_summary.ps1&quot; -I &quot;[INSTALLFOLDER].&quot; -L &quot;[ProgramDataLogsFolder].&quot;"
+      Value="&quot;[InstallerFolder]scripts\write_installation_summary.bat&quot; -I &quot;[INSTALLFOLDER].&quot; -L &quot;[ProgramDataLogsFolder].&quot;"
       Before="RunWriteInstallationSummary"
       Sequence="execute"
       Condition="NOT REMOVE" />

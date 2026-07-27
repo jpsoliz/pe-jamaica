@@ -72,6 +72,7 @@ Assert-True -Condition ($manifest.installer.python_environment_name -eq 'arcgisp
 & $setupScriptPath `
     -ArcGisProRoot $mockArcGisRoot `
     -InstallRoot (Join-Path $tempRoot 'InstallRoot') `
+    -ScriptRoot (Split-Path -Parent $setupScriptPath) `
     -CondaRequirements $condaRequirementsPath `
     -PipRequirements $pipRequirementsPath `
     -LogRoot $logRoot `
@@ -95,6 +96,23 @@ if ($condaInstallIndex -ge 0) {
 }
 Assert-True -Condition ($phaseNames -contains 'verify-ai-survey-package-versions') -Message 'Package version verification was not planned.'
 
+Remove-Item -LiteralPath $planPath -Force
+$setupScriptText = Get-Content -LiteralPath $setupScriptPath -Raw
+$setupScriptBlock = [ScriptBlock]::Create($setupScriptText)
+& $setupScriptBlock `
+    -ArcGisProRoot $mockArcGisRoot `
+    -InstallRoot (Join-Path $tempRoot 'ScriptBlockInstallRoot') `
+    -ScriptRoot (Split-Path -Parent $setupScriptPath) `
+    -CondaRequirements $condaRequirementsPath `
+    -PipRequirements $pipRequirementsPath `
+    -LogRoot $logRoot `
+    -DryRun
+
+Assert-Path $planPath
+$scriptBlockPlan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json
+Assert-True -Condition ($scriptBlockPlan.dry_run -eq $true) -Message 'Environment setup scriptblock plan was not a dry run.'
+Assert-True -Condition ($scriptBlockPlan.environment_name -eq 'arcgispro-survey-ai') -Message 'Environment setup scriptblock plan used the wrong environment name.'
+
 & $summaryScriptPath `
     -InstallRoot $packageRoot `
     -LogRoot $logRoot
@@ -116,6 +134,25 @@ Assert-True -Condition $environmentSetupScript.Contains('ConvertTo-ProcessArgume
 
 $packageWxs = Get-Content -LiteralPath (Join-Path $Root 'installer\Package.wxs') -Raw
 Assert-True -Condition $packageWxs.Contains('RunWriteInstallationSummary') -Message 'WiX package does not run the installation summary custom action.'
+Assert-True -Condition $packageWxs.Contains('Id="RunSetupArcGisPro37Environment"') -Message 'WiX package does not define the ArcGIS Pro environment setup custom action.'
+Assert-True -Condition $packageWxs.Contains('Return="check"') -Message 'ArcGIS Pro environment setup custom action must fail the install when environment setup fails.'
+
+$environmentSetupBat = Get-Content -LiteralPath (Join-Path $Root 'installer\scripts\setup_arcgispro37_environment.bat') -Raw
+Assert-True -Condition $environmentSetupBat.Contains('exit /b %EXIT_CODE%') -Message 'Environment setup batch file must propagate the PowerShell setup exit code.'
+Assert-True -Condition (-not $environmentSetupBat.Contains('-File "%SCRIPT_ROOT%setup_arcgispro37_environment.ps1"')) -Message 'Environment setup batch file must not execute unsigned ps1 files with -File.'
+Assert-True -Condition $environmentSetupBat.Contains('[ScriptBlock]::Create') -Message 'Environment setup batch file must use a scriptblock launcher for AllSigned target machines.'
+Assert-True -Condition $environmentSetupBat.Contains('-ScriptRoot $env:SCRIPT_ROOT') -Message 'Environment setup batch file must pass ScriptRoot when using a scriptblock launcher.'
+
+$registerBat = Get-Content -LiteralPath (Join-Path $Root 'installer\scripts\register_parcel_workflow_addin.bat') -Raw
+Assert-True -Condition (-not $registerBat.Contains('-File "%SCRIPT_ROOT%register_parcel_workflow_addin.ps1"')) -Message 'Add-in registration batch file must not execute unsigned ps1 files with -File.'
+Assert-True -Condition $registerBat.Contains('[ScriptBlock]::Create') -Message 'Add-in registration batch file must use a scriptblock launcher for AllSigned target machines.'
+
+$summaryBatPath = Join-Path $Root 'installer\scripts\write_installation_summary.bat'
+Assert-Path $summaryBatPath
+$summaryBat = Get-Content -LiteralPath $summaryBatPath -Raw
+Assert-True -Condition $summaryBat.Contains('[ScriptBlock]::Create') -Message 'Installation summary batch file must use a scriptblock launcher for AllSigned target machines.'
+Assert-True -Condition $packageWxs.Contains('write_installation_summary.bat') -Message 'WiX package must run the installation summary through its batch wrapper.'
+Assert-True -Condition (-not $packageWxs.Contains('write_installation_summary.ps1&quot;')) -Message 'WiX package must not execute the unsigned summary ps1 directly.'
 
 $bundleWxs = Get-Content -LiteralPath (Join-Path $Root 'installer\Bundle.wxs') -Raw
 Assert-True -Condition $bundleWxs.Contains('LaunchTarget="[InstallFolder]\logs\installation_summary.txt"') -Message 'Bootstrapper does not expose the installation summary from the success page.'

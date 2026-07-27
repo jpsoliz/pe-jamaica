@@ -157,7 +157,10 @@ if (Test-NonEmptyFile $setupStatusPath) {
                 $setupDetail = "Environment '$($setupStatus.environment_name)' configured."
             }
         } else {
-            $setupDetail = 'Environment status file exists but does not report success.'
+            $failedPhase = if ($setupStatus.failed_phase) { [string]$setupStatus.failed_phase } else { 'unknown phase' }
+            $setupError = if ($setupStatus.error) { [string]$setupStatus.error } else { 'No setup error detail was recorded.' }
+            $setupLogPath = if ($setupStatus.log_path) { [string]$setupStatus.log_path } else { $setupBatLogPath }
+            $setupDetail = "Environment setup failed during $failedPhase. $setupError Log: $setupLogPath"
         }
     } catch {
         $setupDetail = "Environment status file could not be parsed: $($_.Exception.Message)"

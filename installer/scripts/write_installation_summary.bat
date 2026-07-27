@@ -7,18 +7,18 @@ set "LOG_ROOT=%ProgramData%\Sidwell\ParcelWorkflow\logs"
 if not exist "%LOG_ROOT%" mkdir "%LOG_ROOT%" >nul 2>nul
 if not exist "%LOG_ROOT%" set "LOG_ROOT=%TEMP%\Sidwell\ParcelWorkflow\logs"
 if not exist "%LOG_ROOT%" mkdir "%LOG_ROOT%" >nul 2>nul
-set "BAT_LOG=%LOG_ROOT%\register_parcel_workflow_addin_bat.log"
+set "BAT_LOG=%LOG_ROOT%\write_installation_summary_bat.log"
 
-echo [%DATE% %TIME%] Starting Parcel Workflow add-in configuration.>"%BAT_LOG%"
+echo [%DATE% %TIME%] Starting Parcel Workflow installation summary.>"%BAT_LOG%"
 echo Script root: "%SCRIPT_ROOT%">>"%BAT_LOG%"
 echo Install root: "%INSTALL_ROOT%">>"%BAT_LOG%"
 echo Log root: "%LOG_ROOT%">>"%BAT_LOG%"
 echo Arguments: %*>>"%BAT_LOG%"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$scriptPath = Join-Path $env:SCRIPT_ROOT 'register_parcel_workflow_addin.ps1'; $script = [ScriptBlock]::Create([System.IO.File]::ReadAllText($scriptPath)); & $script -InstallRoot $env:INSTALL_ROOT -LogRoot $env:LOG_ROOT" >>"%BAT_LOG%" 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$scriptPath = Join-Path $env:SCRIPT_ROOT 'write_installation_summary.ps1'; $script = [ScriptBlock]::Create([System.IO.File]::ReadAllText($scriptPath)); & $script -InstallRoot $env:INSTALL_ROOT -LogRoot $env:LOG_ROOT" >>"%BAT_LOG%" 2>&1
 set "EXIT_CODE=%ERRORLEVEL%"
 echo [%DATE% %TIME%] Completed with exit code %EXIT_CODE%.>>"%BAT_LOG%"
 if not "%EXIT_CODE%"=="0" (
-  echo [%DATE% %TIME%] WARNING: Add-in configuration failed. Inspect this log and rerun this script manually after fixing prerequisites.>>"%BAT_LOG%"
+  echo [%DATE% %TIME%] WARNING: Installation summary failed. Inspect this log after installation.>>"%BAT_LOG%"
 )
 exit /b 0

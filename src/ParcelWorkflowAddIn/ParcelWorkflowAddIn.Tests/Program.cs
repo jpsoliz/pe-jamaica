@@ -191,6 +191,7 @@ var tests = new (string Name, Action Run)[]
     ("environment preflight arcgis pro assembly 13.6 compatible with 3.6 lane", ProcessingEnvironmentPreflightServiceTests.ArcGisProAssembly136IsCompatibleWithConfigured36Lane),
     ("environment preflight arcgis pro 3.5 incompatible with 3.6 lane", ProcessingEnvironmentPreflightServiceTests.ArcGisPro35IsNotCompatibleWithConfigured36Lane),
     ("environment preflight python timeout is sanitized", ProcessingEnvironmentPreflightServiceTests.PythonTimeoutIsSanitizedBlocker),
+    ("environment preflight python launch exception is reported", ProcessingEnvironmentPreflightServiceTests.PythonLaunchExceptionIsReported),
     ("environment preflight unknown arcgis version rule can escalate to blocker", ProcessingEnvironmentPreflightServiceTests.UnknownArcGisVersionRuleCanEscalateToBlocker),
     ("environment preflight async prevents duplicate run", ProcessingEnvironmentPreflightServiceTests.WorkflowSessionAsyncPreflightPreventsDuplicateRun),
     ("environment preflight reopen shows environment checks", ProcessingEnvironmentPreflightServiceTests.ReopenShowsEnvironmentChecks),

@@ -98,7 +98,7 @@ C:\ProgramData\Sidwell\ParcelWorkflow\logs
 
 This location is intentionally outside the MSI install root so logs survive MSI rollback when Python setup fails.
 
-The bootstrapper keeps the MSI installation even if Python environment setup fails. This lets support inspect installed files and the persistent setup logs, then repair the Python environment without losing the installed add-in payload.
+Python environment setup is a required installation step. If `arcgispro-survey-ai` cannot be created or verified, the installer fails instead of reporting success with a partially configured workstation. Review the persistent setup logs, correct the ArcGIS Pro/Python prerequisite, and run the installer again.
 
 ## Install-Time Configuration
 

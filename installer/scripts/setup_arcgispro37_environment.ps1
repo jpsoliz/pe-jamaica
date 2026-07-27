@@ -11,6 +11,8 @@ param(
     [string]$PipRequirements = '',
     [Alias('L')]
     [string]$LogRoot = '',
+    [Alias('S')]
+    [string]$ScriptRoot = '',
     [switch]$Repair,
     [switch]$DryRun
 )
@@ -66,8 +68,17 @@ trap {
         Add-Content -LiteralPath $fallbackLog -Value "[$(Get-Date -Format o)] ERROR $message"
         Add-Content -LiteralPath $fallbackLog -Value "RawInstallRoot=$InstallRoot"
         Add-Content -LiteralPath $fallbackLog -Value "RawLogRoot=$LogRoot"
+        Add-Content -LiteralPath $fallbackLog -Value "RawScriptRoot=$ScriptRoot"
         if (-not [string]::IsNullOrWhiteSpace($stackTrace)) {
             Add-Content -LiteralPath $fallbackLog -Value $stackTrace
+        }
+        $logTail = @()
+        if (-not [string]::IsNullOrWhiteSpace($script:CurrentSetupLogPath) -and (Test-Path -LiteralPath $script:CurrentSetupLogPath -PathType Leaf)) {
+            $logTail = @(Get-Content -LiteralPath $script:CurrentSetupLogPath -Tail 80 -ErrorAction SilentlyContinue)
+            if ($logTail.Count -gt 0) {
+                Add-Content -LiteralPath $fallbackLog -Value 'Detailed setup log tail:'
+                Add-Content -LiteralPath $fallbackLog -Value $logTail
+            }
         }
 
         $status = [ordered]@{
@@ -80,9 +91,11 @@ trap {
             target_python_exe = ''
             conda_requirements = $CondaRequirements
             pip_requirements = $PipRequirements
+            script_root = $ScriptRoot
             failed_phase = $script:CurrentSetupPhase
             error = $message
             log_path = $script:CurrentSetupLogPath
+            log_tail = $logTail
         }
         $status | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fallbackLogRoot 'setup_arcgispro37_environment_status.json') -Encoding UTF8
     }
@@ -298,7 +311,18 @@ function Test-RequirementFileHasEntries {
     return $false
 }
 
-$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptRoot = if (-not [string]::IsNullOrWhiteSpace($ScriptRoot)) {
+    Resolve-InstallerPathArgument $ScriptRoot
+}
+elseif ($MyInvocation -and $MyInvocation.MyCommand -and -not [string]::IsNullOrWhiteSpace($MyInvocation.MyCommand.Path)) {
+    Resolve-InstallerPathArgument (Split-Path -Parent $MyInvocation.MyCommand.Path)
+}
+elseif (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    Resolve-InstallerPathArgument $PSScriptRoot
+}
+else {
+    throw 'Script root could not be resolved. Pass -ScriptRoot when running setup through a script block.'
+}
 $repoRootCandidate = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot '..\..'))
 $cachedRequirementsCandidate = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot 'arcgispro37'))
 $installedRequirementsCandidate = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot '..\arcgispro37'))

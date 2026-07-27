@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 namespace ParcelWorkflowAddIn.Preflight;
 
@@ -20,6 +21,12 @@ public sealed class ProcessRunner : IProcessRunner
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        var executableDirectory = Path.GetDirectoryName(executablePath);
+        if (!string.IsNullOrWhiteSpace(executableDirectory) && Directory.Exists(executableDirectory))
+        {
+            startInfo.WorkingDirectory = executableDirectory;
+        }
 
         if (environmentVariables is not null)
         {

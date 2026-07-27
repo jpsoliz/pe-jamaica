@@ -106,7 +106,7 @@ Code signing is strongly recommended before distribution outside the development
 4. Given `arcgispro-survey-ai` already exists under the ArcGIS Pro envs folder, when the installer runs, then it validates required dependencies/imports and reuses it only when verification passes; otherwise it repairs it according to an explicit reinstall/repair option.
 5. Given requirements files are present, when Python setup runs, then conda packages install before pip packages only when conda package entries are configured.
 6. Given Python setup finishes, when verification runs, then `openai`, `flask`, `pdfplumber`, and `pypdfium2` imports are checked as required; `openai-clip` and `open-clip-torch` package versions are checked; `arcpy`, `clip`, and `open_clip` imports are logged as diagnostics.
-7. Given verification fails, when the installer exits, then it shows the failing import or command and leaves a log file.
+7. Given Python clone creation or verification fails, when the installer exits, then installation is marked failed, the failing command/import is visible in logs, and the workstation is not presented as successfully configured.
 8. Given installation succeeds, when the add-in is configured, then its embedded settings point to the installed `ProcessingTools`, `Contracts`, `ParcelWorkflowCases`, and cloned Python `python.exe`.
 9. Given installation succeeds, when ArcGIS Pro opens, then the add-in is registered and available.
 10. Given an upgrade runs, when existing case folders and logs exist, then they are preserved.
