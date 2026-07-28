@@ -374,7 +374,12 @@ $planPath = Join-Path $resolvedLogRoot "setup_arcgispro37_environment_plan.json"
 $resolvedArcGisRoot = Find-ArcGisProRoot -ExplicitRoot $ArcGisProRoot
 $defaultPythonExe = Join-Path $resolvedArcGisRoot 'bin\Python\envs\arcgispro-py3\python.exe'
 $condaExe = Join-Path $resolvedArcGisRoot 'bin\Python\Scripts\conda.exe'
-$targetPythonExe = Join-Path $resolvedArcGisRoot "bin\Python\envs\$EnvironmentName\python.exe"
+if ([string]::IsNullOrWhiteSpace($resolvedInstallRoot)) {
+    throw 'InstallRoot is required to create the Parcel Workflow Python environment.'
+}
+
+$targetEnvironmentRoot = Join-Path $resolvedInstallRoot "envs\$EnvironmentName"
+$targetPythonExe = Join-Path $targetEnvironmentRoot 'python.exe'
 
 $commands = New-Object System.Collections.Generic.List[object]
 
@@ -382,14 +387,14 @@ if ($Repair -or -not (Test-Path -LiteralPath $targetPythonExe)) {
     $commands.Add((New-CommandRecord `
         -Phase 'conda-clone' `
         -FilePath $condaExe `
-        -Arguments @('create', '--clone', 'arcgispro-py3', '--name', $EnvironmentName, '--pinned', '-y')))
+        -Arguments @('create', '--clone', 'arcgispro-py3', '--prefix', $targetEnvironmentRoot, '--pinned', '-y')))
 }
 
 if (Test-RequirementFileHasEntries -Path $resolvedCondaRequirements) {
     $commands.Add((New-CommandRecord `
         -Phase 'conda-install-requirements' `
         -FilePath $condaExe `
-        -Arguments @('install', '--name', $EnvironmentName, '--file', $resolvedCondaRequirements, '-c', 'esri', '-c', 'conda-forge', '-c', 'defaults', '-y')))
+        -Arguments @('install', '--prefix', $targetEnvironmentRoot, '--file', $resolvedCondaRequirements, '-c', 'esri', '-c', 'conda-forge', '-c', 'defaults', '-y')))
 }
 $commands.Add((New-CommandRecord `
     -Phase 'pip-install-requirements' `
@@ -423,6 +428,7 @@ $plan = [ordered]@{
     default_python_exe = $defaultPythonExe
     conda_exe = $condaExe
     environment_name = $EnvironmentName
+    target_environment_root = $targetEnvironmentRoot
     target_python_exe = $targetPythonExe
     conda_requirements = $resolvedCondaRequirements
     pip_requirements = $resolvedPipRequirements
@@ -463,6 +469,7 @@ $status = [ordered]@{
     install_root = $resolvedInstallRoot
     arcgis_pro_root = $resolvedArcGisRoot
     environment_name = $EnvironmentName
+    target_environment_root = $targetEnvironmentRoot
     target_python_exe = $targetPythonExe
     conda_requirements = $resolvedCondaRequirements
     pip_requirements = $resolvedPipRequirements

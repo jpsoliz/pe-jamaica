@@ -51,7 +51,7 @@
       BinaryRef="Wix4UtilCA_X64"
       DllEntry="WixQuietExec64"
       Execute="deferred"
-      Return="ignore"
+      Return="check"
       Impersonate="no" />
 
     <SetProperty

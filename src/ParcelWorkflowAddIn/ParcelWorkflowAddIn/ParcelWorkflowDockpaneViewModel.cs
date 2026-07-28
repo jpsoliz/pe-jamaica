@@ -4538,6 +4538,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         if (workflowSession.CaseFolderPath?.Equals(loadedCaseFolderPath, StringComparison.OrdinalIgnoreCase) == true)
         {
             RefreshWorkflowProperties();
+            TryShowSupportingDocumentsDockpane();
             return;
         }
 
@@ -4545,6 +4546,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
         RefreshWorkflowProperties();
+        TryShowSupportingDocumentsDockpane();
     }
 
     private static void TryShowSupportingDocumentsDockpane()

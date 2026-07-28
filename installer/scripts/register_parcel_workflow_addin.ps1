@@ -94,24 +94,18 @@ function Set-JsonStringProperty {
 }
 
 function Resolve-ArcGisPython {
-    param([string]$PreferredPython)
+    param(
+        [string]$PreferredPython,
+        [string]$InstallRoot
+    )
 
     $candidates = @()
     if (-not [string]::IsNullOrWhiteSpace($PreferredPython)) {
         $candidates += $PreferredPython
     }
 
-    if ($env:ProgramFiles) {
-        $proRoot = Join-Path $env:ProgramFiles 'ArcGIS\Pro'
-        $candidates += (Join-Path $proRoot 'bin\Python\envs\arcgispro-survey-ai\python.exe')
-        $candidates += (Join-Path $proRoot 'bin\Python\envs\arcgispro-py3\python.exe')
-    }
-
-    $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-    if ($programFilesX86) {
-        $proRoot = Join-Path $programFilesX86 'ArcGIS\Pro'
-        $candidates += (Join-Path $proRoot 'bin\Python\envs\arcgispro-survey-ai\python.exe')
-        $candidates += (Join-Path $proRoot 'bin\Python\envs\arcgispro-py3\python.exe')
+    if (-not [string]::IsNullOrWhiteSpace($InstallRoot)) {
+        $candidates += (Join-Path $InstallRoot 'envs\arcgispro-survey-ai\python.exe')
     }
 
     foreach ($candidate in $candidates) {
@@ -279,14 +273,14 @@ if (-not (Test-Path -LiteralPath $resolvedInstallRoot)) {
 
 $sourceAddIn = Join-Path $resolvedInstallRoot 'AddIn\ParcelWorkflowAddIn.esriAddInX'
 $configuredAddIn = Join-Path $resolvedInstallRoot 'AddIn\ParcelWorkflowAddIn.configured.esriAddInX'
-$resolvedPythonExe = Resolve-ArcGisPython -PreferredPython $PythonExe
+$resolvedPythonExe = Resolve-ArcGisPython -PreferredPython $PythonExe -InstallRoot $resolvedInstallRoot
 
 if (-not (Test-Path -LiteralPath $sourceAddIn)) {
     throw "Source add-in package not found: $sourceAddIn"
 }
 
 if ([string]::IsNullOrWhiteSpace($resolvedPythonExe)) {
-    throw "ArcGIS Pro Python was not found. Install ArcGIS Pro or pass -PythonExe."
+    throw "Parcel Workflow Python was not found. Run setup_arcgispro37_environment.bat or pass -PythonExe."
 }
 
 if (-not [string]::IsNullOrWhiteSpace($OpenAiApiKey)) {

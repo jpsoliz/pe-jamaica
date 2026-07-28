@@ -133,10 +133,10 @@ $manifest = [ordered]@{
     }
     notes = @(
         'Python runtime is not bundled by default because it is large and external to the repository.',
-        'For ArcGIS Pro 3.7 installs, use installer/scripts/setup_arcgispro37_environment.ps1 to clone arcgispro-py3 into arcgispro-survey-ai and install requirements.',
+        'For ArcGIS Pro 3.7 installs, use installer/scripts/setup_arcgispro37_environment.ps1 to clone arcgispro-py3 into the install-root envs\arcgispro-survey-ai folder and install requirements.',
         'Do not copy an ArcGIS Pro 3.6 cloned Python environment to an ArcGIS Pro 3.7 target computer.',
-        'The target installer first uses the target computer ArcGIS Pro Python at C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe.',
-        'The configured add-in should point to C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-survey-ai\python.exe after setup.',
+        'The target installer first uses the target computer ArcGIS Pro conda tooling from C:\Program Files\ArcGIS\Pro\bin\Python.',
+        'The configured add-in should point to C:\Sidwell\ParcelWorkflow\envs\arcgispro-survey-ai\python.exe after setup.',
         'The target installer requires openai, flask, pdfplumber, and pypdfium2 imports; verifies OpenAI/CLIP package versions; and logs arcpy/clip/open_clip imports as diagnostics.',
         'The WiX installer can set OPENAI_API_KEY from a supplied OpenAiApiKey variable; the package stores only the environment variable name in add-in settings.',
         'The target installer sets case_folder_output_root to C:\Sidwell\ParcelWorkflow\ParcelWorkflowCases in the configured add-in package.',

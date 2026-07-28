@@ -84,8 +84,12 @@ $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json
 Assert-True -Condition ($plan.dry_run -eq $true) -Message 'Environment setup plan was not a dry run.'
 Assert-True -Condition ($plan.environment_name -eq 'arcgispro-survey-ai') -Message 'Environment setup plan used the wrong environment name.'
 Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($plan.install_root)) -Message 'Environment setup plan did not capture install_root.'
+Assert-True -Condition ($plan.target_environment_root -eq (Join-Path $plan.install_root 'envs\arcgispro-survey-ai')) -Message 'Environment setup plan did not target the install-root envs folder.'
+Assert-True -Condition ($plan.target_python_exe -eq (Join-Path $plan.target_environment_root 'python.exe')) -Message 'Environment setup plan did not point target_python_exe at the install-root env.'
 $condaCloneCommands = @($plan.commands | Where-Object { $_.phase -eq 'conda-clone' })
 Assert-True -Condition ($condaCloneCommands.Count -eq 1) -Message 'Environment setup did not plan a conda clone.'
+Assert-True -Condition (@($condaCloneCommands[0].arguments) -contains '--prefix') -Message 'Environment setup clone must use --prefix for the install-root env.'
+Assert-True -Condition (-not (@($condaCloneCommands[0].arguments) -contains '--name')) -Message 'Environment setup clone must not use --name under ArcGIS Pro Program Files.'
 
 $phaseNames = @($plan.commands | ForEach-Object { $_.phase })
 $condaInstallIndex = [array]::IndexOf($phaseNames, 'conda-install-requirements')
@@ -112,6 +116,7 @@ Assert-Path $planPath
 $scriptBlockPlan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json
 Assert-True -Condition ($scriptBlockPlan.dry_run -eq $true) -Message 'Environment setup scriptblock plan was not a dry run.'
 Assert-True -Condition ($scriptBlockPlan.environment_name -eq 'arcgispro-survey-ai') -Message 'Environment setup scriptblock plan used the wrong environment name.'
+Assert-True -Condition ($scriptBlockPlan.target_environment_root -eq (Join-Path $scriptBlockPlan.install_root 'envs\arcgispro-survey-ai')) -Message 'Environment setup scriptblock plan did not target the install-root envs folder.'
 
 & $summaryScriptPath `
     -InstallRoot $packageRoot `
@@ -127,10 +132,13 @@ Assert-Path (Join-Path $packageRoot 'logs\installation_summary.txt')
 $registerScript = Get-Content -LiteralPath (Join-Path $Root 'installer\scripts\register_parcel_workflow_addin.ps1') -Raw
 Assert-True -Condition $registerScript.Contains('OpenAiApiKeyEnvironmentVariable') -Message 'Add-in registration script does not configure the OpenAI key environment variable name.'
 Assert-True -Condition $registerScript.Contains('install_path_summary.json') -Message 'Add-in registration script does not write install_path_summary.json.'
+Assert-True -Condition $registerScript.Contains("envs\arcgispro-survey-ai\python.exe") -Message 'Add-in registration script does not prefer the install-root Python environment.'
 
 $environmentSetupScript = Get-Content -LiteralPath (Join-Path $Root 'installer\scripts\setup_arcgispro37_environment.ps1') -Raw
 Assert-True -Condition (-not $environmentSetupScript.Contains('ArgumentList.Add')) -Message 'Environment setup script uses ProcessStartInfo.ArgumentList, which is not reliable under Windows PowerShell 5.1 MSI custom actions.'
 Assert-True -Condition $environmentSetupScript.Contains('ConvertTo-ProcessArgumentString') -Message 'Environment setup script does not use MSI-safe process argument formatting.'
+Assert-True -Condition $environmentSetupScript.Contains('"envs\$EnvironmentName"') -Message 'Environment setup script does not create the environment under the install root.'
+Assert-True -Condition $environmentSetupScript.Contains("'--prefix', $targetEnvironmentRoot") -Message 'Environment setup script does not use conda --prefix for the target environment.'
 
 $packageWxs = Get-Content -LiteralPath (Join-Path $Root 'installer\Package.wxs') -Raw
 Assert-True -Condition $packageWxs.Contains('RunWriteInstallationSummary') -Message 'WiX package does not run the installation summary custom action.'
