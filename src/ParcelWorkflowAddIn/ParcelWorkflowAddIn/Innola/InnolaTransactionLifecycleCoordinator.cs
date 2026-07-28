@@ -305,6 +305,11 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     if (!spatialUnitResult.Success)
                     {
                         var message = SafeRetryMessage(spatialUnitResult.Message, "Could not create Spatial Unit. Try again.");
+                        disposition = disposition with
+                        {
+                            SpatialUnitApiStatus = "failed"
+                        };
+                        dispositionPersistenceService.Save(layout, disposition);
                         sessionManager.MarkLifecycleError(message);
                         UpdateManifestAndAudit(
                             "compute_spatial_unit_save_failed",
@@ -314,7 +319,8 @@ public sealed class InnolaTransactionLifecycleCoordinator
                             "error",
                             completionReady: true,
                             completionReadyReason: "ready",
-                            lastErrorCategory: spatialUnitResult.ErrorCategory);
+                            lastErrorCategory: spatialUnitResult.ErrorCategory,
+                            spatialUnitApiStatus: "failed");
                         return InnolaTransactionLoadResult.Failure(message);
                     }
                 }

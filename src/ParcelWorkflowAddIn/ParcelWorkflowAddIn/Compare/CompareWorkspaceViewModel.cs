@@ -28,6 +28,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly ICompareReportAttachmentService? reportAttachmentService;
     private readonly ICompareMapIntegrationService? mapIntegrationService;
     private readonly ICompareWorkspacePromptService promptService;
+    private readonly string pdfViewerMode;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly string? reviewerId;
     private readonly string? reviewerDisplayName;
@@ -56,13 +57,14 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private string searchValidationMessage = string.Empty;
     private string evidenceSearchStatusMessage = "No legal cadaster search has been run.";
     private bool isLoading;
-    private bool isPdfPanelVisible = true;
+    private bool isPdfPanelVisible;
     private bool documentsAvailable;
     private bool geometryAvailable;
     private bool geometryRetryable;
     private bool geometryBlocksApproval = true;
     private bool legalEvidenceReviewed;
     private bool fiscalEvidenceReviewed;
+    private bool hasSavedCompareReport;
     private string? statusText;
 
     public CompareWorkspaceViewModel(
@@ -83,6 +85,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         ICompareReportAttachmentService? reportAttachmentService = null,
         ICompareMapIntegrationService? mapIntegrationService = null,
         ICompareWorkspacePromptService? promptService = null,
+        string? pdfViewerMode = null,
         Func<DateTimeOffset>? getUtcNow = null,
         string? reviewerId = null,
         string? reviewerDisplayName = null)
@@ -104,6 +107,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.reportAttachmentService = reportAttachmentService;
         this.mapIntegrationService = mapIntegrationService;
         this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
+        this.pdfViewerMode = string.IsNullOrWhiteSpace(pdfViewerMode)
+            ? InnolaTransactionSettings.Load().PdfViewerMode
+            : pdfViewerMode;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
         this.reviewerId = reviewerId;
         this.reviewerDisplayName = reviewerDisplayName;
@@ -272,7 +278,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             }
 
             selectedDocument = value;
-            ViewerState = ReviewSourceViewerStateProjector.Build(value, InnolaTransactionSettings.PdfViewerModeEmbeddedBrowser);
+            ViewerState = ReviewSourceViewerStateProjector.Build(value, pdfViewerMode);
             NotifyPropertyChanged(nameof(SelectedDocument));
         }
     }
@@ -533,7 +539,6 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public bool CanCompleteTask => layout is not null
         && !IsLoading
         && taskLifecycleService is not null
-        && DecisionStatus.Equals("Finalized", StringComparison.OrdinalIgnoreCase)
         && CanApproveCompare;
 
     public bool CanBlockCompare => layout is not null && !IsLoading;
@@ -553,12 +558,22 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     }
 
     public bool CanApproveCompare => layout is not null
-        && DocumentsAvailable
-        && GeometryAvailable
-        && !geometryBlocksApproval
-        && ValuableEvidenceItems.Count > 0
-        && !string.IsNullOrWhiteSpace(Notes)
+        && HasSavedCompareReport
         && !IsLoading;
+
+    public bool HasSavedCompareReport
+    {
+        get => hasSavedCompareReport;
+        private set
+        {
+            if (SetField(ref hasSavedCompareReport, value, nameof(HasSavedCompareReport)))
+            {
+                NotifyPropertyChanged(nameof(CanApproveCompare));
+                NotifyPropertyChanged(nameof(CanCompleteTask));
+                RaiseCommandStates();
+            }
+        }
+    }
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
@@ -650,6 +665,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             ApplySurveyPlanEvidence();
             RestoreDraft(reopenedCaseFolder.Layout);
             RestoreDecision(reopenedCaseFolder.Layout);
+            HasSavedCompareReport = ComparePdfReportExists();
         }
 
         RefreshEvidenceItems();
@@ -1244,7 +1260,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             return;
         }
 
-        _ = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+        var result = SaveProgress(CompareReviewDecisionValues.SavedProgress, "Draft");
+        if (result is not null && HasSavedCompareReport)
+        {
+            promptService.ShowSaveCompleted("Compare status saved. The PDF report was generated and Finalize is now available.");
+        }
     }
 
     private async Task SuspendTaskAsync(CancellationToken cancellationToken = default)
@@ -1364,8 +1384,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         var reportResult = result.Document is null
             ? CompareReviewReportResult.Failed("Compare report could not be generated because the draft was not saved.")
             : reportService.Generate(layout, transaction, result.Document);
+        HasSavedCompareReport = reportResult.Success && ComparePdfReportExists();
         DecisionStatus = displayStatus;
         StatusText = BuildSaveProgressStatus(result, reportResult);
+        RaiseStateProperties();
         return result with
         {
             Message = StatusText ?? result.Message
@@ -1472,11 +1494,6 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private async Task CleanupAfterTaskExitAsync(CancellationToken cancellationToken)
     {
         var groupLayerName = currentCompareGroupLayerName;
-        if (string.IsNullOrWhiteSpace(groupLayerName))
-        {
-            groupLayerName = $"Compare Review - {CompareWorkingGeometryService.NormalizeTransactionNumber(TransactionNumber)}";
-        }
-
         TraceFinalizeStep(
             "cleanup_started",
             true,
@@ -1486,7 +1503,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                 ["group_layer_name"] = groupLayerName,
                 ["map_integration_service_configured"] = (mapIntegrationService is not null).ToString(CultureInfo.InvariantCulture)
             }));
-        if (mapIntegrationService is not null)
+        if (mapIntegrationService is not null && !string.IsNullOrWhiteSpace(groupLayerName))
         {
             var cleanup = await mapIntegrationService.RemoveTransactionGeometryFromActiveMapAsync(
                 groupLayerName,
@@ -1509,7 +1526,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             TraceFinalizeStep(
                 "map_cleanup_skipped",
                 false,
-                "Map cleanup was skipped because no map integration service is configured.",
+                string.IsNullOrWhiteSpace(groupLayerName)
+                    ? "Map cleanup was skipped because Compare map layers were not loaded."
+                    : "Map cleanup was skipped because no map integration service is configured.",
                 BuildFinalizeTraceDetails(new Dictionary<string, string?>
                 {
                     ["group_layer_name"] = groupLayerName
@@ -1537,6 +1556,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         geometryAvailable = false;
         geometryRetryable = false;
         geometryBlocksApproval = true;
+        HasSavedCompareReport = false;
         DocumentStatus = "Compare workspace cleared.";
         GeometryStatus = "Compare map layers cleared.";
         RaiseStateProperties();

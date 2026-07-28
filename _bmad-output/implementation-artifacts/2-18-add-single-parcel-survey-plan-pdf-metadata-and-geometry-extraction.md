@@ -39,12 +39,14 @@ The sample file `DOC_PLAN_492321.pdf` is a one-page scanned image PDF with no em
    - instrument make/no.
    - surveyed by
    - plan/check dates where visible
-   - file/reference numbers where visible.
+   - file/reference numbers where visible
+   - volume/folio references where visible, including labels or abbreviations such as `Vol.`, `Volume`, `Folio`, `Fol.`, `Vol/Fol`, `Volume/Folio`, and `Vol./Fol.`.
 
 8. Given the plan includes parties and representatives, when extraction completes, then it captures at minimum:
    - names of parties/owners
    - representatives or persons appearing
-   - adjacent owners/adjacent parcels where visible.
+   - adjacent owners/adjacent parcels where visible
+   - occupant roles where visible, expanding `Occ.` or `Occ` to `Occupant` in the review artifact.
 
 9. Given the extractor cannot confidently parse a field, when extraction completes, then the field remains present with `value = null` or blank, a confidence score/status, and a review note rather than silently omitting it.
 
@@ -95,6 +97,8 @@ The sample file `DOC_PLAN_492321.pdf` is a one-page scanned image PDF with no em
     - memorandum/table zone
     - surveyor/instrument/signature zone.
   - [x] Normalize common Jamaican survey plan terms such as parish, JAD 2001, coordinates, area, instrument make/no., surveyed by, and parties.
+  - [x] Normalize volume/folio aliases (`Vol.`, `Volume`, `Folio`, `Fol.`, `Vol/Fol`, `Volume/Folio`, `Vol./Fol.`) into reviewable `survey_metadata.volume_folio` rows.
+  - [x] Normalize party/owner role abbreviation `Occ.` to `Occupant`.
   - [x] Emit review warnings when values conflict or confidence is low.
   - [x] Implement real `survey_plan_ocr_vision` provider for image-only PXA survey plan PDFs.
     - [x] Render PDF page(s) to image(s) using the configured ArcGIS/Python environment.

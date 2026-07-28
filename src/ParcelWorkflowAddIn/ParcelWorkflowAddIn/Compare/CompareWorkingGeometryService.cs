@@ -430,16 +430,19 @@ public sealed class CompareWorkspaceLoadService
 {
     private readonly InnolaSessionManager sessionManager;
     private readonly InnolaTransactionLoadService transactionLoadService;
-    private readonly ICompareWorkingGeometryService geometryService;
+    private readonly ICompareWorkingGeometryService initialGeometryService;
+    private readonly ICompareWorkingGeometryService reloadGeometryService;
 
     public CompareWorkspaceLoadService(
         InnolaSessionManager sessionManager,
         InnolaTransactionLoadService transactionLoadService,
-        ICompareWorkingGeometryService geometryService)
+        ICompareWorkingGeometryService geometryService,
+        ICompareWorkingGeometryService? reloadGeometryService = null)
     {
         this.sessionManager = sessionManager;
         this.transactionLoadService = transactionLoadService;
-        this.geometryService = geometryService;
+        initialGeometryService = geometryService;
+        this.reloadGeometryService = reloadGeometryService ?? geometryService;
     }
 
     public async Task<CompareWorkspaceLoadState> LoadAsync(CancellationToken cancellationToken = default)
@@ -462,7 +465,7 @@ public sealed class CompareWorkspaceLoadService
                 documentResult.Layout?.RootDirectory)
             : CompareDocumentLoadState.Failed(documentResult.ErrorMessage ?? "Could not load Compare documents.");
 
-        var geometryState = await geometryService.LoadAsync(selectedTransaction, cancellationToken).ConfigureAwait(false);
+        var geometryState = await initialGeometryService.LoadAsync(selectedTransaction, cancellationToken).ConfigureAwait(false);
         return new CompareWorkspaceLoadState(documentState, geometryState);
     }
 
@@ -473,6 +476,6 @@ public sealed class CompareWorkspaceLoadService
                 CompareGeometryLoadStatus.SettingsInvalid,
                 "Select a transaction before loading Compare geometry.",
                 null)
-            : await geometryService.LoadAsync(sessionManager.SelectedTransaction, cancellationToken).ConfigureAwait(false);
+            : await reloadGeometryService.LoadAsync(sessionManager.SelectedTransaction, cancellationToken).ConfigureAwait(false);
     }
 }

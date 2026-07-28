@@ -247,7 +247,7 @@ internal static class ExtractionReviewPersistenceServiceTests
                 ]
               },
               "parties": [
-                { "name": "Clayon Smith", "role": "party_at_instance" }
+                { "name": "Clayon Smith", "role": "Occ." }
               ],
               "representatives": [
                 { "name": "P.D.J.", "role": "drawn_by" }
@@ -255,7 +255,7 @@ internal static class ExtractionReviewPersistenceServiceTests
               "adjacent_owners": [
                 {
                   "name": "Rayon Smith",
-                  "role": "adjacent_owner",
+                  "role": "Occ.",
                   "related_segment_from": "16",
                   "related_segment_to": "17",
                   "volume": "313",
@@ -286,10 +286,12 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("JAD 2001", document.SurveyMetadataFields.First(field => field.Key == "coordinate_system").Value, "Coordinate system should load.");
         TestAssert.Equal<bool?>(true, document.SurveyMetadataFields.First(field => field.Key == "north_arrow").Present, "North arrow presence should load.");
         TestAssert.Equal("Clayon Smith", document.Parties[0].Name, "Party / owner should load.");
+        TestAssert.Equal("Occupant", document.Parties[0].Role, "Occ. party role should expand to Occupant.");
         TestAssert.Equal("P.D.J.", document.Representatives[0].Name, "Representative should load.");
         TestAssert.Equal("313", document.VolumeFolios[0].Volume, "Volume row should load.");
         TestAssert.Equal("71", document.VolumeFolios[0].Folio, "Folio row should load.");
         TestAssert.Equal("Rayon Smith", document.AdjacentOwners[0].Name, "Adjacent owner should load.");
+        TestAssert.Equal("Occupant", document.AdjacentOwners[0].Role, "Occ. adjacent-owner role should expand to Occupant.");
         TestAssert.Equal("Rayon Smith", document.Segments[0].AdjacentOwner, "Segment adjacent owner should load.");
 
         document.SurveyMetadataFields.First(field => field.Key == "parish").Value = "St Andrew";

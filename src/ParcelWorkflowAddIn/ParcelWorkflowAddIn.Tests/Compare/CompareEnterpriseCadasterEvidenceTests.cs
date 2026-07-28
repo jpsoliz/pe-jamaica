@@ -6,7 +6,7 @@ namespace ParcelWorkflowAddIn.Tests.Compare;
 
 internal static class CompareEnterpriseCadasterEvidenceTests
 {
-    public static void SettingsLoadEnterpriseLegalAndFiscalSources()
+    public static void SettingsLoadEnterpriseLegalFiscalAndSurveySources()
     {
         using var settingsFile = new TempFile();
         File.WriteAllText(settingsFile.Path,
@@ -45,6 +45,17 @@ internal static class CompareEnterpriseCadasterEvidenceTests
                   "suid_field": "suid",
                   "object_id_field": "objectid",
                   "global_id_field": "globalid"
+                },
+                "survey": {
+                  "enabled": true,
+                  "source_name": "Survey Cadastre",
+                  "layer_url": "https://example.test/survey/FeatureServer/0",
+                  "parcel_id_field": "survey_pin",
+                  "pid_field": "pid",
+                  "parish_field": "parish",
+                  "suid_field": "suid",
+                  "object_id_field": "objectid",
+                  "global_id_field": "globalid"
                 }
               }
             }
@@ -61,6 +72,8 @@ internal static class CompareEnterpriseCadasterEvidenceTests
         TestAssert.Equal("registered_owner", settings.CompareEnterpriseCadaster.Legal.OwnerField, "Legal owner field mismatch.");
         TestAssert.True(settings.CompareEnterpriseCadaster.Fiscal.Enabled, "Fiscal source should be enabled.");
         TestAssert.Equal("taxpayer", settings.CompareEnterpriseCadaster.Fiscal.TaxpayerField, "Fiscal taxpayer field mismatch.");
+        TestAssert.True(settings.CompareEnterpriseCadaster.Survey.Enabled, "Survey source should be enabled.");
+        TestAssert.Equal("https://example.test/survey/FeatureServer/0", settings.CompareEnterpriseCadaster.Survey.LayerUrl, "Survey layer URL mismatch.");
         TestAssert.Equal(null, settings.CompareEnterpriseCadaster.Warning, "Complete config should not warn.");
     }
 
@@ -73,7 +86,7 @@ internal static class CompareEnterpriseCadasterEvidenceTests
             settings);
 
         TestAssert.True(plan.IsValid, "Query plan should be valid.");
-        TestAssert.Equal(2, plan.LayerRequests.Count, "Both legal and fiscal requests should be included.");
+        TestAssert.Equal(3, plan.LayerRequests.Count, "Legal, fiscal, and survey requests should be included.");
         TestAssert.True(plan.LayerRequests.All(layer => layer.RequiresGeometry), "Cadaster requests must be spatial queries, not full-layer loads.");
         TestAssert.True(plan.LayerRequests.All(layer => layer.ReturnGeometry), "Cadaster evidence must return geometry for classification.");
         TestAssert.True(plan.LayerRequests.All(layer => layer.OutFields.Contains("pid")), "PID field should be requested.");
@@ -94,8 +107,9 @@ internal static class CompareEnterpriseCadasterEvidenceTests
             settings);
 
         TestAssert.True(plan.IsValid, "Plan should remain valid when one source is disabled.");
-        TestAssert.Equal(1, plan.LayerRequests.Count, "Only enabled source should be queried.");
+        TestAssert.Equal(2, plan.LayerRequests.Count, "Only enabled sources should be queried.");
         TestAssert.Equal(CompareEnterpriseCadasterSourceKind.Legal, plan.LayerRequests[0].SourceKind, "Legal source should remain.");
+        TestAssert.Equal(CompareEnterpriseCadasterSourceKind.Survey, plan.LayerRequests[1].SourceKind, "Survey source should remain.");
         TestAssert.True(plan.Diagnostics.Any(message => message.Contains("Fiscal", StringComparison.OrdinalIgnoreCase)), "Disabled source diagnostic should be visible.");
     }
 
@@ -196,6 +210,23 @@ internal static class CompareEnterpriseCadasterEvidenceTests
                 null,
                 "occupant",
                 "taxpayer",
+                "parish",
+                "suid",
+                "objectid",
+                "globalid",
+                null),
+            new CompareEnterpriseCadasterSourceSettings(
+                true,
+                "Survey Cadastre",
+                "https://example.test/survey/FeatureServer/0",
+                "parcel_id",
+                "pid",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 "parish",
                 "suid",
                 "objectid",

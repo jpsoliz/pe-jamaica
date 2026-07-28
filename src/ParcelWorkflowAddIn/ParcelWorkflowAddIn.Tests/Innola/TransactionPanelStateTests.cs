@@ -448,6 +448,19 @@ internal static class TransactionPanelStateTests
         TestAssert.True(!ParcelWorkflowStageRouter.IsComputeStage("Compare Survey Plan", computeStages, compareStages), "Compare stages must not enable the Compute workspace.");
     }
 
+    public static void ProductionTransactionPanelLaunchesCompareWithSafeLoader()
+    {
+        var source = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
+
+        TestAssert.True(
+            source.Contains("compareWorkspaceLifecycleLauncher: ShellState.OpenCompareWorkspace", StringComparison.Ordinal)
+            && !source.Contains("compareWorkspaceLauncher: ShellState.OpenCompareWorkspace", StringComparison.Ordinal),
+            "Production transaction panel must launch the Compare WPF through the lifecycle-aware launcher only.");
+        TestAssert.True(
+            source.Contains("compareTransactionLoadService: ShellState.CompareTransactionLoader", StringComparison.Ordinal),
+            "Production transaction panel must use the Compare-safe loader so Compare starts do not prepare the ArcGIS map before routing.");
+    }
+
     public static async Task CompareWorkflowStageDoesNotLaunchWhenOwnershipStartFails()
     {
         using var tempRoot = new TempDirectory();
@@ -1045,6 +1058,28 @@ internal static class TransactionPanelStateTests
     private static InnolaTransactionRow FindRow(TransactionPanelState panel, string transactionNumber)
     {
         return panel.Rows.First(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string FindSourceFile(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn",
+                fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate {fileName} from the test output directory.");
     }
 
     private static void AssertToolbarCommandState(

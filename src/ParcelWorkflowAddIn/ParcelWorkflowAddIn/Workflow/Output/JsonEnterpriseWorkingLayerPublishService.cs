@@ -14,6 +14,8 @@ namespace ParcelWorkflowAddIn.Workflow.Output;
 
 public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkingLayerPublishService
 {
+    private const int Jad2001Wkid = 3448;
+
     private static readonly string[] SharedEnterpriseAttributes =
     [
         "transaction_number",
@@ -1150,6 +1152,8 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
             return [];
         }
 
+        ValidateGeoJsonJad2001(root, geoJsonPath);
+
         var rows = new JsonArray();
         foreach (var feature in features.OfType<JsonObject>())
         {
@@ -1164,6 +1168,87 @@ public sealed class JsonEnterpriseWorkingLayerPublishService : IEnterpriseWorkin
         }
 
         return rows;
+    }
+
+    private static void ValidateGeoJsonJad2001(JsonObject root, string geoJsonPath)
+    {
+        var wkid = ReadSpatialReferenceWkid(root["spatialReference"])
+            ?? ReadSpatialReferenceWkid(root["crs"]?["properties"])
+            ?? ReadEpsgNameWkid(root["crs"]?["properties"] is JsonObject crsProperties ? ReadJsonString(crsProperties, "name") : null);
+        if (wkid is null)
+        {
+            throw new InvalidOperationException($"GeoJSON artifact {geoJsonPath} does not declare JAD2001 / EPSG:{Jad2001Wkid} spatial reference.");
+        }
+
+        if (wkid.Value != Jad2001Wkid)
+        {
+            throw new InvalidOperationException($"GeoJSON artifact {geoJsonPath} declares EPSG:{wkid.Value}; expected JAD2001 / EPSG:{Jad2001Wkid}.");
+        }
+    }
+
+    private static int? ReadSpatialReferenceWkid(JsonNode? node)
+    {
+        if (node is not JsonObject spatialReference)
+        {
+            return null;
+        }
+
+        if (spatialReference.TryGetPropertyValue("wkid", out var wkidNode)
+            && TryReadJsonInt(wkidNode, out var wkid))
+        {
+            return wkid;
+        }
+
+        if (spatialReference.TryGetPropertyValue("latestWkid", out var latestWkidNode)
+            && TryReadJsonInt(latestWkidNode, out var latestWkid))
+        {
+            return latestWkid;
+        }
+
+        return null;
+    }
+
+    private static bool TryReadJsonInt(JsonNode? node, out int value)
+    {
+        value = 0;
+        if (node is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            value = node.GetValue<int>();
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or FormatException)
+        {
+            try
+            {
+                return int.TryParse(node.GetValue<string>(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
+    private static int? ReadEpsgNameWkid(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var markerIndex = name.LastIndexOf("EPSG:", StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            return null;
+        }
+
+        var digits = new string(name[(markerIndex + 5)..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var wkid) ? wkid : null;
     }
 
     private static void AddDerivedGeometry(JsonArray records, string layerRole)

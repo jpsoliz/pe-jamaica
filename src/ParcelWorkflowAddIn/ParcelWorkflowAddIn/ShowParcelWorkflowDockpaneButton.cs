@@ -1,7 +1,6 @@
 using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Contracts;
 using ParcelWorkflowAddIn.Innola;
-using System.Diagnostics;
 
 namespace ParcelWorkflowAddIn;
 
@@ -20,13 +19,5 @@ internal sealed class ShowParcelWorkflowDockpaneButton : Button
         }
 
         FrameworkApplication.DockPaneManager.Find(ParcelWorkflowDockpaneViewModel.DockPaneId)?.Activate();
-        try
-        {
-            SupportingDocumentsDockpaneViewModel.Show();
-        }
-        catch (Exception exception)
-        {
-            Debug.WriteLine($"Supporting Documents dockpane activation failed from ribbon: {exception.Message}");
-        }
     }
 }

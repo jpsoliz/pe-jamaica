@@ -610,6 +610,7 @@ internal static class WorkflowSessionTests
                 ManifestPreflightServiceTests.Source("computation.pdf", ".pdf", "computation_source"),
                 ManifestPreflightServiceTests.Source("plan.pdf", ".pdf", "plan_map_reference")
             });
+        WriteSurveyPlanGeoreferenceEvidence(layout);
         var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
 
@@ -694,6 +695,129 @@ internal static class WorkflowSessionTests
         TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "structure_check_required"), "Georeference Check should expose the missing Structure Check blocker.");
         TestAssert.Equal(WorkflowState.Intake, session.CurrentState, "Rejected Georeference Check should not advance workflow state.");
         TestAssert.Equal("Run Structure Check successfully before running Georeference Check.", session.StatusText, "Georeference Check gate status mismatch.");
+    }
+
+    public static void WorkflowSessionGeoreferenceCheckPreparesSurveyPlanEvidenceWhenMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, sources) = ManifestPreflightServiceTests.CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                ManifestPreflightServiceTests.Source("DOC_PLAN_485171_F.pdf", ".pdf", "survey_plan_pdf")
+            });
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var scriptPlan = new WorkflowScriptPlan(
+            "1.0.0",
+            "pxa_single_parcel_survey_plan_v1",
+            "1.0.0",
+            "pxa_single_parcel_survey_plan",
+            "2026-07-27T00:00:00Z",
+            WorkflowRuleResolver.ComputeSourceManifestHash(sources),
+            new[]
+            {
+                new WorkflowScriptStep(
+                    "extract_single_parcel_survey_plan_pdf",
+                    "extraction_adapter",
+                    "extract_single_parcel_survey_plan_pdf",
+                    new[] { "survey_plan_pdf" },
+                    new[]
+                    {
+                        "working/survey_plan_extraction_summary.json",
+                        "working/extraction_review_data.json",
+                        "working/extraction_route.json"
+                    },
+                    new Dictionary<string, string> { ["provider"] = "local_or_openai_ocr" },
+                    600,
+                    true,
+                    "openai",
+                    "local")
+            });
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    InnolaTransaction = new ManifestInnolaTransaction(
+                        "txn-100000859",
+                        "100000859",
+                        "task-100000859",
+                        "Assign Computation Task",
+                        "parcel_workflow",
+                        "Plan Examination",
+                        null,
+                        "tester",
+                        "tester",
+                        "Super Group",
+                        null,
+                        "St. Mary",
+                        "2026-07-27T00:00:00Z"),
+                    WorkflowProfile = scriptPlan.WorkflowProfile,
+                    WorkflowRuleId = scriptPlan.RuleId,
+                    WorkflowRuleVersion = scriptPlan.RuleVersion,
+                    ScriptPlan = scriptPlan
+                }
+            });
+        var extractionRuns = 0;
+        var session = new WorkflowSession(
+            new CaseFolderStore(),
+            new SourceFileCopyService(),
+            new SourceInputProfileDetector(),
+            new SourceFileActionService(),
+            new SourceFileActionAuditService(),
+            ManifestPreflightService.CreateDefault(),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new FakeWorkflowScriptExecutor((caseLayout, _) =>
+            {
+                extractionRuns++;
+                var summaryPath = Path.Combine(caseLayout.WorkingDirectory, "survey_plan_extraction_summary.json");
+                var reviewPath = Path.Combine(caseLayout.WorkingDirectory, "extraction_review_data.json");
+                Directory.CreateDirectory(caseLayout.WorkingDirectory);
+                File.WriteAllText(
+                    summaryPath,
+                    """
+                    {
+                      "schema_version": "2.18.0",
+                      "transaction_number": "100000859",
+                      "point_count": 2,
+                      "segment_count": 0,
+                      "coordinate_system": {
+                        "value": "J.A.D. 2001 Coordinates",
+                        "confidence": 0.95
+                      },
+                      "survey_metadata": {
+                        "parish": {
+                          "value": "St. Mary",
+                          "confidence": 0.85
+                        }
+                      }
+                    }
+                    """);
+                File.WriteAllText(reviewPath, """{"transaction_number":"100000859","rows":[]}""");
+                return new WorkflowScriptExecutionResult(
+                    true,
+                    null,
+                    reviewPath,
+                    new[]
+                    {
+                        new AvailableArtifact("survey_plan_extraction_summary.json", summaryPath),
+                        new AvailableArtifact("extraction_review_data.json", reviewPath)
+                    });
+            }));
+        session.ReopenCaseFolder(layout.RootDirectory);
+        session.RunStructureCheck("tester");
+
+        var summary = session.RunGeoreferenceCheck("tester");
+
+        TestAssert.Equal(1, extractionRuns, "Georeference Check should prepare missing survey-plan evidence once.");
+        TestAssert.Equal("passed", summary.Payload.Status, "JAD2001 survey-plan extraction evidence should pass Georeference Check.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Concrete georeference validation should pass.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json")), "Survey-plan extraction summary should be created.");
+        TestAssert.Equal(WorkflowState.PreflightBlocked, session.CurrentState, "Georeference pass should still wait for Dimension Check.");
+        TestAssert.Equal("Georeference Check passed. Run Dimension Check before starting Validate Points and Lines.", session.StatusText, "Status should direct the next early check.");
     }
 
     public static void WorkflowSessionDimensionCheckRequiresGeoreferencePass()
@@ -1755,6 +1879,50 @@ internal static class WorkflowSessionTests
         TestAssert.Equal(3448, spatialReference["wkid"]!.GetValue<int>(), "Enterprise geometry should include JAD2001 spatial reference.");
     }
 
+    public static void WorkflowSessionEnterprisePublishRejectsGeoJsonWithoutJad2001()
+    {
+        using var tempRoot = new TempDirectory();
+        var geoJsonPath = Path.Combine(tempRoot.Path, "extracted_geometry.geojson");
+        File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"features\":[]}");
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "ReadGeoJsonRows",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { geoJsonPath, "points" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("does not declare JAD2001", StringComparison.OrdinalIgnoreCase), "Missing GeoJSON CRS should block Enterprise publish fallback.");
+            return;
+        }
+
+        throw new InvalidOperationException("CRS-less GeoJSON should throw.");
+    }
+
+    public static void WorkflowSessionEnterprisePublishRejectsGeoJsonOutsideJad2001()
+    {
+        using var tempRoot = new TempDirectory();
+        var geoJsonPath = Path.Combine(tempRoot.Path, "extracted_geometry.geojson");
+        File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"spatialReference\":{\"wkid\":4326},\"features\":[]}");
+        var method = typeof(JsonEnterpriseWorkingLayerPublishService).GetMethod(
+            "ReadGeoJsonRows",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        try
+        {
+            method?.Invoke(null, new object[] { geoJsonPath, "points" });
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException invalidOperation)
+        {
+            TestAssert.True(invalidOperation.Message.Contains("declares EPSG:4326", StringComparison.OrdinalIgnoreCase), "Non-JAD2001 GeoJSON should report the declared EPSG.");
+            return;
+        }
+
+        throw new InvalidOperationException("Non-JAD2001 GeoJSON should throw.");
+    }
+
     public static void WorkflowSessionEnterprisePublishReportsArcGisAddFeatureRowErrors()
     {
         var response = new JsonObject
@@ -2393,7 +2561,7 @@ internal static class WorkflowSessionTests
                 }
             }));
             var geoJsonPath = Path.Combine(layout.OutputDirectory, "extracted_geometry.geojson");
-            File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"features\":[]}");
+            File.WriteAllText(geoJsonPath, "{\"type\":\"FeatureCollection\",\"name\":\"extracted_geometry_jad2001\",\"spatialReference\":{\"wkid\":3448,\"latestWkid\":3448},\"features\":[]}");
             var summary = new OutputSummaryDocument(
                 "1.0.0",
                 manifest.TransactionId,
@@ -2706,6 +2874,7 @@ internal static class WorkflowSessionTests
     private static CaseFolderLayout CreateApprovedReviewCase(CaseFolderStore store, string outputRoot)
     {
         var layout = CreateInnolaScenarioACase(store, outputRoot);
+        WriteSurveyPlanGeoreferenceEvidence(layout);
         var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
         session.RunManifestPreflight("tester");
@@ -2782,5 +2951,30 @@ internal static class WorkflowSessionTests
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
         ManifestSerializer.Write(layout.ManifestPath, manifest with { Payload = manifest.Payload with { WorkflowState = WorkflowState.ReviewApproved.ToContractValue() } });
         return layout;
+    }
+
+    private static void WriteSurveyPlanGeoreferenceEvidence(CaseFolderLayout layout)
+    {
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000206",
+              "point_count": 3,
+              "segment_count": 3,
+              "coordinate_system": {
+                "value": "JAD 2001",
+                "confidence": 0.95
+              },
+              "survey_metadata": {
+                "parish": {
+                  "value": "Clarendon",
+                  "confidence": 0.85
+                }
+              }
+            }
+            """);
     }
 }

@@ -101,11 +101,11 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <Button Width="96"
+              <Button Width="138"
                       Height="26"
-                      Content="Refresh Map"
-                      Command="{Binding RefreshEnterpriseCadasterEvidenceCommand}"
-                      ToolTip="Refreshes adjacent Legal and Fiscal cadastre layers from the current transaction geometry in the ArcGIS Pro map." />
+                      Content="Load Compare Layers"
+                      Command="{Binding ReloadGeometryCommand}"
+                      ToolTip="Loads or refreshes the Compare working layers and adjacent cadastre context in the ArcGIS Pro map." />
               <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Width="86" Height="26" Content="{Binding PdfPanelToggleText}" Command="{Binding TogglePdfPanelCommand}" />
               </StackPanel>

@@ -636,8 +636,8 @@ public sealed class ExtractionReviewPersistenceService
     {
         return new ExtractionReviewNamedParty
         {
-            Name = ReadFirstString(item, "name", "value", "party", "owner") ?? string.Empty,
-            Role = ReadFirstString(item, "role", "type") ?? defaultRole,
+            Name = ReadFirstString(item, "name", "value", "party", "owner", "occupant") ?? string.Empty,
+            Role = NormalizePartyRole(ReadFirstString(item, "role", "type") ?? defaultRole),
             SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
@@ -650,12 +650,12 @@ public sealed class ExtractionReviewPersistenceService
     {
         return new ExtractionReviewAdjacentOwner
         {
-            Name = ReadFirstString(item, "name", "value", "owner", "adjacent_owner") ?? string.Empty,
-            Role = ReadFirstString(item, "role", "type") ?? string.Empty,
+            Name = ReadFirstString(item, "name", "value", "owner", "adjacent_owner", "occupant") ?? string.Empty,
+            Role = NormalizePartyRole(ReadFirstString(item, "role", "type")),
             RelatedSegmentFrom = ReadFirstString(item, "related_segment_from", "segment_from", "from_point") ?? string.Empty,
             RelatedSegmentTo = ReadFirstString(item, "related_segment_to", "segment_to", "to_point") ?? string.Empty,
-            Volume = ReadFirstString(item, "volume", "vol") ?? string.Empty,
-            Folio = ReadFirstString(item, "folio", "fol") ?? string.Empty,
+            Volume = ReadFirstString(item, "volume", "vol", "Volume", "Vol.") ?? string.Empty,
+            Folio = ReadFirstString(item, "folio", "fol", "Folio", "Fol.") ?? string.Empty,
             SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
@@ -668,15 +668,30 @@ public sealed class ExtractionReviewPersistenceService
     {
         return new ExtractionReviewVolumeFolio
         {
-            Volume = ReadFirstString(item, "volume", "vol") ?? string.Empty,
-            Folio = ReadFirstString(item, "folio", "fol") ?? string.Empty,
-            RawText = ReadFirstString(item, "raw_text", "value") ?? string.Empty,
+            Volume = ReadFirstString(item, "volume", "vol", "Volume", "Vol.") ?? string.Empty,
+            Folio = ReadFirstString(item, "folio", "fol", "Folio", "Fol.") ?? string.Empty,
+            RawText = ReadFirstString(item, "raw_text", "value", "text") ?? string.Empty,
             SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
             ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
             RawVolumeFolio = CloneObject(item)
         };
+    }
+
+    private static string NormalizePartyRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = role.Trim();
+        var compact = trimmed.TrimEnd('.').Trim();
+        return string.Equals(compact, "Occ", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(compact, "Occupant", StringComparison.OrdinalIgnoreCase)
+            ? "Occupant"
+            : trimmed;
     }
 
     private static void WriteSurveyMetadata(JsonObject root, ExtractionReviewDocument document)

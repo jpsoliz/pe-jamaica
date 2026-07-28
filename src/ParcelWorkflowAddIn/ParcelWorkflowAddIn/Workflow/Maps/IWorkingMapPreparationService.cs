@@ -441,12 +441,13 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
 
     private static async Task ZoomToExtentAsync(MapView mapView, WorkingMapExtent extent)
     {
+        var spatialReference = SpatialReferenceBuilder.CreateSpatialReference(extent.Wkid);
         var envelope = EnvelopeBuilderEx.CreateEnvelope(
             extent.XMin,
             extent.YMin,
             extent.XMax,
             extent.YMax,
-            SpatialReferences.WGS84);
+            spatialReference);
         await mapView.ZoomToAsync(envelope).ConfigureAwait(false);
     }
 }

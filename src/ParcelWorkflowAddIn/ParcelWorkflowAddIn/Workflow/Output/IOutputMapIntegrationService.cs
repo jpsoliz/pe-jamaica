@@ -63,8 +63,17 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         var zoomLayers = new List<Layer>();
         var stylingWarnings = new List<string>();
         var groupLayerName = OutputMapReviewStyling.BuildTransactionGroupLayerName(summary);
+        var reusedExistingLayers = false;
         await QueuedTask.Run(() =>
         {
+            if (TryFindExistingTransactionReviewLayers(mapView.Map, groupLayerName, layerPaths, out var existingLayers, out var existingZoomLayers))
+            {
+                loadedLayers.AddRange(existingLayers);
+                zoomLayers.AddRange(existingZoomLayers);
+                reusedExistingLayers = true;
+                return;
+            }
+
             var reviewGroup = EnsureTransactionReviewGroup(mapView.Map, groupLayerName);
             var hasSupportingLayers = layerPaths.Any(OutputMapReviewStyling.IsSupportingLayerPath);
             GroupLayer? computedReviewGroup = null;
@@ -144,9 +153,21 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
         }
         catch (Exception)
         {
+            var alreadyLoadedZoomFailureMessage = reusedExistingLayers
+                ? "Review layers were already loaded in the active map, but zoom could not be completed automatically."
+                : "Output layers were added to the active map, but zoom could not be completed automatically.";
             return new OutputMapIntegrationResult(
                 true,
-                BuildResultMessage(summary, stylingWarnings, "Output layers were added to the active map, but zoom could not be completed automatically."),
+                BuildResultMessage(summary, stylingWarnings, alreadyLoadedZoomFailureMessage),
+                layerPaths,
+                groupLayerName);
+        }
+
+        if (reusedExistingLayers)
+        {
+            return new OutputMapIntegrationResult(
+                true,
+                BuildResultMessage(summary, stylingWarnings, OutputMapReviewStyling.BuildAlreadyLoadedMessage(summary)),
                 layerPaths,
                 groupLayerName);
         }
@@ -221,15 +242,64 @@ public sealed class ArcGisOutputMapIntegrationService : IOutputMapIntegrationSer
 
     private static void RemoveExistingReviewLayers(Map map, string layerPath)
     {
-        var layerUri = new Uri(layerPath).AbsoluteUri;
         foreach (var layer in FlattenLayers(map.Layers).ToArray())
         {
-            if (string.Equals(layer.URI, layerUri, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(layer.Name, Path.GetFileName(layerPath), StringComparison.OrdinalIgnoreCase))
+            if (LayerMatchesPath(layer, layerPath))
             {
                 map.RemoveLayer(layer);
             }
         }
+    }
+
+    private static bool TryFindExistingTransactionReviewLayers(
+        Map map,
+        string groupLayerName,
+        IReadOnlyList<string> layerPaths,
+        out IReadOnlyList<Layer> existingLayers,
+        out IReadOnlyList<Layer> existingZoomLayers)
+    {
+        existingLayers = Array.Empty<Layer>();
+        existingZoomLayers = Array.Empty<Layer>();
+
+        var reviewGroup = map.Layers.OfType<GroupLayer>()
+            .FirstOrDefault(layer => string.Equals(layer.Name, groupLayerName, StringComparison.OrdinalIgnoreCase));
+        if (reviewGroup is null)
+        {
+            return false;
+        }
+
+        var reviewLayers = FlattenLayers(reviewGroup.Layers).ToArray();
+        var matchedLayers = new List<Layer>();
+        foreach (var layerPath in layerPaths)
+        {
+            var match = reviewLayers.FirstOrDefault(layer => LayerMatchesPath(layer, layerPath));
+            if (match is null)
+            {
+                return false;
+            }
+
+            matchedLayers.Add(match);
+        }
+
+        existingLayers = matchedLayers;
+        existingZoomLayers = matchedLayers
+            .Where((_, index) => OutputMapReviewStyling.ShouldIncludeLayerInInitialZoom(layerPaths[index]))
+            .ToArray();
+        return true;
+    }
+
+    private static bool LayerMatchesPath(Layer layer, string layerPath)
+    {
+        return string.Equals(layer.URI, BuildLayerUri(layerPath), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(layer.URI, layerPath, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(layer.Name, Path.GetFileName(layerPath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? BuildLayerUri(string layerPath)
+    {
+        return Uri.TryCreate(layerPath, UriKind.Absolute, out var uri)
+            ? uri.AbsoluteUri
+            : null;
     }
 
     private static IEnumerable<Layer> FlattenLayers(IEnumerable<Layer> layers)
@@ -307,6 +377,13 @@ internal static class OutputMapPathResolver
             return true;
         }
 
+        if (Uri.TryCreate(path, UriKind.Absolute, out var uri)
+            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         var gdbMarker = ".gdb" + Path.DirectorySeparatorChar;
         var index = path.IndexOf(gdbMarker, StringComparison.OrdinalIgnoreCase);
         if (index <= 0)
@@ -320,9 +397,7 @@ internal static class OutputMapPathResolver
             return true;
         }
 
-        return Uri.TryCreate(path, UriKind.Absolute, out var uri)
-            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+        return false;
     }
 }
 
@@ -371,6 +446,12 @@ internal static class OutputMapReviewStyling
                 ? $"Parcel Fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools to inspect and refine the transaction geometry.{diagnosticSuffix}"
                 : $"Parcel Fabric pilot review layers were added to the active map and zoomed for review. Use ArcGIS Pro parcel, snapping, and editing tools for examination.{diagnosticSuffix}"
             : $"COGO-ready non-fabric review layers were added to the active map and zoomed for review. Use ArcGIS Pro snapping, selection, and standard editing tools to inspect points, lines, and parcel boundaries.{diagnosticSuffix}";
+    }
+
+    public static string BuildAlreadyLoadedMessage(OutputSummaryDocument summary)
+    {
+        var diagnosticSuffix = BuildCogoDiagnosticSuffix(summary.Payload);
+        return $"Transaction review layers are already loaded in the active map; zoomed to the existing parcel layers.{diagnosticSuffix}";
     }
 
     public static string BuildTransactionGroupLayerName(OutputSummaryDocument summary)

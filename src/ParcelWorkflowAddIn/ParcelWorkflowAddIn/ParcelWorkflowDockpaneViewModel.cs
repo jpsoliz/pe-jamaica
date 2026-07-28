@@ -4545,7 +4545,6 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
         RefreshWorkflowProperties();
-        TryShowSupportingDocumentsDockpane();
     }
 
     private static void TryShowSupportingDocumentsDockpane()

@@ -265,6 +265,9 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertTrue(summary["payload"]["add_cogo_labels"])
             self.assertEqual("source_then_computed", summary["payload"]["cogo_source_mode"])
             self.assertEqual("non_fabric", summary["payload"]["map_load_mode"])
+            self.assertEqual("JAD 2001 Jamaica Grid", summary["payload"]["coordinate_system"])
+            self.assertEqual(3448, summary["payload"]["spatial_reference"]["wkid"])
+            self.assertEqual(3448, summary["payload"]["output_epsg"])
             self.assertTrue(summary["payload"]["bearing_txt_populated"])
             self.assertEqual(3, summary["payload"]["bearing_txt_populated_count"])
             self.assertTrue(summary["payload"]["distance_txt_populated"])
@@ -282,6 +285,12 @@ class OutputAdapterTests(unittest.TestCase):
             point_rows = json.loads(Path(summary["payload"]["point_feature_class_path"]).read_text(encoding="utf-8"))
             line_rows = json.loads(Path(summary["payload"]["line_feature_class_path"]).read_text(encoding="utf-8"))
             polygon_rows = json.loads(Path(summary["payload"]["polygon_feature_class_path"]).read_text(encoding="utf-8"))
+            geojson = json.loads((output_root / "extracted_geometry.geojson").read_text(encoding="utf-8"))
+
+            self.assertEqual("extracted_geometry_jad2001", geojson["name"])
+            self.assertEqual("EPSG:3448", geojson["crs"]["properties"]["name"])
+            self.assertEqual(3448, geojson["crs"]["properties"]["wkid"])
+            self.assertEqual(3448, geojson["spatialReference"]["wkid"])
 
             self.assertEqual("parcel-001", point_rows[0]["parcel_id"])
             self.assertEqual(1, point_rows[0]["point_order"])

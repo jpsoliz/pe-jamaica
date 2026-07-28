@@ -164,6 +164,30 @@ internal static class CompareWorkingGeometryServiceTests
             "Compare map integration should keep group cleanup explicit and local.");
     }
 
+    public static void CompareStartupDefersArcGisMapLayerLoadingUntilRefresh()
+    {
+        var shellState = File.ReadAllText(FindShellState());
+        var loadService = File.ReadAllText(FindCompareWorkingGeometryService());
+        var mapIntegration = File.ReadAllText(FindArcGisCompareMapIntegrationService());
+
+        TestAssert.True(
+            shellState.Contains("new DeferredCompareMapIntegrationService()", StringComparison.Ordinal)
+            && shellState.Contains("new ArcGisCompareMapIntegrationService()", StringComparison.Ordinal),
+            "Compare startup should use deferred map loading while Refresh Map keeps the real ArcGIS map integration.");
+        TestAssert.True(
+            shellState.Contains("CompareTransactionLoader", StringComparison.Ordinal)
+            && shellState.Contains("workingMapPreparationService: NoOpWorkingMapPreparationService.Instance", StringComparison.Ordinal),
+            "Compare startup should load documents/case state without preparing ArcGIS map layers.");
+        TestAssert.True(
+            loadService.Contains("initialGeometryService.LoadAsync", StringComparison.Ordinal)
+            && loadService.Contains("reloadGeometryService.LoadAsync", StringComparison.Ordinal),
+            "Compare loader should separate startup geometry readiness from explicit map reload.");
+        TestAssert.True(
+            mapIntegration.IndexOf("PrepareConfiguredWorkingMapAsync", StringComparison.Ordinal) >= 0
+            && mapIntegration.IndexOf("var mapView = MapView.Active", StringComparison.Ordinal) > mapIntegration.IndexOf("PrepareConfiguredWorkingMapAsync", StringComparison.Ordinal),
+            "Compare map refresh should prepare the configured working map before using MapView.Active.");
+    }
+
     private static string FindArcGisCompareMapIntegrationService()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -185,6 +209,52 @@ internal static class CompareWorkingGeometryServiceTests
         }
 
         throw new FileNotFoundException("Could not locate ArcGisCompareMapIntegrationService.cs from the test output directory.");
+    }
+
+    private static string FindShellState()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn",
+                "Innola",
+                "ShellState.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Could not locate ShellState.cs from the test output directory.");
+    }
+
+    private static string FindCompareWorkingGeometryService()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn",
+                "Compare",
+                "CompareWorkingGeometryService.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Could not locate CompareWorkingGeometryService.cs from the test output directory.");
     }
 
     private static InnolaTransactionSettings CreateSettings(string scopeField, string? serviceRoot = null)

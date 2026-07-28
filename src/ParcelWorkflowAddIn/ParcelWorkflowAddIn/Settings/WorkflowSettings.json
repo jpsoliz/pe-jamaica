@@ -17,7 +17,7 @@
     "publish_timing": "on_complete",
     "restore_behavior": "prefer_local_then_enterprise",
     "allow_cross_machine_restore": true,
-    "transaction_scope_field": "transaction_id",
+    "transaction_scope_field": "transaction_number",
     "layers": {
       "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
       "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
@@ -71,11 +71,11 @@
     ],
     "default_extent": {
       "name": "Jamaica",
-      "wkid": 4326,
-      "xmin": -78.6,
-      "ymin": 17.6,
-      "xmax": -76.1,
-      "ymax": 18.7
+      "wkid": 3448,
+      "xmin": 580172.099,
+      "ymin": 605960.245,
+      "xmax": 845529.005,
+      "ymax": 728209.243
     },
     "zoom_to_transaction_parish": true,
     "parish_lookup": {
@@ -241,6 +241,21 @@
       "land_valuation_number_field": "lv_number",
       "occupant_field": "occupant",
       "taxpayer_field": "taxpayer_display",
+      "parish_field": "parish",
+      "suid_field": "suid",
+      "object_id_field": "objectid",
+      "global_id_field": "globalid"
+    },
+    "survey": {
+      "enabled": true,
+      "source_name": "Survey Cadastre",
+      "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Survey_Cadastre/FeatureServer/0",
+      "parcel_id_field": "parcel_id",
+      "pid_field": "pid",
+      "volume_field": "",
+      "folio_field": "",
+      "land_valuation_number_field": "",
+      "owner_field": "",
       "parish_field": "parish",
       "suid_field": "suid",
       "object_id_field": "objectid",

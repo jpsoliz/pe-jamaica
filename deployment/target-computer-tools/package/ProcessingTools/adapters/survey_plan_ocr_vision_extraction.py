@@ -24,6 +24,24 @@ from typing import Any
 SCHEMA_VERSION = "2.18.0"
 SOURCE_PROFILE = "scanned_single_parcel_survey_plan_pdf"
 EXTRACTOR_ID = "survey_plan_ocr_vision"
+VOLUME_FOLIO_ALIASES = "Vol., Volume, Folio, Fol., Vol/Fol, Volume/Folio, Vol./Fol."
+VOLUME_FOLIO_PATTERNS = [
+    re.compile(
+        r"\b(?:Vol(?:ume)?\.?\s*/\s*Fol(?:io)?\.?|Vol\.\s*/\s*Fol\.?)\s*[:#]?\s*"
+        r"(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s*/\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bVol(?:ume)?\.?\s+Fol(?:io)?\.?\s*[:#]?\s*"
+        r"(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s*/\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bVol(?:ume)?\.?\s*[:#]?\s*(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s+"
+        r"(?:Fol(?:io)?\.?)\s*[:#]?\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _field(
@@ -62,6 +80,19 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
     parties = [_normalize_named_item(item) for item in _as_list(raw.get("parties") or raw.get("owners"))]
     representatives = [_normalize_named_item(item) for item in _as_list(raw.get("representatives"))]
     adjacent_owners = [_normalize_named_item(item) for item in _as_list(raw.get("adjacent_owners"))]
+    volume_folios = [
+        item
+        for item in (
+            _normalize_volume_folio_item(item)
+            for item in _as_list(
+                metadata.get("volume_folio")
+                or metadata.get("volume_folios")
+                or raw.get("volume_folio")
+                or raw.get("volume_folios")
+            )
+        )
+        if item
+    ]
 
     survey_metadata = {
         "parish": _field("parish", metadata.get("parish") or raw.get("parish"), metadata.get("parish_confidence"), "memorandum"),
@@ -76,6 +107,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "surveyed_by": _field("surveyed_by", metadata.get("surveyed_by") or raw.get("surveyed_by"), metadata.get("surveyed_by_confidence"), "signature_block"),
         "plan_check_date": _field("plan_check_date", metadata.get("plan_check_date") or raw.get("plan_check_date"), metadata.get("plan_check_date_confidence"), "stamp"),
         "file_reference": _field("file_reference", metadata.get("file_reference") or raw.get("file_reference"), metadata.get("file_reference_confidence"), "plan_header"),
+        "volume_folio": volume_folios,
     }
 
     review_notes: list[str] = []
@@ -87,7 +119,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
     if not coordinate_system:
         review_notes.append("Coordinate system was not confidently extracted.")
 
-    status = "review_required" if points or segments or any(field["value"] for field in survey_metadata.values()) else "manual_review_required"
+    status = "review_required" if points or segments or any(_metadata_has_value(field) for field in survey_metadata.values()) else "manual_review_required"
     return {
         "schema_version": SCHEMA_VERSION,
         "transaction_number": transaction_number,
@@ -175,20 +207,95 @@ def _normalize_segment(segment: Any, sequence: int) -> dict[str, Any]:
 
 def _normalize_named_item(item: Any) -> dict[str, Any]:
     if isinstance(item, dict):
+        name = _string_or_none(item.get("name") or item.get("party") or item.get("owner") or item.get("occupant"))
+        role = _normalize_role(item.get("role") or item.get("type") or ("Occupant" if item.get("occupant") else None))
         return {
-            "name": _string_or_none(item.get("name") or item.get("party") or item.get("owner")),
-            "role": _string_or_none(item.get("role")),
+            "name": name,
+            "role": role,
             "confidence": _coerce_float(item.get("confidence")) or 0.75,
             "source_page": _coerce_int(item.get("source_page")) or 1,
             "source_zone": item.get("source_zone") or "memorandum",
         }
+    text = str(item).strip()
+    occupant_match = re.match(r"^Occ\.?\s*[:\-]?\s*(?P<name>.+)$", text, flags=re.IGNORECASE)
     return {
-        "name": str(item).strip(),
-        "role": None,
+        "name": occupant_match.group("name").strip() if occupant_match else text,
+        "role": "Occupant" if occupant_match else None,
         "confidence": 0.75,
         "source_page": 1,
         "source_zone": "memorandum",
     }
+
+
+def _normalize_volume_folio_item(item: Any) -> dict[str, Any] | None:
+    if isinstance(item, dict):
+        volume = _string_or_none(item.get("volume") or item.get("vol") or item.get("Volume") or item.get("Vol."))
+        folio = _string_or_none(item.get("folio") or item.get("fol") or item.get("Folio") or item.get("Fol."))
+        raw_text = _string_or_none(item.get("raw_text") or item.get("value") or item.get("text"))
+        if (not volume or not folio) and raw_text:
+            parsed = _parse_volume_folio_text(raw_text)
+            volume = volume or parsed.get("volume")
+            folio = folio or parsed.get("folio")
+        if not volume and not folio and not raw_text:
+            return None
+        return {
+            "volume": volume,
+            "folio": folio,
+            "raw_text": raw_text or _join_volume_folio(volume, folio),
+            "confidence": _coerce_float(item.get("confidence")) or 0.75,
+            "source_page": _coerce_int(item.get("source_page")) or 1,
+            "source_zone": item.get("source_zone") or "registration_block",
+            "review_note": item.get("review_note") or f"Recognized using volume/folio aliases: {VOLUME_FOLIO_ALIASES}",
+        }
+
+    text = str(item).strip()
+    parsed = _parse_volume_folio_text(text)
+    if not parsed:
+        return None
+    return {
+        "volume": parsed.get("volume"),
+        "folio": parsed.get("folio"),
+        "raw_text": text,
+        "confidence": 0.75,
+        "source_page": 1,
+        "source_zone": "registration_block",
+        "review_note": f"Recognized using volume/folio aliases: {VOLUME_FOLIO_ALIASES}",
+    }
+
+
+def _parse_volume_folio_text(text: str) -> dict[str, str]:
+    for pattern in VOLUME_FOLIO_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return {
+                "volume": match.group("volume").strip(),
+                "folio": match.group("folio").strip(),
+            }
+    return {}
+
+
+def _join_volume_folio(volume: str | None, folio: str | None) -> str | None:
+    if volume and folio:
+        return f"Vol/Fol {volume}/{folio}"
+    return volume or folio
+
+
+def _normalize_role(value: Any) -> str | None:
+    role = _string_or_none(value)
+    if not role:
+        return None
+    compact = role.rstrip(".").strip().lower()
+    if compact in {"occ", "occupant"}:
+        return "Occupant"
+    return role
+
+
+def _metadata_has_value(field: Any) -> bool:
+    if isinstance(field, list):
+        return bool(field)
+    if isinstance(field, dict):
+        return bool(field.get("value"))
+    return bool(field)
 
 
 def _render_pdf_pages(pdf_path: Path, max_pages: int) -> list[Path]:
@@ -301,7 +408,8 @@ def _prompt(profile: str) -> str:
         "Return only JSON with keys: coordinate_system, coordinate_system_confidence, "
         "north_arrow {detected, approximate_page_location, confidence, review_note}, "
         "survey_metadata {parish, document_area, survey_date, instrument, surveyed_by, "
-        "plan_check_date, file_reference}, parties, representatives, adjacent_owners, "
+        "plan_check_date, file_reference, volume_folio [{volume,folio,raw_text,confidence,source_page,source_zone,review_note}]}, "
+        "parties, representatives, adjacent_owners, "
         "points [{point_id,northing,easting,confidence,source_page,source_zone,status,review_note}], "
         "derived_points [{point_id,northing,easting,confidence,source_page,source_zone,status,review_note}], "
         "segments [{from_point,to_point,bearing_txt,distance_txt,confidence,source_page,source_zone,status,review_note}], "
@@ -319,6 +427,8 @@ def _prompt(profile: str) -> str:
         "If a boundary point coordinate is not printed but can be calculated from printed anchored coordinates plus "
         "visible bearings and distances, include it in derived_points with status 'derived', confidence at or below 0.65, "
         "and a review_note explaining the derivation. Use null when uncertain. Do not invent values. "
+        f"For Volume/Folio, recognize these labels and abbreviations: {VOLUME_FOLIO_ALIASES}. "
+        "Return each detected pair as survey_metadata.volume_folio. Treat Occ. or Occ as Occupant in party or owner roles. "
         f"Extraction profile: {profile}."
     )
 

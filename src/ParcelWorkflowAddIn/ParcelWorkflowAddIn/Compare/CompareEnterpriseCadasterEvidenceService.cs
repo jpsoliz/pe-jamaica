@@ -49,14 +49,14 @@ public sealed class CompareEnterpriseCadasterEvidenceService : ICompareEnterpris
         {
             return CompareEnterpriseCadasterQueryPlan.Invalid(
                 query,
-                "Enterprise Legal/Fiscal cadaster evidence is disabled.");
+                "Enterprise Legal/Fiscal/Survey cadaster evidence is disabled.");
         }
 
         if (geometryPlan is null || !geometryPlan.IsValid || string.IsNullOrWhiteSpace(geometryPlan.ScopeValue))
         {
             return CompareEnterpriseCadasterQueryPlan.Invalid(
                 query,
-                "Transaction working_review polygon must be loaded before querying Legal/Fiscal cadaster evidence.");
+                "Transaction working_review polygon must be loaded before querying Legal/Fiscal/Survey cadaster evidence.");
         }
 
         if (!string.IsNullOrWhiteSpace(settings.Warning))
@@ -67,13 +67,14 @@ public sealed class CompareEnterpriseCadasterEvidenceService : ICompareEnterpris
         var requests = new List<CompareEnterpriseCadasterLayerRequest>();
         AddRequest(settings, settings.Legal, CompareEnterpriseCadasterSourceKind.Legal, geometryPlan, requests, diagnostics);
         AddRequest(settings, settings.Fiscal, CompareEnterpriseCadasterSourceKind.Fiscal, geometryPlan, requests, diagnostics);
+        AddRequest(settings, settings.Survey, CompareEnterpriseCadasterSourceKind.Survey, geometryPlan, requests, diagnostics);
 
         if (requests.Count == 0)
         {
             return CompareEnterpriseCadasterQueryPlan.Invalid(
                 query,
                 diagnostics.Count == 0
-                    ? "No enabled Legal or Fiscal cadaster Enterprise sources are configured."
+                    ? "No enabled Legal, Fiscal, or Survey cadaster Enterprise sources are configured."
                     : string.Join(" ", diagnostics),
                 diagnostics);
         }
@@ -101,7 +102,7 @@ public sealed class CompareEnterpriseCadasterEvidenceService : ICompareEnterpris
             return CompareEnterpriseCadasterEvidenceResult.Ready(
                 plan.Query,
                 Array.Empty<CompareEnterpriseCadasterEvidenceRecord>(),
-                $"Enterprise cadaster evidence query plan is ready for {plan.LayerRequests.Count} source(s). Configure an ArcGIS spatial query executor to retrieve Legal/Fiscal neighbor rows.",
+                $"Enterprise cadaster evidence query plan is ready for {plan.LayerRequests.Count} source(s). Configure an ArcGIS spatial query executor to retrieve Legal/Fiscal/Survey neighbor rows.",
                 string.Join(" ", plan.Diagnostics.Where(message => !string.IsNullOrWhiteSpace(message))));
         }
 
@@ -250,6 +251,7 @@ public static class CompareEnterpriseCadasterEvidenceClassifier
         {
             CompareEnterpriseCadasterSourceKind.Legal => 0,
             CompareEnterpriseCadasterSourceKind.Fiscal => 1,
+            CompareEnterpriseCadasterSourceKind.Survey => 2,
             _ => 2
         };
     }
@@ -259,6 +261,7 @@ public static class CompareEnterpriseCadasterSourceKind
 {
     public const string Legal = "legal";
     public const string Fiscal = "fiscal";
+    public const string Survey = "survey";
 }
 
 public static class CompareSpatialRelationship
@@ -404,7 +407,7 @@ public sealed record CompareEnterpriseCadasterEvidenceResult(
             Array.Empty<CompareEnterpriseCadasterEvidenceRecord>(),
             CompareEvidenceStatus.NoRecordReturned,
             "No Legal/Fiscal neighbor evidence returned.",
-            LegalCadasterQueryResult.Redact(diagnostic ?? $"No Legal/Fiscal neighbor evidence returned for {query.TransactionNumber} at {queriedAt:O}."));
+            LegalCadasterQueryResult.Redact(diagnostic ?? $"No Legal/Fiscal/Survey neighbor evidence returned for {query.TransactionNumber} at {queriedAt:O}."));
     }
 
     public static CompareEnterpriseCadasterEvidenceResult Failed(

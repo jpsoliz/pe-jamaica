@@ -20,6 +20,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly InnolaSessionManager session;
     private readonly IInnolaTransactionService transactionService;
     private readonly InnolaTransactionLoadService? transactionLoadService;
+    private readonly InnolaTransactionLoadService? compareTransactionLoadService;
     private readonly InnolaTransactionLifecycleCoordinator? lifecycleCoordinator;
     private readonly IActiveTransactionSwitchDecisionProvider switchDecisionProvider;
     private readonly HashSet<string> supportedTransactionTypes;
@@ -88,11 +89,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IReadOnlyCollection<string>? compareWorkflowStages = null,
         Action<string>? compareWorkspaceLauncher = null,
         Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null,
-        Action? supportingDocumentsRefresher = null)
+        Action? supportingDocumentsRefresher = null,
+        InnolaTransactionLoadService? compareTransactionLoadService = null)
     {
         this.session = session;
         this.transactionService = transactionService;
         this.transactionLoadService = transactionLoadService;
+        this.compareTransactionLoadService = compareTransactionLoadService;
         this.lifecycleCoordinator = lifecycleCoordinator;
         this.switchDecisionProvider = switchDecisionProvider ?? new StayOnCurrentTransactionDecisionProvider();
         this.supportedTransactionTypes = new HashSet<string>(
@@ -546,6 +549,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public async Task LoadSelectedTransactionAsync(CancellationToken cancellationToken = default)
     {
+        await LoadSelectedTransactionAsync(transactionLoadService, cancellationToken);
+    }
+
+    private async Task LoadSelectedTransactionAsync(InnolaTransactionLoadService? loader, CancellationToken cancellationToken)
+    {
         if (SelectedRow is null || !CanLoadSelectedTransaction)
         {
             return;
@@ -622,7 +630,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         session.SelectTransaction(requestedRow, clock());
         ClearSearchText(SelectedRow?.TransactionNumber);
-        if (transactionLoadService is null)
+        if (loader is null)
         {
             StatusText = $"Selected transaction: {requestedRow.TransactionNumber}.";
             return;
@@ -633,7 +641,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StatusText = $"Loading transaction: {requestedRow.TransactionNumber}.";
         try
         {
-            var result = await transactionLoadService.LoadSelectedTransactionAsync(cancellationToken);
+            var result = await loader.LoadSelectedTransactionAsync(cancellationToken);
             if (!result.Success)
             {
                 session.RestoreTransactionState(previousTransactionState);
@@ -672,7 +680,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         var requestedTransactionNumber = SelectedRow.TransactionNumber;
-        await LoadSelectedTransactionAsync(cancellationToken);
+        await LoadSelectedTransactionAsync(workflowRoute, cancellationToken);
         if (!session.IsTransactionLoaded
             || session.SelectedTransaction is null
             || !session.SelectedTransaction.TransactionNumber.Equals(requestedTransactionNumber, StringComparison.OrdinalIgnoreCase))
@@ -700,6 +708,16 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             NotifyListState();
             NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
         }
+    }
+
+    private Task LoadSelectedTransactionAsync(ParcelWorkflowStageRoute workflowRoute, CancellationToken cancellationToken)
+    {
+        if (workflowRoute != ParcelWorkflowStageRoute.Compare || compareTransactionLoadService is null)
+        {
+            return LoadSelectedTransactionAsync(cancellationToken);
+        }
+
+        return LoadSelectedTransactionAsync(compareTransactionLoadService, cancellationToken);
     }
 
     private void OpenParcelWorkflowDockpane(string requestedTransactionNumber)
@@ -737,7 +755,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
-        StatusText = $"Transaction {requestedTransactionNumber} is in progress. Compare workspace is not implemented yet.";
+        StatusText = $"Transaction {requestedTransactionNumber} is in progress. Compare workspace is temporarily disabled while the review UI is moved into the stable Parcel Workflow pane.";
     }
 
     public Task ReopenCompareWorkspaceAsync(CancellationToken cancellationToken = default)
@@ -784,7 +802,6 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 }
 
                 pane.Activate();
-                TryShowSupportingDocumentsDockpane(requestedTransactionNumber);
             };
 
             if (System.Windows.Application.Current is null)

@@ -40,6 +40,24 @@ NORTH_EAST_RE = re.compile(
     rf"^North\s*:\s*(?P<north>{NUMBER_TOKEN})m?\s+East\s*:\s*(?P<east>{NUMBER_TOKEN})m?$",
     re.IGNORECASE,
 )
+VOLUME_FOLIO_ALIASES = "Vol., Volume, Folio, Fol., Vol/Fol, Volume/Folio, Vol./Fol."
+VOLUME_FOLIO_PATTERNS = [
+    re.compile(
+        r"\b(?:Vol(?:ume)?\.?\s*/\s*Fol(?:io)?\.?|Vol\.\s*/\s*Fol\.?)\s*[:#]?\s*"
+        r"(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s*/\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bVol(?:ume)?\.?\s+Fol(?:io)?\.?\s*[:#]?\s*"
+        r"(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s*/\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bVol(?:ume)?\.?\s*[:#]?\s*(?P<volume>[A-Z0-9][A-Z0-9/-]*)\s+"
+        r"(?:Fol(?:io)?\.?)\s*[:#]?\s*(?P<folio>[A-Z0-9][A-Z0-9/-]*)\b",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _load_pages(pdf_path: Path) -> list[str]:
@@ -215,9 +233,40 @@ def _detect_parcel_name(line: str, current_name: str | None) -> str | None:
     return current_name
 
 
+def _extract_volume_folios(pages: list[str]) -> list[dict]:
+    volume_folios: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for page_index, page_text in enumerate(pages, start=1):
+        for raw_line in page_text.splitlines():
+            line = _normalize_line(raw_line)
+            if not line:
+                continue
+            for pattern in VOLUME_FOLIO_PATTERNS:
+                for match in pattern.finditer(line):
+                    volume = match.group("volume").strip()
+                    folio = match.group("folio").strip()
+                    key = (volume.lower(), folio.lower())
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    volume_folios.append(
+                        {
+                            "volume": volume,
+                            "folio": folio,
+                            "raw_text": line,
+                            "confidence": 0.85,
+                            "source_page": page_index,
+                            "source_zone": "registration_block",
+                            "review_note": f"Recognized using volume/folio aliases: {VOLUME_FOLIO_ALIASES}",
+                        }
+                    )
+    return volume_folios
+
+
 def _parse_pages(pages: list[str], transaction_number: str) -> dict:
     rows: list[dict] = []
     parcel_names: list[str] = []
+    volume_folios = _extract_volume_folios(pages)
     current_parcel_name: str | None = None
     current_group: str | None = None
     point_order = 0
@@ -416,6 +465,7 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
             "fallback_reason": "parse_confidence_low",
             "parsed_parcel_count": 0,
             "parsed_row_count": 0,
+            "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
         }
 
     normalized_rows = []
@@ -439,6 +489,7 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
         "parcel_count": len({row["parcel_group_id"] for row in normalized_rows}),
         "row_count": len(normalized_rows),
         "extraction_source": "embedded_text_pdf",
+        "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
         "rows": normalized_rows,
     }
 

@@ -6,6 +6,8 @@ public interface ICompareWorkspacePromptService
 {
     bool ConfirmSave();
 
+    void ShowSaveCompleted(string message);
+
     bool ConfirmSuspend();
 
     bool ConfirmFinalize(bool reportAlreadyGenerated);
@@ -16,6 +18,10 @@ public sealed class AutoApproveCompareWorkspacePromptService : ICompareWorkspace
     public bool ConfirmSave()
     {
         return true;
+    }
+
+    public void ShowSaveCompleted(string message)
+    {
     }
 
     public bool ConfirmSuspend()
@@ -38,6 +44,15 @@ public sealed class MessageBoxCompareWorkspacePromptService : ICompareWorkspaceP
             "Compare Workspace",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question) == MessageBoxResult.Yes;
+    }
+
+    public void ShowSaveCompleted(string message)
+    {
+        MessageBox.Show(
+            message,
+            "Compare Workspace",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     public bool ConfirmSuspend()

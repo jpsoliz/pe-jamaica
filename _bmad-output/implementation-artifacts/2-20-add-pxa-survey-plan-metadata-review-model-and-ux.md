@@ -50,8 +50,9 @@ The wireframe shows the intended PXA-only workspace pattern:
    - make and number of instrument / survey instrument
    - surveyed by / surveyor
    - volume and folio values as two editable/reviewable values
+   - volume/folio values extracted from common plan labels and abbreviations: `Vol.`, `Volume`, `Folio`, `Fol.`, `Vol/Fol`, `Volume/Folio`, and `Vol./Fol.`
 
-3a. Given the `Owners / Neighbors` tab is selected, then the workspace displays editable/reviewable people and neighboring-parcel context for parties, owners, representatives, adjacent owners, and optional segment associations.
+3a. Given the `Owners / Neighbors` tab is selected, then the workspace displays editable/reviewable people and neighboring-parcel context for parties, owners, representatives, adjacent owners, and optional segment associations, expanding `Occ.` or `Occ` to the readable role `Occupant`.
 
 4. Given metadata values are extracted from OCR/vision, when the metadata form is shown, then each field preserves value, raw/source text where available, confidence/status where available, and examiner review state.
 
@@ -98,7 +99,9 @@ The wireframe shows the intended PXA-only workspace pattern:
 - [x] Add PXA-specific review tabs. (AC: 1-6, 10)
   - [x] Add `General Info`, `Owners / Neighbors`, `Boundary Segments`, and `Points` tabs for PXA.
   - [x] Keep document/survey facts such as Volume/Folio, document dates, instrument make/no., and surveyor in `General Info`.
+  - [x] Keep volume/folio aliases normalized into reviewable Volume/Folio rows rather than raw OCR text.
   - [x] Keep parties, owners, representatives, adjacent owners, and neighbor-to-segment associations in `Owners / Neighbors`.
+  - [x] Show occupant roles as `Occupant` when OCR/extraction reads `Occ.`.
   - [x] Keep source PDF viewer visible beside the tabs.
   - [x] Keep parcel preview and validation findings visible in the right panel.
   - [x] Distinguish printed/reference anchor points, derived points, reviewed boundary segments, and solver conflicts in the PXA review surface.

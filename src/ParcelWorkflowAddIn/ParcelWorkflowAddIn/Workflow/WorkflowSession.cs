@@ -802,8 +802,64 @@ public sealed class WorkflowSession
         return await RunEarlyCheckStageAsync(
             PreflightCheckStage.GeoreferenceCheck,
             operatorId,
-            () => manifestPreflightService.RunGeoreferenceCheckAsync(CaseFolderLayout.FromRootDirectory(CaseFolderPath!), operatorId, cancellationToken),
+            async () =>
+            {
+                var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath!);
+                await PrepareGeoreferenceEvidenceIfMissingAsync(layout, cancellationToken).ConfigureAwait(false);
+                return await manifestPreflightService.RunGeoreferenceCheckAsync(layout, operatorId, cancellationToken).ConfigureAwait(false);
+            },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task PrepareGeoreferenceEvidenceIfMissingAsync(CaseFolderLayout layout, CancellationToken cancellationToken)
+    {
+        if (HasSurveyPlanExtractionEvidence(layout))
+        {
+            return;
+        }
+
+        ManifestDocument manifest;
+        try
+        {
+            manifest = ManifestSerializer.Read(layout.ManifestPath);
+        }
+        catch (Exception exception) when (IsExpectedPreflightIoFailure(exception))
+        {
+            return;
+        }
+
+        if (!HasSurveyPlanExtractionStep(manifest))
+        {
+            return;
+        }
+
+        var executionResult = await workflowScriptExecutor.ExecuteDraftExtractionAsync(layout, manifest, cancellationToken).ConfigureAwait(false);
+        if (!executionResult.Success)
+        {
+            if (!string.IsNullOrWhiteSpace(executionResult.ErrorMessage))
+            {
+                StatusText = executionResult.ErrorMessage!;
+            }
+
+            return;
+        }
+
+        foreach (var artifact in executionResult.Artifacts)
+        {
+            UpsertAvailableArtifact(artifact);
+        }
+    }
+
+    private static bool HasSurveyPlanExtractionEvidence(CaseFolderLayout layout)
+    {
+        return File.Exists(Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json"))
+            || File.Exists(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
+    }
+
+    private static bool HasSurveyPlanExtractionStep(ManifestDocument manifest)
+    {
+        return manifest.Payload.ScriptPlan?.Steps.Any(step =>
+            string.Equals(step.Script, "extract_single_parcel_survey_plan_pdf", StringComparison.OrdinalIgnoreCase)) == true;
     }
 
     private async Task<PreflightSummaryDocument> RunEarlyCheckStageAsync(

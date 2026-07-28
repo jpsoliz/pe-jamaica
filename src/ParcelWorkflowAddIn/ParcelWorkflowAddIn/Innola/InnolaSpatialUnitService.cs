@@ -94,8 +94,21 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         {
             TryWriteSpatialUnitApiFailure(caseFolderPath, transaction, exception);
             Debug.WriteLine($"Innola Spatial Unit save failed. TransactionId={transaction.TransactionId}; Error={exception.GetType().Name}.");
+            if (IsAuthorizationFailure(exception))
+            {
+                return InnolaSpatialUnitSaveResult.Failed(
+                    "Could not create Spatial Unit because Innola rejected the current login. Sign in again and retry Finalize.",
+                    "unauthorized");
+            }
+
             return InnolaSpatialUnitSaveResult.Failed("Could not create Spatial Unit. Try again.", exception.GetType().Name);
         }
+    }
+
+    private static bool IsAuthorizationFailure(Exception exception)
+    {
+        return exception.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<IReadOnlyList<JsonObject>> CreateDefaultSpatialUnitsAsync(

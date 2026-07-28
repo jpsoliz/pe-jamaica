@@ -43,6 +43,7 @@ internal static class JamaicaReviewWorkspaceXamlTests
         var transactionPanelCode = File.ReadAllText(FindSourceFile("TransactionPanelState.cs"));
         var transactionPanelDockpaneCode = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
         var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+        var showWorkflowButtonCode = File.ReadAllText(FindSourceFile("ShowParcelWorkflowDockpaneButton.cs"));
 
         TestAssert.True(
             !workflowXaml.Contains("Header=\"{Binding SupportingDocumentsTabTitle}\"", StringComparison.Ordinal)
@@ -117,13 +118,13 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && viewModelCode.Contains("SupportingDocumentsWindow.RefreshIfOpen();", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentsWindow.CloseIfOpen();", StringComparison.Ordinal)
             && viewModelCode.Contains("HideIfOpen();", StringComparison.Ordinal)
-            && transactionPanelCode.Contains("TryShowSupportingDocumentsDockpane(requestedTransactionNumber);", StringComparison.Ordinal)
-            && transactionPanelCode.Contains("Supporting Documents could not open automatically; continue in Parcel Workflow.", StringComparison.Ordinal)
+            && !transactionPanelCode.Contains("TryShowSupportingDocumentsDockpane(requestedTransactionNumber);", StringComparison.Ordinal)
+            && !workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
+            && !showWorkflowButtonCode.Contains("SupportingDocumentsDockpaneViewModel.Show();", StringComparison.Ordinal)
             && transactionPanelCode.Contains("supportingDocumentsRefresher();", StringComparison.Ordinal)
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
-            && workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
-            "Supporting Documents WPF window should validate file actions, use the active transaction title, appear best-effort and refresh with a loaded transaction, and close when the transaction is closed.");
+            "Supporting Documents WPF window should validate file actions, use the active transaction title, refresh with a loaded transaction, avoid auto-opening during transaction launch, and close when the transaction is closed.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
             projectionCode.Contains("or \".png\"", StringComparison.Ordinal)

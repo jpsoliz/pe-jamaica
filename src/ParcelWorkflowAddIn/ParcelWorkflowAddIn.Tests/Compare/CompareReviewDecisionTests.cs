@@ -41,6 +41,7 @@ internal static class CompareReviewDecisionTests
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.MarkAllDiscrepanciesResolved();
 
+        viewModel.SaveProgressCommand.Execute(null);
         viewModel.ApproveCompareCommand.Execute(null);
 
         var decision = new CompareReviewDecisionPersistenceService().Load(fixture.Layout);

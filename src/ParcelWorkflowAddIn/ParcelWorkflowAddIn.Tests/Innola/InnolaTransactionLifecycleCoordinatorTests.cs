@@ -231,7 +231,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
         TestAssert.Equal(beforeCount, after.Detail!.Attachments.Count, "Completed package must not upload after Spatial Unit failure.");
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
-        TestAssert.Equal(null, disposition?.SpatialUnitApiStatus, "Failed Spatial Unit save must not be recorded as saved.");
+        TestAssert.Equal("failed", disposition?.SpatialUnitApiStatus, "Failed Spatial Unit save should persist a retryable failed status.");
+        using var manifest = JsonDocument.Parse(File.ReadAllText(layout.ManifestPath));
+        TestAssert.Equal("failed", manifest.RootElement.GetProperty("payload").GetProperty("innola_lifecycle").GetProperty("spatial_unit_api_status").GetString(), "Manifest should record failed Spatial Unit API status.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_spatial_unit_save_started", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit save start before failure.");
         TestAssert.True(audit.Contains("compute_spatial_unit_save_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit failure.");

@@ -104,6 +104,9 @@ public sealed class OutputSummaryPersistenceService
         }
         else if (string.Equals(summary.Payload.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
         {
+            var localPaths = LocalOutputMapLayerPaths(summary.Payload)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .ToArray();
             var publishedLayers = summary.Payload.EnterpriseWorkingPublish?.PublishedLayers ?? Array.Empty<EnterpriseWorkingPublishedLayer>();
             var pointsLayer = publishedLayers.FirstOrDefault(layer =>
                 string.Equals(layer.LayerRole, "points", StringComparison.OrdinalIgnoreCase))?.Target;
@@ -118,9 +121,18 @@ public sealed class OutputSummaryPersistenceService
                 linesLayer,
                 pointsLayer
             };
-            paths = enterprisePaths.Any(path => !string.IsNullOrWhiteSpace(path))
-                ? enterprisePaths
-                : LocalOutputMapLayerPaths(summary.Payload);
+            if (localPaths.Length > 0)
+            {
+                paths = localPaths;
+            }
+            else if (enterprisePaths.Any(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                paths = enterprisePaths;
+            }
+            else
+            {
+                paths = localPaths;
+            }
         }
 
         return paths

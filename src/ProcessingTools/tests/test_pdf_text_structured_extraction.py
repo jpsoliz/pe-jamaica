@@ -100,6 +100,27 @@ class PdfTextStructuredExtractionTests(unittest.TestCase):
         self.assertEqual("N72°55'59\"W", rows[2]["course_from_previous"])
         self.assertEqual("22.005", rows[2]["length_from_previous_m"])
 
+    def test_volume_folio_aliases_are_extracted_to_review_metadata(self):
+        pages = [
+            "\n".join(
+                [
+                    "Volume/Folio 1238/856",
+                    "Parcel Name: 110900201",
+                    "North: 644211.6910m East: 670076.2940m",
+                    "Line Course: N 04 -07-50 E Length: 10.107",
+                    "North: 644221.7717m East: 670077.0220m",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000400")
+
+        self.assertEqual("success", result["status"])
+        volume_folio = result["survey_metadata"]["volume_folio"][0]
+        self.assertEqual("1238", volume_folio["volume"])
+        self.assertEqual("856", volume_folio["folio"])
+        self.assertIn("Volume/Folio", volume_folio["raw_text"])
+
 
 if __name__ == "__main__":
     unittest.main()

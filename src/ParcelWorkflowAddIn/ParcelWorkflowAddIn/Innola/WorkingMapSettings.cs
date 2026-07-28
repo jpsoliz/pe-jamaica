@@ -26,7 +26,7 @@ public sealed record WorkingMapSettings(
         true,
         "esri_world_imagery",
         new[] { "open_basemap", "world_topographic" },
-        new WorkingMapExtent("Jamaica", 4326, -78.6, 17.6, -76.1, 18.7),
+        new WorkingMapExtent("Jamaica", 3448, 580172.099, 605960.245, 845529.005, 728209.243),
         true,
         WorkingMapParishLookupSettings.Default,
         new[]
@@ -327,7 +327,7 @@ public sealed record WorkingMapParishLookupSettings(
                 continue;
             }
 
-            extents[NormalizeParishKey(property.Name)] = WorkingMapExtent.FromJson(value, property.Name, new WorkingMapExtent(property.Name, 4326, 0, 0, 0, 0));
+            extents[NormalizeParishKey(property.Name)] = WorkingMapExtent.FromJson(value, property.Name, new WorkingMapExtent(property.Name, 3448, 0, 0, 0, 0));
         }
 
         return extents.Count == 0 ? fallback : extents;
@@ -383,13 +383,70 @@ public sealed record WorkingMapParishLookupSettings(
         double xmax,
         double ymax)
     {
-        var extent = new WorkingMapExtent(parish, 4326, xmin, ymin, xmax, ymax);
+        var corners = new[]
+        {
+            ProjectWgs84ApproxToJad2001(xmin, ymin),
+            ProjectWgs84ApproxToJad2001(xmin, ymax),
+            ProjectWgs84ApproxToJad2001(xmax, ymin),
+            ProjectWgs84ApproxToJad2001(xmax, ymax)
+        };
+        var extent = new WorkingMapExtent(
+            parish,
+            3448,
+            corners.Min(corner => corner.X),
+            corners.Min(corner => corner.Y),
+            corners.Max(corner => corner.X),
+            corners.Max(corner => corner.Y));
         extents[NormalizeParishKey(parish)] = extent;
         if (parish.StartsWith("St.", StringComparison.OrdinalIgnoreCase))
         {
             extents[NormalizeParishKey("Saint" + parish[3..])] = extent;
         }
     }
+
+    private static (double X, double Y) ProjectWgs84ApproxToJad2001(double longitude, double latitude)
+    {
+        const double semiMajorAxis = 6378137.0;
+        const double inverseFlattening = 298.257222101;
+        const double latitudeOfOriginDegrees = 18.0;
+        const double centralMeridianDegrees = -77.0;
+        const double falseEasting = 750000.0;
+        const double falseNorthing = 650000.0;
+
+        var flattening = 1.0 / inverseFlattening;
+        var eccentricity = Math.Sqrt((2 * flattening) - (flattening * flattening));
+        var latitudeOfOrigin = DegreesToRadians(latitudeOfOriginDegrees);
+        var centralMeridian = DegreesToRadians(centralMeridianDegrees);
+        var standardParallelN = Math.Sin(latitudeOfOrigin);
+        var originT = LambertT(latitudeOfOrigin, eccentricity);
+        var originM = LambertM(latitudeOfOrigin, eccentricity);
+        var lambertF = originM / (standardParallelN * Math.Pow(originT, standardParallelN));
+        var originRho = semiMajorAxis * lambertF * Math.Pow(originT, standardParallelN);
+
+        var phi = DegreesToRadians(latitude);
+        var lambda = DegreesToRadians(longitude);
+        var rho = semiMajorAxis * lambertF * Math.Pow(LambertT(phi, eccentricity), standardParallelN);
+        var theta = standardParallelN * (lambda - centralMeridian);
+
+        return (
+            falseEasting + (rho * Math.Sin(theta)),
+            falseNorthing + originRho - (rho * Math.Cos(theta)));
+    }
+
+    private static double LambertM(double phi, double eccentricity)
+    {
+        var sinPhi = Math.Sin(phi);
+        return Math.Cos(phi) / Math.Sqrt(1 - (eccentricity * eccentricity * sinPhi * sinPhi));
+    }
+
+    private static double LambertT(double phi, double eccentricity)
+    {
+        var sinPhi = Math.Sin(phi);
+        var eccentricityFactor = Math.Pow((1 - (eccentricity * sinPhi)) / (1 + (eccentricity * sinPhi)), eccentricity / 2);
+        return Math.Tan((Math.PI / 4) - (phi / 2)) / eccentricityFactor;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
     private static string? ReadString(JsonElement element, string name)
     {

@@ -42,6 +42,18 @@ internal static class ShellState
         () => Settings.CaseFolderOutputRoot,
         workingMapPreparationService: new ArcGisWorkingMapPreparationService());
 
+    public static InnolaTransactionLoadService CompareTransactionLoader { get; } = new(
+        Session,
+        TransactionDetails,
+        new CaseFolderStore(),
+        new AttachmentSourceFileWriter(),
+        new SourceInputProfileDetector(),
+        new WorkflowRuleResolver(),
+        WorkflowRuleSettingsLoader.Load,
+        ResumePackages,
+        () => Settings.CaseFolderOutputRoot,
+        workingMapPreparationService: NoOpWorkingMapPreparationService.Instance);
+
     public static InnolaTransactionLifecycleCoordinator LifecycleCoordinator { get; } = new(
         Session,
         TransactionDetails,
@@ -54,7 +66,10 @@ internal static class ShellState
 
     public static CompareWorkspaceLoadService CompareWorkspaceLoader { get; } = new(
         Session,
-        TransactionLoader,
+        CompareTransactionLoader,
+        new CompareWorkingGeometryService(
+            InnolaTransactionSettings.Load,
+            new DeferredCompareMapIntegrationService()),
         new CompareWorkingGeometryService(
             InnolaTransactionSettings.Load,
             new ArcGisCompareMapIntegrationService()));
@@ -207,5 +222,24 @@ internal static class ShellState
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaPlanCheckService()
             : new InnolaPlanCheckService(SharedInnolaHttpClient);
+    }
+
+    private sealed class DeferredCompareMapIntegrationService : ICompareMapIntegrationService
+    {
+        public Task<CompareMapIntegrationResult> AddTransactionGeometryToActiveMapAsync(
+            CompareWorkingGeometryLoadPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapIntegrationResult.MapUnavailable(
+                "Compare map layers have not been loaded yet. Use Refresh Map after the workspace opens."));
+        }
+
+        public Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(
+            string groupLayerName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapCleanupResult.Skipped(
+                "No Compare map layers were loaded during workspace startup."));
+        }
     }
 }

@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Workflow.Output;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -62,49 +63,79 @@ internal static class OutputMapReviewStylingTests
 
     public static void BuildSuccessMessageUsesNonFabricReviewLanguage()
     {
-        var summary = new OutputSummaryDocument(
-            "1.0.0",
-            "100000206",
-            "run-1",
-            "2026-06-22T00:00:00Z",
-            "tester",
-            "hash-1",
-            new OutputSummaryPayload(
-                "created",
-                "normal",
-                @"C:\case\output\case.gdb",
-                Array.Empty<string>(),
-                Array.Empty<string>(),
-                @"C:\case\output\case.gdb\parcel_points",
-                @"C:\case\output\case.gdb\parcel_lines",
-                @"C:\case\output\case.gdb\parcel_polygons",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                0,
-                0,
-                0,
-                3,
-                2,
-                1,
-                null,
-                null,
-                ReviewResultOwnership.ApprovedReview),
-            Array.Empty<string>(),
-            Array.Empty<string>());
+        var summary = CreateBasicOutputSummary("run-1");
 
         var message = OutputMapReviewStyling.BuildSuccessMessage(summary);
 
         TestAssert.True(message.Contains("COGO-ready non-fabric review layers", StringComparison.OrdinalIgnoreCase), "Normal mode message should describe the non-fabric review workspace.");
         TestAssert.True(message.Contains("Diagnostics: map load", StringComparison.OrdinalIgnoreCase), "Success message should include the output diagnostics summary.");
+    }
+
+    public static void BuildAlreadyLoadedMessageUsesIdempotentReviewLanguage()
+    {
+        var summary = CreateBasicOutputSummary("run-loaded");
+
+        var message = OutputMapReviewStyling.BuildAlreadyLoadedMessage(summary);
+
+        TestAssert.True(message.Contains("already loaded", StringComparison.OrdinalIgnoreCase), "Message should state that the transaction review layers were reused.");
+        TestAssert.True(message.Contains("zoomed", StringComparison.OrdinalIgnoreCase), "Message should state that the map was zoomed to existing parcel layers.");
+    }
+
+    public static void MapIntegrationChecksExistingTransactionLayersBeforeCreatingLayers()
+    {
+        var source = File.ReadAllText(FindSourceFile("IOutputMapIntegrationService.cs"));
+        var existingCheckIndex = source.IndexOf("TryFindExistingTransactionReviewLayers", StringComparison.Ordinal);
+        var createLayerIndex = source.IndexOf("LayerFactory.Instance.CreateLayer", StringComparison.Ordinal);
+
+        TestAssert.True(existingCheckIndex >= 0, "Map integration should include an existing transaction layer check.");
+        TestAssert.True(createLayerIndex > existingCheckIndex, "Map integration should check existing transaction layers before creating layers.");
+    }
+
+    public static void OutputMapPathResolverAcceptsEnterpriseFeatureServerUrls()
+    {
+        var layerUrl = "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3";
+
+        TestAssert.True(
+            OutputMapPathResolver.OutputPathExists(layerUrl),
+            "Enterprise working-layer URLs should be treated as map-loadable output paths.");
+    }
+
+    private static OutputSummaryDocument CreateBasicOutputSummary(string runId)
+    {
+        var json = $$"""
+        {
+          "schema_version": "1.0.0",
+          "transaction_id": "100000206",
+          "run_id": "{{runId}}",
+          "created_at": "2026-06-22T00:00:00Z",
+          "created_by": "tester",
+          "source_manifest_hash": "hash-basic",
+          "payload": {
+            "status": "created",
+            "review_workspace_mode": "normal",
+            "result_gdb_path": "C:\\case\\output\\case.gdb",
+            "artifact_paths": [],
+            "map_layer_paths": [],
+            "point_feature_class_path": "C:\\case\\output\\case.gdb\\parcel_points",
+            "line_feature_class_path": "C:\\case\\output\\case.gdb\\parcel_lines",
+            "polygon_feature_class_path": "C:\\case\\output\\case.gdb\\parcel_polygons",
+            "built_parcel_count": 0,
+            "built_line_count": 0,
+            "built_point_count": 0,
+            "point_count": 3,
+            "line_count": 2,
+            "polygon_count": 1,
+            "review_result_owner": "approved_review"
+          },
+          "warnings": [],
+          "errors": []
+        }
+        """;
+
+        return JsonSerializer.Deserialize<OutputSummaryDocument>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        })!;
     }
 
     private static string FindSourceFile(string fileName)
@@ -476,7 +507,7 @@ internal static class OutputMapReviewStylingTests
         TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[4], "Point overlay should remain available.");
     }
 
-    public static void EnterpriseWorkingLayersModeReturnsTransactionScopedWorkingTargets()
+    public static void EnterpriseWorkingLayersModePrefersLocalReviewOutputsWhenPublishEvidenceExists()
     {
         var summary = new OutputSummaryDocument(
             "1.0.0",
@@ -546,7 +577,83 @@ internal static class OutputMapReviewStylingTests
         var service = new OutputSummaryPersistenceService();
         var paths = service.GetMapLayerPaths(summary);
 
-        TestAssert.Equal(3, paths.Count, "Enterprise working mode should return transaction-scoped spatial working targets.");
+        TestAssert.Equal(3, paths.Count, "Enterprise working mode should load the generated local FGDB review outputs during Final Review.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[0], "Local points should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[1], "Local lines should remain available.");
+        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[2], "Local polygons should remain available.");
+    }
+
+    public static void EnterpriseWorkingLayersModeFallsBackToPublishedTargetsWhenLocalOutputsAreMissing()
+    {
+        var summary = new OutputSummaryDocument(
+            "1.0.0",
+            "100000206",
+            "run-3b-fallback",
+            "2026-06-23T00:00:00Z",
+            "tester",
+            "hash-3b-fallback",
+            new OutputSummaryPayload(
+                "created",
+                "enterprise_working_layers",
+                null,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                0,
+                0,
+                3,
+                2,
+                1,
+                null,
+                null,
+                ReviewResultOwnership.ApprovedReview,
+                new EnterpriseWorkingPublishSummary(
+                    "published",
+                    "Published.",
+                    "2026-06-23T00:00:00Z",
+                    "tester",
+                    "transaction_number",
+                    "100000206",
+                    "parcel_workflow_compute",
+                    "spatial_review_pending",
+                    "txn-1",
+                    "100000206",
+                    "task-1",
+                    "Assign Computation Task",
+                    "tester",
+                    "reviewers",
+                    "2026-06-23T00:00:00Z",
+                    new[]
+                    {
+                        new EnterpriseWorkingPublishedLayer("points", @"https://enterprise.local/server/rest/services/Working/FeatureServer/0", 3, false),
+                        new EnterpriseWorkingPublishedLayer("lines", @"https://enterprise.local/server/rest/services/Working/FeatureServer/1", 2, false),
+                        new EnterpriseWorkingPublishedLayer("polygons", @"https://enterprise.local/server/rest/services/Working/FeatureServer/2", 1, false),
+                        new EnterpriseWorkingPublishedLayer("case_index", @"https://enterprise.local/server/rest/services/Working/FeatureServer/3", 1, false)
+                    },
+                    Array.Empty<string>(),
+                    Array.Empty<string>(),
+                    Array.Empty<string>())),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var service = new OutputSummaryPersistenceService();
+        var paths = service.GetMapLayerPaths(summary);
+
+        TestAssert.Equal(3, paths.Count, "Enterprise working mode should fall back to published targets only when local review outputs are unavailable.");
         TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/2", paths[0], "Working polygons should load first.");
         TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/1", paths[1], "Working lines should load second.");
         TestAssert.Equal(@"https://enterprise.local/server/rest/services/Working/FeatureServer/0", paths[2], "Working points should load last.");

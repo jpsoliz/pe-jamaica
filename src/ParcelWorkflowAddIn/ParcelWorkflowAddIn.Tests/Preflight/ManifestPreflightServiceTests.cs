@@ -181,6 +181,103 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.Warnings.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Concrete survey-plan evidence should suppress the generic georeference warning.");
     }
 
+    public static void GeoreferenceCheckConsumesReviewArtifactWhenSummaryIsMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.20.0",
+              "transaction_number": "100000492",
+              "coordinate_system": { "value": "JAD 2001", "confidence": 0.95 },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon", "confidence": 0.85 }
+              },
+              "rows": [
+                { "point_identifier": "1", "easting": "644195.8078", "northing": "669833.1503" },
+                { "point_identifier": "2", "easting": "644239.8415", "northing": "669815.9993" }
+              ]
+            }
+            """);
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-review-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "georeference_spatial_validation_readiness"
+            && string.Equals(check.AffectedPath, Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"), StringComparison.OrdinalIgnoreCase)
+            && check.Evidence?["coordinate_table_point_count"].Contains("2") == true), "Georeference Check should consume reviewed PXA point evidence when the extraction summary is unavailable.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Reviewed JAD2001 point evidence should satisfy the concrete georeference gate.");
+    }
+
+    public static void GeoreferenceCheckAcceptsDottedJad2001CoordinateLabel()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.20.0",
+              "transaction_number": "100000859",
+              "coordinate_system": { "value": "J.A.D. 2001 Coordinates", "confidence": 0.95 },
+              "rows": [
+                { "point_identifier": "55", "easting": "740002.307", "northing": "685924.563" },
+                { "point_identifier": "66", "easting": "740006.535", "northing": "685968.029" }
+              ]
+            }
+            """);
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-dotted-jad-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "georeference_spatial_validation_readiness"
+            && check.Evidence?["coordinate_system"].Contains("J.A.D. 2001 Coordinates") == true
+            && check.Evidence?["coordinate_table_point_count"].Contains("2") == true), "Dotted J.A.D. 2001 coordinate labels from the plan should satisfy Georeference Check.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Dotted J.A.D. 2001 evidence should not leave a georeference blocker.");
+    }
+
+    public static void GeoreferenceCheckBlocksWhenOnlySourcePresenceExists()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 7, 8, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-source-only-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "georeference_source_presence"), "The source-presence rule should still report the available source.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Source presence alone must not pass Georeference Check.");
+    }
+
     public static void DimensionCheckConsumesSurveyPlanExtractionEvidence()
     {
         using var tempRoot = new TempDirectory();

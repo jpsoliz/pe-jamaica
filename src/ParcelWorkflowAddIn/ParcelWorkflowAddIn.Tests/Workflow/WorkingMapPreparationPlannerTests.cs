@@ -200,4 +200,40 @@ internal static class WorkingMapPreparationPlannerTests
             ArcGisWorkingMapPreparationService.ShouldAddReferenceLayer(streetsLayer, "esri_world_imagery"),
             "Open Basemap Streets should be added as a configured alternate/reference layer when imagery is the default basemap.");
     }
+
+    public static void WorkingMapZoomUsesConfiguredExtentSpatialReference()
+    {
+        var source = File.ReadAllText(FindWorkingMapPreparationService());
+
+        TestAssert.True(
+            source.Contains("SpatialReferenceBuilder.CreateSpatialReference(extent.Wkid)", StringComparison.Ordinal),
+            "Working map zoom should use the configured extent WKID, not a hard-coded spatial reference.");
+        TestAssert.False(
+            source.Contains("SpatialReferences.WGS84)", StringComparison.Ordinal),
+            "Working map zoom must not treat JAD2001 meter extents as WGS84 degrees.");
+    }
+
+    private static string FindWorkingMapPreparationService()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn",
+                "Workflow",
+                "Maps",
+                "IWorkingMapPreparationService.cs");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("Could not locate IWorkingMapPreparationService.cs from the test output directory.");
+    }
 }

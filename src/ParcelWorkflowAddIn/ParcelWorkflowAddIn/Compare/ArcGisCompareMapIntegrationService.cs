@@ -5,6 +5,7 @@ using ArcGIS.Desktop.Framework.Threading.Tasks;
 using ArcGIS.Desktop.Mapping;
 using ParcelWorkflowAddIn.Enterprise.PortalAuth;
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Workflow.Maps;
 
 namespace ParcelWorkflowAddIn.Compare;
 
@@ -12,18 +13,21 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
 {
     private readonly IPortalAuthProvider portalAuthProvider;
     private readonly Func<InnolaTransactionSettings> getSettings;
+    private readonly IWorkingMapPreparationService workingMapPreparationService;
 
     public ArcGisCompareMapIntegrationService()
-        : this(CompositePortalAuthProvider.CreateDefault(), InnolaTransactionSettings.Load)
+        : this(CompositePortalAuthProvider.CreateDefault(), InnolaTransactionSettings.Load, new ArcGisWorkingMapPreparationService())
     {
     }
 
     public ArcGisCompareMapIntegrationService(
         IPortalAuthProvider portalAuthProvider,
-        Func<InnolaTransactionSettings>? getSettings = null)
+        Func<InnolaTransactionSettings>? getSettings = null,
+        IWorkingMapPreparationService? workingMapPreparationService = null)
     {
         this.portalAuthProvider = portalAuthProvider;
         this.getSettings = getSettings ?? InnolaTransactionSettings.Load;
+        this.workingMapPreparationService = workingMapPreparationService ?? new ArcGisWorkingMapPreparationService();
     }
 
     public async Task<CompareMapIntegrationResult> AddTransactionGeometryToActiveMapAsync(
@@ -35,10 +39,17 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             return CompareMapIntegrationResult.Failed(plan.InvalidReason ?? "Compare geometry load plan is invalid.");
         }
 
+        var settings = getSettings();
+        var mapPreparationResult = await PrepareConfiguredWorkingMapAsync(settings, plan, cancellationToken).ConfigureAwait(false);
+        if (!mapPreparationResult.Success)
+        {
+            return CompareMapIntegrationResult.MapUnavailable(mapPreparationResult.Message);
+        }
+
         var mapView = MapView.Active;
         if (mapView?.Map is null)
         {
-            return CompareMapIntegrationResult.MapUnavailable("No active ArcGIS Pro map is available. Open a map and retry Compare geometry loading.");
+            return CompareMapIntegrationResult.MapUnavailable("No active ArcGIS Pro map is available after working map preparation. Open a map and retry Compare geometry loading.");
         }
 
         var authResult = await TryAuthenticateAsync(plan, cancellationToken).ConfigureAwait(false);
@@ -49,10 +60,10 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
 
         var loadedLayerUrls = new List<string>();
         var zoomLayers = new List<Layer>();
-        var mapWarnings = new List<string>();
+        var mapWarnings = mapPreparationResult.Warnings.ToList();
         var cadasterContextSummaries = new List<CompareCadasterMapContextSummary>();
         var groupLayerName = BuildGroupLayerName(plan);
-        var enterpriseCadasterSettings = getSettings().CompareEnterpriseCadaster;
+        var enterpriseCadasterSettings = settings.CompareEnterpriseCadaster;
         int? polygonFeatureCount = null;
         try
         {
@@ -140,6 +151,46 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             loadedLayerUrls,
             groupLayerName,
             polygonFeatureCount);
+    }
+
+    private async Task<WorkingMapPreparationResult> PrepareConfiguredWorkingMapAsync(
+        InnolaTransactionSettings settings,
+        CompareWorkingGeometryLoadPlan plan,
+        CancellationToken cancellationToken)
+    {
+        var detail = new InnolaTransactionDetail(
+            plan.TransactionId,
+            plan.TransactionNumber,
+            plan.TransactionId,
+            "Compare Survey Plan",
+            "Compare",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            Array.Empty<InnolaAttachmentMetadata>(),
+            null);
+
+        try
+        {
+            return await workingMapPreparationService
+                .PrepareWorkingMapAsync(settings.WorkingMap, detail, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or UriFormatException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            return WorkingMapPreparationResult.Failed($"Configured working map could not be prepared for Compare review: {exception.Message}");
+        }
     }
 
     public static string BuildGroupLayerName(CompareWorkingGeometryLoadPlan plan)
@@ -301,7 +352,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
 
         if (reviewGeometries.Count == 0)
         {
-            warnings.Add("Legal/Fiscal context layers were skipped because the working_review polygon geometry could not be read.");
+            warnings.Add("Legal/Fiscal/Survey context layers were skipped because the working_review polygon geometry could not be read.");
             return summaries;
         }
 
@@ -465,17 +516,13 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
     {
         try
         {
-            featureLayer.SetTransparency(35);
-            var isLegal = sourceKind.Equals(CompareEnterpriseCadasterSourceKind.Legal, StringComparison.OrdinalIgnoreCase);
-            var fill = isLegal
-                ? ColorFactory.Instance.CreateRGBColor(37, 99, 235, 22)
-                : ColorFactory.Instance.CreateRGBColor(217, 119, 6, 20);
+            featureLayer.SetTransparency(70);
+            var palette = ResolveContextLayerPalette(sourceKind);
+            var fill = ColorFactory.Instance.CreateRGBColor(palette.Red, palette.Green, palette.Blue, 18);
             var outline = SymbolFactory.Instance.ConstructStroke(
-                isLegal
-                    ? ColorFactory.Instance.CreateRGBColor(29, 78, 216)
-                    : ColorFactory.Instance.CreateRGBColor(180, 83, 9),
-                isLegal ? 1.6 : 1.25,
-                isLegal ? SimpleLineStyle.Solid : SimpleLineStyle.Dash);
+                ColorFactory.Instance.CreateRGBColor(palette.Red, palette.Green, palette.Blue, 70),
+                1.6,
+                SimpleLineStyle.Dot);
             var symbol = SymbolFactory.Instance.ConstructPolygonSymbol(fill, SimpleFillStyle.Solid, outline);
             featureLayer.SetRenderer(new CIMSimpleRenderer
             {
@@ -488,6 +535,17 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         {
             warnings.Add($"{featureLayer.Name} context styling was skipped: {exception.Message}");
         }
+    }
+
+    private static (byte Red, byte Green, byte Blue) ResolveContextLayerPalette(string sourceKind)
+    {
+        return sourceKind switch
+        {
+            _ when sourceKind.Equals(CompareEnterpriseCadasterSourceKind.Legal, StringComparison.OrdinalIgnoreCase) => (37, 99, 235),
+            _ when sourceKind.Equals(CompareEnterpriseCadasterSourceKind.Fiscal, StringComparison.OrdinalIgnoreCase) => (217, 119, 6),
+            _ when sourceKind.Equals(CompareEnterpriseCadasterSourceKind.Survey, StringComparison.OrdinalIgnoreCase) => (22, 163, 74),
+            _ => (75, 85, 99)
+        };
     }
 
     private static void ApplyWorkingLayerStyle(
@@ -874,13 +932,13 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
     {
         if (summaries is null || summaries.Count == 0)
         {
-            return "Legal/Fiscal context layers were not configured for map loading.";
+            return "Legal/Fiscal/Survey context layers were not configured for map loading.";
         }
 
         var loaded = summaries.Where(summary => summary.FeatureCount > 0).ToArray();
         if (loaded.Length == 0)
         {
-            return "No adjacent Legal/Fiscal context features were found.";
+            return "No adjacent Legal/Fiscal/Survey context features were found.";
         }
 
         return "Context layers: " + string.Join(

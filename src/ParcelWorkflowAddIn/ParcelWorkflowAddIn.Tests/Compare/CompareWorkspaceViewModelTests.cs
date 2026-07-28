@@ -79,12 +79,14 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.AddDiscrepancy("Owner mismatch", "Legal cadaster", isResolved: false);
 
         TestAssert.True(viewModel.HasUnresolvedDiscrepancies, "Open discrepancy should be visible.");
-        TestAssert.True(viewModel.CanApproveCompare, "Finalize should follow valuable evidence plus Decision Notes even when a discrepancy is visible.");
+        TestAssert.False(viewModel.CanApproveCompare, "Finalize should remain disabled until Compare is saved and the report is generated.");
+        viewModel.SaveProgressCommand.Execute(null);
+        TestAssert.True(viewModel.CanApproveCompare, "Finalize should enable after Save generates the Compare report.");
 
         viewModel.MarkAllDiscrepanciesResolved();
 
         TestAssert.False(viewModel.HasUnresolvedDiscrepancies, "Resolved discrepancies should still be tracked.");
-        TestAssert.True(viewModel.CanApproveCompare, "Resolved discrepancies should keep Finalize enabled when evidence and notes remain ready.");
+        TestAssert.True(viewModel.CanApproveCompare, "Resolved discrepancies should keep Finalize enabled after the saved report exists.");
     }
 
     public static void SaveAndRestoreDraftPreservesNotesAndEvidence()
@@ -143,6 +145,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(pdfText.Contains("Reviewed survey plan against legal owner evidence.", StringComparison.Ordinal), "PDF report should include decision notes.");
         TestAssert.False(pdfText.Contains("Review Summary", StringComparison.Ordinal), "PDF report should not include internal review summary sections.");
         TestAssert.Equal("Save complete. Compare report generated and overwritten.", viewModel.StatusText, "Save should show a clear completion message.");
+        TestAssert.True(viewModel.HasSavedCompareReport, "Save should mark the Compare report as generated.");
 
         using var document = JsonDocument.Parse(File.ReadAllText(reportPath));
         var root = document.RootElement;
@@ -151,6 +154,29 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal("saved_progress", root.GetProperty("decision_state").GetString(), "Report decision state mismatch.");
         TestAssert.Equal("Reviewed survey plan against legal owner evidence.", root.GetProperty("notes").GetString(), "Report notes mismatch.");
         TestAssert.True(root.GetProperty("artifact_refs").EnumerateArray().Any(), "Report should include artifact references.");
+    }
+
+    public static async Task SaveRefreshesFinalizeCommandWhenReviewIsReady()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel(new MockLegalCadasterQueryService(new[]
+        {
+            LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+        }));
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
+
+        var finalizeNotificationRaised = false;
+        viewModel.ApproveCompareCommand.CanExecuteChanged += (_, _) => finalizeNotificationRaised = true;
+
+        viewModel.SaveProgressCommand.Execute(null);
+
+        TestAssert.True(finalizeNotificationRaised, "Save should refresh Finalize button availability immediately after writing the draft/report.");
+        TestAssert.True(viewModel.ApproveCompareCommand.CanExecute(null), "Finalize should be enabled after Save when geometry, evidence, and notes are ready.");
     }
 
     public static async Task FinalizeAttachesComparePdfReportBeforeCompletingTask()
@@ -168,6 +194,9 @@ internal static class CompareWorkspaceViewModelTests
             }),
             lifecycle,
             attachmentService);
+        var pdfReportPath = Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
+        Directory.CreateDirectory(fixture.Layout.ReportsDirectory);
+        File.WriteAllText(pdfReportPath, "stale report");
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
         viewModel.SearchPid = "typed-999";
@@ -175,9 +204,6 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
-        var pdfReportPath = Path.Combine(fixture.Layout.ReportsDirectory, CompareReviewReportService.PdfReportFileName);
-        Directory.CreateDirectory(fixture.Layout.ReportsDirectory);
-        File.WriteAllText(pdfReportPath, "stale report");
 
         viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
@@ -292,6 +318,22 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(0, viewModel.Documents.Count, "Close cleanup should clear the form documents.");
     }
 
+    public static async Task CloseWorkspaceSkipsMapCleanupWhenCompareLayersWereNotLoaded()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var mapIntegration = new RecordingCompareMapIntegrationService();
+        var viewModel = CreateViewModel(mapIntegrationService: mapIntegration);
+        viewModel.ApplyLoadState(ReadyStateWithoutLoadedMap(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        await viewModel.CloseWorkspaceAsync();
+
+        TestAssert.Equal(0, mapIntegration.CleanupCalls, "Closing Compare before Load Compare Layers should not touch ArcGIS map cleanup.");
+        TestAssert.False(viewModel.DocumentsAvailable, "Close cleanup should clear document availability.");
+        TestAssert.False(viewModel.GeometryAvailable, "Close cleanup should clear geometry availability.");
+        TestAssert.Equal(0, viewModel.Documents.Count, "Close cleanup should clear the form documents.");
+    }
+
+
     public static async Task SuspendTaskFailureKeepsWorkspaceOpen()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -337,7 +379,9 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.CloseRequested += (_, _) => closeRequested = true;
 
         viewModel.MarkAllDiscrepanciesResolved();
-        TestAssert.True(viewModel.CanApproveCompare, "Evidence and notes should enable Finalize.");
+        TestAssert.False(viewModel.CanApproveCompare, "Evidence and notes should not enable Finalize before Save.");
+        viewModel.SaveProgressCommand.Execute(null);
+        TestAssert.True(viewModel.CanApproveCompare, "Save should enable Finalize after generating the report.");
         viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
 
@@ -366,6 +410,7 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
+        viewModel.SaveProgressCommand.Execute(null);
         viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
 
@@ -381,7 +426,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(traceText.Contains("\"step\": \"form_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record form cleanup result.");
     }
 
-    public static async Task FinalizeRequiresValuableEvidenceAndDecisionNotes()
+    public static async Task FinalizeRequiresSavedCompareReport()
     {
         using var fixture = CreateCaseFolderWithSource();
         var viewModel = CreateViewModel(new MockLegalCadasterQueryService(new[]
@@ -390,7 +435,7 @@ internal static class CompareWorkspaceViewModelTests
         }));
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
-        TestAssert.False(viewModel.CanApproveCompare, "Finalize should require retained valuable evidence and Decision Notes.");
+        TestAssert.False(viewModel.CanApproveCompare, "Finalize should require a saved Compare report.");
 
         viewModel.Notes = "Evidence reconciled against the survey plan.";
         TestAssert.False(viewModel.CanApproveCompare, "Decision Notes alone should not enable Finalize.");
@@ -399,10 +444,12 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.SearchPid = "typed-999";
         await viewModel.RunEvidenceSearchAsync();
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
-        TestAssert.True(viewModel.CanApproveCompare, "Finalize should enable once valuable evidence and Decision Notes exist.");
+        TestAssert.False(viewModel.CanApproveCompare, "Evidence and Decision Notes should still require Save before Finalize.");
+        viewModel.SaveProgressCommand.Execute(null);
+        TestAssert.True(viewModel.CanApproveCompare, "Finalize should enable after Save generates the Compare report.");
 
         viewModel.RemoveValuableEvidenceCommand.Execute(viewModel.ValuableEvidenceItems[0]);
-        TestAssert.False(viewModel.CanApproveCompare, "Removing valuable evidence should disable Finalize again.");
+        TestAssert.True(viewModel.CanApproveCompare, "Finalize remains enabled because Finalize regenerates the report from the current saved workspace.");
     }
 
     public static void PdfSelectorDefaultsToFirstPdfAndExcludesOtherAttachments()
@@ -436,7 +483,7 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(viewModel.GeometryAvailable, "Geometry should remain available after document selection changes.");
     }
 
-    public static void PdfPanelToggleDefaultsVisibleAndPreservesSelectedDocument()
+    public static void PdfPanelToggleDefaultsHiddenAndPreservesSelectedDocument()
     {
         using var fixture = CreateCaseFolderWithSources("plan-a.pdf", "plan-b.pdf");
         var viewModel = CreateViewModel();
@@ -445,22 +492,22 @@ internal static class CompareWorkspaceViewModelTests
         var selectedDocument = viewModel.SelectedDocument;
         var navigationKey = viewModel.ViewerNavigationKey;
 
-        TestAssert.True(viewModel.IsPdfPanelVisible, "PDF panel should be visible by default.");
-        TestAssert.False(viewModel.IsPdfPanelHidden, "Hidden helper should be false by default.");
-        TestAssert.Equal("Hide Files", viewModel.PdfPanelToggleText, "Visible panel should expose Hide Files action.");
+        TestAssert.False(viewModel.IsPdfPanelVisible, "PDF panel should be hidden by default so Compare startup does not initialize the embedded viewer.");
+        TestAssert.True(viewModel.IsPdfPanelHidden, "Hidden helper should be true by default.");
+        TestAssert.Equal("Show Files", viewModel.PdfPanelToggleText, "Hidden panel should expose Show Files action.");
 
         viewModel.TogglePdfPanelCommand.Execute(null);
 
-        TestAssert.False(viewModel.IsPdfPanelVisible, "Toggle should hide PDF panel.");
-        TestAssert.True(viewModel.IsPdfPanelHidden, "Hidden helper should track collapsed PDF panel.");
-        TestAssert.Equal("Show Files", viewModel.PdfPanelToggleText, "Hidden panel should expose Show Files action.");
+        TestAssert.True(viewModel.IsPdfPanelVisible, "Toggle should show PDF panel.");
+        TestAssert.False(viewModel.IsPdfPanelHidden, "Hidden helper should track visible PDF panel.");
+        TestAssert.Equal("Hide Files", viewModel.PdfPanelToggleText, "Visible panel should expose Hide Files action.");
         TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Toggling PDF panel should preserve selected document.");
         TestAssert.Equal(navigationKey, viewModel.ViewerNavigationKey, "Toggling PDF panel should not change viewer navigation state.");
 
         viewModel.TogglePdfPanelCommand.Execute(null);
 
-        TestAssert.True(viewModel.IsPdfPanelVisible, "Second toggle should restore PDF panel.");
-        TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Restoring PDF panel should preserve selected document.");
+        TestAssert.False(viewModel.IsPdfPanelVisible, "Second toggle should hide PDF panel again.");
+        TestAssert.True(ReferenceEquals(selectedDocument, viewModel.SelectedDocument), "Hiding PDF panel should preserve selected document.");
     }
 
     public static void PdfSelectorEmptyStateKeepsCompareUsableWhenNoPdfExists()
@@ -901,6 +948,10 @@ internal static class CompareWorkspaceViewModelTests
 
         public int SaveCalls { get; private set; }
 
+        public int SaveCompletedCalls { get; private set; }
+
+        public string? LastSaveCompletedMessage { get; private set; }
+
         public int SuspendCalls { get; private set; }
 
         public int FinalizeCalls { get; private set; }
@@ -909,6 +960,12 @@ internal static class CompareWorkspaceViewModelTests
         {
             SaveCalls++;
             return SaveResult;
+        }
+
+        public void ShowSaveCompleted(string message)
+        {
+            SaveCompletedCalls++;
+            LastSaveCompletedMessage = message;
         }
 
         public bool ConfirmSuspend()
@@ -947,6 +1004,29 @@ internal static class CompareWorkspaceViewModelTests
                     Array.Empty<string>(),
                     "Compare Review - 100000674",
                     1)));
+    }
+
+    private static CompareWorkspaceLoadState ReadyStateWithoutLoadedMap(string caseFolderPath)
+    {
+        var plan = new CompareWorkingGeometryLoadPlan(
+            true,
+            "100000674",
+            "TR100000674",
+            null,
+            "transaction_number",
+            "100000674",
+            "transaction_number = '100000674'",
+            Array.Empty<CompareWorkingLayerRequest>(),
+            null);
+
+        return new CompareWorkspaceLoadState(
+            CompareDocumentLoadState.Loaded("Documents ready.", caseFolderPath),
+            CompareWorkingGeometryLoadResult.Blocked(
+                CompareGeometryLoadStatus.MapUnavailable,
+                "Compare map layers have not been loaded yet. Use Load Compare Layers when map review is needed.",
+                plan,
+                CompareMapIntegrationResult.MapUnavailable("Compare map layers have not been loaded yet."),
+                retryable: true));
     }
 
     private static CompareCaseFixture CreateCaseFolderWithSource()

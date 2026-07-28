@@ -150,7 +150,7 @@ public sealed class ManifestPreflightService
 
         if (stage is PreflightCheckStage.Combined or PreflightCheckStage.GeoreferenceCheck)
         {
-            EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed);
+            EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed, stage == PreflightCheckStage.GeoreferenceCheck);
         }
 
         if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck)
@@ -291,7 +291,8 @@ public sealed class ManifestPreflightService
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        bool requireConcreteValidation)
     {
         var sources = manifest.Payload.SourceFiles;
         var hasConcreteGeoreferenceValidation = false;
@@ -423,20 +424,35 @@ public sealed class ManifestPreflightService
                     passed.Add(PreflightCheck.PassedForCategory(
                         readinessRule?.Category ?? "georeference",
                         readinessRule?.RuleId ?? "georeference_spatial_validation_readiness",
-                        $"Passed: Survey plan evidence is available for Georeference Check ({surveyPlanEvidence.CoordinateSystem ?? "coordinate system unknown"}, parish {surveyPlanEvidence.Parish ?? "unknown"}).",
+                        $"Passed: Survey plan JAD2001 coordinate evidence is available for Georeference Check ({surveyPlanEvidence.CoordinateSystem ?? "coordinate system unknown"}, parish {surveyPlanEvidence.Parish ?? "unknown"}, {surveyPlanEvidence.PointCount} reviewed point row(s)).",
                         surveyPlanEvidence.SummaryPath,
                         SourceRole.SurveyPlanPdf).WithDisplayName(readinessRule?.DisplayName ?? "Concrete georeference validation").WithOutcome("passed", evidence));
                 }
                 else if (readinessRule is { Enabled: true })
                 {
-                    AddRuleIssue(
-                        readinessRule,
-                        blockers,
-                        warnings,
-                        "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
-                        surveyPlanEvidence.SummaryPath,
-                        SourceRole.SurveyPlanPdf,
-                        "Review the survey plan PDF manually or rerun the OCR/vision extraction.");
+                    if (requireConcreteValidation)
+                    {
+                        blockers.Add(PreflightCheck.BlockerForCategory(
+                            readinessRule.Category,
+                            readinessRule.RuleId,
+                            "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
+                            surveyPlanEvidence.SummaryPath,
+                            SourceRole.SurveyPlanPdf,
+                            "Review the survey plan PDF manually, confirm JAD2001 coordinate evidence, and rerun Georeference Check.")
+                            .WithDisplayName(readinessRule.DisplayName)
+                            .WithOutcome("failed", evidence));
+                    }
+                    else
+                    {
+                        AddRuleIssue(
+                            readinessRule,
+                            blockers,
+                            warnings,
+                            "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
+                            surveyPlanEvidence.SummaryPath,
+                            SourceRole.SurveyPlanPdf,
+                            "Review the survey plan PDF manually or rerun the OCR/vision extraction.");
+                    }
                 }
             }
         }
@@ -446,14 +462,28 @@ public sealed class ManifestPreflightService
             var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
             if (readinessRule is { Enabled: true })
             {
-                AddRuleIssue(
-                    readinessRule,
-                    blockers,
-                    warnings,
-                    "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
-                    layout.ManifestPath,
-                    null,
-                    "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
+                if (requireConcreteValidation)
+                {
+                    blockers.Add(PreflightCheck.BlockerForCategory(
+                        readinessRule.Category,
+                        readinessRule.RuleId,
+                        "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
+                        layout.ManifestPath,
+                        null,
+                        "Configure a tabular coordinate source or provide reviewed JAD2001 survey-plan point evidence before continuing.")
+                        .WithDisplayName(readinessRule.DisplayName));
+                }
+                else
+                {
+                    AddRuleIssue(
+                        readinessRule,
+                        blockers,
+                        warnings,
+                        "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
+                        layout.ManifestPath,
+                        null,
+                        "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
+                }
             }
             else if (readinessRule is not null)
             {
@@ -566,27 +596,59 @@ public sealed class ManifestPreflightService
 
     private static SurveyPlanExtractionEvidence? TryLoadSurveyPlanExtractionEvidence(CaseFolderLayout layout)
     {
-        var summaryPath = Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json");
-        if (!File.Exists(summaryPath))
+        var candidatePaths = new[]
         {
-            return null;
+            Path.Combine(layout.WorkingDirectory, "survey_plan_extraction_summary.json"),
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")
+        };
+
+        foreach (var path in candidatePaths)
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                var root = document.RootElement;
+                var coordinateSystem = ReadNestedFieldValue(root, "coordinate_system")
+                    ?? ReadNestedFieldValue(root, "stage_evidence", "georeference_check", "coordinate_system");
+                var parish = ReadNestedFieldValue(root, "survey_metadata", "parish")
+                    ?? ReadNestedFieldValue(root, "stage_evidence", "georeference_check", "parish");
+                var documentArea = ReadNestedFieldValue(root, "survey_metadata", "document_area");
+                var pointCount = ReadInt(root, "point_count");
+                if (pointCount == 0)
+                {
+                    pointCount = ReadInt(root, "row_count");
+                }
+
+                if (pointCount == 0)
+                {
+                    pointCount = ReadArrayCount(root, "rows");
+                }
+
+                var segmentCount = ReadInt(root, "segment_count");
+                if (segmentCount == 0)
+                {
+                    segmentCount = ReadInt(root, "segment_row_count");
+                }
+
+                if (segmentCount == 0)
+                {
+                    segmentCount = ReadArrayCount(root, "segments");
+                }
+
+                return new SurveyPlanExtractionEvidence(path, coordinateSystem, parish, documentArea, pointCount, segmentCount);
+            }
+            catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
         }
 
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllText(summaryPath));
-            var root = document.RootElement;
-            var coordinateSystem = ReadNestedFieldValue(root, "coordinate_system");
-            var parish = ReadNestedFieldValue(root, "survey_metadata", "parish");
-            var documentArea = ReadNestedFieldValue(root, "survey_metadata", "document_area");
-            var pointCount = ReadInt(root, "point_count");
-            var segmentCount = ReadInt(root, "segment_count");
-            return new SurveyPlanExtractionEvidence(summaryPath, coordinateSystem, parish, documentArea, pointCount, segmentCount);
-        }
-        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
+        return null;
     }
 
     private static string? ReadNestedFieldValue(JsonElement root, params string[] path)
@@ -616,6 +678,13 @@ public sealed class ManifestPreflightService
                && value.ValueKind == JsonValueKind.Number
                && value.TryGetInt32(out var result)
             ? result
+            : 0;
+    }
+
+    private static int ReadArrayCount(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.GetArrayLength()
             : 0;
     }
 
@@ -1295,8 +1364,8 @@ public sealed class ManifestPreflightService
         int SegmentCount)
     {
         public bool HasGeoreferenceEvidence =>
-            !string.IsNullOrWhiteSpace(CoordinateSystem)
-            && (!string.IsNullOrWhiteSpace(Parish) || PointCount > 0);
+            IsJad2001CoordinateSystem(CoordinateSystem)
+            && PointCount > 0;
 
         public bool HasDimensionEvidence => PointCount >= 3 && SegmentCount >= 3;
 
@@ -1323,6 +1392,20 @@ public sealed class ManifestPreflightService
         private static IReadOnlyList<string> Values(string? value)
         {
             return string.IsNullOrWhiteSpace(value) ? Array.Empty<string>() : new[] { value };
+        }
+
+        private static bool IsJad2001CoordinateSystem(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var normalized = new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToUpperInvariant)
+                .ToArray());
+            return normalized.Contains("JAD2001", StringComparison.Ordinal);
         }
     }
 }

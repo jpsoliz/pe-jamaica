@@ -38,9 +38,10 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
                             "survey_date": "September 03, 2024",
                             "instrument": "TOPCON GM-52 #1Y013971",
                             "surveyed_by": "Michael D. Isaacs",
+                            "volume_folio": ["Vol./Fol. 1238/856"],
                         },
-                        "parties": ["Clayon Smith"],
-                        "adjacent_owners": ["Glen Alford Battiste"],
+                        "parties": ["Occ. Clayon Smith"],
+                        "adjacent_owners": [{"owner": "Glen Alford Battiste", "role": "Occ."}],
                         "points": [
                             {"point_id": "15", "northing": 670582.156, "easting": 712897.345},
                             {"point_id": "17", "northing": 670563.653, "easting": 712856.553},
@@ -98,7 +99,11 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual(2, payload["segment_row_count"])
             self.assertEqual("33.470", payload["segments"][0]["distance_txt"])
             self.assertEqual("Clayon Smith", payload["parties"][0]["name"])
+            self.assertEqual("Occupant", payload["parties"][0]["role"])
             self.assertEqual("Glen Alford Battiste", payload["adjacent_owners"][0]["name"])
+            self.assertEqual("Occupant", payload["adjacent_owners"][0]["role"])
+            self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
+            self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
 
     def test_provider_unavailable_writes_manual_review_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

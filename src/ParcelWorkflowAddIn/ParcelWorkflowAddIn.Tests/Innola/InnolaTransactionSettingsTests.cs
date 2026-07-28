@@ -332,7 +332,7 @@ internal static class InnolaTransactionSettingsTests
     {
         var settings = InnolaTransactionSettings.Load();
 
-        TestAssert.Equal("transaction_id", settings.EnterpriseWorkingReview.TransactionScopeField, "Compare working review should scope geometry by transaction_id for the configured Jamaica working_review layers.");
+        TestAssert.Equal("transaction_number", settings.EnterpriseWorkingReview.TransactionScopeField, "Compare working review should scope geometry by transaction_number for the configured Jamaica working_review layers.");
         TestAssert.Equal("https://jm-gis.innola-solutions.com/portal", CompareWorkingGeometryService.ResolvePortalUrl(settings.EnterpriseWorkingReview.ServiceRoot), "Compare geometry auth should derive the Jamaica portal URL from the configured service root.");
     }
 
@@ -478,11 +478,11 @@ internal static class InnolaTransactionSettingsTests
                 "alternate_basemaps": ["open_basemap", "world_topographic"],
                 "default_extent": {
                   "name": "Jamaica",
-                  "wkid": 4326,
-                  "xmin": -78.6,
-                  "ymin": 17.6,
-                  "xmax": -76.1,
-                  "ymax": 18.7
+                  "wkid": 3448,
+                  "xmin": 580172.099,
+                  "ymin": 605960.245,
+                  "xmax": 845529.005,
+                  "ymax": 728209.243
                 },
                 "zoom_to_transaction_parish": true,
                 "parish_lookup": {
@@ -516,7 +516,7 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.True(settings.WorkingMap.ActivateOnTransactionLoad, "Working map should activate on transaction load.");
         TestAssert.Equal("esri_world_imagery", settings.WorkingMap.DefaultBasemap, "Default basemap mismatch.");
         TestAssert.Equal(2, settings.WorkingMap.AlternateBasemaps.Count, "Alternate basemap count mismatch.");
-        TestAssert.Equal(4326, settings.WorkingMap.DefaultExtent.Wkid, "Default extent WKID mismatch.");
+        TestAssert.Equal(3448, settings.WorkingMap.DefaultExtent.Wkid, "Default extent WKID mismatch.");
         TestAssert.True(settings.WorkingMap.ParishLookup.Enabled, "Parish lookup should be enabled.");
         TestAssert.Equal("Parishes", settings.WorkingMap.ParishLookup.LayerName, "Parish lookup layer mismatch.");
         TestAssert.True(settings.WorkingMap.ParishLookup.KnownExtents.ContainsKey("st elizabeth"), "Default parish extents should include St. Elizabeth.");

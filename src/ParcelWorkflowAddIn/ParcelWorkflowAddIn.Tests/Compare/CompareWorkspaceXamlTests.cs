@@ -7,12 +7,12 @@ internal static class CompareWorkspaceXamlTests
         var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
 
         TestAssert.True(
-            xaml.Contains("Command=\"{Binding RefreshEnterpriseCadasterEvidenceCommand}\"", StringComparison.Ordinal),
-            "Compare ownership evidence UI should expose the Enterprise Legal/Fiscal spatial evidence refresh command required for Compare approval.");
+            xaml.Contains("Command=\"{Binding ReloadGeometryCommand}\"", StringComparison.Ordinal),
+            "Compare ownership evidence UI should expose a Load Compare Layers command that loads or reloads the Compare working layers.");
         TestAssert.True(
-            xaml.Contains("Content=\"Refresh Map\"", StringComparison.Ordinal)
+            xaml.Contains("Content=\"Load Compare Layers\"", StringComparison.Ordinal)
             && !xaml.Contains("Refresh Legal/Fiscal spatial evidence", StringComparison.Ordinal),
-            "Legal/Fiscal spatial evidence refresh should be presented as Refresh Map.");
+            "Compare map loading should be presented as Load Compare Layers.");
         TestAssert.False(
             xaml.Contains("Text=\"{Binding FiscalEvidenceStatus}\"", StringComparison.Ordinal),
             "Compare should not show fiscal neighbor status in the top toolbar.");
@@ -22,7 +22,7 @@ internal static class CompareWorkspaceXamlTests
             "Compare should not expose a Show Map button in the compact toolbar.");
         TestAssert.False(
             xaml.Contains("Content=\"Refresh\" Command=\"{Binding ReloadGeometryCommand}\"", StringComparison.Ordinal),
-            "Compare should not expose a second Refresh button when Refresh Map owns the map-context refresh.");
+            "Compare should not expose a second generic Refresh button when Load Compare Layers owns the map-context refresh.");
         TestAssert.False(
             xaml.Contains("Command=\"{Binding DataContext.SeedSearchFromEnterpriseEvidenceCommand", StringComparison.Ordinal),
             "The compact Compare form should not render the unused spatial evidence seed grid.");

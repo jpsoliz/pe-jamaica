@@ -23,6 +23,9 @@ PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
 PARCEL_FABRIC_NAME = "local_parcel_fabric"
 PARCEL_FABRIC_PARCEL_TYPE_NAME = "compute_review"
 PARCEL_FABRIC_RECORD_PREFIX = "sidwell-record"
+JAD2001_WKID = 3448
+JAD2001_LATEST_WKID = 3448
+JAD2001_NAME = "JAD 2001 Jamaica Grid"
 _ARCPY_IMPORT_ERROR: str | None = None
 
 
@@ -1004,7 +1007,21 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
             }
         )
 
-    return {"type": "FeatureCollection", "features": features}
+    return {
+        "type": "FeatureCollection",
+        "name": "extracted_geometry_jad2001",
+        "crs": {
+            "type": "name",
+            "properties": {
+                "name": f"EPSG:{JAD2001_WKID}",
+                "wkid": JAD2001_WKID,
+                "latestWkid": JAD2001_LATEST_WKID,
+                "coordinateSystem": JAD2001_NAME,
+            },
+        },
+        "spatialReference": {"wkid": JAD2001_WKID, "latestWkid": JAD2001_LATEST_WKID},
+        "features": features,
+    }
 
 
 def _count_populated_value(value: Any) -> bool:
@@ -2108,6 +2125,9 @@ def _build_summary(
         "status": "created",
         "review_workspace_mode": review_workspace_mode,
         "map_load_mode": map_load_mode,
+        "coordinate_system": JAD2001_NAME,
+        "spatial_reference": {"wkid": JAD2001_WKID, "latestWkid": JAD2001_LATEST_WKID},
+        "output_epsg": JAD2001_WKID,
         "result_gdb_path": str(result_gdb_path),
         "artifact_paths": artifact_paths,
         "map_layer_paths": [path for path in active_layer_paths if path],

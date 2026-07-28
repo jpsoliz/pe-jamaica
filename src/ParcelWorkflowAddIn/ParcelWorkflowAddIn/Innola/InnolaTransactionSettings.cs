@@ -1277,6 +1277,7 @@ public sealed record CompareEnterpriseCadasterSettings(
     int PageSize,
     CompareEnterpriseCadasterSourceSettings Legal,
     CompareEnterpriseCadasterSourceSettings Fiscal,
+    CompareEnterpriseCadasterSourceSettings Survey,
     string? Warning)
 {
     public static CompareEnterpriseCadasterSettings Default { get; } = new(
@@ -1286,6 +1287,7 @@ public sealed record CompareEnterpriseCadasterSettings(
         100,
         CompareEnterpriseCadasterSourceSettings.Disabled("Legal Cadastre"),
         CompareEnterpriseCadasterSourceSettings.Disabled("Fiscal Cadastre"),
+        CompareEnterpriseCadasterSourceSettings.Disabled("Survey Cadastre"),
         null);
 
     public static CompareEnterpriseCadasterSettings FromJson(JsonElement root)
@@ -1301,15 +1303,16 @@ public sealed record CompareEnterpriseCadasterSettings(
         var pageSize = ReadPositiveInt(value, "page_size") ?? Default.PageSize;
         var legal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "legal", Default.Legal);
         var fiscal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "fiscal", Default.Fiscal);
+        var survey = CompareEnterpriseCadasterSourceSettings.FromJson(value, "survey", Default.Survey);
         var warnings = new List<string>();
         if (enabled)
         {
-            if (!legal.Enabled && !fiscal.Enabled)
+            if (!legal.Enabled && !fiscal.Enabled && !survey.Enabled)
             {
-                warnings.Add("compare_enterprise_cadaster is enabled but both Legal and Fiscal sources are disabled.");
+                warnings.Add("compare_enterprise_cadaster is enabled but Legal, Fiscal, and Survey sources are disabled.");
             }
 
-            foreach (var source in new[] { legal, fiscal })
+            foreach (var source in new[] { legal, fiscal, survey })
             {
                 if (source.Enabled && string.IsNullOrWhiteSpace(source.LayerUrl))
                 {
@@ -1328,6 +1331,11 @@ public sealed record CompareEnterpriseCadasterSettings(
             warnings.Add(fiscal.Warning);
         }
 
+        if (!string.IsNullOrWhiteSpace(survey.Warning))
+        {
+            warnings.Add(survey.Warning);
+        }
+
         return new CompareEnterpriseCadasterSettings(
             enabled,
             tolerance,
@@ -1335,6 +1343,7 @@ public sealed record CompareEnterpriseCadasterSettings(
             pageSize,
             legal,
             fiscal,
+            survey,
             warnings.Count == 0 ? null : string.Join(" ", warnings));
     }
 

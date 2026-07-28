@@ -99,6 +99,24 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal(0, handler.Requests.Count, "Unauthorized service must not issue HTTP requests.");
     }
 
+    public static async Task ReturnsActionableFailureWhenSpatialUnitEndpointRejectsLogin()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteOutputSummary(layout);
+        var handler = new RecordingHandler(
+            new[] { "{}" },
+            new[] { HttpStatusCode.Unauthorized });
+        var service = new InnolaSpatialUnitService(new HttpClient(handler));
+        var session = Session() with { ServerUrl = "https://no-cookie.example.test/" };
+
+        var result = await service.CreateOrUpdateAsync(session, Transaction(), layout.RootDirectory, Disposition(layout));
+
+        TestAssert.True(!result.Success, "Rejected Spatial Unit API login should fail.");
+        TestAssert.Equal("unauthorized", result.ErrorCategory, "Rejected Spatial Unit API login should be categorized as unauthorized.");
+        TestAssert.True(result.Message.Contains("Sign in again", StringComparison.OrdinalIgnoreCase), "Rejected Spatial Unit API login should tell the user how to recover.");
+    }
+
     public static async Task RetriesCookieOnlyWhenAccessTokenRejected()
     {
         using var tempRoot = new TempDirectory();

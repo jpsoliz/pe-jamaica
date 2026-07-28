@@ -23,7 +23,8 @@ public partial class CompareWorkspaceWindow : ProWindow
     private double expandedWidthBeforePdfCollapse = 1040;
     private bool wasPdfPanelVisible = true;
     private bool webViewUnavailable;
-    private bool closeCleanupCompleted;
+    private bool allowClose;
+    private bool closeCleanupStarted;
 
     public CompareWorkspaceWindow(Compare.CompareWorkspaceViewModel viewModel)
     {
@@ -43,7 +44,10 @@ public partial class CompareWorkspaceWindow : ProWindow
         try
         {
             await viewModel.LoadAsync();
-            await RefreshViewerAsync();
+            if (viewModel.IsPdfPanelVisible)
+            {
+                await RefreshViewerAsync();
+            }
         }
         catch (Exception exception)
         {
@@ -52,25 +56,15 @@ public partial class CompareWorkspaceWindow : ProWindow
         }
     }
 
-    private async void OnClosing(object? sender, CancelEventArgs e)
+    private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (closeCleanupCompleted)
+        if (allowClose)
         {
             return;
         }
 
         e.Cancel = true;
-        try
-        {
-            await viewModel.CloseWorkspaceAsync();
-        }
-        catch (Exception exception)
-        {
-            viewModel.ReportWorkspaceError($"Compare workspace cleanup could not finish. {exception.Message}");
-        }
-
-        closeCleanupCompleted = true;
-        Close();
+        _ = CloseWorkspaceThenCloseWindowAsync(runWorkspaceCleanup: true);
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -78,11 +72,12 @@ public partial class CompareWorkspaceWindow : ProWindow
         Closing -= OnClosing;
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.CloseRequested -= OnViewModelCloseRequested;
+        ReleaseViewer();
     }
 
     private void OnViewModelCloseRequested(object? sender, EventArgs e)
     {
-        Close();
+        _ = CloseWorkspaceThenCloseWindowAsync(runWorkspaceCleanup: false);
     }
 
     private async void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -90,6 +85,19 @@ public partial class CompareWorkspaceWindow : ProWindow
         if (e.PropertyName == nameof(Compare.CompareWorkspaceViewModel.IsPdfPanelVisible))
         {
             ApplyPdfPanelLayout();
+            if (viewModel.IsPdfPanelVisible)
+            {
+                try
+                {
+                    await RefreshViewerAsync();
+                }
+                catch (Exception exception)
+                {
+                    viewModel.ReportWorkspaceError($"Compare document viewer could not refresh. {exception.Message}");
+                    ShowFallback("The selected document could not be displayed in the embedded viewer. The Compare workspace remains available.");
+                }
+            }
+
             return;
         }
 
@@ -111,7 +119,7 @@ public partial class CompareWorkspaceWindow : ProWindow
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
-        Close();
+        _ = CloseWorkspaceThenCloseWindowAsync(runWorkspaceCleanup: true);
     }
 
     private void ShowActiveMapButton_Click(object sender, RoutedEventArgs e)
@@ -158,6 +166,11 @@ public partial class CompareWorkspaceWindow : ProWindow
 
     private async Task RefreshViewerAsync()
     {
+        if (closeCleanupStarted)
+        {
+            return;
+        }
+
         if (!Dispatcher.CheckAccess())
         {
             await Dispatcher.InvokeAsync(RefreshViewerAsync).Task.Unwrap();
@@ -240,5 +253,60 @@ public partial class CompareWorkspaceWindow : ProWindow
         DocumentWebViewHost.Visibility = Visibility.Collapsed;
         DocumentFallbackText.Text = message ?? viewModel.ViewerFallbackMessage;
         DocumentFallbackText.Visibility = Visibility.Visible;
+    }
+
+    private async Task CloseWorkspaceThenCloseWindowAsync(bool runWorkspaceCleanup)
+    {
+        if (closeCleanupStarted)
+        {
+            return;
+        }
+
+        closeCleanupStarted = true;
+        viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        ReleaseViewer();
+        try
+        {
+            if (runWorkspaceCleanup)
+            {
+                await viewModel.CloseWorkspaceAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            viewModel.ReportWorkspaceError($"Compare workspace cleanup could not finish. {exception.Message}");
+        }
+        finally
+        {
+            allowClose = true;
+            if (Dispatcher.CheckAccess())
+            {
+                Close();
+            }
+            else
+            {
+                await Dispatcher.InvokeAsync(Close);
+            }
+        }
+    }
+
+    private void ReleaseViewer()
+    {
+        try
+        {
+            if (documentWebView?.CoreWebView2 is not null)
+            {
+                documentWebView.CoreWebView2.Navigate("about:blank");
+            }
+        }
+        catch
+        {
+            // Best effort only: viewer shutdown must not block closing the Compare workspace.
+        }
+
+        DocumentWebViewHost.Children.Clear();
+        documentWebView?.Dispose();
+        documentWebView = null;
+        DocumentImage.Source = null;
     }
 }
