@@ -159,6 +159,7 @@ var tests = new (string Name, Action Run)[]
     ("workflow rule resolver selects scenario a two pdf plan", WorkflowRuleResolverTests.ScenarioATwoPdfSourcesResolveToTwoPdfPlan),
     ("workflow rule resolver selects scenario b dwg aware plan", WorkflowRuleResolverTests.ScenarioBSourcesResolveToDwgAwarePlan),
     ("workflow rule resolver selects pxa survey plan profile", WorkflowRuleResolverTests.PxaSurveyPlanProfileResolvesToPxaPlan),
+    ("workflow rule resolver selects pxa plan examination by area alias", WorkflowRuleResolverTests.PxaAliasResolvesThroughTransactionProfileScope),
     ("workflow rule resolver reports no match", WorkflowRuleResolverTests.UnknownSourceCombinationReturnsNoMatch),
     ("workflow rule resolver redacts secret parameters", WorkflowRuleResolverTests.PlanParametersDoNotPersistSecretValues),
     ("workflow rule resolver redacts configured secret values", WorkflowRuleResolverTests.PlanParametersDoNotPersistConfiguredSecretValues),

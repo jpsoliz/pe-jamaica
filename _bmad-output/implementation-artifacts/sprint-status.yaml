@@ -74,6 +74,7 @@ development_status:
   2-18-add-single-parcel-survey-plan-pdf-metadata-and-geometry-extraction: review
   2-19-implement-pxa-survey-plan-segment-review-and-deterministic-boundary-solver: review
   2-20-add-pxa-survey-plan-metadata-review-model-and-ux: done
+  2-21-add-innola-arcgis-pro-in-progress-workflow-stage: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog

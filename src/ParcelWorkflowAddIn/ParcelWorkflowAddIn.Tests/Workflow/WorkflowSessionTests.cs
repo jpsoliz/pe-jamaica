@@ -876,9 +876,7 @@ internal static class WorkflowSessionTests
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         var session = CreateManifestOnlySession();
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunStructureCheck("tester");
-        session.RunGeoreferenceCheck("tester");
-        session.RunDimensionCheck("tester");
+        MarkSplitStageGatesPassed(session, layout);
 
         var reopened = CreateManifestOnlySession();
         reopened.ReopenCaseFolder(layout.RootDirectory);
@@ -928,11 +926,11 @@ internal static class WorkflowSessionTests
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         var setupSession = CreateManifestOnlySession();
         setupSession.ReopenCaseFolder(layout.RootDirectory);
-        setupSession.RunStructureCheck("tester");
-        var georeferenceSummary = setupSession.RunGeoreferenceCheck("tester") with
-        {
-            StageId = PreflightCheckStage.DimensionCheck.ToStageId()
-        };
+        WriteStageSummary(layout, PreflightCheckStage.StructureCheck, PreflightCheck.PassedForCategory("structure", "structure_test_gate", "Structure test gate passed."));
+        var georeferenceSummary = BuildStageSummary(
+            layout,
+            PreflightCheckStage.DimensionCheck,
+            PreflightCheck.PassedForCategory("georeference", "legacy_georeference_test_gate", "Legacy georeference row passed."));
         File.Delete(layout.GeoreferenceCheckSummaryPath);
         PreflightSummarySerializer.Write(layout.DimensionCheckSummaryPath, georeferenceSummary);
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
@@ -1050,7 +1048,7 @@ internal static class WorkflowSessionTests
             new SpatialReviewApprovalPersistenceService());
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
 
         var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
@@ -1077,7 +1075,7 @@ internal static class WorkflowSessionTests
             new FakeWorkflowScriptExecutor((_, _) => WorkflowScriptExecutionResult.Failed("Draft extraction failed.")));
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
 
         var result = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
@@ -1179,7 +1177,7 @@ internal static class WorkflowSessionTests
             }));
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
 
         _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
         _ = session.RunDraftExtractionAsync(forceReprocess: true).GetAwaiter().GetResult();
@@ -1227,10 +1225,11 @@ internal static class WorkflowSessionTests
             () => InnolaTransactionSettings.Default with { ManualReviewRetryThreshold = 1 });
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
 
-        _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
+        var extractionResult = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
+        TestAssert.True(extractionResult.Success, session.StatusText);
         TestAssert.True(session.CurrentExtractionDecisionGate.StronglyRecommendManual, "Configured threshold should escalate weak extraction toward manual review.");
         TestAssert.True(session.CanChooseManualCogoReview, "Manual review should be selectable after repeated weak extraction even when no review artifact was produced.");
     }
@@ -1269,7 +1268,7 @@ internal static class WorkflowSessionTests
             () => InnolaTransactionSettings.Default with { ManualReviewRetryThreshold = 1 });
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
         _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
         var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
@@ -1335,7 +1334,7 @@ internal static class WorkflowSessionTests
             }));
         var layout = CreateInnolaScenarioACase(store, tempRoot.Path);
         session.ReopenCaseFolder(layout.RootDirectory);
-        session.RunManifestPreflight("tester");
+        MarkSplitStageGatesPassed(session, layout);
         _ = session.RunDraftExtractionAsync().GetAwaiter().GetResult();
 
         var switched = session.UseManualCogoReviewAsync("tester").GetAwaiter().GetResult();
@@ -2856,8 +2855,14 @@ internal static class WorkflowSessionTests
             PreflightCheckStage.DimensionCheck => layout.DimensionCheckSummaryPath,
             _ => layout.PreflightSummaryPath
         };
+        var summary = BuildStageSummary(layout, stage, check);
+        PreflightSummarySerializer.Write(path, summary);
+    }
+
+    private static PreflightSummaryDocument BuildStageSummary(CaseFolderLayout layout, PreflightCheckStage stage, PreflightCheck check)
+    {
         var manifest = ManifestSerializer.Read(layout.ManifestPath);
-        var summary = new PreflightSummaryDocument(
+        return new PreflightSummaryDocument(
             "1.0.0",
             manifest.TransactionId,
             stage.ToStageId(),
@@ -2868,7 +2873,25 @@ internal static class WorkflowSessionTests
             new PreflightSummaryPayload("passed", Array.Empty<PreflightCheck>(), Array.Empty<PreflightCheck>(), new[] { check }),
             Array.Empty<string>(),
             Array.Empty<string>());
-        PreflightSummarySerializer.Write(path, summary);
+    }
+
+    private static void MarkSplitStageGatesPassed(WorkflowSession session, CaseFolderLayout layout)
+    {
+        WriteStageSummary(layout, PreflightCheckStage.StructureCheck, PreflightCheck.PassedForCategory("test", "structure_test_gate", "Structure test gate passed."));
+        WriteStageSummary(layout, PreflightCheckStage.GeoreferenceCheck, PreflightCheck.PassedForCategory("test", "georeference_test_gate", "Georeference test gate passed."));
+        WriteStageSummary(layout, PreflightCheckStage.DimensionCheck, PreflightCheck.PassedForCategory("test", "dimension_test_gate", "Dimension test gate passed."));
+
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        ManifestSerializer.Write(
+            layout.ManifestPath,
+            manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    WorkflowState = WorkflowState.PreflightPassed.ToContractValue()
+                }
+            });
+        session.ReopenCaseFolder(layout.RootDirectory);
     }
 
     private static CaseFolderLayout CreateApprovedReviewCase(CaseFolderStore store, string outputRoot)

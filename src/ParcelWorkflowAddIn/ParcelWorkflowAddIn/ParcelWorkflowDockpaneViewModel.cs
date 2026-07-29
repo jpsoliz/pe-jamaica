@@ -4538,7 +4538,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         if (workflowSession.CaseFolderPath?.Equals(loadedCaseFolderPath, StringComparison.OrdinalIgnoreCase) == true)
         {
             RefreshWorkflowProperties();
-            TryShowSupportingDocumentsDockpane();
+            SupportingDocumentsDockpaneViewModel.RefreshIfOpen();
             return;
         }
 
@@ -4546,15 +4546,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
         RefreshWorkflowProperties();
-        TryShowSupportingDocumentsDockpane();
-    }
-
-    private static void TryShowSupportingDocumentsDockpane()
-    {
-        if (!SupportingDocumentsDockpaneViewModel.TryShow())
-        {
-            Debug.WriteLine("Supporting Documents dockpane could not be activated while syncing the loaded workflow case.");
-        }
+        SupportingDocumentsDockpaneViewModel.RefreshIfOpen();
     }
 
     private string ResolveActiveReviewParcelGroupId()

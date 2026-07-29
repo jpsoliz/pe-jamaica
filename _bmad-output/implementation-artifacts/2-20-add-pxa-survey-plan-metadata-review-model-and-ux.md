@@ -271,6 +271,18 @@ The PXA review surface must make the construction roles clear:
 
 The parcel preview should reflect the solved reviewed segment chain, not stale point-row order.
 
+### Current PE/PXA Review - 2026-07-29
+
+The current UX split matches the two-line product model:
+
+- PXA uses the four-tab review workspace because the survey plan PDF is the primary source and the examiner must review metadata, people/neighbors, boundary segments, and points together.
+- PE/non-PXA keeps the existing point-review layout and global point actions.
+- PXA row actions are scoped to the active tab: boundary segment commands stay with `Boundary Segments`, and point commands stay with `Points`.
+- PXA detection is based on survey-plan source/profile metadata rather than segment rows alone, so future PE artifacts with segments should not leak into the PXA workspace.
+- PXA validation wording is expected to separate blockers, warnings, and reviewed-segment resolutions so the examiner can distinguish "cannot complete" from "accepted with audit warning."
+
+No UX parity gap was found in this review. The main difference remains intentional: PE optimizes for computation-sheet point review, while PXA optimizes for source-PDF verification plus deterministic boundary correction.
+
 ### Sally UX Recommendation: Tab-Scoped Commands
 
 The three floating action icons above the PXA tabs read as PE point-review controls leaking into the PXA workflow. For a cleaner PXA experience, remove that global icon cluster while the PXA review tabs are active and make commands live where the examiner's attention already is.
@@ -355,6 +367,7 @@ Validation Complete is enabled when the `Blocking` group is empty. Warnings and 
 | 2026-07-12 | 1.6 | Patched UX wording so validation details separate blockers, warnings, and reviewed-segment resolutions, with Validation Complete gated only by active blockers. | Codex |
 | 2026-07-13 | 1.7 | Added follow-up dev requirements for PXA Boundary Segments `Add segment` and Sally UX guidance to remove PE-only global toolbar icons from the PXA tabbed workspace. | Mary / Sally / Codex |
 | 2026-07-13 | 1.8 | Implemented PXA tab-scoped segment/point commands, including Add segment and Exclude segment, with regression coverage. | Codex |
+| 2026-07-29 | 1.9 | Reviewed current PE/PXA UX behavior and documented the intentional layout/action-scope differences. | Codex |
 
 ## Dev Agent Record
 

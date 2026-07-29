@@ -233,6 +233,18 @@ PXA:
 - `dwg_source` optional.
 - extraction profile: scanned single-parcel survey plan PDF from Story 2.18.
 
+### Current PE/PXA Review - 2026-07-29
+
+The current implementation still follows the intended two-line model:
+
+- PE and PXA share the same compute workflow shell and downstream stage vocabulary.
+- PE resolves to `pe_computation_review`, requires `computation_sheet` and `plan_map_reference`, and keeps the computation-sheet/table extraction behavior.
+- PXA resolves to `pxa_single_parcel_survey_plan`, requires `survey_plan_pdf`, and keeps coordinate text / DWG as optional supporting sources.
+- `Plan Examination by Area` is configured as a PXA transaction type name alias. Rule resolution is profile-scoped, so the PXA script plan can still resolve even when the raw transaction type is the alias rather than literal `PXA`.
+- PXA does not require a computation sheet and PE does not route into the scanned survey-plan extractor.
+
+Implementation review found no runtime mismatch in the source-role/profile split. The only gap was regression coverage for the `Plan Examination by Area` alias, now added to the workflow-rule resolver tests.
+
 ### Scope Boundaries
 
 This story does not implement the PXA OCR/vision extractor. Story 2.18 owns that.
@@ -288,6 +300,7 @@ Finalize
 |---|---:|---|---|
 | 2026-07-08 | 0.1 | Initial story for configurable transaction-type workflow profiles separating PE and PXA source requirements. | Codex |
 | 2026-07-08 | 1.0 | Implemented transaction-type workflow profile settings, PE/PXA source requirements, profile-aware rule routing, settings UI round-trip, and automated coverage. | Codex |
+| 2026-07-29 | 1.1 | Reviewed current PE/PXA parity, documented the `Plan Examination by Area` PXA alias behavior, and added alias resolver coverage. | Codex |
 
 ## Dev Agent Record
 
@@ -307,6 +320,7 @@ GPT-5 Codex
 - Profile resolution now runs during transaction load, persists profile metadata into manifest payloads, and blocks unmatched supported transaction types with explicit diagnostics.
 - Supporting Document, WorkflowRules, and Structure/Georeference/Dimension rule applicability now support transaction/document profile targeting.
 - PXA workflow-rule placeholder routes to the Story 2.18 extractor name without implementing the extractor in this story.
+- 2026-07-29 parity review confirmed PE and PXA remain separate by transaction profile and source role while sharing the compute shell. Added regression coverage for the `Plan Examination by Area` alias resolving through PXA profile/document profile scope.
 
 ### File List
 

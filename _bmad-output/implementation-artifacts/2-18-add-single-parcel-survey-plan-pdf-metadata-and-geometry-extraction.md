@@ -177,6 +177,18 @@ This story must fit the current compute workflow rather than creating a side pat
 
 Structure, Georeference, and Dimension Check should not create final output layers, Enterprise rows, Innola Spatial Units, or final reports. Their job is to evaluate and persist findings/gates. The extraction artifacts feed those checks and the Points Validation Tool.
 
+### Current PE/PXA Review - 2026-07-29
+
+The PXA extraction line is currently profile-driven, not a forked workflow:
+
+- PXA intake is selected through `pxa_single_parcel_survey_plan` and primary role `survey_plan_pdf`.
+- The PXA extraction rule writes `survey_plan_extraction_summary.json`, `extraction_review_data.json`, and `extraction_route.json`.
+- PE remains on the computation-sheet primary extraction route and does not use the PXA OCR/vision survey-plan extractor.
+- PXA shares the same stage gates as PE: supporting document, structure, georeference, dimension, validate points/lines, create spatial units, final review, and finalize.
+- The intentional difference is extraction source and review shape: PXA starts from one survey plan PDF and may require OCR/vision plus human review, while PE starts from computation-sheet data with a plan/map reference.
+
+Remaining live dependency: production PXA extraction still depends on the transaction load placing the survey plan PDF into the case source folder, a configured ArcGIS Python renderer, and `OPENAI_API_KEY` for OCR/vision. Without those, the expected behavior remains manual-review fallback rather than silent success.
+
 ### Winston Architecture View
 
 Do not hardcode this into the current computation-sheet parser. Add it behind the existing document-type catalog and extraction adapter seam:
@@ -264,6 +276,7 @@ More survey examples would improve this story before development. Ideal set:
 | 2026-07-08 | 1.1 | Reclassified story as partial after TR100000562 showed the OCR/vision provider is still a placeholder and image-only PDFs produce zero rows/segments. | Codex |
 | 2026-07-08 | 1.2 | Implemented production `survey_plan_ocr_vision` provider script, C# routing to the provider, normalized point/segment output, and fallback tests. | Codex |
 | 2026-07-08 | 1.3 | Tightened OCR/vision prompt and normalization for complete bearings, derived point candidates, renderer diagnostics, and sample PDF validation. | Codex |
+| 2026-07-29 | 1.4 | Reviewed current PE/PXA extraction separation and documented live PXA OCR/vision dependencies. | Codex |
 
 ## Dev Agent Record
 

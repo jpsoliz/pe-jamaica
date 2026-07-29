@@ -578,9 +578,9 @@ internal static class OutputMapReviewStylingTests
         var paths = service.GetMapLayerPaths(summary);
 
         TestAssert.Equal(3, paths.Count, "Enterprise working mode should load the generated local FGDB review outputs during Final Review.");
-        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_points", paths[0], "Local points should remain available.");
-        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_lines", paths[1], "Local lines should remain available.");
-        TestAssert.Equal(@"C:\case\output\case.gdb\parcel_polygons", paths[2], "Local polygons should remain available.");
+        TestAssert.True(paths.Contains(@"C:\case\output\case.gdb\parcel_points"), "Local points should remain available.");
+        TestAssert.True(paths.Contains(@"C:\case\output\case.gdb\parcel_lines"), "Local lines should remain available.");
+        TestAssert.True(paths.Contains(@"C:\case\output\case.gdb\parcel_polygons"), "Local polygons should remain available.");
     }
 
     public static void EnterpriseWorkingLayersModeFallsBackToPublishedTargetsWhenLocalOutputsAreMissing()

@@ -1870,7 +1870,8 @@ public sealed class WorkflowSession
                 UpsertAvailableArtifact(artifact);
             }
 
-            RefreshExtractionDecisionGate(layout);
+            var extractedDocument = extractionReviewService.Load(layout);
+            RefreshExtractionDecisionGate(layout, extractedDocument);
             var weakAttemptCount = extractionDecisionGateResult.RequiresDecision
                 ? extractionDecisionGateState.WeakAttemptCount + 1
                 : 0;
@@ -1885,7 +1886,7 @@ public sealed class WorkflowSession
                 Notes = extractionDecisionGateResult.Issues.Concat(extractionDecisionGateResult.Warnings).ToArray()
             };
             extractionDecisionGateService.SaveState(layout, extractionDecisionGateState);
-            RefreshExtractionDecisionGate(layout);
+            RefreshExtractionDecisionGate(layout, extractedDocument);
             workflowLifecycleAuditService.Record(
                 layout,
                 TransactionId,

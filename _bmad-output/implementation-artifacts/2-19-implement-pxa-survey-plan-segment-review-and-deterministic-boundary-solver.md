@@ -212,6 +212,18 @@ Reference points and boundary segments must be treated as complementary evidence
 
 For cases like TR100000568, where the reviewed boundary calls form a valid closed chain and the segment-derived area is close to the document area, the solver should not block only because stale OCR point coordinates disagree with the reviewed chain. The expected behavior is to recalculate/supersede the affected point rows, show a warning that point coordinates were resolved from reviewed segments, and enable Validation Complete when no closure, area, missing-reference, or confirmed-anchor blocker remains.
 
+### Current PE/PXA Review - 2026-07-29
+
+The reviewed-segment solver is intentionally PXA-specific while preserving PE behavior:
+
+- PXA review artifacts may contain editable `segments`; reviewed segment rows become the construction source of truth after save/solve.
+- PXA point coordinates can be printed/reference anchors, solver-derived rows, or OCR candidates with warnings. The solver distinguishes these instead of treating every point row the same.
+- PXA Create Spatial Units prefers the solved reviewed segment chain when available and falls back only when no reviewed PXA chain resolves.
+- PE/non-PXA keeps the existing point-row review/output path. Segment presence alone must not make a document PXA; routing depends on survey-plan source/profile metadata.
+- Warnings from superseded unconfirmed OCR/reference coordinates do not block PXA validation when reviewed segments close and area is within tolerance. Confirmed-anchor conflicts, broken chains, closure failures, and area blockers still prevent completion.
+
+No behavior gap was found in this review. The remaining risk is live-data quality: OCR/vision candidates are only starting evidence, so the examiner must still review or rebuild the segment chain before PXA geometry should be trusted.
+
 ### Artifact Shape Recommendation
 
 Preserve existing top-level `segments`, but add reviewed fields instead of replacing the raw values:
@@ -301,6 +313,7 @@ Point 17: N 670563.653, E 712856.553
 | 2026-07-12 | 1.3 | Patched conflict policy so closed, area-matched reviewed segment chains can supersede unconfirmed OCR/reference coordinate conflicts while confirmed-anchor conflicts still block. | Codex |
 | 2026-07-23 | 1.4 | Added explicit Rebuild behavior for premature label reuse, with opposite-style generated point labels and immediate segment-grid refresh. | Codex |
 | 2026-07-23 | 1.5 | Patched PXA extraction guidance so printed/reference labels are not reused for unlabeled boundary vertices unless visibly tied to that point. | Codex |
+| 2026-07-29 | 1.6 | Reviewed current PE/PXA behavior and documented that PXA reviewed segments drive geometry while PE remains point-row based. | Codex |
 
 ## Dev Agent Record
 
