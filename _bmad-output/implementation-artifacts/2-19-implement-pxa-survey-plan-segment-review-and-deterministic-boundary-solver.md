@@ -94,7 +94,7 @@ This story adds the missing human-in-the-loop segment table and deterministic so
 
 24. Given the reviewed PXA boundary can generate the parcel from the examiner-confirmed bearing/distance chain and the remaining solver findings are printed/reference coordinate mismatches, then those mismatches must remain visible as examiner warnings but must not block Validation Complete or the handoff to Create Spatial Units.
 
-25. Given a PXA plan such as TR100000861 provides two verified printed JAD2001 control points and the examiner has completed the reviewed boundary segment chain, when `Rebuild points` or `Validation Complete` runs, then the generated point count must equal the included segment count, the two printed control points must remain unchanged, and the created parcel geometry must be derived from the reviewed traverse fitted between those two control points.
+25. Given a PXA plan such as TR100000861 provides two verified printed JAD2001 control points and the examiner has completed the reviewed boundary segment chain, when `Rebuild points` or `Validation Complete` runs and the reviewed traverse closes and matches the document area, then the generated point count must equal the included segment count, printed control points must remain unchanged, and the created parcel geometry must be derived from the unscaled reviewed traverse anchored to the first printed control point. If another printed control point differs from the unscaled traverse, the workflow reports a non-blocking warning instead of stretching the parcel to fit both control points.
 
 ## Tasks / Subtasks
 
@@ -333,6 +333,7 @@ Point 17: N 670563.653, E 712856.553
 | 2026-07-30 | 1.9 | Deduplicated repeated printed-coordinate solver findings so repeated reference points do not flood the completion dialog. | Codex |
 | 2026-07-30 | 1.10 | Changed PXA reviewed-boundary approval so printed/reference coordinate mismatches remain warnings instead of blocking Validation Complete. | Codex |
 | 2026-07-30 | 1.11 | Added two-anchor reference-fit rebuild acceptance criteria for TR100000861-style PXA cases. | Codex |
+| 2026-07-31 | 1.12 | Updated TR100000861 acceptance to keep the unscaled reviewed traverse when closure/document area match and report second-control mismatches as warnings. | Codex |
 | 2026-07-30 | 1.12 | Clarified that extracted JAD2001 coordinate-table points with numeric confidence status are protected reference anchors during rebuild. | Codex |
 
 ## Dev Agent Record

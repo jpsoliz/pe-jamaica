@@ -213,6 +213,21 @@ internal static class WorkingMapPreparationPlannerTests
             "Working map zoom must not treat JAD2001 meter extents as WGS84 degrees.");
     }
 
+    public static void WorkingMapEnforcesJad2001MapSpatialReference()
+    {
+        var source = File.ReadAllText(FindWorkingMapPreparationService());
+
+        TestAssert.True(
+            source.Contains("private const int Jad2001Wkid = 3448", StringComparison.Ordinal),
+            "Working map preparation must keep JAD2001/EPSG:3448 as the single workflow map spatial reference.");
+        TestAssert.True(
+            source.Contains("map.SetSpatialReference(SpatialReferenceBuilder.CreateSpatialReference(Jad2001Wkid))", StringComparison.Ordinal),
+            "Working map preparation must explicitly set the ArcGIS Pro map spatial reference to JAD2001.");
+        TestAssert.True(
+            source.Contains("EnsureJad2001SpatialReferenceAsync(activeView.Map", StringComparison.Ordinal),
+            "Reused active workflow maps must also be corrected to JAD2001.");
+    }
+
     private static string FindWorkingMapPreparationService()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

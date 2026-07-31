@@ -23,6 +23,7 @@ closure_tolerance_defaults:
   min_misclose_ratio_denominator: 2500
   warning_closure_distance_m: 0.15
   warning_misclose_ratio_denominator: 4000
+  max_area_delta_percent: 5.0
   evaluation_basis: distance_and_ratio
   fallback: true
 
@@ -48,6 +49,7 @@ closure_tolerance_profiles:
     min_misclose_ratio_denominator: 2500
     warning_closure_distance_m: 0.15
     warning_misclose_ratio_denominator: 4000
+    max_area_delta_percent: 5.0
     evaluation_basis: distance_and_ratio
 
   - rule_id: closure_small_parcel_precision
@@ -68,6 +70,7 @@ closure_tolerance_profiles:
     min_misclose_ratio_denominator: 5000
     warning_closure_distance_m: 0.08
     warning_misclose_ratio_denominator: 8000
+    max_area_delta_percent: 5.0
     evaluation_basis: distance_and_ratio
 
   - rule_id: closure_open_boundary_review

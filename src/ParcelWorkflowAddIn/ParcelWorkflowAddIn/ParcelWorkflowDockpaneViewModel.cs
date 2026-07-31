@@ -4663,6 +4663,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         bool suppressTransactionFromList,
         bool refreshTransactions)
     {
+        if (ShellState.Session.IsTransactionLoaded || ShellState.Session.HasActiveTransaction)
+        {
+            ShellState.Session.ClearLoadedTransaction();
+        }
+
         ResetWorkflowView(statusText);
 
         if (FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId) is TransactionPanelDockpaneViewModel transactionPane)

@@ -386,30 +386,78 @@ internal static class SurveyPlanBoundarySolverTests
             Northing = "643098.375",
             ExtractionStatus = "0.95"
         });
-        AddSegment(document, 1, "19", "1", "N64°30'00\"E", "10");
-        AddSegment(document, 2, "1", "2", "N64°30'00\"E", "20");
-        AddSegment(document, 3, "2", "4", "N64°30'00\"E", "10");
-        AddSegment(document, 4, "4", "9", "S01°00'00\"E", "15");
-        AddSegment(document, 5, "9", "20", "S89°00'00\"W", "30");
-        AddSegment(document, 6, "20", "19", "N01°00'00\"W", "15");
+        AddSegment(document, 1, "19", "W", "N74°36'E", "8.495");
+        AddSegment(document, 2, "W", "F", "S22°17'E", "14.184");
+        AddSegment(document, 3, "F", "4", "S70°04'W", "38.566");
+        AddSegment(document, 4, "4", "A", "N29°12'W", "14.119");
+        AddSegment(document, 5, "A", "B", "N68°09'E", "17.671");
+        AddSegment(document, 6, "B", "19", "N68°47'E", "14.133");
 
         var solver = new SurveyPlanBoundarySolver();
         var result = solver.Apply(
             document,
-            null,
+            569.896,
             useDerivedCoordinatesAsAnchors: true,
             repairPrematureClosingLabels: true,
             replaceConflictingCoordinatesFromReviewedSegments: true);
 
-        TestAssert.Equal("warning", result.Status, "Reference-fit rebuild should keep diagnostics as warnings, not blockers.");
+        TestAssert.Equal("warning", result.Status, "A reviewed bearing-distance parcel that matches the document area should remain passable even when a second printed reference point does not fit.");
         TestAssert.Equal(6, document.Rows.Count(row => row.ParcelGroupId == "parcel-001"), "Rebuild should produce one active point row per boundary segment.");
-        TestAssert.True(result.Findings.Any(finding => finding.Contains("fitted to printed reference points 19 and 4", StringComparison.OrdinalIgnoreCase)), "Solver should report the selected printed reference anchors.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("anchored to printed reference point 19", StringComparison.OrdinalIgnoreCase)), "Solver should explain that the unscaled reviewed boundary was anchored to the first printed reference point.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("Printed reference point 4 differs from the bearing/distance reconstruction", StringComparison.OrdinalIgnoreCase)), "Solver should explain the second printed reference point mismatch.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("unscaled reviewed boundary was kept", StringComparison.OrdinalIgnoreCase)), "Solver should explain that it did not stretch the reviewed boundary.");
         TestAssert.True(result.Findings.All(finding => !finding.Contains("existing coordinates that conflict", StringComparison.OrdinalIgnoreCase)), "Fitted printed anchors should not be reported as coordinate conflicts.");
 
         var point4 = document.Rows.First(row => row.PointIdentifier == "4");
         TestAssert.Equal("738823.139", point4.Easting, "Printed anchor point 4 should remain unchanged.");
         TestAssert.Equal("643098.375", point4.Northing, "Printed anchor point 4 should remain unchanged.");
-        TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "20" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Intermediate points should be generated from the fitted reviewed boundary.");
+        TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "W" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Intermediate points should be generated from the unscaled reviewed boundary.");
+        TestAssert.True(result.AreaDeltaPercent is <= 5.0d, "The blocker should clear because the unscaled bearing-distance area matches the document.");
+    }
+
+    public static void RebuildBlocksLargeReferenceFitScaleMismatch()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000862",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-26",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "26",
+            Easting = "782940.146",
+            Northing = "643944.147",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-22",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "22",
+            Easting = "782997.243",
+            Northing = "643901.728",
+            ExtractionStatus = "printed_coordinate"
+        });
+
+        AddSegment(document, 1, "26", "W", "S8°33'23\"E", "41.480");
+        AddSegment(document, 2, "W", "F", "S88°25'31\"E", "50.944");
+        AddSegment(document, 3, "F", "22", "N22°51'51\"W", "48.757");
+        AddSegment(document, 4, "22", "G", "S69°40'25\"W", "8.486");
+        AddSegment(document, 5, "G", "26", "N89°09'57\"W", "30.198");
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(
+            document,
+            1874.639,
+            useDerivedCoordinatesAsAnchors: true,
+            repairPrematureClosingLabels: true,
+            replaceConflictingCoordinatesFromReviewedSegments: true);
+
+        TestAssert.Equal("blocked", result.Status, "Large scale changes between reviewed segments and printed reference points must block validation.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("scale tolerance", StringComparison.OrdinalIgnoreCase)), "Solver should explain the reference-fit scale blocker.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("document area", StringComparison.OrdinalIgnoreCase)), "Solver should explain the document-area mismatch.");
     }
 
     public static void RebuildRecalculatesConflictingDerivedCoordinatesFromReviewedSegments()

@@ -176,6 +176,8 @@ public static class WorkingMapPreparationPlanner
 
 public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationService
 {
+    private const int Jad2001Wkid = 3448;
+
     public async Task<WorkingMapPreparationResult> PrepareWorkingMapAsync(
         WorkingMapSettings settings,
         InnolaTransactionDetail detail,
@@ -222,6 +224,7 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
         var activeView = MapView.Active;
         if (activeView?.Map is not null && activeView.Map.Name.Equals(plan.MapName, StringComparison.OrdinalIgnoreCase))
         {
+            await EnsureJad2001SpatialReferenceAsync(activeView.Map, cancellationToken).ConfigureAwait(false);
             return activeView;
         }
 
@@ -246,25 +249,46 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
             {
                 map = MapFactory.Instance.CreateMap(plan.MapName, MapType.Map, MapViewingMode.Map, ResolveBasemap(plan.DefaultBasemap));
             }
+
+            if (map is not null)
+            {
+                EnsureJad2001SpatialReference(map);
+            }
         }).ConfigureAwait(false);
 
         if (map is null)
         {
-            return activeView;
+            return null;
         }
 
         if (!plan.ActivateOnTransactionLoad && activeView?.Map is not null)
         {
+            await EnsureJad2001SpatialReferenceAsync(activeView.Map, cancellationToken).ConfigureAwait(false);
             return activeView;
         }
 
         if (activeView?.Map is not null && activeView.Map.Name.Equals(map.Name, StringComparison.OrdinalIgnoreCase))
         {
+            await EnsureJad2001SpatialReferenceAsync(activeView.Map, cancellationToken).ConfigureAwait(false);
             return activeView;
         }
 
         var pane = await ProApp.Panes.CreateMapPaneAsync(map).ConfigureAwait(false);
         return pane is IMapPane mapPane ? mapPane.MapView : MapView.Active;
+    }
+
+    private static async Task EnsureJad2001SpatialReferenceAsync(Map map, CancellationToken cancellationToken)
+    {
+        await QueuedTask.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureJad2001SpatialReference(map);
+        }).ConfigureAwait(false);
+    }
+
+    private static void EnsureJad2001SpatialReference(Map map)
+    {
+        map.SetSpatialReference(SpatialReferenceBuilder.CreateSpatialReference(Jad2001Wkid));
     }
 
     private static async Task AddReferenceLayersAsync(

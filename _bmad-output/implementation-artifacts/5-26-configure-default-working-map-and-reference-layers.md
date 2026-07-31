@@ -41,6 +41,9 @@ This story is not about generating parcel output layers. It prepares the base/re
 17. Given the loaded transaction does not include a parish, when the working map is prepared, then the add-in falls back to the configured full Jamaica extent without blocking the workflow.
 18. Given an administrator opens Settings, when the Map Layers tab is selected, then configured working-map layers can be reviewed and edited by name, source type, URL, group, and default visibility.
 19. Given an administrator edits a configured layer in Settings, when the settings are saved, then the add-in preserves hidden planner metadata such as required flag, drawing order, opacity, basemap role, and scale limits for existing layers.
+20. Given any Compute or Compare workflow map is created, reused, or activated, when map preparation completes, then the ArcGIS Pro map coordinate system is JAD 2001 Jamaica Grid / EPSG:3448.
+21. Given configured public basemaps such as Esri imagery, Open Basemap Streets, World Topographic, or World Hillshade use Web Mercator, when they are added for display, then they must not change the workflow map coordinate system away from JAD2001.
+22. Given generated review/output layers are loaded into the workflow map, when their spatial reference is inspected, then they declare JAD2001/EPSG:3448 or the workflow reports a clear blocker before moving forward.
 
 ## Tasks / Subtasks
 
@@ -93,10 +96,17 @@ This story is not about generating parcel output layers. It prepares the base/re
   - [x] Add or update XAML/ViewModel command gating tests if map readiness affects button enablement.
   - [x] Add manual smoke-test steps for a blank ArcGIS Pro project: load transaction, map created, layers added, process enabled.
 
+- [x] Enforce JAD2001 for the working map canvas. (AC: 20-22)
+  - [x] Set the ArcGIS Pro map spatial reference to JAD 2001 Jamaica Grid / EPSG:3448 when creating the configured working map.
+  - [x] Re-apply JAD2001 when reusing an existing configured map, so Web Mercator basemaps cannot leave the map canvas in Web Mercator.
+  - [x] Fail clearly when the configured working map is missing and map creation is disabled, instead of silently using an unrelated active map.
+  - [x] Add regression coverage that the working-map service explicitly sets the map spatial reference to EPSG:3448.
+
 ### Review Findings
 
 - [x] [Review][Patch] Parish zoom cannot work from the shipped/default configuration because `parish_lookup.layer_name` and `name_field` are parsed but never queried; with empty `known_extents`, every real parish falls back to the Jamaica extent. Patched by using transaction parish data against built-in/default parish extents, with missing parish falling back to Jamaica full extent. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs:158`]
-- [ ] [Review][Patch] If `create_if_missing` is false and the configured map is not found, map preparation returns the unrelated active map and can add/zoom reference layers there instead of failing clearly. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs:252`]
+- [x] [Review][Patch] If `create_if_missing` is false and the configured map is not found, map preparation returns the unrelated active map and can add/zoom reference layers there instead of failing clearly. Patched to return no map and surface the existing preparation failure message. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs`]
+- [x] [Review][Patch] The configured working map can remain in Web Mercator when created from an imagery/open basemap or reused from a prior project, causing JAD2001 output layers to display against a non-JAD2001 map canvas. Patched by forcing the workflow map spatial reference to EPSG:3448 on create, reuse, and active-map reuse. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs`]
 - [ ] [Review][Patch] Reused existing working maps do not get the configured default basemap applied; only newly created maps receive `ResolveBasemap(plan.DefaultBasemap)`. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs:233`]
 - [ ] [Review][Patch] Configured alternate basemaps are carried through the plan but never exposed or applied, while basemap-role reference layer entries are skipped entirely. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs:132`]
 - [ ] [Review][Patch] `source_type`/`item_path` are accepted in settings but layer creation always treats the value as a raw URI, so configured item references or non-URL layer files are not honored. [`src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs:296`]
@@ -126,11 +136,11 @@ Example:
     ],
     "default_extent": {
       "name": "Jamaica",
-      "wkid": 4326,
-      "xmin": -78.6,
-      "ymin": 17.6,
-      "xmax": -76.1,
-      "ymax": 18.7
+      "wkid": 3448,
+      "xmin": 580172.099,
+      "ymin": 605960.245,
+      "xmax": 845529.005,
+      "ymax": 728209.243
     },
     "zoom_to_transaction_parish": true,
     "parish_lookup": {
@@ -222,6 +232,8 @@ Example:
 
 ArcGIS Pro basemaps should be handled through supported ArcGIS Pro SDK/Portal basemap APIs where possible rather than as ordinary feature layers.
 
+The workflow map itself must remain JAD 2001 Jamaica Grid / EPSG:3448. Public basemaps may be served in Web Mercator, but they are display/reference layers only and must not set the ArcGIS Pro map coordinate system for Compute, Compare, Create Spatial Units, Final Review, or generated transaction layers.
+
 Recommended configured choices:
 
 - `esri_world_imagery`: default imagery basemap for visual parcel context.
@@ -305,13 +317,14 @@ Manual smoke test:
 2. Log in to Innola.
 3. Load a supported Compute transaction.
 4. Confirm the configured working map is created or activated.
-5. Confirm Esri World Imagery or configured default basemap is present.
-6. Confirm `Legal_Cadastre` is added and visible by default.
-7. Confirm optional layers are present/hidden according to configuration.
-8. Confirm transaction parish zoom moves the map to the parish when the transaction includes a parish.
-9. Confirm a missing/unmatched parish falls back to Jamaica/default extent without blocking the workflow.
-10. Confirm `Process` and downstream workflow actions are not blocked solely because a predefined project was missing.
-11. Cancel/suspend/finalize and confirm transaction review groups are removed while base/reference layers remain.
+5. Open Map Properties > Coordinate Systems and confirm Current XY is `JAD 2001 Jamaica Grid`, not WGS84 or Web Mercator.
+6. Confirm Esri World Imagery or configured default basemap is present.
+7. Confirm `Legal_Cadastre` is added and visible by default.
+8. Confirm optional layers are present/hidden according to configuration.
+9. Confirm transaction parish zoom moves the map to the parish when the transaction includes a parish.
+10. Confirm a missing/unmatched parish falls back to Jamaica/default extent without blocking the workflow.
+11. Confirm `Process` and downstream workflow actions are not blocked solely because a predefined project was missing.
+12. Cancel/suspend/finalize and confirm transaction review groups are removed while base/reference layers remain.
 
 ## Change Log
 
@@ -320,6 +333,7 @@ Manual smoke test:
 - 2026-07-26: Code review found unresolved working-map behavior gaps; story returned to in-progress pending patches.
 - 2026-07-26: Clarified parish zoom behavior to use the loaded transaction parish value and fall back to full Jamaica extent when parish is absent; patched default parish extents and tests.
 - 2026-07-26: Patched alternate basemap-role handling so the configured Open Basemap Streets layer is added as a reference option when imagery is the active default basemap.
+- 2026-07-31: Enforced JAD2001/EPSG:3448 as the working map coordinate system on map create/reuse and corrected story examples that still used WGS84 extents.
 
 ## Dev Agent Record
 
@@ -338,6 +352,7 @@ GPT-5 Codex
 - Added ArcGIS Pro working map preparation behind a service boundary; transaction loading now prepares or reuses the configured map, applies basemap/reference layers, avoids duplicates, and reports required-layer blockers or optional-layer warnings.
 - Captured parish metadata from Innola detail payloads and added parish/default extent planning. Transaction parish values are matched to configured or built-in parish extents; missing parish falls back to the Jamaica default extent.
 - The active default basemap is not duplicated as an operational layer, but alternate configured basemap-role layers such as Open Basemap Streets are now added to the map as reference options.
+- Working maps are explicitly reset to JAD 2001 Jamaica Grid / EPSG:3448 on create and reuse so Web Mercator basemaps cannot control the workflow map coordinate system.
 - Existing cleanup remains transaction-specific: shared reference/base layers are not removed by transaction close/suspend/finalize cleanup.
 - Manual ArcGIS Pro smoke test was not run in this shell session.
 

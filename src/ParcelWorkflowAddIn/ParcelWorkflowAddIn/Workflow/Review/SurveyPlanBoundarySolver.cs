@@ -8,6 +8,8 @@ public sealed class SurveyPlanBoundarySolver
 {
     private const double CoordinateConflictToleranceM = 0.25d;
     private const double ClosureWarningToleranceM = 1.0d;
+    private const double ReferenceFitScaleBlockerTolerance = 0.02d;
+    private const double DocumentAreaDeltaBlockerPercent = 5.0d;
 
     public SurveyPlanBoundarySolverResult Apply(
         ExtractionReviewDocument document,
@@ -353,6 +355,45 @@ public sealed class SurveyPlanBoundarySolver
 
         var scale = fixedLength / rawLength;
         var angle = Math.Atan2(fixedDy, fixedDx) - Math.Atan2(rawDy, rawDx);
+        var unscaledAnchoredCoordinates = BuildUnscaledAnchoredCoordinates(orderedPointIds, rawCoordinates, firstRaw, anchors.Value.First);
+        double? unscaledArea = null;
+        double? unscaledAreaDelta = null;
+        double? unscaledAreaDeltaPercent = null;
+        if (unscaledAnchoredCoordinates.Count >= 3)
+        {
+            unscaledArea = ComputeArea(parsedSegments, unscaledAnchoredCoordinates);
+            if (unscaledArea.HasValue && documentAreaSqM.HasValue && documentAreaSqM.Value > 0d)
+            {
+                unscaledAreaDelta = Math.Abs(unscaledArea.Value - documentAreaSqM.Value);
+                unscaledAreaDeltaPercent = unscaledAreaDelta.Value / documentAreaSqM.Value * 100d;
+            }
+        }
+
+        if (Math.Abs(scale - 1d) > ReferenceFitScaleBlockerTolerance
+            && unscaledAreaDeltaPercent.HasValue
+            && unscaledAreaDeltaPercent.Value <= DocumentAreaDeltaBlockerPercent)
+        {
+            var unscaledFindings = existingFindings.Concat(BuildUnscaledReferenceFindings(
+                anchors.Value.First,
+                anchors.Value.Second,
+                referencePoints,
+                unscaledAnchoredCoordinates,
+                scale,
+                angle,
+                unscaledAreaDeltaPercent.Value)).ToList();
+            var unscaledUniqueFindings = DeduplicateFindings(unscaledFindings);
+            result = new SurveyPlanBoundarySolverResult(
+                unscaledUniqueFindings.Any(IsBlockingFinding) ? "blocked" : unscaledUniqueFindings.Count > 0 ? "warning" : "passed",
+                unscaledAnchoredCoordinates.Values.ToArray(),
+                ComputeClosureDistance(parsedSegments, unscaledAnchoredCoordinates),
+                unscaledArea,
+                documentAreaSqM,
+                unscaledAreaDelta,
+                unscaledAreaDeltaPercent,
+                unscaledUniqueFindings);
+            return true;
+        }
+
         var cos = Math.Cos(angle);
         var sin = Math.Sin(angle);
         var transformedCoordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
@@ -380,13 +421,13 @@ public sealed class SurveyPlanBoundarySolver
             return false;
         }
 
-        var findings = DeduplicateFindings(existingFindings.Concat(BuildReferenceFitFindings(
+        var referenceFitFindings = existingFindings.Concat(BuildReferenceFitFindings(
             anchors.Value.First,
             anchors.Value.Second,
             referencePoints,
             transformedCoordinates,
             scale,
-            angle)));
+            angle)).ToList();
         var closureDistance = ComputeClosureDistance(parsedSegments, transformedCoordinates);
         var area = ComputeArea(parsedSegments, transformedCoordinates);
         double? areaDelta = null;
@@ -397,8 +438,22 @@ public sealed class SurveyPlanBoundarySolver
             areaDeltaPercent = areaDelta.Value / documentAreaSqM.Value * 100d;
         }
 
+        if (Math.Abs(scale - 1d) > ReferenceFitScaleBlockerTolerance)
+        {
+            referenceFitFindings.Add(
+                $"Reference-fit scale factor {scale.ToString("0.######", CultureInfo.InvariantCulture)} exceeds allowable reviewed-boundary scale tolerance. Check the printed reference point labels, bearings, or distances.");
+        }
+
+        if (areaDeltaPercent.HasValue && areaDeltaPercent.Value > DocumentAreaDeltaBlockerPercent)
+        {
+            referenceFitFindings.Add(
+                $"Reviewed boundary area differs from the document area by {areaDeltaPercent.Value.ToString("0.###", CultureInfo.InvariantCulture)}%. Check the printed reference coordinates, bearings, distances, and boundary sequence.");
+        }
+
+        var findings = DeduplicateFindings(referenceFitFindings);
+        var blocker = findings.Any(IsBlockingFinding);
         result = new SurveyPlanBoundarySolverResult(
-            findings.Count > 0 ? "warning" : "passed",
+            blocker ? "blocked" : findings.Count > 0 ? "warning" : "passed",
             transformedCoordinates.Values.ToArray(),
             closureDistance,
             area,
@@ -407,6 +462,33 @@ public sealed class SurveyPlanBoundarySolver
             areaDeltaPercent,
             findings);
         return true;
+    }
+
+    private static Dictionary<string, SolverPoint> BuildUnscaledAnchoredCoordinates(
+        IReadOnlyList<string> orderedPointIds,
+        IReadOnlyDictionary<string, SolverPoint> rawCoordinates,
+        SolverPoint firstRaw,
+        SolverPoint firstAnchor)
+    {
+        var anchoredCoordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pointId in orderedPointIds)
+        {
+            if (!rawCoordinates.TryGetValue(pointId, out var raw))
+            {
+                continue;
+            }
+
+            var easting = firstAnchor.Easting + raw.Easting - firstRaw.Easting;
+            var northing = firstAnchor.Northing + raw.Northing - firstRaw.Northing;
+            anchoredCoordinates[pointId] = new SolverPoint(
+                pointId,
+                easting,
+                northing,
+                "derived_from_reviewed_segments",
+                $"unscaled-reference-anchor {firstAnchor.PointId}");
+        }
+
+        return anchoredCoordinates;
     }
 
     private static Dictionary<string, SolverPoint>? BuildRawReviewedTraverse(IReadOnlyList<SolverSegment> parsedSegments)
@@ -509,6 +591,45 @@ public sealed class SurveyPlanBoundarySolver
         }
     }
 
+    private static IEnumerable<string> BuildUnscaledReferenceFindings(
+        SolverPoint firstAnchor,
+        SolverPoint secondAnchor,
+        IReadOnlyList<SolverPoint> referencePoints,
+        IReadOnlyDictionary<string, SolverPoint> anchoredCoordinates,
+        double scale,
+        double angleRadians,
+        double areaDeltaPercent)
+    {
+        yield return $"Reviewed boundary was rebuilt from bearings/distances and anchored to printed reference point {firstAnchor.PointId}.";
+        yield return $"Printed reference point {secondAnchor.PointId} differs from the bearing/distance reconstruction. Review the reference coordinate, but parcel dimensions and area match the document.";
+        yield return $"Reference-fit scale factor would be {scale.ToString("0.######", CultureInfo.InvariantCulture)} if the reviewed boundary were stretched to both printed reference points; the unscaled reviewed boundary was kept.";
+
+        var angleDegrees = angleRadians * 180d / Math.PI;
+        if (Math.Abs(angleDegrees) > 0.01d)
+        {
+            yield return $"Reference-fit rotation would be {angleDegrees.ToString("0.###", CultureInfo.InvariantCulture)} degrees if both printed reference points were forced.";
+        }
+
+        yield return $"Reviewed boundary area is within document tolerance ({areaDeltaPercent.ToString("0.###", CultureInfo.InvariantCulture)}% difference).";
+
+        foreach (var referencePoint in referencePoints)
+        {
+            if (string.Equals(referencePoint.PointId, firstAnchor.PointId, StringComparison.OrdinalIgnoreCase)
+                || !anchoredCoordinates.TryGetValue(referencePoint.PointId, out var anchoredPoint))
+            {
+                continue;
+            }
+
+            var mismatchDistance = Distance(referencePoint, anchoredPoint);
+            if (mismatchDistance <= CoordinateConflictToleranceM)
+            {
+                continue;
+            }
+
+            yield return $"Printed reference point {referencePoint.PointId} differs from the unscaled reviewed boundary by {mismatchDistance.ToString("0.###", CultureInfo.InvariantCulture)} m; review that point if it should be a control point.";
+        }
+    }
+
     private static bool IsBlockingFinding(string finding)
     {
         if (finding.Contains("invalid", StringComparison.OrdinalIgnoreCase)
@@ -516,6 +637,12 @@ public sealed class SurveyPlanBoundarySolver
             || finding.Contains("no coordinate", StringComparison.OrdinalIgnoreCase)
             || finding.Contains("chain break", StringComparison.OrdinalIgnoreCase)
             || finding.Contains("conflicting coordinate rows", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (finding.Contains("exceeds allowable reviewed-boundary scale tolerance", StringComparison.OrdinalIgnoreCase)
+            || finding.Contains("Reviewed boundary area differs from the document area", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

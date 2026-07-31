@@ -23,6 +23,7 @@ so that open traverses, excessive misclose, and parcel-specific closure exceptio
 7. Given closure metrics are written into downstream output artifacts, when `Create Spatial Units` and `Final Review` inspect them, then the same closure truth is used across validation, output diagnostics, and reviewer messaging.
 8. Given no parcel-type-specific tolerance rule is found, when closure validation runs, then the workflow applies a configured default closure rule and reports that fallback clearly in diagnostics.
 9. Given this story is complete, when a reviewer asks why validation is blocked, then the workflow can point to the exact parcel and closure reason rather than only a generic geometry or duplicate-point message.
+10. Given reviewed survey-plan boundary segments and printed JAD2001 reference points disagree, when the unscaled reviewed traverse also differs from the document area beyond tolerance, then `Validation Complete` blocks with a clear message requiring the examiner to correct reference point labels, bearings, distances, or boundary sequence before `Create Spatial Units`. When the unscaled reviewed traverse closes and matches the document area, the workflow keeps the bearing-distance geometry anchored to the first printed reference point and reports any additional printed-reference mismatch as a warning.
 
 ## Tasks / Subtasks
 
@@ -58,6 +59,7 @@ so that open traverses, excessive misclose, and parcel-specific closure exceptio
 - [x] Keep downstream outputs aligned to the same closure truth. (AC: 6-8)
   - [x] Ensure `Create Spatial Units` / output summaries can reuse closure result fields rather than recomputing a different rule set.
   - [x] Distinguish geometric polygon closure from survey tolerance closure in diagnostics and messaging.
+  - [x] Block PXA reviewed-boundary output when two-anchor reference fitting requires an unacceptable scale change or when reviewed-boundary area exceeds the configured document-area delta tolerance. (AC: 10)
 
 - [x] Add focused verification coverage. (AC: 1-9)
   - [x] Parcel passes when closure is within tolerance.
@@ -65,6 +67,7 @@ so that open traverses, excessive misclose, and parcel-specific closure exceptio
   - [x] Default tolerance fallback is applied when parcel-type-specific rule is missing.
   - [x] Open-boundary or special parcel profiles do not incorrectly block when rules allow them.
   - [x] `Final Review` shows consistent closure diagnostics from the saved validation result.
+  - [x] PXA reviewed-boundary validation blocks stale or scaled geometry where document area and reviewed-boundary area differ beyond tolerance. (AC: 10)
 
 ## Dev Notes
 
@@ -172,6 +175,8 @@ In `Final Review`, keep it short, for example:
 | 2026-06-24 | 1.0 | Implemented externalized closure tolerance profiles, parcel-level closure validation, settings overrides, and closure diagnostics across Validate Points and Final Review. | Codex |
 | 2026-06-24 | 1.1 | Exposed standard closure tolerance thresholds directly in the Settings workspace while keeping advanced JSON overrides for profile-level changes. | Codex |
 | 2026-06-28 | 1.2 | Updated closure validation to honor implicit closing segments for structured computation-table traverses that return to the starting point without repeating that first vertex as a final row. | Codex |
+| 2026-07-31 | 1.3 | Added PXA reviewed-boundary reference-fit scale and document-area mismatch blockers so JAD2001 output cannot pass with internally inconsistent geometry. | Codex |
+| 2026-07-31 | 1.4 | Refined PXA reviewed-boundary handling so unscaled bearing-distance geometry is kept when it closes and matches document area, with second-reference mismatches downgraded to warnings. | Codex |
 
 ## Dev Agent Record
 
@@ -184,6 +189,7 @@ In `Final Review`, keep it short, for example:
 - Added a settings workspace field for `closure_tolerance_profile_overrides` so tolerance profiles can be adjusted without code changes.
 - Exposed the standard closed-parcel closure thresholds directly in the Settings workspace so reviewers can see and adjust blocker/warning distance and ratio values without editing raw JSON.
 - Updated review and final-summary messaging so closure blockers can identify the specific parcel and the reason instead of only generic validation failures.
+- Added PXA reviewed-boundary safeguards so a geometry can no longer pass simply because the traverse closes after being scaled to printed reference points; large scale fit plus document-area mismatch now blocks before `Create Spatial Units`, while document-area-consistent unscaled reviewed traverses remain passable with warnings.
 
 ### Verification
 
@@ -195,6 +201,9 @@ In `Final Review`, keep it short, for example:
 - `src/ProcessingTools/rules/rules.yaml`
 - `src/ProcessingTools/adapters/validation_adapter.py`
 - `src/ProcessingTools/tests/test_validation_adapter.py`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/SurveyPlanBoundarySolver.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/SurveyPlanBoundarySolverTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Validation/ValidationAdapterExecutionService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Validation/ValidationSummaryDocument.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs`

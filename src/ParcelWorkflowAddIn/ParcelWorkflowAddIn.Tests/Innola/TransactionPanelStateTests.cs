@@ -781,7 +781,11 @@ internal static class TransactionPanelStateTests
         using var tempRoot = new TempDirectory();
         var service = new FakeTransactionService
         {
-            Result = InnolaTransactionListResult.Succeeded(new[] { Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") })
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
+                Row("task-100000005", "TR100000005", "Compute Survey Plan", "tester", "2024-10-15T09:38:00-05:00")
+            })
         };
         var manager = LoggedInManager();
         var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
@@ -797,6 +801,8 @@ internal static class TransactionPanelStateTests
         await panel.RefreshAsync();
         panel.SelectedRow = panel.Rows[0];
         await panel.StartSelectedTransactionAsync();
+        panel.SelectedFilter = "My tasks";
+        panel.SearchText = "TR100000004";
         LifecycleCoordinator(manager, clock).CancelActiveProcess();
 
         await panel.HandleWorkflowExitAsync(
@@ -804,11 +810,16 @@ internal static class TransactionPanelStateTests
             "Cancelled locally.",
             preserveSavedMarker: false,
             suppressTransactionFromList: false,
-            refreshTransactions: false);
+            refreshTransactions: true);
 
         TestAssert.True(!panel.IsTransactionPanelLocked, "Cancel exit should unlock the transaction list.");
         TestAssert.True(panel.CanRefresh, "Cancel exit should re-enable refresh.");
         TestAssert.True(panel.CanUseListControls, "Cancel exit should restore list controls.");
+        TestAssert.Equal("All tasks", panel.SelectedFilter, "Cancel exit should clear the transaction filter.");
+        TestAssert.Equal(string.Empty, panel.SearchText, "Cancel exit should clear transaction search text.");
+        TestAssert.True(service.CallCount >= 2, "Cancel exit should refresh the transaction list.");
+        TestAssert.Equal("All tasks", service.LastQuery?.Filter, "Cancel refresh should request the full task list.");
+        TestAssert.Equal(string.Empty, service.LastQuery?.SearchText, "Cancel refresh should not keep stale search text.");
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Cancel exit should keep the transaction selected for context.");
         TestAssert.Equal(null, panel.SavedTransactionNumber, "Cancel exit should not mark the transaction as saved.");
     }

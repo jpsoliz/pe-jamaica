@@ -136,6 +136,23 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            var responseBody = await ReadFailureBodyAsync(response, cancellationToken).ConfigureAwait(false);
+            if (ShouldRetryWithBearer(response.StatusCode, session.AccessToken))
+            {
+                using var bearerRequest = CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson, includeBearerAuthorization: true);
+                using var bearerResponse = await httpClient.SendAsync(bearerRequest, cancellationToken).ConfigureAwait(false);
+                if (bearerResponse.IsSuccessStatusCode)
+                {
+                    var bearerBody = await bearerResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return ResolveArray(JsonNode.Parse(bearerBody))
+                        .Select(node => node as JsonObject ?? new JsonObject())
+                        .ToArray();
+                }
+
+                var bearerResponseBody = await ReadFailureBodyAsync(bearerResponse, cancellationToken).ConfigureAwait(false);
+                responseBody = AppendRetryDetail(responseBody, "bearer", bearerResponse.StatusCode, bearerResponseBody);
+            }
+
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
                 using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, requestBodyJson);
@@ -147,9 +164,12 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                         .Select(node => node as JsonObject ?? new JsonObject())
                         .ToArray();
                 }
+
+                var cookieResponseBody = await ReadFailureBodyAsync(cookieOnlyResponse, cancellationToken).ConfigureAwait(false);
+                responseBody = AppendRetryDetail(responseBody, "cookie_only", cookieOnlyResponse.StatusCode, cookieResponseBody);
             }
 
-            throw new HttpRequestException($"Spatial Unit default creation failed: {response.StatusCode}");
+            throw new HttpRequestException(BuildHttpFailureMessage("Spatial Unit default creation failed", uri, response.StatusCode, responseBody));
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -174,6 +194,26 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
+            var responseBody = await ReadFailureBodyAsync(response, cancellationToken).ConfigureAwait(false);
+            if (ShouldRetryWithBearer(response.StatusCode, session.AccessToken))
+            {
+                using var bearerRequest = CreateJsonPostRequest(uri, session.AccessToken, payloadJson, includeBearerAuthorization: true);
+                using var bearerResponse = await httpClient.SendAsync(bearerRequest, cancellationToken).ConfigureAwait(false);
+                if (bearerResponse.IsSuccessStatusCode)
+                {
+                    var bearerBody = await bearerResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var bearerResolved = ResolveArray(JsonNode.Parse(bearerBody))
+                        .Select(node => node as JsonObject)
+                        .Where(node => node is not null)
+                        .Cast<JsonObject>()
+                        .ToArray();
+                    return bearerResolved.Length == 0 ? spatialUnits : bearerResolved;
+                }
+
+                var bearerResponseBody = await ReadFailureBodyAsync(bearerResponse, cancellationToken).ConfigureAwait(false);
+                responseBody = AppendRetryDetail(responseBody, "bearer", bearerResponse.StatusCode, bearerResponseBody);
+            }
+
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
                 using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, payloadJson);
@@ -188,9 +228,12 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                         .ToArray();
                     return cookieOnlyResolved.Length == 0 ? spatialUnits : cookieOnlyResolved;
                 }
+
+                var cookieResponseBody = await ReadFailureBodyAsync(cookieOnlyResponse, cancellationToken).ConfigureAwait(false);
+                responseBody = AppendRetryDetail(responseBody, "cookie_only", cookieOnlyResponse.StatusCode, cookieResponseBody);
             }
 
-            throw new HttpRequestException($"Spatial Unit save failed: {response.StatusCode}");
+            throw new HttpRequestException(BuildHttpFailureMessage("Spatial Unit save failed", uri, response.StatusCode, responseBody));
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -202,12 +245,26 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         return resolved.Length == 0 ? spatialUnits : resolved;
     }
 
-    private static HttpRequestMessage CreateJsonPostRequest(Uri uri, string? accessToken, string json)
+    private static HttpRequestMessage CreateJsonPostRequest(Uri uri, string? accessToken, string json, bool includeBearerAuthorization = false)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, uri);
         InnolaHttp.ApplyAuthHeaders(request, accessToken);
+        if (includeBearerAuthorization
+            && !string.IsNullOrWhiteSpace(accessToken)
+            && !accessToken.Equals(InnolaHttp.SessionCookieAccessToken, StringComparison.Ordinal))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         return request;
+    }
+
+    private static bool ShouldRetryWithBearer(System.Net.HttpStatusCode statusCode, string? accessToken)
+    {
+        return statusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+            && !string.IsNullOrWhiteSpace(accessToken)
+            && !accessToken.Equals(InnolaHttp.SessionCookieAccessToken, StringComparison.Ordinal);
     }
 
     private static bool ShouldRetryWithCookieOnly(System.Net.HttpStatusCode statusCode, string serverUrl, string? accessToken)
@@ -217,6 +274,31 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             && !accessToken.Equals(InnolaHttp.SessionCookieAccessToken, StringComparison.Ordinal)
             && InnolaHttpClientFactory.HasCookie(serverUrl, "INNOLAID");
     }
+
+    private static async Task<string> ReadFailureBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return RedactForTrace(body);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or TaskCanceledException)
+        {
+            return $"<response body unavailable: {exception.GetType().Name}>";
+        }
+    }
+
+    private static string AppendRetryDetail(string initialBody, string retryMode, System.Net.HttpStatusCode retryStatus, string retryBody)
+    {
+        return $"{initialBody}; retry_mode={retryMode}; retry_status={(int)retryStatus} {retryStatus}; retry_body={retryBody}";
+    }
+
+    private static string BuildHttpFailureMessage(string prefix, Uri uri, System.Net.HttpStatusCode statusCode, string responseBody)
+    {
+        var path = uri.GetLeftPart(UriPartial.Path);
+        return $"{prefix}: {(int)statusCode} {statusCode}; endpoint={path}; response_body={responseBody}";
+    }
+
 
     private static JsonObject PopulateSpatialUnit(
         JsonObject source,

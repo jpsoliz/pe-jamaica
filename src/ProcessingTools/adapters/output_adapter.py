@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import math
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -408,19 +409,12 @@ def _polyline_segments(point_groups: list[dict[str, Any]]) -> list[dict[str, Any
     return segments
 
 
-def _reviewed_boundary_segments(review_data: dict[str, Any], point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _included_reviewed_boundary_raw_segments(review_data: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
     raw_segments = review_data.get("segments")
     if not isinstance(raw_segments, list):
         return []
 
-    point_by_id: dict[str, dict[str, Any]] = {}
-    for group in point_groups:
-        for point in group.get("points") or []:
-            point_id = str(point.get("point_identifier") or point.get("point_id") or "").strip()
-            if point_id:
-                point_by_id[point_id.lower()] = point
-
-    segments: list[dict[str, Any]] = []
+    included: list[tuple[int, dict[str, Any]]] = []
     for index, raw_segment in enumerate(raw_segments, start=1):
         if not isinstance(raw_segment, dict):
             continue
@@ -429,7 +423,222 @@ def _reviewed_boundary_segments(review_data: dict[str, Any], point_groups: list[
             include_value = raw_segment.get("include_in_boundary")
         if include_value is not None and not _parse_bool(include_value):
             continue
+        included.append((index, raw_segment))
 
+    return sorted(
+        included,
+        key=lambda item: _parse_int(item[1].get("review_sequence") or item[1].get("segment_no") or item[1].get("sequence")) or item[0],
+    )
+
+
+def _point_lookup_by_identifier(point_groups: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    point_by_id: dict[str, dict[str, Any]] = {}
+    for group in point_groups:
+        for point in group.get("points") or []:
+            point_id = str(point.get("point_identifier") or point.get("point_id") or "").strip()
+            if point_id:
+                point_by_id[point_id.lower()] = point
+    return point_by_id
+
+
+def _parse_bearing_azimuth_deg(value: Any) -> float | None:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+
+    text = (
+        text.replace(" ", "")
+        .replace("°", " ")
+        .replace("º", " ")
+        .replace("'", " ")
+        .replace("′", " ")
+        .replace("’", " ")
+        .replace('"', " ")
+        .replace("″", " ")
+        .replace("”", " ")
+    )
+    match = re.match(r"^([NS])\s*([0-9]+(?:\.[0-9]+)?)(?:\s+([0-9]+(?:\.[0-9]+)?))?(?:\s+([0-9]+(?:\.[0-9]+)?))?\s*([EW])$", text)
+    if not match:
+        return None
+
+    ns, degrees_text, minutes_text, seconds_text, ew = match.groups()
+    degrees = float(degrees_text)
+    minutes = float(minutes_text or 0.0)
+    seconds = float(seconds_text or 0.0)
+    angle = degrees + (minutes / 60.0) + (seconds / 3600.0)
+    if angle < 0.0 or angle > 90.0:
+        return None
+    if ns == "N" and ew == "E":
+        return angle
+    if ns == "S" and ew == "E":
+        return 180.0 - angle
+    if ns == "S" and ew == "W":
+        return 180.0 + angle
+    return 360.0 - angle
+
+
+def _endpoint_from_bearing_distance(start: tuple[float, float], bearing_txt: str, distance_m: float) -> tuple[float, float] | None:
+    azimuth_deg = _parse_bearing_azimuth_deg(bearing_txt)
+    if azimuth_deg is None:
+        return None
+    azimuth_rad = math.radians(azimuth_deg)
+    return (
+        float(start[0]) + math.sin(azimuth_rad) * distance_m,
+        float(start[1]) + math.cos(azimuth_rad) * distance_m,
+    )
+
+
+def _should_rebuild_reviewed_output_from_bearings(review_data: dict[str, Any]) -> bool:
+    solver = review_data.get("boundary_solver")
+    if not isinstance(solver, dict):
+        return False
+    status = str(solver.get("status") or "").strip().lower()
+    geometry_source = str(solver.get("geometry_source") or "").strip().lower()
+    if status not in {"passed", "warning"} or geometry_source != "reviewed_boundary_segments":
+        return False
+    findings = " ".join(str(finding or "") for finding in (solver.get("findings") or [])).lower()
+    return "unscaled reviewed boundary was kept" in findings or "anchored to printed reference point" in findings
+
+
+def _reviewed_boundary_construction_from_solver(
+    review_data: dict[str, Any],
+    point_groups: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not _should_rebuild_reviewed_output_from_bearings(review_data):
+        return [], []
+
+    included_segments = _included_reviewed_boundary_raw_segments(review_data)
+    if len(included_segments) < 3:
+        return [], []
+
+    point_by_id = _point_lookup_by_identifier(point_groups)
+    first_index, first_raw_segment = included_segments[0]
+    anchor_id = _normalize_text(first_raw_segment.get("review_from_point") or first_raw_segment.get("from_point"), 64)
+    anchor_point = point_by_id.get(anchor_id.lower())
+    if anchor_point is None:
+        return [], []
+
+    parcel_id = anchor_point.get("parcel_id") or anchor_point.get("parcel_group_id") or "parcel-001"
+    parcel_group_id = anchor_point.get("parcel_group_id") or parcel_id
+    anchor_coord = (float(anchor_point["easting"]), float(anchor_point["northing"]))
+    current_coord = anchor_coord
+    constructed_points: list[dict[str, Any]] = []
+    constructed_segments: list[dict[str, Any]] = []
+    constructed_by_id: dict[str, dict[str, Any]] = {}
+
+    def add_point(point_id: str, coord: tuple[float, float], sequence: int, source_point: dict[str, Any] | None, status: str) -> dict[str, Any]:
+        point = dict(source_point or {})
+        point.update(
+            {
+                "point_identifier": point_id,
+                "point_id": point_id,
+                "easting": float(coord[0]),
+                "northing": float(coord[1]),
+                "parcel_id": parcel_id,
+                "parcel_group_id": parcel_group_id,
+                "sequence": sequence,
+                "seq": sequence,
+                "status": status,
+                "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary.",
+            }
+        )
+        constructed_by_id[point_id.lower()] = point
+        constructed_points.append(point)
+        return point
+
+    add_point(anchor_id, anchor_coord, 1, anchor_point, str(anchor_point.get("status") or "0.95"))
+
+    for segment_position, (raw_index, raw_segment) in enumerate(included_segments, start=1):
+        from_point_id = _normalize_text(raw_segment.get("review_from_point") or raw_segment.get("from_point"), 64)
+        to_point_id = _normalize_text(raw_segment.get("review_to_point") or raw_segment.get("to_point"), 64)
+        if not from_point_id or not to_point_id:
+            return [], []
+
+        bearing_txt = _normalize_text(raw_segment.get("review_bearing_txt") or raw_segment.get("bearing_txt") or raw_segment.get("bearing"), 64)
+        distance_txt = _normalize_text(
+            raw_segment.get("review_distance_txt")
+            or raw_segment.get("review_length_txt")
+            or raw_segment.get("distance_txt")
+            or raw_segment.get("length_txt")
+            or raw_segment.get("distance")
+            or raw_segment.get("length")
+            or "",
+            64,
+        )
+        distance_m = _parse_coordinate(distance_txt)
+        if not bearing_txt or distance_m is None:
+            return [], []
+
+        end_coord = _endpoint_from_bearing_distance(current_coord, bearing_txt, distance_m)
+        if end_coord is None:
+            return [], []
+        is_closure = to_point_id.lower() == anchor_id.lower() and segment_position == len(included_segments)
+        if is_closure:
+            end_coord = anchor_coord
+            end_point = constructed_by_id[anchor_id.lower()]
+        else:
+            end_point = add_point(
+                to_point_id,
+                end_coord,
+                len(constructed_points) + 1,
+                point_by_id.get(to_point_id.lower()),
+                "derived_from_reviewed_segments",
+            )
+
+        sequence = _parse_int(raw_segment.get("review_sequence") or raw_segment.get("segment_no") or raw_segment.get("sequence")) or raw_index
+        status_txt = _normalize_text(raw_segment.get("review_status") or raw_segment.get("status") or "", 64)
+        source_evidence = _normalize_text(raw_segment.get("source_evidence") or raw_segment.get("review_notes") or "", 1024)
+        constructed_segments.append(
+            {
+                "line_id": f"{parcel_id}_L{sequence}",
+                "segment_index": len(constructed_segments) + 1,
+                "segment_order": sequence,
+                "parcel_id": parcel_id,
+                "parcel_group_id": parcel_group_id,
+                "traverse_id": anchor_point.get("traverse_id") or "",
+                "line_type": "line",
+                "start_point": from_point_id,
+                "end_point": to_point_id,
+                "from_point_id": from_point_id,
+                "to_point_id": to_point_id,
+                "start": current_coord,
+                "end": end_coord,
+                "bearing": bearing_txt,
+                "bearing_txt": bearing_txt,
+                "length": distance_txt,
+                "length_txt": distance_txt,
+                "distance_txt": distance_txt,
+                "distance_m": distance_m,
+                "radius_m": None,
+                "arc_length_m": None,
+                "delta_angle_txt": "",
+                "chord_bearing_txt": "",
+                "chord_distance_m": None,
+                "doc_type_id": anchor_point.get("doc_type_id") or end_point.get("doc_type_id") or "",
+                "source_doc": anchor_point.get("source_doc") or end_point.get("source_doc") or "",
+                "row_id": _normalize_text(raw_segment.get("segment_id") or f"segment-{sequence}", 64),
+                "status": status_txt,
+                "status_txt": status_txt,
+                "source_evidence": source_evidence,
+                "source_txt": source_evidence,
+                "is_boundary_break": False,
+                "is_manual": bool(end_point.get("is_manual")),
+                "is_edited": True,
+            }
+        )
+        current_coord = end_coord
+
+    return constructed_points, constructed_segments
+
+
+def _reviewed_boundary_segments(review_data: dict[str, Any], point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    included_segments = _included_reviewed_boundary_raw_segments(review_data)
+    if not included_segments:
+        return []
+
+    point_by_id = _point_lookup_by_identifier(point_groups)
+    segments: list[dict[str, Any]] = []
+    for index, raw_segment in included_segments:
         from_point_id = _normalize_text(raw_segment.get("review_from_point") or raw_segment.get("from_point"), 64)
         to_point_id = _normalize_text(raw_segment.get("review_to_point") or raw_segment.get("to_point"), 64)
         start = point_by_id.get(from_point_id.lower())
@@ -2246,7 +2455,15 @@ def main(argv: list[str] | None = None) -> int:
 
     point_groups = _apply_group_parcel_metadata(_grouped_point_sequences(points))
     points = [point for group in point_groups for point in (group.get("points") or [])]
-    reviewed_segments = _reviewed_boundary_segments(review_data, point_groups) if _is_pxa_survey_plan_review(review_data) else []
+    reviewed_segments: list[dict[str, Any]] = []
+    if _is_pxa_survey_plan_review(review_data) or _should_rebuild_reviewed_output_from_bearings(review_data):
+        constructed_points, constructed_segments = _reviewed_boundary_construction_from_solver(review_data, point_groups)
+        if constructed_points and constructed_segments:
+            points = constructed_points
+            point_groups = _apply_group_parcel_metadata(_grouped_point_sequences(points))
+            reviewed_segments = constructed_segments
+        else:
+            reviewed_segments = _reviewed_boundary_segments(review_data, point_groups)
     segments = reviewed_segments or _polyline_segments(point_groups)
     polygons = _polygon_rings_from_segments(reviewed_segments) if reviewed_segments else _polygon_rings(point_groups)
     points, segments, polygons = _prepare_optional_output_cogo(
