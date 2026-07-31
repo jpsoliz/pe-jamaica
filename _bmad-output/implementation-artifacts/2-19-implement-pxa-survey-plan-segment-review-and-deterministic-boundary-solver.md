@@ -78,13 +78,23 @@ This story adds the missing human-in-the-loop segment table and deterministic so
 
 17. Given `Rebuild points` regenerates the reviewed boundary after labels or coordinates are edited, then stale solver-derived point rows that are no longer referenced by the current reviewed segment chain are removed before resequencing so duplicate sequence values do not block validation.
 
-18. Given `Rebuild points` is selected and an existing point coordinate conflicts with the reviewed boundary path, then the explicit rebuild replaces the conflicting coordinate from the reviewed segments and reports that the point was recalculated, while ordinary save remains conservative.
+18. Given `Rebuild points` is selected and an existing solver-derived or blank point coordinate conflicts with the reviewed boundary path, then the explicit rebuild replaces/recalculates that stale coordinate from the reviewed segments and reports that the point was recalculated, while ordinary save remains conservative.
+
+18a. Given `Rebuild points` is selected and at least two printed/reference JAD2001 coordinates are part of the active reviewed boundary chain, then the solver must keep those printed/reference coordinates as fixed control anchors, fit the reviewed bearing/distance traverse to those anchors, regenerate the remaining boundary points, and report the fit as a warning/diagnostic instead of blocking validation solely because the unfitted traverse initially conflicted with the printed anchors. Printed/reference coordinate rows may be marked with explicit statuses such as `printed_coordinate`/`reference_coordinate` or with numeric extraction confidence values such as `0.95`.
 
 19. Given `Rebuild points` is selected and the reviewed segment chain is the active source of truth, then extracted/reference point rows that are no longer referenced by the reviewed boundary chain are removed from the parcel review rows before validation so inactive points cannot create duplicate sequence blockers.
 
 20. Given the PXA reviewed boundary solver has a usable result (`passed` or non-blocking `warning`) from `reviewed_boundary_segments`, then Validate Points and downstream validation treat reviewed segments as the geometry/sequence source of truth and do not block solely on superseded point-row closure or duplicate/missing sequence values.
 
 21. Given `Rebuild points` generates a temporary vertex whose coordinate matches an extracted reference point that is not currently in the segment chain, then the solver replaces the generated label with the extracted reference point label, keeps that reference row in the boundary sequence, removes the extra generated point row, and leaves a closed parcel with active point count equal to included segment count.
+
+22. Given the examiner presses `Validation Complete` from the Points Validation Tool and approval or Create Spatial Units handoff is blocked after a successful save, then the window must remain open and show an owned warning dialog with the current validation/completion reason instead of failing silently.
+
+23. Given the extraction review or reviewed segment chain repeats a printed/reference point, then repeated references must remain valid boundary evidence, but identical solver diagnostic messages must be deduplicated before they are stored or shown to the examiner.
+
+24. Given the reviewed PXA boundary can generate the parcel from the examiner-confirmed bearing/distance chain and the remaining solver findings are printed/reference coordinate mismatches, then those mismatches must remain visible as examiner warnings but must not block Validation Complete or the handoff to Create Spatial Units.
+
+25. Given a PXA plan such as TR100000861 provides two verified printed JAD2001 control points and the examiner has completed the reviewed boundary segment chain, when `Rebuild points` or `Validation Complete` runs, then the generated point count must equal the included segment count, the two printed control points must remain unchanged, and the created parcel geometry must be derived from the reviewed traverse fitted between those two control points.
 
 ## Tasks / Subtasks
 
@@ -115,10 +125,14 @@ This story adds the missing human-in-the-loop segment table and deterministic so
   - [x] Instruct extraction not to invent sequential point labels from printed/reference labels unless those labels are visibly tied to the boundary vertex. (AC: 15)
   - [x] Repair premature reuse of point labels during explicit point rebuild, using generated labels in the opposite style from the reviewed chain. (AC: 15-16)
   - [x] Remove stale solver-derived point rows when explicit rebuild changes the reviewed boundary chain. (AC: 17)
-  - [x] Allow explicit point rebuild to replace conflicting existing point coordinates from reviewed segments. (AC: 18)
+  - [x] Allow explicit point rebuild to replace stale solver-derived or blank point coordinates from reviewed segments. (AC: 18)
+  - [x] Keep printed/reference coordinate-table points immutable during explicit rebuild and fit reviewed traverses to two confirmed printed anchors when available. (AC: 18a, 25)
   - [x] Remove inactive extracted/reference rows during explicit rebuild and refresh the point grid after row removal. (AC: 19)
   - [x] Align Validate Points, Save/Approve, and downstream validation so usable PXA reviewed-boundary solver output supersedes point-row closure/sequence blockers. (AC: 20)
   - [x] Merge generated rebuild vertices with matching extracted reference coordinates instead of creating an additional duplicate point row. (AC: 21)
+  - [x] Show a blocking reason when `Validation Complete` cannot advance after Save. (AC: 22)
+  - [x] Deduplicate identical solver findings while preserving legitimate repeated point references. (AC: 23)
+  - [x] Downgrade printed/reference coordinate mismatches to warnings when the reviewed boundary can generate the parcel from the examiner-confirmed chain. (AC: 24)
 
 - [x] Wire solver output into review persistence and stage findings. (AC: 6-12)
   - [x] Write derived points into `rows` with explicit provenance and source segment references.
@@ -314,6 +328,12 @@ Point 17: N 670563.653, E 712856.553
 | 2026-07-23 | 1.4 | Added explicit Rebuild behavior for premature label reuse, with opposite-style generated point labels and immediate segment-grid refresh. | Codex |
 | 2026-07-23 | 1.5 | Patched PXA extraction guidance so printed/reference labels are not reused for unlabeled boundary vertices unless visibly tied to that point. | Codex |
 | 2026-07-29 | 1.6 | Reviewed current PE/PXA behavior and documented that PXA reviewed segments drive geometry while PE remains point-row based. | Codex |
+| 2026-07-30 | 1.7 | Patched rebuild policy so printed/reference coordinate-table points remain fixed anchors and explicit rebuild only recalculates stale derived/blank points. | Codex |
+| 2026-07-30 | 1.8 | Patched Validation Complete so approval/handoff blockers are surfaced in the WPF review window instead of failing silently. | Codex |
+| 2026-07-30 | 1.9 | Deduplicated repeated printed-coordinate solver findings so repeated reference points do not flood the completion dialog. | Codex |
+| 2026-07-30 | 1.10 | Changed PXA reviewed-boundary approval so printed/reference coordinate mismatches remain warnings instead of blocking Validation Complete. | Codex |
+| 2026-07-30 | 1.11 | Added two-anchor reference-fit rebuild acceptance criteria for TR100000861-style PXA cases. | Codex |
+| 2026-07-30 | 1.12 | Clarified that extracted JAD2001 coordinate-table points with numeric confidence status are protected reference anchors during rebuild. | Codex |
 
 ## Dev Agent Record
 

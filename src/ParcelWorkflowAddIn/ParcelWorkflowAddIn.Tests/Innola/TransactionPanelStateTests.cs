@@ -358,6 +358,7 @@ internal static class TransactionPanelStateTests
         var manager = LoggedInManager();
         var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
         var launchedTransactions = new List<string>();
+        var supportingDocumentLaunchCount = 0;
         var panel = new TransactionPanelState(
             manager,
             service,
@@ -369,7 +370,12 @@ internal static class TransactionPanelStateTests
             supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
             computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
             compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
-            compareWorkspaceLauncher: transactionNumber => launchedTransactions.Add(transactionNumber));
+            compareWorkspaceLauncher: transactionNumber => launchedTransactions.Add(transactionNumber),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            });
 
         await panel.RefreshAsync();
         panel.SelectedRow = panel.Rows[0];
@@ -378,6 +384,7 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Compare start should claim the transaction before launch.");
         TestAssert.Equal(1, launchedTransactions.Count, "Compare workspace should launch once.");
         TestAssert.Equal("TR100000004", launchedTransactions[0], "Compare workspace launch transaction mismatch.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Compare start should open the Supporting Documents WPF window once.");
         TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed Compare transaction should keep active transaction gates enabled.");
     }
 
@@ -395,6 +402,7 @@ internal static class TransactionPanelStateTests
         var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
         var lifecycleService = new CountingTransactionLifecycleService();
         var launchedTransactions = new List<string>();
+        var supportingDocumentLaunchCount = 0;
         ICompareTaskLifecycleService? compareLifecycleBridge = null;
         var panel = new TransactionPanelState(
             manager,
@@ -411,6 +419,11 @@ internal static class TransactionPanelStateTests
             {
                 launchedTransactions.Add(transactionNumber);
                 compareLifecycleBridge = lifecycleBridge;
+            },
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
             });
 
         await panel.RefreshAsync();
@@ -419,12 +432,14 @@ internal static class TransactionPanelStateTests
 
         TestAssert.Equal(1, lifecycleService.ClaimCalls, "Initial Compare start should claim once.");
         TestAssert.Equal(1, launchedTransactions.Count, "Initial Compare start should launch once.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Initial Compare start should open Supporting Documents once.");
         TestAssert.True(panel.CanReopenCompare, "Active Compare task should expose Reopen Compare.");
 
         await panel.ReopenCompareWorkspaceAsync();
 
         TestAssert.Equal(1, lifecycleService.ClaimCalls, "Reopen Compare must not claim/start the task again.");
         TestAssert.Equal(2, launchedTransactions.Count, "Reopen Compare should launch another Compare window instance.");
+        TestAssert.Equal(2, supportingDocumentLaunchCount, "Reopen Compare should reopen or activate Supporting Documents.");
         TestAssert.True(compareLifecycleBridge is not null, "Compare launch should receive a lifecycle bridge.");
 
         var suspendResult = await compareLifecycleBridge!.SuspendAsync("TR100000004");
@@ -506,6 +521,7 @@ internal static class TransactionPanelStateTests
         };
         var manager = LoggedInManager();
         var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var supportingDocumentLaunchCount = 0;
         var panel = new TransactionPanelState(
             manager,
             service,
@@ -513,7 +529,12 @@ internal static class TransactionPanelStateTests
             Loader(manager, tempRoot.Path, clock),
             LifecycleCoordinator(manager, clock),
             null,
-            clock);
+            clock,
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            });
 
         await panel.RefreshAsync();
         panel.SelectedRow = panel.Rows[0];
@@ -530,6 +551,8 @@ internal static class TransactionPanelStateTests
         TestAssert.True(panel.CanStopTask, "Stop should be enabled after start.");
         TestAssert.True(panel.CanCompleteTask, "Complete should be enabled after start.");
         TestAssert.True(panel.CanViewDocuments, "Documents should be enabled after load/start.");
+        TestAssert.True(panel.CanShowSupportingDocuments, "Supporting Documents should be enabled after load/start.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Compute start should open the Supporting Documents WPF window once.");
     }
 
     public static async Task ToolbarCommandsStaySynchronizedAcrossTransactionStates()
@@ -917,6 +940,93 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Failed refresh should preserve selected row.");
     }
 
+    public static async Task ActiveQueueHidesCompletedAndUnavailableRows()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00"),
+                Row("task-2", "TR100000005", "Completed Task", "tester", "2024-10-15T09:38:00-05:00") with
+                {
+                    Status = InnolaTransactionStatus.Completed
+                },
+                Row("task-3", "TR100000006", "Locked Task", "tester", "2024-10-15T09:53:00-05:00") with
+                {
+                    Status = InnolaTransactionStatus.Locked,
+                    IsLoadable = false,
+                    UnavailableReason = "Assigned to another user."
+                }
+            })
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+
+        TestAssert.Equal(1, panel.Rows.Count, "The default active queue should only show active loadable transactions.");
+        TestAssert.Equal("TR100000004", panel.Rows[0].TransactionNumber, "Active row mismatch.");
+        TestAssert.True(!panel.Rows.Any(row => row.TransactionNumber == "TR100000005"), "Completed transactions must be hidden by default.");
+        TestAssert.True(!panel.Rows.Any(row => row.TransactionNumber == "TR100000006"), "Unavailable transactions must be hidden by default.");
+    }
+
+    public static async Task SelectedTransactionDetailsProjectRowMetadataAndSearch()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") with
+                {
+                    Applicant = "Alex Robinson",
+                    OwnerOrResponsibleParty = "Estate of Henry Brown",
+                    Surveyor = "Mary Blake",
+                    Parish = "St. Ann"
+                },
+                Row("task-2", "TR100000005", "Compute Survey Plan", "survey", "2024-10-15T09:38:00-05:00") with
+                {
+                    Applicant = "Different Applicant",
+                    Surveyor = "Other Surveyor",
+                    Parish = "St. Mary"
+                }
+            })
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+        panel.SearchText = "St. Ann";
+        panel.SelectedRow = panel.Rows[0];
+
+        TestAssert.Equal(1, panel.Rows.Count, "Search should include selected detail fields such as parish.");
+        TestAssert.Equal("Transaction: TR100000004", panel.SelectedTransactionNumberText, "Selected transaction detail mismatch.");
+        TestAssert.Equal("Task: Computation Check", panel.SelectedTaskText, "Selected task detail mismatch.");
+        TestAssert.Equal("Type: Plan Examination", panel.SelectedTransactionTypeText, "Selected type detail mismatch.");
+        TestAssert.Equal("Applicant: Alex Robinson", panel.SelectedApplicantText, "Selected applicant detail mismatch.");
+        TestAssert.Equal("Owner / responsible: Estate of Henry Brown", panel.SelectedOwnerText, "Selected owner detail mismatch.");
+        TestAssert.Equal("Surveyor: Mary Blake", panel.SelectedSurveyorText, "Selected surveyor detail mismatch.");
+        TestAssert.Equal("Parish: St. Ann", panel.SelectedParishText, "Selected parish detail mismatch.");
+        TestAssert.Equal("Assigned: tester", panel.SelectedAssignmentText, "Selected assignment detail mismatch.");
+        TestAssert.Equal("Status: Available", panel.SelectedStatusText, "Selected status detail mismatch.");
+        TestAssert.Equal("Readiness: Ready to load", panel.SelectedReadinessText, "Selected readiness detail mismatch.");
+    }
+
+    public static async Task DisabledToolbarTooltipsExplainUnavailableActions()
+    {
+        var loggedOutPanel = new TransactionPanelState(new InnolaSessionManager(new FakeAuthService()), new FakeTransactionService(), "parcel_workflow");
+
+        TestAssert.True(loggedOutPanel.RefreshTooltip.Contains("Log in", StringComparison.OrdinalIgnoreCase), "Refresh disabled reason should explain login requirement.");
+        TestAssert.True(loggedOutPanel.StartTransactionTooltip.Contains("Log in", StringComparison.OrdinalIgnoreCase), "Start disabled reason should explain login requirement.");
+
+        var loggedInPanel = new TransactionPanelState(LoggedInManager(), new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { Row("task-1", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00") })
+        }, "parcel_workflow");
+
+        await loggedInPanel.RefreshAsync();
+
+        TestAssert.True(loggedInPanel.StartTransactionTooltip.Contains("not configured", StringComparison.OrdinalIgnoreCase), "Start disabled reason should explain missing lifecycle configuration.");
+        TestAssert.True(loggedInPanel.ViewDocumentsTooltip.Contains("Load a transaction", StringComparison.OrdinalIgnoreCase), "Documents disabled reason should explain loading requirement.");
+    }
+
     public static async Task LoadingRefreshDisablesListControls()
     {
         var service = new DelayedTransactionService();
@@ -1103,6 +1213,8 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(canStop, panel.StopTaskCommand.CanExecute(null), $"Stop/Suspend command mismatch {context}.");
         TestAssert.Equal(canViewDocuments, panel.CanViewDocuments, $"View Documents property mismatch {context}.");
         TestAssert.Equal(canViewDocuments, panel.ViewDocumentsCommand.CanExecute(null), $"View Documents command mismatch {context}.");
+        TestAssert.Equal(canViewDocuments, panel.CanShowSupportingDocuments, $"SD/Supporting Documents property mismatch {context}.");
+        TestAssert.Equal(canViewDocuments, panel.ShowSupportingDocumentsCommand.CanExecute(null), $"SD/Supporting Documents command mismatch {context}.");
         TestAssert.Equal(canAddDocument, panel.CanAddDocument, $"Add Document property mismatch {context}.");
         TestAssert.Equal(canAddDocument, panel.AddDocumentCommand.CanExecute(null), $"Add Document command mismatch {context}.");
         TestAssert.Equal(canComplete, panel.CanCompleteTask, $"Complete property mismatch {context}.");

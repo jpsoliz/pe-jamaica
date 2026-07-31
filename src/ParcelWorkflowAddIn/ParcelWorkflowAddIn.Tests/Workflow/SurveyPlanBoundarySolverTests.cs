@@ -110,8 +110,103 @@ internal static class SurveyPlanBoundarySolverTests
         var solver = new SurveyPlanBoundarySolver();
         var result = solver.Apply(document, null);
 
-        TestAssert.True(result.Findings.Any(finding => finding.Contains("existing coordinates that do not match the reviewed boundary path", StringComparison.OrdinalIgnoreCase)), "Conflicting printed coordinates should be reported with actionable wording.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("existing coordinates that conflict with the reviewed boundary path", StringComparison.OrdinalIgnoreCase)), "Conflicting printed coordinates should be reported with actionable wording.");
         TestAssert.Equal("1.0", document.Rows.First(row => row.PointIdentifier == "30").Easting, "Solver must not overwrite printed coordinates silently.");
+    }
+
+    public static void DeduplicatesRepeatedPrintedCoordinateConflictFindings()
+    {
+        var document = new ExtractionReviewDocument { TransactionNumber = "100000861" };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-19",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "19",
+            Easting = "738860.904",
+            Northing = "643112.324",
+            ExtractionStatus = "0.95"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-20",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "20",
+            Easting = "1.0",
+            Northing = "1.0",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "19", ToPoint = "20", BearingText = "S01°27'E", DistanceText = "18.343" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "19", ToPoint = "20", BearingText = "S01°27'E", DistanceText = "18.343" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, null);
+
+        var repeatedConflictCount = result.Findings.Count(finding =>
+            finding.Contains("Printed reference point 20 has existing coordinates that conflict", StringComparison.OrdinalIgnoreCase));
+        TestAssert.Equal(1, repeatedConflictCount, "Repeated identical printed-coordinate conflicts should be shown once.");
+    }
+
+    public static void CleanClosedBoundaryDowngradesPrintedReferenceConflictsToWarnings()
+    {
+        var document = new ExtractionReviewDocument { TransactionNumber = "100000861" };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-a",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "A",
+            Easting = "0",
+            Northing = "0",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-b",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "B",
+            Easting = "10",
+            Northing = "10",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "A", ToPoint = "B", BearingText = "N90°00'E", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "B", ToPoint = "C", BearingText = "S00°00'E", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-3", Sequence = 3, FromPoint = "C", ToPoint = "A", BearingText = "N90°00'W", DistanceText = "10" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, null);
+
+        TestAssert.Equal("warning", result.Status, "A cleanly closed reviewed boundary should allow printed/reference coordinate mismatches to remain examiner warnings.");
+        TestAssert.True(result.ClosureDistanceM.GetValueOrDefault(999d) <= 1d, "The test boundary should close cleanly.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("Printed reference point B has existing coordinates that conflict", StringComparison.OrdinalIgnoreCase)), "The warning should still explain the printed/reference coordinate mismatch.");
+    }
+
+    public static void PrintedReferenceConflictsDoNotBlockReviewedBoundaryApproval()
+    {
+        var document = new ExtractionReviewDocument { TransactionNumber = "100000861" };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-a",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "A",
+            Easting = "0",
+            Northing = "0",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-19",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "19",
+            Easting = "10",
+            Northing = "10",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "A", ToPoint = "19", BearingText = "N90°00'E", DistanceText = "10" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, null);
+
+        TestAssert.Equal("warning", result.Status, "Printed/reference coordinate mismatches should not block when the reviewed boundary path can still generate the parcel.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("Printed reference point 19 has existing coordinates that conflict", StringComparison.OrdinalIgnoreCase)), "The examiner should still see the printed/reference coordinate mismatch.");
     }
 
     public static void BlocksIncompleteReviewedBoundaryChains()
@@ -220,7 +315,7 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "T" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Explicit rebuild should continue deriving downstream points from the rebuilt chain.");
     }
 
-    public static void RebuildReplacesConflictingExistingCoordinatesFromReviewedSegments()
+    public static void RebuildKeepsConflictingPrintedReferenceCoordinates()
     {
         var document = new ExtractionReviewDocument
         {
@@ -259,9 +354,107 @@ internal static class SurveyPlanBoundarySolverTests
             replaceConflictingCoordinatesFromReviewedSegments: true);
 
         var pointB = document.Rows.First(row => row.PointIdentifier == "B");
-        TestAssert.Equal("10", pointB.Easting, "Explicit rebuild should replace conflicting existing coordinates from reviewed segments.");
-        TestAssert.Equal("0", pointB.Northing, "Explicit rebuild should replace conflicting existing coordinates from reviewed segments.");
-        TestAssert.True(result.Findings.Any(finding => finding.Contains("was recalculated", StringComparison.OrdinalIgnoreCase)), "Rebuild should explain that a conflicting point was recalculated.");
+        TestAssert.Equal("99", pointB.Easting, "Explicit rebuild must not replace printed/reference coordinates from reviewed segments.");
+        TestAssert.Equal("99", pointB.Northing, "Explicit rebuild must not replace printed/reference coordinates from reviewed segments.");
+        TestAssert.Equal("warning", result.Status, "A two-anchor rebuild should keep the printed/reference coordinates and fit the reviewed boundary to them without blocking approval.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("fitted to printed reference points A and B", StringComparison.OrdinalIgnoreCase)), "Rebuild should explain that the reviewed boundary was fitted to the printed reference anchors.");
+        TestAssert.True(result.Findings.All(finding => !finding.Contains("conflict", StringComparison.OrdinalIgnoreCase)), "Two-anchor rebuild should not report the fitted reference anchors as conflicts.");
+    }
+
+    public static void RebuildFitsReviewedBoundaryToTwoPrintedReferenceAnchors()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000861",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-19",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "19",
+            Easting = "738860.904",
+            Northing = "643112.324",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-4",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "4",
+            Easting = "738823.139",
+            Northing = "643098.375",
+            ExtractionStatus = "0.95"
+        });
+        AddSegment(document, 1, "19", "1", "N64°30'00\"E", "10");
+        AddSegment(document, 2, "1", "2", "N64°30'00\"E", "20");
+        AddSegment(document, 3, "2", "4", "N64°30'00\"E", "10");
+        AddSegment(document, 4, "4", "9", "S01°00'00\"E", "15");
+        AddSegment(document, 5, "9", "20", "S89°00'00\"W", "30");
+        AddSegment(document, 6, "20", "19", "N01°00'00\"W", "15");
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(
+            document,
+            null,
+            useDerivedCoordinatesAsAnchors: true,
+            repairPrematureClosingLabels: true,
+            replaceConflictingCoordinatesFromReviewedSegments: true);
+
+        TestAssert.Equal("warning", result.Status, "Reference-fit rebuild should keep diagnostics as warnings, not blockers.");
+        TestAssert.Equal(6, document.Rows.Count(row => row.ParcelGroupId == "parcel-001"), "Rebuild should produce one active point row per boundary segment.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("fitted to printed reference points 19 and 4", StringComparison.OrdinalIgnoreCase)), "Solver should report the selected printed reference anchors.");
+        TestAssert.True(result.Findings.All(finding => !finding.Contains("existing coordinates that conflict", StringComparison.OrdinalIgnoreCase)), "Fitted printed anchors should not be reported as coordinate conflicts.");
+
+        var point4 = document.Rows.First(row => row.PointIdentifier == "4");
+        TestAssert.Equal("738823.139", point4.Easting, "Printed anchor point 4 should remain unchanged.");
+        TestAssert.Equal("643098.375", point4.Northing, "Printed anchor point 4 should remain unchanged.");
+        TestAssert.True(document.Rows.Any(row => row.PointIdentifier == "20" && row.ExtractionStatus == "derived_from_reviewed_segments"), "Intermediate points should be generated from the fitted reviewed boundary.");
+    }
+
+    public static void RebuildRecalculatesConflictingDerivedCoordinatesFromReviewedSegments()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000855",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-a",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "A",
+            Easting = "0",
+            Northing = "0",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-b",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "B",
+            Easting = "99",
+            Northing = "99",
+            ExtractionStatus = "0.95",
+            RowProvenance = "derived_from_reviewed_segments"
+        });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "A", ToPoint = "B", BearingText = "N90°00'E", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "B", ToPoint = "C", BearingText = "S00°00'E", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-3", Sequence = 3, FromPoint = "C", ToPoint = "D", BearingText = "N90°00'W", DistanceText = "10" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-4", Sequence = 4, FromPoint = "D", ToPoint = "A", BearingText = "N00°00'E", DistanceText = "10" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(
+            document,
+            null,
+            useDerivedCoordinatesAsAnchors: true,
+            repairPrematureClosingLabels: true,
+            replaceConflictingCoordinatesFromReviewedSegments: true);
+
+        var pointB = document.Rows.First(row => row.PointIdentifier == "B");
+        TestAssert.Equal("10", pointB.Easting, "Explicit rebuild should replace stale solver-derived coordinates from reviewed segments.");
+        TestAssert.Equal("0", pointB.Northing, "Explicit rebuild should replace stale solver-derived coordinates from reviewed segments.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("was recalculated", StringComparison.OrdinalIgnoreCase)), "Rebuild should explain that a stale derived point was recalculated.");
         TestAssert.True(result.ClosureDistanceM.GetValueOrDefault(999d) < 0.01, "Rebuilt geometry should close.");
     }
 

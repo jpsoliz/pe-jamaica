@@ -209,6 +209,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
     {
         if (!viewModel.CanCompleteValidation)
         {
+            MessageBox.Show(
+                this,
+                viewModel.ValidationCompletionStatusText,
+                "Validation cannot be completed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
             return;
         }
 
@@ -234,6 +240,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
         if (!viewModel.ContinueToCreateSpatialUnits())
         {
+            MessageBox.Show(
+                this,
+                viewModel.ValidationCompletionStatusText,
+                "Validation did not complete",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return;
         }
 

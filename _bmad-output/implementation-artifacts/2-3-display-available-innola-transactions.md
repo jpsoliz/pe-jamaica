@@ -4,7 +4,7 @@ baseline_commit: NO_VCS
 
 # Story 2.3: Display Available Innola Transactions
 
-Status: done
+Status: review
 
 ## Story
 
@@ -22,6 +22,43 @@ so that I can choose the correct assigned task before creating or reopening the 
 6. Given the Innola API call fails, times out, or returns an unexpected payload, when the panel refresh completes, then the UI shows a retryable non-secret error and does not expose access tokens, passwords, raw request payloads, or stack traces.
 7. Given live Innola access is unavailable, when the add-in runs in the configured mock or dry-run transaction mode, then a logged-in user can test the enabled Transaction Panel, sample rows, selection, and downstream gating state without real network calls.
 8. Given a transaction is selected in Story 2.3, then the add-in records the selected transaction only in session state for later handoff; it does not create a Case Folder, download attachments, claim/complete the task, or enable Parcel Workflow until later stories implement those gates.
+9. Given the transaction service returns completed transactions, when the Transaction Panel displays active work, then completed transactions are hidden by default and cannot be started, loaded, resumed, or selected for workflow processing.
+10. Given completed transaction history is needed later, when a configuration or future story explicitly enables completed transactions, then completed rows are visually distinct, read-only, and excluded from workflow action commands unless a dedicated historical-review workflow is added.
+11. Given a toolbar action is unavailable because the user is logged out, no row is selected, the selected transaction is not loadable, a transaction is already active, or the action does not apply to the selected transaction state, then the icon button is disabled both functionally and visually with muted color, reduced opacity, and a tooltip explaining why it is unavailable.
+12. Given a toolbar action is enabled, then the icon has normal contrast, clear hover/focus state, and an accessible tooltip that states the action in plain language.
+13. Given a transaction row is selected, then the Transaction Panel shows transaction details without requiring a separate window: transaction number, task/stage, transaction type/profile, applicant, owner or responsible party, surveyor, parish, received/assigned date, assigned user/group, current status, and any loadability or ownership reason returned by the service.
+14. Given the selected transaction has more detail than fits comfortably in the dockpane, then the primary panel remains scannable and a secondary details action may open a separate read-only form for expanded information, audit data, or raw supporting metadata.
+
+## Enhancement Addendum: Active Queue and Transaction Details
+
+This enhancement refines the Transaction Panel from a simple list into an active work queue with a selected-transaction inspector.
+
+Mary's requirements recommendation:
+
+- Hide completed transactions from the default list. The Transaction Panel should focus on work that can be started, resumed, or reviewed now.
+- Treat completed transaction visibility as a separate historical-review option, not part of the default active queue.
+- Make action availability explicit. If an action cannot be performed, the command must be disabled and the reason must be visible through tooltip or status text.
+- Add transaction detail fields so the user can confirm the right transaction before launching PE/PXA work.
+
+Sally's UX recommendation:
+
+- Keep transaction details in the same Transaction Panel first. A separate form should be optional, not the default path.
+- Recommended layout:
+  - Top toolbar: action icons.
+  - Filter/search/sort row.
+  - Transaction list.
+  - Bottom details inspector for the selected transaction.
+- The details inspector should be compact and grouped:
+  - Transaction: number, type/profile, task/stage, status.
+  - Parties: applicant, owner/responsible party, surveyor.
+  - Assignment: assigned user/group, received/assigned date.
+  - Location: parish and available reference values.
+  - Readiness: loadability, ownership, and unavailable reason.
+- Use a separate read-only details window only for expanded metadata, audit trail, or fields that would make the dockpane noisy.
+
+Preferred UX decision:
+
+Use an embedded bottom details inspector in the Transaction Panel, with an optional details icon for a larger read-only form later. This keeps the user's workflow in one place while still allowing deeper review when needed.
 
 ## Tasks / Subtasks
 
@@ -71,6 +108,16 @@ so that I can choose the correct assigned task before creating or reopening the 
   - [x] Run `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore`.
   - [x] Run `tools\package_addin.ps1`.
   - [x] Manual ArcGIS Pro 3.6 smoke test: automated package/register validation passed; visual confirmation in ArcGIS Pro remains the manual review step.
+- [x] Add active-queue and selected-transaction detail enhancements. (AC: 9-14)
+  - [x] Hide completed transactions from the default Transaction Panel list.
+  - [x] Add an explicit future/history behavior for completed rows only if configured or requested by a later story.
+  - [x] Ensure unavailable toolbar icon commands are disabled functionally and visually.
+  - [x] Add tooltips/status reasons for disabled commands.
+  - [x] Add selected-transaction detail fields to the row model or detail model: transaction number, task/stage, transaction type/profile, applicant, owner/responsible party, surveyor, parish, received/assigned date, assignee/group, status, and loadability reason.
+  - [x] Add a compact bottom details inspector inside the Transaction Panel.
+  - [x] Refine the details inspector caption, bold field labels, visible field set, and collapsible connection details.
+  - [x] Preserve panel usability at narrow dock widths.
+  - [x] Add tests for completed-row hiding, disabled command visual state bindings, selected detail projection, and no workflow launch from completed/read-only rows.
 
 ## Dev Notes
 
@@ -291,6 +338,14 @@ GPT-5 Codex
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore` passed with 0 warnings and 0 errors.
 - `tools\package_addin.ps1` passed and produced `ParcelWorkflowAddIn.esriAddInX`.
 - Code review patch validation: `tools\validate_contracts.ps1`, `tools\run_python_tests.ps1`, `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore`, and `tools\package_addin.ps1` passed.
+- Story 2.3 enhancement focused tests passed with redirected artifacts: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release --artifacts-path C:\tmp\pe-jamaica-artifacts -- "active queue hides" "selected details project" "disabled toolbar tooltips" "maps prior payload"`.
+- Solution build passed with redirected artifacts: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release --artifacts-path C:\tmp\pe-jamaica-artifacts-build` with one pre-existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- Default repo-object build/test path remains blocked by local `obj` folder ACLs under `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\obj`; validation used `--artifacts-path` to avoid the locked generated files.
+- `tools\package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX` at version `1.1.52`.
+- Transaction info refinement validation passed: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release --artifacts-path .artifacts\test-artifacts -- "selected details project"`.
+- Solution build passed for the transaction info refinement: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release --artifacts-path .artifacts\build-artifacts` with one pre-existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- `tools\package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX` at version `1.1.54`.
+- Crash-mitigation patch replaced inline `Run` bindings in the Transaction Info inspector with plain WPF `Grid` label/value rows; build, focused test, and packaging passed at version `1.1.55`.
 
 ### Completion Notes List
 
@@ -301,6 +356,12 @@ GPT-5 Codex
 - Added selected transaction session state while keeping `IsTransactionLoaded` false so Parcel Workflow remains disabled until Story 2.4 loads details and attachments into a Case Folder.
 - Polished the login dialog title/header without adding persistent password behavior.
 - Added focused transaction service and transaction panel tests covering logged-out no-call behavior, query shape, mapping/filtering, search/sort/selection, dry-run mode, logout clearing, and error redaction.
+- Hid completed, unavailable, wrong-step, and locked rows from the default active Transaction Panel queue.
+- Added visually muted disabled toolbar buttons with action-specific tooltips that explain why each command is unavailable.
+- Added applicant, owner/responsible party, surveyor, parish, received/assigned, assignment, status, and readiness fields to the selected-transaction inspector and search projection.
+- Refined the selected transaction inspector to show `Transaction Info:` with bold field captions and only Transaction, Task, Type, Applicant, Owner / Responsible, and Status.
+- Changed the connection/status footer into a collapsed `Connection Info` expander so it is available without taking panel space by default.
+- Reworked inspector label/value rendering to avoid inline `Run` bindings after ArcGIS Pro crash reports were generated during Transaction Panel testing.
 
 ### File List
 
@@ -329,6 +390,8 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Config.daml`
+- `tools/package_addin.ps1`
 
 ## Senior Developer Review (AI)
 
@@ -352,3 +415,7 @@ Approved after patch.
 | 2026-06-10 | 0.1 | Initial story context for displaying available Innola transactions, dry-run support, and transaction-panel UX. | Mary |
 | 2026-06-10 | 1.0 | Implemented transaction list UI, mock/live service boundary, dry-run mode, selected transaction state, and tests. | Codex |
 | 2026-06-10 | 1.1 | Applied code review patches for loading-state UI gating and transaction settings output packaging; moved story to done. | Codex |
+| 2026-07-30 | 1.2 | Added active-queue enhancements for hiding completed transactions, visually disabled toolbar actions, and selected-transaction detail inspector. | Mary / Sally / Codex |
+| 2026-07-30 | 1.3 | Implemented active-queue filtering, disabled-action reasons, selected transaction inspector metadata, and regression tests; moved story to review. | Codex |
+| 2026-07-30 | 1.4 | Refined selected transaction inspector labels/fields and collapsed connection information into an expander. | Codex |
+| 2026-07-30 | 1.5 | Replaced inline Transaction Info bindings with safer label/value rows after ArcGIS Pro crash report review. | Codex |

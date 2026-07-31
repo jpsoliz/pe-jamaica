@@ -28,6 +28,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> compareWorkflowStages;
     private readonly Action<string>? compareWorkspaceLauncher;
     private readonly Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher;
+    private readonly Func<bool> supportingDocumentsLauncher;
     private readonly Action supportingDocumentsRefresher;
     private readonly Func<DateTimeOffset> clock;
     private readonly bool autoRefreshOnLogin;
@@ -90,7 +91,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         Action<string>? compareWorkspaceLauncher = null,
         Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null,
         Action? supportingDocumentsRefresher = null,
-        InnolaTransactionLoadService? compareTransactionLoadService = null)
+        InnolaTransactionLoadService? compareTransactionLoadService = null,
+        Func<bool>? supportingDocumentsLauncher = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -113,6 +115,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             StringComparer.OrdinalIgnoreCase);
         this.compareWorkspaceLauncher = compareWorkspaceLauncher;
         this.compareWorkspaceLifecycleLauncher = compareWorkspaceLifecycleLauncher;
+        this.supportingDocumentsLauncher = supportingDocumentsLauncher ?? TryShowSupportingDocumentsSafely;
         this.supportingDocumentsRefresher = supportingDocumentsRefresher ?? (() => { });
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
@@ -124,6 +127,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StartTransactionCommand = new RelayCommand(async () => await StartSelectedTransactionAsync(), () => CanStartTransaction);
         StopTaskCommand = new RelayCommand(async () => await SaveCurrentTransactionAsync(), () => CanStopTask);
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
+        ShowSupportingDocumentsCommand = new RelayCommand(ShowSupportingDocuments, () => CanShowSupportingDocuments);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
@@ -151,6 +155,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public ICommand StopTaskCommand { get; }
 
     public ICommand ViewDocumentsCommand { get; }
+
+    public ICommand ShowSupportingDocumentsCommand { get; }
 
     public ICommand AddDocumentCommand { get; }
 
@@ -406,10 +412,63 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             selectedRow = value;
             NotifyPropertyChanged(nameof(SelectedRow));
             NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
+            NotifySelectionDetails();
             NotifyCommandStates();
             UpdateSelectionStatus();
         }
     }
+
+    public bool HasSelectedRow => SelectedRow is not null;
+
+    public string SelectedTransactionNumberText => DetailValue("Transaction", SelectedRow?.TransactionNumber);
+
+    public string SelectedTransactionNumberValue => DetailDisplay(SelectedRow?.TransactionNumber);
+
+    public string SelectedTaskText => DetailValue("Task", SelectedRow?.TaskName);
+
+    public string SelectedTaskValue => DetailDisplay(SelectedRow?.TaskName);
+
+    public string SelectedTransactionTypeText => DetailValue("Type", SelectedRow?.DisplayTransactionType);
+
+    public string SelectedTransactionTypeValue => DetailDisplay(SelectedRow?.DisplayTransactionType);
+
+    public string SelectedApplicantText => DetailValue("Applicant", SelectedRow?.DisplayApplicant);
+
+    public string SelectedApplicantValue => DetailDisplay(SelectedRow?.DisplayApplicant);
+
+    public string SelectedOwnerText => DetailValue("Owner / responsible", SelectedRow?.DisplayOwnerOrResponsibleParty);
+
+    public string SelectedOwnerValue => DetailDisplay(SelectedRow?.DisplayOwnerOrResponsibleParty);
+
+    public string SelectedSurveyorText => DetailValue("Surveyor", SelectedRow?.DisplaySurveyor);
+
+    public string SelectedParishText => DetailValue("Parish", SelectedRow?.DisplayParish);
+
+    public string SelectedReceivedText => DetailValue("Received / assigned", SelectedRow?.DisplayReceivedOrAssigned);
+
+    public string SelectedAssignmentText => DetailValue("Assigned", SelectedRow?.DisplayAssignment);
+
+    public string SelectedStatusText => DetailValue("Status", SelectedRow?.DisplayStatus);
+
+    public string SelectedStatusValue => DetailDisplay(SelectedRow?.DisplayStatus);
+
+    public string SelectedReadinessText => DetailValue("Readiness", SelectedRow?.DisplayLoadability);
+
+    public string RefreshTooltip => CanRefresh ? "Refresh transactions list" : RefreshDisabledReason();
+
+    public string StartTransactionTooltip => CanStartTransaction ? "Start selected transaction" : StartTransactionDisabledReason();
+
+    public string StopTaskTooltip => CanStopTask ? "Save current transaction progress" : StopTaskDisabledReason();
+
+    public string ViewDocumentsTooltip => CanViewDocuments ? "View transaction documents" : DocumentsDisabledReason();
+
+    public string ShowSupportingDocumentsTooltip => CanShowSupportingDocuments ? "Open supporting documents" : DocumentsDisabledReason();
+
+    public string AddDocumentTooltip => CanAddDocument ? "Add document to transaction" : DocumentsDisabledReason();
+
+    public string CompleteTaskTooltip => CanCompleteTask ? "Complete current transaction" : CompleteTaskDisabledReason();
+
+    public string ReopenCompareTooltip => CanReopenCompare ? "Reopen active Compare workspace" : ReopenCompareDisabledReason();
 
     public bool CanLoadSelectedTransaction => IsLoggedIn
         && !IsLoading
@@ -428,6 +487,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         && !IsLoading
         && session.IsTransactionLoaded
         && !string.IsNullOrWhiteSpace(session.LoadedCaseFolderPath);
+
+    public bool CanShowSupportingDocuments => CanViewDocuments;
 
     public bool CanAddDocument => CanViewDocuments;
 
@@ -700,6 +761,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 SavedTransactionNumber = null;
                 RestoreSelectedRow(requestedTransactionNumber);
                 OpenWorkflowWorkspace(requestedTransactionNumber, workflowRoute);
+                TryShowSupportingDocumentsWindow(requestedTransactionNumber);
             }
         }
         finally
@@ -770,6 +832,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         OpenCompareWorkspace(ActiveTransactionNumber);
+        TryShowSupportingDocumentsWindow(ActiveTransactionNumber);
         StatusText = $"Reopened Compare workspace for {ActiveTransactionNumber}.";
         NotifyListState();
         return Task.CompletedTask;
@@ -824,16 +887,29 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
-    private void TryShowSupportingDocumentsDockpane(string requestedTransactionNumber)
+    private void TryShowSupportingDocumentsWindow(string requestedTransactionNumber)
     {
-        if (!SupportingDocumentsDockpaneViewModel.TryShow())
+        if (!supportingDocumentsLauncher())
         {
             Debug.WriteLine(
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Supporting Documents dockpane activation failed for transaction {0}.",
+                    "Supporting Documents window activation failed for transaction {0}.",
                     requestedTransactionNumber));
-            StatusText = $"Transaction {requestedTransactionNumber} loaded. Supporting Documents could not open automatically; continue in Parcel Workflow.";
+            StatusText = $"Transaction {requestedTransactionNumber} loaded. Supporting Documents could not open automatically; use SD from Transactions List.";
+        }
+    }
+
+    private static bool TryShowSupportingDocumentsSafely()
+    {
+        try
+        {
+            return SupportingDocumentsDockpaneViewModel.TryShow();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Supporting Documents window activation failed: {exception.Message}");
+            return false;
         }
     }
 
@@ -1018,6 +1094,17 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
+    private void ShowSupportingDocuments()
+    {
+        if (!CanShowSupportingDocuments)
+        {
+            StatusText = DocumentsDisabledReason();
+            return;
+        }
+
+        TryShowSupportingDocumentsWindow(session.LoadedTransactionNumber ?? "Transaction");
+    }
+
     private void ChooseAndAddDocuments()
     {
         var dialog = new OpenFileDialog
@@ -1122,6 +1209,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanStartTransaction));
         NotifyPropertyChanged(nameof(CanStopTask));
         NotifyPropertyChanged(nameof(CanViewDocuments));
+        NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1136,6 +1224,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private void ApplyView(string? previousTransactionNumber = null)
     {
         var filtered = ApplyFilter(allRows)
+            .Where(IsDefaultActiveQueueRow)
             .Where(row => !locallyCompletedTransactionNumbers.Contains(row.TransactionNumber));
         filtered = ApplySearch(filtered);
         filtered = ApplySort(filtered);
@@ -1337,6 +1426,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             Contains(row.TransactionNumber, SearchText)
             || Contains(row.TaskName, SearchText)
             || Contains(row.ResponsibleParty, SearchText)
+            || Contains(row.Applicant, SearchText)
+            || Contains(row.OwnerOrResponsibleParty, SearchText)
+            || Contains(row.Surveyor, SearchText)
+            || Contains(row.Parish, SearchText)
             || Contains(row.AssignedUser, SearchText)
             || Contains(row.AssignedGroup, SearchText));
     }
@@ -1363,6 +1456,192 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
+    private static string DetailValue(string label, string? value)
+    {
+        return $"{label}: {DetailDisplay(value)}";
+    }
+
+    private static string DetailDisplay(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? "Not provided"
+            : value;
+    }
+
+    private bool IsDefaultActiveQueueRow(InnolaTransactionRow row)
+    {
+        return row.IsAvailable
+            && row.IsLoadable
+            && row.Status is not InnolaTransactionStatus.Completed
+                and not InnolaTransactionStatus.Unavailable
+                and not InnolaTransactionStatus.WrongStep
+                and not InnolaTransactionStatus.Locked;
+    }
+
+    private string RefreshDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before refreshing transactions.";
+        }
+
+        if (IsLoading)
+        {
+            return "Refresh is already running.";
+        }
+
+        if (IsTransactionPanelLocked)
+        {
+            return $"Finish, suspend, or cancel transaction {ActiveTransactionNumber} before refreshing.";
+        }
+
+        return "Refresh is not available right now.";
+    }
+
+    private string StartTransactionDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before starting a transaction.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the transaction list to finish loading.";
+        }
+
+        if (lifecycleCoordinator is null)
+        {
+            return "Transaction lifecycle actions are not configured.";
+        }
+
+        if (session.HasActiveTransaction)
+        {
+            return $"Transaction {ActiveTransactionNumber} is already active.";
+        }
+
+        if (SelectedRow is null)
+        {
+            return "Select a transaction to start.";
+        }
+
+        return SelectedRow.DisplayLoadability;
+    }
+
+    private string StopTaskDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before saving progress.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the current action to finish.";
+        }
+
+        if (lifecycleCoordinator is null)
+        {
+            return "Transaction lifecycle actions are not configured.";
+        }
+
+        return "Start or reopen a transaction before saving progress.";
+    }
+
+    private string DocumentsDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before viewing transaction documents.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the current action to finish.";
+        }
+
+        return "Load a transaction before using documents.";
+    }
+
+    private string CompleteTaskDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before completing a transaction.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the current action to finish.";
+        }
+
+        if (lifecycleCoordinator is null)
+        {
+            return "Transaction lifecycle actions are not configured.";
+        }
+
+        return "Complete is available after the active transaction is ready.";
+    }
+
+    private string ReopenCompareDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before reopening Compare.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the current action to finish.";
+        }
+
+        if (!session.HasActiveTransaction)
+        {
+            return "Start a Compare transaction before reopening it.";
+        }
+
+        if (!IsActiveTransactionCompareStage)
+        {
+            return "The active transaction is not a Compare task.";
+        }
+
+        return "Compare workspace launcher is not configured.";
+    }
+
+    private void NotifySelectionDetails()
+    {
+        NotifyPropertyChanged(nameof(HasSelectedRow));
+        NotifyPropertyChanged(nameof(SelectedTransactionNumberText));
+        NotifyPropertyChanged(nameof(SelectedTransactionNumberValue));
+        NotifyPropertyChanged(nameof(SelectedTaskText));
+        NotifyPropertyChanged(nameof(SelectedTaskValue));
+        NotifyPropertyChanged(nameof(SelectedTransactionTypeText));
+        NotifyPropertyChanged(nameof(SelectedTransactionTypeValue));
+        NotifyPropertyChanged(nameof(SelectedApplicantText));
+        NotifyPropertyChanged(nameof(SelectedApplicantValue));
+        NotifyPropertyChanged(nameof(SelectedOwnerText));
+        NotifyPropertyChanged(nameof(SelectedOwnerValue));
+        NotifyPropertyChanged(nameof(SelectedSurveyorText));
+        NotifyPropertyChanged(nameof(SelectedParishText));
+        NotifyPropertyChanged(nameof(SelectedReceivedText));
+        NotifyPropertyChanged(nameof(SelectedAssignmentText));
+        NotifyPropertyChanged(nameof(SelectedStatusText));
+        NotifyPropertyChanged(nameof(SelectedStatusValue));
+        NotifyPropertyChanged(nameof(SelectedReadinessText));
+    }
+
+    private void NotifyToolbarTooltips()
+    {
+        NotifyPropertyChanged(nameof(RefreshTooltip));
+        NotifyPropertyChanged(nameof(StartTransactionTooltip));
+        NotifyPropertyChanged(nameof(StopTaskTooltip));
+        NotifyPropertyChanged(nameof(ViewDocumentsTooltip));
+        NotifyPropertyChanged(nameof(ShowSupportingDocumentsTooltip));
+        NotifyPropertyChanged(nameof(AddDocumentTooltip));
+        NotifyPropertyChanged(nameof(CompleteTaskTooltip));
+        NotifyPropertyChanged(nameof(ReopenCompareTooltip));
+    }
+
     private void NotifyListState()
     {
         NotifyPropertyChanged(nameof(HasRows));
@@ -1378,9 +1657,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanStartTransaction));
         NotifyPropertyChanged(nameof(CanStopTask));
         NotifyPropertyChanged(nameof(CanViewDocuments));
+        NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
+        NotifySelectionDetails();
         NotifyCommandStates();
     }
 
@@ -1411,6 +1692,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             viewDocuments.RaiseCanExecuteChanged();
         }
 
+        if (ShowSupportingDocumentsCommand is RelayCommand showSupportingDocuments)
+        {
+            showSupportingDocuments.RaiseCanExecuteChanged();
+        }
+
         if (AddDocumentCommand is RelayCommand addDocument)
         {
             addDocument.RaiseCanExecuteChanged();
@@ -1425,6 +1711,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             reopenCompare.RaiseCanExecuteChanged();
         }
+
+        NotifyToolbarTooltips();
     }
 
     private void NotifyPropertyChanged(string propertyName)

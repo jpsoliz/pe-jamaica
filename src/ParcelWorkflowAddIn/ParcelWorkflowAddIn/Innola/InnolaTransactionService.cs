@@ -291,6 +291,26 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         var status = ParseStatus(statusText);
         var isAvailable = ReadBool(item, true, "is_available", "isAvailable", "available", "Available");
         var isLoadable = ReadBool(item, true, "is_loadable", "isLoadable", "doable", "isTaskDoable", "canLoad");
+        var applicant = CleanDisplayValue(
+            InnolaHttp.ReadString(item, "applicant", "applicant_name", "applicantName", "requestor", "requester")
+            ?? ReadNested(nestedTransaction, "applicant", "applicantName", "requestor", "requester")
+            ?? ReadNested(nestedApplication, "applicant", "applicantName", "requestor", "requester"));
+        var ownerOrResponsibleParty = CleanDisplayValue(
+            InnolaHttp.ReadString(item, "owner", "owner_name", "ownerName", "responsible_party", "responsibleParty")
+            ?? ReadNested(nestedTransaction, "owner", "ownerName", "responsibleParty")
+            ?? ReadNested(nestedApplication, "owner", "ownerName", "responsibleParty"));
+        var responsibleParty = CleanDisplayValue(
+            InnolaHttp.ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "applicant_name", "applicantName", "owner", "createdBy")
+            ?? ownerOrResponsibleParty
+            ?? applicant);
+        var surveyor = CleanDisplayValue(
+            InnolaHttp.ReadString(item, "surveyor", "surveyor_name", "surveyorName", "registered_surveyor", "registeredSurveyor", "commissioned_surveyor", "commissionedSurveyor")
+            ?? ReadNested(nestedTransaction, "surveyor", "surveyorName", "registeredSurveyor", "commissionedSurveyor")
+            ?? ReadNested(nestedApplication, "surveyor", "surveyorName", "registeredSurveyor", "commissionedSurveyor"));
+        var parish = CleanDisplayValue(
+            InnolaHttp.ReadString(item, "parish", "parish_name", "parishName")
+            ?? ReadNested(nestedTransaction, "parish", "parishName")
+            ?? ReadNested(nestedApplication, "parish", "parishName"));
 
         return new InnolaTransactionRow(
             taskId ?? string.Empty,
@@ -302,7 +322,7 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             InnolaHttp.ReadString(item, "transaction_type_text", "transactionTypeText", "transaction_type", "transactionType")
                 ?? ReadNested(nestedTransaction, "transactionTypeText", "transactionType", "type")
                 ?? ReadNested(nestedApplication, "transactionTypeText", "transactionType", "type"),
-            CleanDisplayValue(InnolaHttp.ReadString(item, "responsible_party", "responsibleParty", "requestor", "requester", "applicant", "applicant_name", "applicantName", "owner", "createdBy")),
+            responsibleParty,
             InnolaHttp.ReadString(item, "assigned_user", "assignedUser", "assignee_text", "assigneeText", "assignee", "Assignee", "user", "User"),
             InnolaHttp.ReadString(item, "assigned_group", "assignedGroup", "group", "Group", "groupName", "role", "roles_text", "rolesText", "roles"),
             InnolaHttp.ReadDate(item, "received_at", "receivedAt", "assigned_at", "assignedAt", "task_create_date", "taskCreateDate", "createTime", "created_at", "createdAt", "date", "Date")
@@ -312,7 +332,11 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             isLoadable,
             InnolaHttp.ReadString(item, "unavailable_reason", "unavailableReason", "reason", "Reason"),
             InnolaHttp.ReadString(item, "browser_url", "browserUrl", "url", "Url"),
-            applicationId);
+            applicationId,
+            applicant,
+            ownerOrResponsibleParty,
+            surveyor,
+            parish);
     }
 
     private static JsonElement? TryObject(JsonElement element, string name)

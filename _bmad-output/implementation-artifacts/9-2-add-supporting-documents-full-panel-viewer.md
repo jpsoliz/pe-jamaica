@@ -21,7 +21,7 @@ This story originally targeted a transaction-scoped ArcGIS Pro document viewer d
 ## Acceptance Criteria
 
 1. Given no transaction is loaded, when the Supporting Documents workspace is opened, then the workspace is disabled or immediately closed and no stale document from a previous transaction is visible.
-2. Given a transaction is loaded, then the add-in opens a WPF window titled `Supporting Documents [TR-<transaction-number>]` for reviewing copied transaction documents. The ArcGIS dockpane registration is disabled until the blank dockpane rendering issue is resolved.
+2. Given a transaction is loaded from a Compute or Compare task, then the add-in opens a WPF window titled `Supporting Documents [TR-<transaction-number>]` for reviewing copied transaction documents. The ArcGIS dockpane registration is disabled until the blank dockpane rendering issue is resolved.
 3. Given readable transaction attachments exist, then the top of the panel shows a combo box listing only supported readable files.
 4. Given the attachment list contains `.zip` or `.rar` files, then those archive files are not shown in the document combo box.
 5. Given the attachment list contains unsupported files, then those files are not shown unless they are explicitly supported by the viewer policy.
@@ -32,6 +32,7 @@ This story originally targeted a transaction-scoped ArcGIS Pro document viewer d
 10. Given the user changes, cancels, suspends, finalizes, closes, or unloads the active transaction, then the supporting-document list, selected document, viewer state, and tab title are refreshed or cleared for the new state.
 11. Given one selected document fails to render or is missing from disk, then the panel shows a document-specific error and keeps the remaining readable documents available.
 12. Given a document is opened from this workspace, then the file path used by the viewer comes from the copied case-folder attachment, not a remote URL or uncopied source.
+13. Given a transaction is loaded, then the Transactions List toolbar exposes an `SD` button immediately left of `CMP` so the user can reopen or activate the Supporting Documents WPF window on demand.
 
 ## UX Reference
 
@@ -52,7 +53,7 @@ ArcGIS Pro + WPF supporting document window
 │  For DOC/DOCX/DWG fallback:                                                   │
 │                                                                              │
 │      Preview is not available for this file type.                             │
-│      Open the source document or open the case folder copy.                   │
+│      The file is listed for reference; embedded preview is not available.     │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -73,6 +74,8 @@ ArcGIS Pro + WPF supporting document window
   - [x] Show `Supporting Documents [TR-<transaction-number>]` only when a transaction is loaded.
   - [x] Disable or close the workspace when no transaction is loaded.
   - [x] Clear selected document and viewer state on transaction unload/change.
+  - [x] Open or activate the WPF window automatically when Compute or Compare transactions are started.
+  - [x] Add an `SD` toolbar button beside `CMP` in Transactions List to reopen or activate the WPF window.
 
 - [x] Build the supporting-document list projection from copied case-folder attachments. (AC: 3, 4, 5, 8, 12)
   - [x] Include readable supported extensions: `.pdf`, `.txt`, `.doc`, `.docx`, and `.dwg`.
@@ -132,6 +135,8 @@ ArcGIS Pro + WPF supporting document window
 - Test that a transaction switch cannot leave the previous transaction's selected document visible.
 - Test the no-transaction state from a fresh ArcGIS Pro launch and after Cancel/Suspend/Finalize cleanup.
 - Test missing-file behavior by deleting one copied case-folder file while keeping other files present.
+- Test that starting a Compute transaction and starting/reopening a Compare transaction opens or activates the Supporting Documents WPF window.
+- Test that the Transactions List `SD` button enables only when a transaction is loaded.
 
 ## Dev Agent Record
 
@@ -150,6 +155,7 @@ ArcGIS Pro + WPF supporting document window
 - Patched review findings: safe open/reveal actions, malformed copied-path handling, WebView2 render fallback, no-wrap TXT preview, add-documents refresh, missing copied-file reveal fallback, and stronger DOCX/DWG tests.
 - Patched the blank-pane risk again by lazy-creating WebView2 only when a PDF is selected and by showing restored/readable document counts in the pane header.
 - Removed the remaining ArcGIS `DockPane` inheritance and dockpane-manager lookup from the Supporting Documents WPF fallback so the separate window no longer manually constructs an ArcGIS-managed pane type.
+- Reinstated automatic Supporting Documents WPF launch when Compute or Compare tasks start, and added the explicit `SD` toolbar launcher beside `CMP` in Transactions List.
 
 ### File List
 
@@ -166,6 +172,7 @@ ArcGIS Pro + WPF supporting document window
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/SupportingDocumentWorkspaceProjection.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/JamaicaReviewWorkspaceXamlTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/SupportingDocumentsWorkspaceTests.cs`
 
 ### Change Log
@@ -178,3 +185,4 @@ ArcGIS Pro + WPF supporting document window
 - 2026-07-26: Hardened Supporting Documents against blank dockpane content by replacing eager WebView2 XAML construction with a lazy PDF host and visible document-count diagnostics.
 - 2026-07-26: Pivoted Supporting Documents rendering back to a WPF `ProWindow` because the ArcGIS dockpane host still rendered blank despite successful data restoration; disabled dockpane DAML registration and removed Open/Reveal actions from the window.
 - 2026-07-26: Patched crash risk in the WPF fallback by converting the Supporting Documents view-model to a plain `INotifyPropertyChanged` model and removing all supporting-documents `DockPaneManager` calls.
+- 2026-07-30: Reinstated automatic WPF launch for Compute and Compare task starts, and added an `SD` Transactions List button immediately left of `CMP`.

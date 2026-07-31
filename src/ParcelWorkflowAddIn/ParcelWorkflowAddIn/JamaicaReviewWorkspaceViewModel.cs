@@ -151,6 +151,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool ShowValidationCompleteAction => CanCompleteValidation;
 
+    public string ValidationCompletionStatusText => string.IsNullOrWhiteSpace(parent.StatusText)
+        ? "Validation could not be completed. Review the validation details and try again."
+        : parent.StatusText;
+
     public bool HasReviewSegments => parent.ReviewSegments.Count > 0;
 
     public bool IsPxaSurveyPlanReview => parent.IsPxaSurveyPlanReview;
@@ -750,6 +754,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
                 OnPropertyChanged(nameof(ApprovalGuidance));
+                break;
+            case nameof(ParcelWorkflowDockpaneViewModel.StatusText):
+                OnPropertyChanged(nameof(ValidationCompletionStatusText));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewHasBlockers):
             case nameof(ParcelWorkflowDockpaneViewModel.SelectedReviewRowValidationIssueText):

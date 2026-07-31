@@ -21,6 +21,9 @@ internal static class InnolaTransactionServiceTests
                   "assigned_user": "tester",
                   "assigned_group": "survey",
                   "requestor": "Alex Robinson",
+                  "owner": "Estate of Henry Brown",
+                  "surveyor": "Mary Blake",
+                  "parish": "St. Ann",
                   "assigned_at": "2024-10-15T09:24:00-05:00",
                   "browser_url": "https://example/tasks/1"
                 },
@@ -53,6 +56,10 @@ internal static class InnolaTransactionServiceTests
         TestAssert.Equal("TR100000004", row.TransactionNumber, "Transaction number mismatch.");
         TestAssert.Equal("Computation Check", row.TaskName, "Task name mismatch.");
         TestAssert.Equal("Alex Robinson", row.ResponsibleParty, "Responsible party mismatch.");
+        TestAssert.Equal("Alex Robinson", row.Applicant, "Applicant mismatch.");
+        TestAssert.Equal("Estate of Henry Brown", row.OwnerOrResponsibleParty, "Owner/responsible mismatch.");
+        TestAssert.Equal("Mary Blake", row.Surveyor, "Surveyor mismatch.");
+        TestAssert.Equal("St. Ann", row.Parish, "Parish mismatch.");
         TestAssert.Equal("tester", row.AssignedUser, "Assigned user mismatch.");
         TestAssert.Equal("survey", row.AssignedGroup, "Assigned group mismatch.");
         TestAssert.Equal("https://example/tasks/1", row.BrowserUrl, "Browser URL mismatch.");

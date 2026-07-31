@@ -10,6 +10,9 @@ $projectDir = Split-Path -Parent $projectPath
 $configDamlPath = Join-Path $Root 'src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Config.daml'
 $outputDir = Join-Path $Root "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/bin/$Configuration/net8.0-windows"
 $packagePath = Join-Path $outputDir 'ParcelWorkflowAddIn.esriAddInX'
+$intermediateRoot = Join-Path $Root ".artifacts\msbuild-obj\ParcelWorkflowAddIn\$Configuration\"
+$intermediateProjectRoot = Join-Path $intermediateRoot 'project\'
+$intermediateOutputPath = Join-Path $intermediateProjectRoot 'net8.0-windows\'
 $sdkTargets = 'C:\Program Files\ArcGIS\Pro\bin\Esri.ProApp.SDK.Desktop.targets'
 $msbuildCandidates = @(
     'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe',
@@ -69,6 +72,31 @@ function Update-RequiredVersionText {
     return $updated
 }
 
+function Update-ConfigDamlAddInInfoVersion {
+    param(
+        [string]$Text,
+        [string]$Version
+    )
+
+    $addInInfoPattern = '<AddInInfo\b(?<attributes>[^>]*)>'
+    $match = [regex]::Match($Text, $addInInfoPattern)
+    if (-not $match.Success) {
+        throw 'Could not find Config.daml AddInInfo element.'
+    }
+
+    $addInInfoStartTag = $match.Value
+    if ($addInInfoStartTag -match '\bversion\s*=') {
+        return Update-RequiredVersionText `
+            $Text `
+            '(<AddInInfo\b[^>]*?\bversion\s*=\s*")\d+\.\d+\.\d+(")' `
+            "`${1}$Version`${2}" `
+            'Config.daml AddInInfo version'
+    }
+
+    $updatedStartTag = $addInInfoStartTag -replace '>$', " version=`"$Version`">"
+    return $Text.Remove($match.Index, $match.Length).Insert($match.Index, $updatedStartTag)
+}
+
 $originalProjectText = Get-Content -LiteralPath $projectPath -Raw
 $originalConfigDamlText = Get-Content -LiteralPath $configDamlPath -Raw
 $nextVersion = Get-NextPatchVersion -ProjectText $originalProjectText
@@ -80,11 +108,9 @@ $updatedProjectText = Update-RequiredVersionText $updatedProjectText '<AssemblyV
 $updatedProjectText = Update-RequiredVersionText $updatedProjectText '<FileVersion>\d+\.\d+\.\d+\.\d+</FileVersion>' "<FileVersion>$nextAssemblyVersion</FileVersion>" 'project FileVersion'
 $updatedProjectText = Update-RequiredVersionText $updatedProjectText '<InformationalVersion>\d+\.\d+\.\d+</InformationalVersion>' "<InformationalVersion>$nextVersion</InformationalVersion>" 'project InformationalVersion'
 
-$updatedConfigDamlText = Update-RequiredVersionText `
-    $originalConfigDamlText `
-    '(<AddInInfo\b[\s\S]*?\bversion=)"?\d+\.\d+\.\d+(")' `
-    "`${1}`"$nextVersion`${2}" `
-    'Config.daml AddInInfo version'
+$updatedConfigDamlText = Update-ConfigDamlAddInInfoVersion `
+    -Text $originalConfigDamlText `
+    -Version $nextVersion
 
 Set-Content -LiteralPath $projectPath -Value $updatedProjectText -NoNewline
 Set-Content -LiteralPath $configDamlPath -Value $updatedConfigDamlText -NoNewline
@@ -107,7 +133,17 @@ try {
         }
     }
 
-    & $msbuild $projectPath /restore /t:Rebuild /p:Configuration=$Configuration /p:UseSharedCompilation=false /nr:false /v:minimal
+    New-Item -ItemType Directory -Path $intermediateRoot -Force | Out-Null
+    & $msbuild $projectPath `
+        /restore `
+        /t:Rebuild `
+        /p:Configuration=$Configuration `
+        /p:BaseIntermediateOutputPath=$intermediateProjectRoot `
+        /p:MSBuildProjectExtensionsPath=$intermediateProjectRoot `
+        /p:IntermediateOutputPath=$intermediateOutputPath `
+        /p:UseSharedCompilation=false `
+        /nr:false `
+        /v:minimal
     if ($LASTEXITCODE -ne 0) {
         throw "Add-in package build failed."
     }

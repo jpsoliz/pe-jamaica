@@ -41,6 +41,7 @@ internal static class JamaicaReviewWorkspaceXamlTests
         var diagnosticsCode = File.ReadAllText(FindSourceFile("SupportingDocumentsDiagnostics.cs"));
         var daml = File.ReadAllText(FindSourceFile("Config.daml"));
         var transactionPanelCode = File.ReadAllText(FindSourceFile("TransactionPanelState.cs"));
+        var transactionPanelXaml = File.ReadAllText(FindSourceFile("TransactionPanelDockpane.xaml"));
         var transactionPanelDockpaneCode = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
         var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
         var showWorkflowButtonCode = File.ReadAllText(FindSourceFile("ShowParcelWorkflowDockpaneButton.cs"));
@@ -118,13 +119,15 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && viewModelCode.Contains("SupportingDocumentsWindow.RefreshIfOpen();", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentsWindow.CloseIfOpen();", StringComparison.Ordinal)
             && viewModelCode.Contains("HideIfOpen();", StringComparison.Ordinal)
-            && !transactionPanelCode.Contains("TryShowSupportingDocumentsDockpane(requestedTransactionNumber);", StringComparison.Ordinal)
+            && transactionPanelCode.Contains("TryShowSupportingDocumentsWindow(requestedTransactionNumber);", StringComparison.Ordinal)
             && !workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
             && !showWorkflowButtonCode.Contains("SupportingDocumentsDockpaneViewModel.Show();", StringComparison.Ordinal)
             && transactionPanelCode.Contains("supportingDocumentsRefresher();", StringComparison.Ordinal)
+            && transactionPanelXaml.Contains("Text=\"SD\"", StringComparison.Ordinal)
+            && transactionPanelXaml.Contains("ShowSupportingDocumentsCommand", StringComparison.Ordinal)
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
-            "Supporting Documents WPF window should validate file actions, use the active transaction title, refresh with a loaded transaction, avoid auto-opening during transaction launch, and close when the transaction is closed.");
+            "Supporting Documents WPF window should validate file actions, use the active transaction title, refresh with a loaded transaction, auto-open during transaction launch, expose an SD toolbar launcher, and close when the transaction is closed.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
             projectionCode.Contains("or \".png\"", StringComparison.Ordinal)
@@ -209,6 +212,12 @@ internal static class JamaicaReviewWorkspaceXamlTests
             windowCode.Contains("Save did not complete. The Points Validation Tool will stay open", StringComparison.Ordinal)
             && windowCode.Contains("Save is not available for the current Points Validation Tool state.", StringComparison.Ordinal),
             "Save-and-close should show a message when Save cannot run or does not complete.");
+        TestAssert.True(
+            windowCode.Contains("Validation did not complete", StringComparison.Ordinal)
+            && windowCode.Contains("Validation cannot be completed", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("ValidationCompletionStatusText", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("case nameof(ParcelWorkflowDockpaneViewModel.StatusText):", StringComparison.Ordinal),
+            "Validation Complete should show the current completion blocker in the WPF workspace instead of silently doing nothing.");
         TestAssert.True(
             dockpaneCode.Contains("NotifyPropertyChanged(nameof(HasUnsavedReviewChanges));", StringComparison.Ordinal)
             && dockpaneCode.Contains("NotifyPropertyChanged(nameof(CanSaveReviewChangesFromWorkspace));", StringComparison.Ordinal),

@@ -182,6 +182,12 @@ public sealed class SurveyPlanBoundarySolver
             return SurveyPlanBoundarySolverResult.Blocked(findings);
         }
 
+        if (replaceConflictingCoordinatesFromReviewedSegments
+            && TrySolveReviewedChainByReferenceFit(document, parsedSegments, documentAreaSqM, findings, out var referenceFitResult))
+        {
+            return referenceFitResult;
+        }
+
         for (var pass = 0; pass < parsedSegments.Count * 2; pass++)
         {
             var changed = false;
@@ -265,22 +271,292 @@ public sealed class SurveyPlanBoundarySolver
             areaDeltaPercent = areaDelta.Value / documentAreaSqM.Value * 100d;
         }
 
-        var blocker = findings.Any(finding =>
-            finding.Contains("invalid", StringComparison.OrdinalIgnoreCase)
-            || finding.Contains("missing", StringComparison.OrdinalIgnoreCase)
-            || finding.Contains("no coordinate", StringComparison.OrdinalIgnoreCase)
-            || finding.Contains("chain break", StringComparison.OrdinalIgnoreCase)
-            || finding.Contains("conflict", StringComparison.OrdinalIgnoreCase));
+        var uniqueFindings = DeduplicateFindings(findings);
+        var blocker = uniqueFindings.Any(IsBlockingFinding);
 
         return new SurveyPlanBoundarySolverResult(
-            blocker ? "blocked" : findings.Count > 0 ? "warning" : "passed",
+            blocker ? "blocked" : uniqueFindings.Count > 0 ? "warning" : "passed",
             derivedPoints.Values.ToArray(),
             closureDistance,
             area,
             documentAreaSqM,
             areaDelta,
             areaDeltaPercent,
+            uniqueFindings);
+    }
+
+    private static bool TrySolveReviewedChainByReferenceFit(
+        ExtractionReviewDocument document,
+        IReadOnlyList<SolverSegment> parsedSegments,
+        double? documentAreaSqM,
+        List<string> existingFindings,
+        out SurveyPlanBoundarySolverResult result)
+    {
+        result = SurveyPlanBoundarySolverResult.Blocked(Array.Empty<string>());
+        if (parsedSegments.Count < 2)
+        {
+            return false;
+        }
+
+        var rawCoordinates = BuildRawReviewedTraverse(parsedSegments);
+        if (rawCoordinates is null)
+        {
+            return false;
+        }
+
+        var orderedPointIds = BuildReviewedBoundaryPointOrder(document);
+        var orderedPointSet = new HashSet<string>(orderedPointIds, StringComparer.OrdinalIgnoreCase);
+        var referencePoints = document.Rows
+            .Select(row => new
+            {
+                Row = row,
+                PointId = NormalizePointId(row.PointIdentifier)
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.PointId)
+                           && orderedPointSet.Contains(item.PointId)
+                           && IsProtectedReferenceRow(item.Row)
+                           && TryParseCoordinate(item.Row.Easting, out _)
+                           && TryParseCoordinate(item.Row.Northing, out _)
+                           && rawCoordinates.ContainsKey(item.PointId))
+            .Select(item =>
+            {
+                TryParseCoordinate(item.Row.Easting, out var easting);
+                TryParseCoordinate(item.Row.Northing, out var northing);
+                return new SolverPoint(item.PointId, easting, northing, item.Row.ExtractionStatus, item.Row.SourceEvidence);
+            })
+            .GroupBy(point => point.PointId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        if (referencePoints.Length < 2)
+        {
+            return false;
+        }
+
+        var anchors = SelectReferenceFitAnchors(referencePoints, rawCoordinates);
+        if (anchors is null)
+        {
+            return false;
+        }
+
+        var firstRaw = rawCoordinates[anchors.Value.First.PointId];
+        var secondRaw = rawCoordinates[anchors.Value.Second.PointId];
+        var rawDx = secondRaw.Easting - firstRaw.Easting;
+        var rawDy = secondRaw.Northing - firstRaw.Northing;
+        var fixedDx = anchors.Value.Second.Easting - anchors.Value.First.Easting;
+        var fixedDy = anchors.Value.Second.Northing - anchors.Value.First.Northing;
+        var rawLength = Math.Sqrt(rawDx * rawDx + rawDy * rawDy);
+        var fixedLength = Math.Sqrt(fixedDx * fixedDx + fixedDy * fixedDy);
+        if (rawLength <= 0.001d || fixedLength <= 0.001d)
+        {
+            return false;
+        }
+
+        var scale = fixedLength / rawLength;
+        var angle = Math.Atan2(fixedDy, fixedDx) - Math.Atan2(rawDy, rawDx);
+        var cos = Math.Cos(angle);
+        var sin = Math.Sin(angle);
+        var transformedCoordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pointId in orderedPointIds)
+        {
+            if (!rawCoordinates.TryGetValue(pointId, out var raw))
+            {
+                continue;
+            }
+
+            var localEasting = raw.Easting - firstRaw.Easting;
+            var localNorthing = raw.Northing - firstRaw.Northing;
+            var easting = anchors.Value.First.Easting + scale * (localEasting * cos - localNorthing * sin);
+            var northing = anchors.Value.First.Northing + scale * (localEasting * sin + localNorthing * cos);
+            transformedCoordinates[pointId] = new SolverPoint(
+                pointId,
+                easting,
+                northing,
+                "derived_from_reviewed_segments",
+                $"reference-fit {anchors.Value.First.PointId}->{anchors.Value.Second.PointId}");
+        }
+
+        if (transformedCoordinates.Count < 3)
+        {
+            return false;
+        }
+
+        var findings = DeduplicateFindings(existingFindings.Concat(BuildReferenceFitFindings(
+            anchors.Value.First,
+            anchors.Value.Second,
+            referencePoints,
+            transformedCoordinates,
+            scale,
+            angle)));
+        var closureDistance = ComputeClosureDistance(parsedSegments, transformedCoordinates);
+        var area = ComputeArea(parsedSegments, transformedCoordinates);
+        double? areaDelta = null;
+        double? areaDeltaPercent = null;
+        if (area.HasValue && documentAreaSqM.HasValue && documentAreaSqM.Value > 0d)
+        {
+            areaDelta = Math.Abs(area.Value - documentAreaSqM.Value);
+            areaDeltaPercent = areaDelta.Value / documentAreaSqM.Value * 100d;
+        }
+
+        result = new SurveyPlanBoundarySolverResult(
+            findings.Count > 0 ? "warning" : "passed",
+            transformedCoordinates.Values.ToArray(),
+            closureDistance,
+            area,
+            documentAreaSqM,
+            areaDelta,
+            areaDeltaPercent,
             findings);
+        return true;
+    }
+
+    private static Dictionary<string, SolverPoint>? BuildRawReviewedTraverse(IReadOnlyList<SolverSegment> parsedSegments)
+    {
+        var rawCoordinates = new Dictionary<string, SolverPoint>(StringComparer.OrdinalIgnoreCase)
+        {
+            [parsedSegments[0].FromPoint] = new(parsedSegments[0].FromPoint, 0d, 0d, "raw_reviewed_traverse", "reviewed-boundary-start")
+        };
+        var currentPoint = parsedSegments[0].FromPoint;
+        foreach (var segment in parsedSegments)
+        {
+            if (!string.Equals(segment.FromPoint, currentPoint, StringComparison.OrdinalIgnoreCase)
+                || !rawCoordinates.TryGetValue(segment.FromPoint, out var fromCoordinate))
+            {
+                return null;
+            }
+
+            var toCoordinate = new SolverPoint(
+                segment.ToPoint,
+                fromCoordinate.Easting + segment.DeltaEasting,
+                fromCoordinate.Northing + segment.DeltaNorthing,
+                "raw_reviewed_traverse",
+                $"{segment.FromPoint}->{segment.ToPoint}");
+            if (!rawCoordinates.ContainsKey(segment.ToPoint))
+            {
+                rawCoordinates[segment.ToPoint] = toCoordinate;
+            }
+
+            currentPoint = segment.ToPoint;
+        }
+
+        return rawCoordinates;
+    }
+
+    private static (SolverPoint First, SolverPoint Second)? SelectReferenceFitAnchors(
+        IReadOnlyList<SolverPoint> referencePoints,
+        IReadOnlyDictionary<string, SolverPoint> rawCoordinates)
+    {
+        SolverPoint? first = null;
+        SolverPoint? second = null;
+        var bestDistance = 0d;
+        for (var firstIndex = 0; firstIndex < referencePoints.Count; firstIndex++)
+        {
+            for (var secondIndex = firstIndex + 1; secondIndex < referencePoints.Count; secondIndex++)
+            {
+                var firstCandidate = referencePoints[firstIndex];
+                var secondCandidate = referencePoints[secondIndex];
+                var rawDistance = Distance(rawCoordinates[firstCandidate.PointId], rawCoordinates[secondCandidate.PointId]);
+                if (rawDistance <= bestDistance)
+                {
+                    continue;
+                }
+
+                first = firstCandidate;
+                second = secondCandidate;
+                bestDistance = rawDistance;
+            }
+        }
+
+        return first is null || second is null ? null : (first, second);
+    }
+
+    private static IEnumerable<string> BuildReferenceFitFindings(
+        SolverPoint firstAnchor,
+        SolverPoint secondAnchor,
+        IReadOnlyList<SolverPoint> referencePoints,
+        IReadOnlyDictionary<string, SolverPoint> transformedCoordinates,
+        double scale,
+        double angleRadians)
+    {
+        yield return $"Reviewed boundary was rebuilt from bearings/distances and fitted to printed reference points {firstAnchor.PointId} and {secondAnchor.PointId}.";
+
+        if (Math.Abs(scale - 1d) > 0.001d)
+        {
+            yield return $"Reference-fit scale factor is {scale.ToString("0.######", CultureInfo.InvariantCulture)}.";
+        }
+
+        var angleDegrees = angleRadians * 180d / Math.PI;
+        if (Math.Abs(angleDegrees) > 0.01d)
+        {
+            yield return $"Reference-fit rotation is {angleDegrees.ToString("0.###", CultureInfo.InvariantCulture)} degrees.";
+        }
+
+        foreach (var referencePoint in referencePoints)
+        {
+            if (string.Equals(referencePoint.PointId, firstAnchor.PointId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(referencePoint.PointId, secondAnchor.PointId, StringComparison.OrdinalIgnoreCase)
+                || !transformedCoordinates.TryGetValue(referencePoint.PointId, out var transformedPoint))
+            {
+                continue;
+            }
+
+            var mismatchDistance = Distance(referencePoint, transformedPoint);
+            if (mismatchDistance <= CoordinateConflictToleranceM)
+            {
+                continue;
+            }
+
+            yield return $"Printed reference point {referencePoint.PointId} differs from the fitted reviewed boundary by {mismatchDistance.ToString("0.###", CultureInfo.InvariantCulture)} m; review that point if it should be a control point.";
+        }
+    }
+
+    private static bool IsBlockingFinding(string finding)
+    {
+        if (finding.Contains("invalid", StringComparison.OrdinalIgnoreCase)
+            || finding.Contains("missing", StringComparison.OrdinalIgnoreCase)
+            || finding.Contains("no coordinate", StringComparison.OrdinalIgnoreCase)
+            || finding.Contains("chain break", StringComparison.OrdinalIgnoreCase)
+            || finding.Contains("conflicting coordinate rows", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (IsPrintedReferenceCoordinateConflictFinding(finding))
+        {
+            return false;
+        }
+
+        return finding.Contains("conflict", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPrintedReferenceCoordinateConflictFinding(string finding)
+    {
+        return finding.StartsWith("Printed reference point ", StringComparison.OrdinalIgnoreCase)
+            && finding.Contains("has existing coordinates that conflict with the reviewed boundary path", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> DeduplicateFindings(IEnumerable<string> findings)
+    {
+        var unique = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var finding in findings)
+        {
+            var normalized = NormalizeFindingText(finding);
+            if (string.IsNullOrWhiteSpace(normalized) || !seen.Add(normalized))
+            {
+                continue;
+            }
+
+            unique.Add(finding.Trim());
+        }
+
+        return unique;
+    }
+
+    private static string NormalizeFindingText(string? finding)
+    {
+        return string.Join(
+            " ",
+            (finding ?? string.Empty).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static int RepairPrematureClosingPointLabels(IReadOnlyList<ExtractionReviewSegment> segments, List<string> findings)
@@ -428,7 +704,12 @@ public sealed class SurveyPlanBoundarySolver
                 continue;
             }
 
-            var point = new SolverPoint(pointId, easting, northing, row.ExtractionStatus, row.SourceEvidence);
+            var status = IsDerivedFromReviewedSegments(row)
+                ? "derived_from_reviewed_segments"
+                : IsReferenceCoordinateCandidateRow(row)
+                    ? "reference_coordinate"
+                    : row.ExtractionStatus;
+            var point = new SolverPoint(pointId, easting, northing, status, row.SourceEvidence);
             if (coordinates.TryGetValue(pointId, out var existing)
                 && Distance(existing, point) > CoordinateConflictToleranceM)
             {
@@ -453,7 +734,7 @@ public sealed class SurveyPlanBoundarySolver
         {
             if (Distance(existing, derived) > CoordinateConflictToleranceM)
             {
-                if (replaceConflictingCoordinatesFromReviewedSegments)
+                if (replaceConflictingCoordinatesFromReviewedSegments && CanRecalculateExistingCoordinate(existing))
                 {
                     coordinates[derived.PointId] = derived;
                     derivedPoints[derived.PointId] = derived;
@@ -461,7 +742,9 @@ public sealed class SurveyPlanBoundarySolver
                     return true;
                 }
 
-                findings.Add($"Point {derived.PointId} has existing coordinates that do not match the reviewed boundary path at segment {derived.SourceSegment}. If the boundary notes are correct, rebuild/replace this point from the reviewed segments; otherwise edit the segment bearing or distance.");
+                var conflictDistance = Distance(existing, derived).ToString("0.###", CultureInfo.InvariantCulture);
+                var existingLabel = IsPrintedReferenceCoordinate(existing) ? "Printed reference point" : "Point";
+                findings.Add($"{existingLabel} {derived.PointId} has existing coordinates that conflict with the reviewed boundary path at segment {derived.SourceSegment} by {conflictDistance} m. Keep the printed/reference coordinate or correct the segment labels, bearing, or distance.");
             }
 
             return false;
@@ -493,7 +776,7 @@ public sealed class SurveyPlanBoundarySolver
                 string.Equals(NormalizePointId(row.PointIdentifier), point.PointId, StringComparison.OrdinalIgnoreCase));
             if (existingRow is not null)
             {
-                if (replaceExistingCoordinatesFromReviewedSegments
+                if ((replaceExistingCoordinatesFromReviewedSegments && !IsProtectedReferenceRow(existingRow))
                     || IsDerivedFromReviewedSegments(existingRow)
                     || !TryParseCoordinate(existingRow.Easting, out _)
                     || !TryParseCoordinate(existingRow.Northing, out _))
@@ -606,6 +889,35 @@ public sealed class SurveyPlanBoundarySolver
             || string.Equals(row.RowProvenance, "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase)
             || string.Equals(ReadRawString(row.RawRow, "status"), "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase)
             || string.Equals(ReadRawString(row.RawRow, "row_provenance"), "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanRecalculateExistingCoordinate(SolverPoint existing)
+    {
+        return string.Equals(existing.Status, "derived_from_reviewed_segments", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPrintedReferenceCoordinate(SolverPoint existing)
+    {
+        return string.Equals(existing.Status, "printed_coordinate", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(existing.Status, "reference_coordinate", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsProtectedReferenceRow(ExtractionReviewRow row)
+    {
+        return IsReferenceCoordinateCandidateRow(row)
+            || (!IsDerivedFromReviewedSegments(row)
+                && (string.Equals(row.ExtractionStatus, "printed_coordinate", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(row.ExtractionStatus, "reference_coordinate", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(ReadRawString(row.RawRow, "status"), "printed_coordinate", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(ReadRawString(row.RawRow, "status"), "reference_coordinate", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool IsReferenceCoordinateCandidateRow(ExtractionReviewRow row)
+    {
+        return !row.IsManual
+            && !IsDerivedFromReviewedSegments(row)
+            && TryParseCoordinate(row.Easting, out _)
+            && TryParseCoordinate(row.Northing, out _);
     }
 
     private static string? ReadRawString(JsonObject node, string propertyName)
