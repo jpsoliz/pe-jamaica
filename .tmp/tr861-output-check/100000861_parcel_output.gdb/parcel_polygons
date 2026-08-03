@@ -1,0 +1,60 @@
+[
+  {
+    "transaction_number": "100000861",
+    "transaction_id": "100000861",
+    "workflow_name": "parcel_workflow_compute",
+    "workflow_stage": "spatial_units_created",
+    "transaction_type": "",
+    "review_state": "approved",
+    "source_mode": "survey_plan_pdf",
+    "polygon_index": 1,
+    "polygon_order": 1,
+    "parcel_id": "parcel-001",
+    "parcel_name": "parcel-001",
+    "name": "parcel-001",
+    "parcel_group_id": "parcel-001",
+    "coordinates": [
+      [
+        738860.904,
+        643112.324
+      ],
+      [
+        738869.093990459,
+        643114.579899218
+      ],
+      [
+        738874.4723790213,
+        643101.4551595073
+      ],
+      [
+        738838.2168702758,
+        643088.30698695
+      ],
+      [
+        738831.3287797484,
+        643100.6317737589
+      ],
+      [
+        738847.7303197384,
+        643107.2085303271
+      ],
+      [
+        738860.904,
+        643112.324
+      ]
+    ],
+    "point_count": 6,
+    "perimeter_m": 107.16701619053414,
+    "area_sq_m": 569.9316101074219,
+    "closure_status": "closed",
+    "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+    "source_doc": "",
+    "status": "",
+    "status_txt": "",
+    "source_evidence": "Reviewed boundary segments",
+    "source_txt": "Reviewed boundary segments",
+    "is_manual": false,
+    "is_edited": true,
+    "geometry_source": "reviewed_boundary_segments"
+  }
+]

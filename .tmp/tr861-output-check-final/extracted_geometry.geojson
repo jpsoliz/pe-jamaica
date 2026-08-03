@@ -1,0 +1,496 @@
+{
+  "type": "FeatureCollection",
+  "name": "extracted_geometry_jad2001",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3448",
+      "wkid": 3448,
+      "latestWkid": 3448,
+      "coordinateSystem": "JAD 2001 Jamaica Grid"
+    }
+  },
+  "spatialReference": {
+    "wkid": 3448,
+    "latestWkid": 3448
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738860.904,
+          643112.324
+        ]
+      },
+      "properties": {
+        "row_id": "19",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 1,
+        "sequence_in_group": 1,
+        "is_boundary_break": false,
+        "group_confidence": "preserved",
+        "point_identifier": "19",
+        "point_id": "19",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "0.95",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738869.093990459,
+          643114.579899218
+        ]
+      },
+      "properties": {
+        "row_id": "derived-A",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 3,
+        "sequence_in_group": 2,
+        "is_boundary_break": false,
+        "group_confidence": "",
+        "point_identifier": "A",
+        "point_id": "A",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "derived_from_reviewed_segments",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738874.4723790213,
+          643101.4551595073
+        ]
+      },
+      "properties": {
+        "row_id": "derived-B",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 4,
+        "sequence_in_group": 3,
+        "is_boundary_break": false,
+        "group_confidence": "",
+        "point_identifier": "B",
+        "point_id": "B",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "derived_from_reviewed_segments",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738838.2168702758,
+          643088.30698695
+        ]
+      },
+      "properties": {
+        "row_id": "4",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 2,
+        "sequence_in_group": 4,
+        "is_boundary_break": false,
+        "group_confidence": "preserved",
+        "point_identifier": "4",
+        "point_id": "4",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "derived_from_reviewed_segments",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738831.3287797484,
+          643100.6317737589
+        ]
+      },
+      "properties": {
+        "row_id": "derived-C",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 5,
+        "sequence_in_group": 5,
+        "is_boundary_break": false,
+        "group_confidence": "",
+        "point_identifier": "C",
+        "point_id": "C",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "derived_from_reviewed_segments",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          738847.7303197384,
+          643107.2085303271
+        ]
+      },
+      "properties": {
+        "row_id": "derived-D",
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "parcel_name": "survey-plan-parcel",
+        "traverse_id": "parcel-001",
+        "point_order": 6,
+        "sequence_in_group": 6,
+        "is_boundary_break": false,
+        "group_confidence": "",
+        "point_identifier": "D",
+        "point_id": "D",
+        "point_role": "",
+        "from_segment": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": "",
+        "status": "derived_from_reviewed_segments",
+        "length": "",
+        "distance_txt": "",
+        "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary."
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738860.904,
+            643112.324
+          ],
+          [
+            738869.093990459,
+            643114.579899218
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L1",
+        "segment_index": 1,
+        "segment_order": 1,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "19",
+        "end_point": "A",
+        "from_point_id": "19",
+        "to_point_id": "A",
+        "line_type": "line",
+        "bearing": "N74\u00b0 36'E",
+        "length": "8.495m",
+        "distance_txt": "8.495",
+        "distance_m": 8.495000000033661,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738869.093990459,
+            643114.579899218
+          ],
+          [
+            738874.4723790213,
+            643101.4551595073
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L2",
+        "segment_index": 2,
+        "segment_order": 2,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "A",
+        "end_point": "B",
+        "from_point_id": "A",
+        "to_point_id": "B",
+        "line_type": "line",
+        "bearing": "S22\u00b0 17'E",
+        "length": "14.184m",
+        "distance_txt": "14.184",
+        "distance_m": 14.18400000005281,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738874.4723790213,
+            643101.4551595073
+          ],
+          [
+            738838.2168702758,
+            643088.30698695
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L3",
+        "segment_index": 3,
+        "segment_order": 3,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "B",
+        "end_point": "4",
+        "from_point_id": "B",
+        "to_point_id": "4",
+        "line_type": "line",
+        "bearing": "S70\u00b0 04'W",
+        "length": "38.566m",
+        "distance_txt": "38.566",
+        "distance_m": 38.565999999960574,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738838.2168702758,
+            643088.30698695
+          ],
+          [
+            738831.3287797484,
+            643100.6317737589
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L4",
+        "segment_index": 4,
+        "segment_order": 4,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "4",
+        "end_point": "C",
+        "from_point_id": "4",
+        "to_point_id": "C",
+        "line_type": "line",
+        "bearing": "N29\u00b0 12'W",
+        "length": "14.119m",
+        "distance_txt": "14.119",
+        "distance_m": 14.11899999995943,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738831.3287797484,
+            643100.6317737589
+          ],
+          [
+            738847.7303197384,
+            643107.2085303271
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L5",
+        "segment_index": 5,
+        "segment_order": 5,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "C",
+        "end_point": "D",
+        "from_point_id": "C",
+        "to_point_id": "D",
+        "line_type": "line",
+        "bearing": "N68\u00b0 09'E",
+        "length": "17.671m",
+        "distance_txt": "17.671",
+        "distance_m": 17.6709999999928,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            738847.7303197384,
+            643107.2085303271
+          ],
+          [
+            738860.904,
+            643112.324
+          ]
+        ]
+      },
+      "properties": {
+        "line_id": "parcel-001_L6",
+        "segment_index": 6,
+        "segment_order": 6,
+        "parcel_id": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "traverse_id": "parcel-001",
+        "start_point": "D",
+        "end_point": "19",
+        "from_point_id": "D",
+        "to_point_id": "19",
+        "line_type": "line",
+        "bearing": "N68 47E",
+        "length": "14.133m",
+        "distance_txt": "14.132",
+        "distance_m": 14.132016190534872,
+        "radius_m": null,
+        "arc_length_m": null,
+        "delta_angle_txt": "",
+        "chord_bearing_txt": "",
+        "chord_distance_m": null,
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              738860.904,
+              643112.324
+            ],
+            [
+              738869.093990459,
+              643114.579899218
+            ],
+            [
+              738874.4723790213,
+              643101.4551595073
+            ],
+            [
+              738838.2168702758,
+              643088.30698695
+            ],
+            [
+              738831.3287797484,
+              643100.6317737589
+            ],
+            [
+              738847.7303197384,
+              643107.2085303271
+            ],
+            [
+              738860.904,
+              643112.324
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "parcel_id": "parcel-001",
+        "parcel_name": "parcel-001",
+        "name": "parcel-001",
+        "parcel_group_id": "parcel-001",
+        "polygon_order": 1,
+        "point_count": 6,
+        "perimeter_m": 107.16701619053414,
+        "area_sq_m": 569.9316101074219,
+        "closure_status": "closed",
+        "doc_type_id": "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1",
+        "source_doc": ""
+      }
+    }
+  ]
+}

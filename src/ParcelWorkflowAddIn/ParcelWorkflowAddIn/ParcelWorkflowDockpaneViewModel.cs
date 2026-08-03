@@ -1333,7 +1333,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             WorkflowState.SpatialReviewApproved => "Final Review is complete. The reviewed parcel layers are ready for final transaction completion.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode prepared editable parcel layers. Use the ArcGIS Pro map to refine geometry while keeping the transaction PDFs open as source reference.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Open or reuse the generated parcel layers in ArcGIS Pro, inspect geometry in-map, and apply any needed snapping or COGO edits after Create Spatial Units finishes.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Review the generated parcel layers in the map.",
             _ => "Final Review becomes available after spatial unit creation succeeds."
         };
 
@@ -1342,7 +1342,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             WorkflowState.SpatialReviewApproved => "Final Review has been approved. If spatial units are regenerated later, this approval will be cleared automatically and the geometry must be reviewed again.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode prepared map layers. Edit them directly in ArcGIS Pro and save progress there before final approval.",
-            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Use the ArcGIS Pro map as the editing surface. Standard edit, snapping, and COGO-capable tools should be used there rather than inside this dock pane.",
+            WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending => "Inspect the parcel geometry and mark the review complete when it is ready.",
             _ => "Run Create Spatial Units first. When geometry is available, this stage will guide the in-map review handoff."
         };
 
@@ -1364,11 +1364,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             var readiness = workflowSession.CurrentValidationSummary?.Payload.ReadinessSummary;
             var readinessText = readiness is null
                 ? string.Empty
-                : $" Construction readiness - blocker {readiness.Blocker}, warning {readiness.Warning}, passed {readiness.Passed}, skipped {readiness.Skipped}.";
+                : $" Readiness: {readiness.Blocker} blocker, {readiness.Warning} warning, {readiness.Passed} passed.";
             return payload.RootLineFeatureClassDiagnostic is null
-                ? $"COGO diagnostics: map load {mapMode}; bearing text {(payload.BearingTxtPopulated ? "yes" : "no")} ({payload.BearingTxtPopulatedCount}); distance text {(payload.DistanceTxtPopulated ? "yes" : "no")} ({payload.DistanceTxtPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
+                ? $"COGO: {mapMode}; bearings {payload.BearingTxtPopulatedCount}; distances {payload.DistanceTxtPopulatedCount}; fallback lines {payload.ComputedCogoFallbackLineCount}."
                 + readinessText
-                : $"COGO diagnostics: map load {mapMode}; root bearing_txt {(payload.RootLineBearingTxtExists ? "present" : "missing")} ({payload.BearingTxtPopulatedCount}); root distance_txt {(payload.RootLineDistanceTxtExists ? "present" : "missing")} ({payload.DistanceTxtPopulatedCount}); root length_txt {(payload.RootLineLengthTxtExists ? "present" : "missing")} ({payload.RootLineLengthTxtPopulatedCount}); root distance_m {(payload.RootLineDistanceMExists ? "present" : "missing")} ({payload.RootLineDistanceMPopulatedCount}); computed fallback lines {payload.ComputedCogoFallbackLineCount}."
+                : $"COGO: {mapMode}; bearings {payload.BearingTxtPopulatedCount}; distances {payload.DistanceTxtPopulatedCount}; lengths {payload.RootLineLengthTxtPopulatedCount}; fallback lines {payload.ComputedCogoFallbackLineCount}."
                 + readinessText;
         }
     }

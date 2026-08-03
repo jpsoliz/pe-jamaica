@@ -1,0 +1,124 @@
+{
+  "schema_version": "1.0.0",
+  "transaction_id": "100000861",
+  "run_id": "output-20260803203039",
+  "created_at": "2026-08-03T20:30:39Z",
+  "created_by": "js91482",
+  "source_manifest_hash": "sha256:ac8797be6228000c41029af7804e0f8a0e641fc2ba03c72530c78aed9435b490",
+  "payload": {
+    "status": "created",
+    "review_workspace_mode": "enterprise_working_layers",
+    "map_load_mode": "non_fabric",
+    "coordinate_system": "JAD 2001 Jamaica Grid",
+    "spatial_reference": {
+      "wkid": 3448,
+      "latestWkid": 3448
+    },
+    "output_epsg": 3448,
+    "result_gdb_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb",
+    "artifact_paths": [
+      "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\extracted_geometry.geojson"
+    ],
+    "map_layer_paths": [
+      "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_points",
+      "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_lines",
+      "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_polygons"
+    ],
+    "point_feature_class_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_points",
+    "line_feature_class_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_lines",
+    "polygon_feature_class_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_polygons",
+    "review_dataset_path": null,
+    "review_layer_path": null,
+    "review_point_feature_class_path": null,
+    "review_line_feature_class_path": null,
+    "review_polygon_feature_class_path": null,
+    "parcel_fabric_mode": null,
+    "parcel_fabric_dataset_path": null,
+    "parcel_fabric_layer_path": null,
+    "parcel_record_name": null,
+    "parcel_record_id": null,
+    "parcel_type": null,
+    "built_parcel_count": 0,
+    "built_line_count": 0,
+    "built_point_count": 0,
+    "point_count": 6,
+    "line_count": 6,
+    "polygon_count": 1,
+    "template_project_path": null,
+    "template_gdb_path": null,
+    "review_result_owner": "approved_review",
+    "add_cogo_attributes": true,
+    "add_cogo_labels": true,
+    "cogo_source_mode": "prefer_computed",
+    "payload_bearing_txt_populated_count": 6,
+    "payload_distance_txt_populated_count": 6,
+    "payload_computed_cogo_fallback_line_count": 0,
+    "bearing_txt_populated": true,
+    "bearing_txt_populated_count": 6,
+    "distance_txt_populated": true,
+    "distance_txt_populated_count": 6,
+    "computed_cogo_fallback_line_count": 0,
+    "root_line_feature_class_diagnostic": {
+      "feature_class_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\.tmp\\tr861-output-check-final\\100000861_parcel_output.gdb\\parcel_lines",
+      "exists": true,
+      "row_count": 6,
+      "fields": [
+        {
+          "field_name": "bearing_txt",
+          "exists": true,
+          "populated_count": 6
+        },
+        {
+          "field_name": "distance_txt",
+          "exists": true,
+          "populated_count": 6
+        },
+        {
+          "field_name": "length_txt",
+          "exists": true,
+          "populated_count": 6
+        },
+        {
+          "field_name": "distance_m",
+          "exists": true,
+          "populated_count": 6
+        }
+      ]
+    },
+    "review_line_feature_class_diagnostic": {
+      "feature_class_path": null,
+      "exists": false,
+      "row_count": 0,
+      "fields": [
+        {
+          "field_name": "bearing_txt",
+          "exists": false,
+          "populated_count": 0
+        },
+        {
+          "field_name": "distance_txt",
+          "exists": false,
+          "populated_count": 0
+        },
+        {
+          "field_name": "length_txt",
+          "exists": false,
+          "populated_count": 0
+        },
+        {
+          "field_name": "distance_m",
+          "exists": false,
+          "populated_count": 0
+        }
+      ]
+    },
+    "root_line_bearing_txt_exists": true,
+    "root_line_distance_txt_exists": true,
+    "root_line_length_txt_exists": true,
+    "root_line_distance_m_exists": true,
+    "root_line_length_txt_populated_count": 6,
+    "root_line_distance_m_populated_count": 6
+  },
+  "warnings": [],
+  "errors": []
+}

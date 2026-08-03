@@ -75,6 +75,15 @@ def _parse_coordinate(value: Any) -> float | None:
     try:
         return float(text)
     except ValueError:
+        pass
+
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+
+    try:
+        return float(match.group(0))
+    except ValueError:
         return None
 
 
@@ -447,8 +456,7 @@ def _parse_bearing_azimuth_deg(value: Any) -> float | None:
         return None
 
     text = (
-        text.replace(" ", "")
-        .replace("°", " ")
+        text.replace("°", " ")
         .replace("º", " ")
         .replace("'", " ")
         .replace("′", " ")
@@ -457,6 +465,7 @@ def _parse_bearing_azimuth_deg(value: Any) -> float | None:
         .replace("″", " ")
         .replace("”", " ")
     )
+    text = re.sub(r"\s+", " ", text).strip()
     match = re.match(r"^([NS])\s*([0-9]+(?:\.[0-9]+)?)(?:\s+([0-9]+(?:\.[0-9]+)?))?(?:\s+([0-9]+(?:\.[0-9]+)?))?\s*([EW])$", text)
     if not match:
         return None
@@ -538,6 +547,7 @@ def _reviewed_boundary_construction_from_solver(
                 "parcel_group_id": parcel_group_id,
                 "sequence": sequence,
                 "seq": sequence,
+                "point_order": sequence,
                 "status": status,
                 "source_evidence": "Output coordinate reconstructed from reviewed bearing/distance boundary.",
             }
