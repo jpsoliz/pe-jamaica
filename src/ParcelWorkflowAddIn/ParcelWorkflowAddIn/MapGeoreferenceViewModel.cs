@@ -207,6 +207,7 @@ internal sealed class MapGeoreferenceViewModel : INotifyPropertyChanged, IDispos
         EnsureSupportedDocumentSelection();
         TryUseSelectedImageAsPickerSource();
         RefreshDocumentProperties();
+        _ = RestorePersistedOverlayAsync();
     }
 
     public void Dispose()
@@ -332,6 +333,27 @@ internal sealed class MapGeoreferenceViewModel : INotifyPropertyChanged, IDispos
         {
             isCreatingOverlay = false;
             RefreshOverlayCommandState();
+        }
+    }
+
+    private async Task RestorePersistedOverlayAsync()
+    {
+        try
+        {
+            var result = await overlayService.TryRestorePersistedOverlayAsync(TransactionNumber).ConfigureAwait(true);
+            if (result.Success)
+            {
+                OverlayStatusText = result.Message;
+            }
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            OverlayStatusText = $"A saved M-Geo overlay was found, but it could not be restored: {exception.Message}";
         }
     }
 

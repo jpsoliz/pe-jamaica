@@ -11,6 +11,8 @@ namespace ParcelWorkflowAddIn.Compare;
 
 public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationService
 {
+    internal const int WorkingPolygonTransparencyPercent = 60;
+
     private readonly IPortalAuthProvider portalAuthProvider;
     private readonly Func<InnolaTransactionSettings> getSettings;
     private readonly IWorkingMapPreparationService workingMapPreparationService;
@@ -553,6 +555,22 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         CompareWorkingLayerRole role,
         ICollection<string> warnings)
     {
+        if (role == CompareWorkingLayerRole.Polygons)
+        {
+            try
+            {
+                featureLayer.SetTransparency(WorkingPolygonTransparencyPercent);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException
+                or NotSupportedException
+                or ArgumentException)
+            {
+                warnings.Add($"{featureLayer.Name} polygon transparency was skipped: {exception.Message}");
+            }
+
+            return;
+        }
+
         if (role != CompareWorkingLayerRole.Points)
         {
             return;

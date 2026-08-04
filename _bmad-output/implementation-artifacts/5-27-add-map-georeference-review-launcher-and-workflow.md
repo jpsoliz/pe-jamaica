@@ -22,7 +22,7 @@ This workflow must support Jamaica survey plan review in JAD2001 only. The sourc
 
 1. The Transactions List toolbar includes an `M-Geo` button near the `SD` and `CMP` actions.
 2. `M-Geo` is enabled only when a transaction is loaded and a case folder is available.
-3. Pressing `M-Geo` opens a map georeference review window for the loaded transaction.
+3. Pressing `M-Geo` first checks the local transaction output geodatabase for a saved `mgeo_overlay_<TR>` layer. If found and loadable, the overlay is added to the active map at the configured transparency and the review window is not opened; otherwise the map georeference review window opens for the loaded transaction.
 4. The review window lists readable source documents from the transaction source folder; supported initial formats are PDF and image files.
 5. Archive files such as `.zip` and `.rar` are not shown as readable documents.
 6. The selected source document is visible in the review workflow using the same stable PDF/image viewer approach used by the validation tool or supporting documents window.
@@ -35,6 +35,9 @@ This workflow must support Jamaica survey plan review in JAD2001 only. The sourc
 13. The source PDF and existing authoritative layers are never modified by this workflow.
 14. Transaction cleanup actions such as Cancel, Suspend, Finalize, or closing the active transaction remove or hide temporary M-Geo review layers.
 15. Existing `SD`, `CMP`, Compute, and Compare launch behavior is not regressed.
+16. When the M-Geo overlay is created, the georeferenced image is persisted into the transaction output geodatabase as `mgeo_overlay_<TR>` under `output\<TR>_parcel_output.gdb`.
+17. When the transaction is reopened and an M-Geo overlay artifact already exists, the workflow restores the saved overlay from the output geodatabase when available, falling back to the working-folder georeferenced image if needed.
+18. The transaction-list `M-Geo` button uses the same output-geodatabase restore check before opening the review form, so repeat reviews reuse the saved overlay whenever possible.
 
 ## Tasks / Subtasks
 
@@ -52,12 +55,16 @@ This workflow must support Jamaica survey plan review in JAD2001 only. The sourc
   - [x] Compute two-point transform diagnostics: residual error, rotation, scale, and offset.
   - [x] Generate a temporary plan overlay suitable for ArcGIS Pro map display.
   - [x] Apply 70 percent transparency to the plan overlay.
+  - [x] Persist the georeferenced overlay image into the transaction output geodatabase using the standard `{transaction}_parcel_output.gdb` naming pattern.
 - [x] Integrate with map lifecycle
   - [x] Add overlay layers to the configured working map group for the active transaction.
+  - [x] Restore a saved M-Geo overlay artifact when the transaction is reloaded.
+  - [x] Restore the saved output-geodatabase overlay from the transaction-list `M-Geo` button before opening the review form.
   - [x] Remove or hide M-Geo layers during transaction cleanup.
   - [x] Handle missing map, missing document, missing coordinates, and projection mismatch with clear user messages.
 - [ ] Verify behavior
   - [ ] Manual smoke test with TR100000861 and TR100000862.
+  - [ ] Confirm TR100000860 creates or reuses `output\100000860_parcel_output.gdb\mgeo_overlay_100000860`.
   - [ ] Confirm the map remains in JAD2001 after launching M-Geo.
   - [ ] Confirm the workflow does not mutate source PDFs, case artifacts, or authoritative layers.
   - [ ] Confirm ArcGIS Pro does not crash when opening, closing, or re-opening the M-Geo workflow.
@@ -115,6 +122,8 @@ JAD2001 / EPSG:3448 is mandatory for this workflow. Any source or map operation 
 | 2026-08-04 | 0.5 | Patched captured PDF point picking so WebView2 no longer intercepts clicks intended for the WPF capture image. | Codex |
 | 2026-08-04 | 0.6 | Simplified M-Geo inputs to picked PDF points plus matching JAD2001 coordinates and replaced misleading duplicated coordinate diagnostics. | Codex |
 | 2026-08-04 | 0.7 | Patched transaction exit cleanup so Cancel, Suspend, and Finalize remove the transaction M-Geo overlay group by transaction number. | Codex |
+| 2026-08-04 | 0.8 | Persisted M-Geo overlay rasters into the transaction output geodatabase and restored saved overlay artifacts on transaction reload. | Codex |
+| 2026-08-04 | 0.9 | Updated the M-Geo toolbar action to restore an existing output-geodatabase overlay before opening the review form. | Codex |
 
 ## Dev Agent Record
 
@@ -129,6 +138,10 @@ GPT-5 Codex
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj -c Debug` passed after hiding the WebView2 host during captured-image picking with 0 warnings and 0 errors.
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj -c Debug` passed after simplifying M-Geo coordinate entry with 0 warnings and 0 errors.
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj -c Debug` passed after transaction-scoped M-Geo overlay cleanup with 0 warnings and 0 errors.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj -c Debug` passed after M-Geo output geodatabase persistence with 0 warnings and 0 errors.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Debug` passed after M-Geo output geodatabase persistence with 1 existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Debug -- "mgeo overlay artifact plan uses transaction output geodatabase"` passed.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Debug -- "mgeo"` passed with 2 tests after M-Geo toolbar restore-first behavior; existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs(82,34)`.
 
 ### Completion Notes List
 
@@ -142,6 +155,8 @@ GPT-5 Codex
 - Patched captured PDF point picking by collapsing the live WebView2 PDF host once a capture is available; this avoids WebView2 swallowing clicks that should select document reference points.
 - Simplified M-Geo so the examiner picks two points on the PDF capture and enters the matching JAD2001 coordinates once; diagnostics now report pixel distance, JAD2001 distance, scale, and rotation for the actual overlay transform.
 - Patched transaction cleanup so the M-Geo overlay group is removed from the active map by transaction number even if the M-Geo review window is not open.
+- Added M-Geo overlay persistence into the transaction output geodatabase (`output\<TR>_parcel_output.gdb\mgeo_overlay_<TR>`) and metadata-based restore when the transaction is loaded again.
+- Patched the transaction-list `M-Geo` button so it restores an existing saved output-geodatabase overlay into the active map at 70 percent transparency before opening the M-Geo review form.
 - Manual ArcGIS Pro smoke testing with TR100000861/TR100000862 remains pending outside this build-only validation pass.
 
 ### File List
@@ -150,6 +165,7 @@ GPT-5 Codex
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/MapGeoreferenceViewModel.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/MapGeoreferenceOverlayService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/MapGeoreferenceOverlayTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/MapGeoreferenceWindow.xaml`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/MapGeoreferenceWindow.xaml.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs`

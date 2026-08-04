@@ -837,6 +837,111 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.True(result.Diagnostic?.Contains("captured BA Unit result fixture", StringComparison.OrdinalIgnoreCase) == true, "Fallback diagnostic should explain fixture use.");
     }
 
+    public static async Task InnolaOwnerVolumeFolioFallsBackToBaUnitWhenOwnerSearchFails()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
+            (
+                """
+                {
+                  "records": [
+                    {
+                      "registrationdate": "2021-05-11T00:00:00.000+00:00",
+                      "pid": "PID-1369-899",
+                      "owners": "PORTAL MATCH OWNER",
+                      "baunit_type": "bu_type_land",
+                      "tenurevalue": "Fee Simple",
+                      "volume": 1369,
+                      "folio": 899,
+                      "landvalnumber": "LV-1369-899",
+                      "spparish": "St. Catherine"
+                    }
+                  ]
+                }
+                """,
+                HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByVolumeFolioAsync("1369", "899");
+
+        TestAssert.True(result.Success, "Volume/Folio search should fall back to BA Unit when owner search fails.");
+        TestAssert.Equal(2, handler.RequestCount, "Owner-search failure should be followed by one BA Unit fallback request.");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[0], expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.RequestBodies[1]))
+        {
+            var root = document.RootElement;
+            TestAssert.Equal("baunit", root.GetProperty("searchKind").GetString(), "Fallback searchKind should use BA Unit.");
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal(1369, parameters.GetProperty("volume").GetInt32(), "Fallback volume parameter mismatch.");
+            TestAssert.Equal(899, parameters.GetProperty("folio").GetInt32(), "Fallback folio parameter mismatch.");
+        }
+
+        TestAssert.Equal(1, result.Records.Count, "Fallback BA Unit row should be mapped.");
+        TestAssert.Equal("1369", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("899", result.Records[0].Folio, "Fallback folio should map.");
+        TestAssert.Equal("PORTAL MATCH OWNER", result.Records[0].OwnerName, "Fallback owner should map.");
+        TestAssert.True(result.Diagnostic?.Contains("Owner-search Vol/Fol attempt failed first", StringComparison.OrdinalIgnoreCase) == true, "Fallback diagnostic should mention the owner-search failure.");
+    }
+
+    public static async Task InnolaOwnerLandValFallsBackToBaUnitWhenOwnerSearchFails()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
+            (
+                """
+                {
+                  "records": [
+                    {
+                      "registrationdate": "2021-05-11T00:00:00.000+00:00",
+                      "pid": "PID-LV-16505005179",
+                      "owners": "LANDVAL PORTAL MATCH",
+                      "baunit_type": "bu_type_land",
+                      "tenurevalue": "Fee Simple",
+                      "volume": 1486,
+                      "folio": 393,
+                      "landvalnumber": "16505005179",
+                      "spparish": "Manchester"
+                    }
+                  ]
+                }
+                """,
+                HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow);
+
+        var result = await service.QueryByLandValuationNumberAsync("16505005179");
+
+        TestAssert.True(result.Success, "LandVal search should fall back to BA Unit when owner search fails.");
+        TestAssert.Equal(2, handler.RequestCount, "Owner-search failure should be followed by one BA Unit fallback request.");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[0], expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.RequestBodies[1]))
+        {
+            var root = document.RootElement;
+            TestAssert.Equal("baunit", root.GetProperty("searchKind").GetString(), "Fallback searchKind should use BA Unit.");
+            var parameters = root.GetProperty("params");
+            TestAssert.Equal("16505005179", parameters.GetProperty("landValNumber").GetString(), "Fallback LandVal camel-case parameter mismatch.");
+            TestAssert.Equal("16505005179", parameters.GetProperty("landvalnumber").GetString(), "Fallback LandVal Innola casing parameter mismatch.");
+        }
+
+        TestAssert.Equal(1, result.Records.Count, "Fallback BA Unit row should be mapped.");
+        TestAssert.Equal("16505005179", result.Records[0].LandValuationNumber, "Fallback LandVal should map.");
+        TestAssert.Equal("1486", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("393", result.Records[0].Folio, "Fallback folio should map.");
+        TestAssert.Equal("LANDVAL PORTAL MATCH", result.Records[0].OwnerName, "Fallback owner should map.");
+        TestAssert.True(result.Diagnostic?.Contains("Owner-search LandVal attempt failed first", StringComparison.OrdinalIgnoreCase) == true, "Fallback diagnostic should mention the owner-search failure.");
+    }
+
     public static async Task InnolaOwnerPidSearchUsesCapturedBaUnitFixtureWhenLiveRowsAreEmpty()
     {
         var handler = new CapturingHttpMessageHandler("""{"total":0,"success":true,"records":[]}""");

@@ -25,7 +25,7 @@ The working geometry must be filtered to the selected transaction scope. Current
 3. Given the configured transaction scope field is `transaction_number`, when transaction `TR100000674` or `100000674` is loaded, then the geometry query/filter uses the normalized transaction number value expected by the working layers.
 4. Given the configured transaction scope field is changed to another supported field, when Compare loads geometry, then the query/filter uses that field instead of a hard-coded value.
 5. Given matching working polygons exist, when they are added to the active map, then the map zooms to the transaction extent with reasonable padding and includes all parcels for the transaction.
-6. Given working lines and points exist, when geometry loads, then they are grouped with the polygons and displayed read-only for Compare context.
+6. Given working polygons, lines, and points exist, when geometry loads, then they are grouped together, displayed read-only for Compare context, and the working polygon layer is styled with 60% transparency so cadastral/reference context remains visible beneath it.
 7. Given no matching working polygon is returned, when Compare opens, then the workspace shows a blocking geometry-unavailable state and disables Compare approval.
 8. Given ArcGIS Portal authentication is required for hosted layers, when geometry loads, then the operation uses the shared Enterprise/Portal auth provider and never asks the user to paste tokens into the Compare UI.
 9. Given the active map is unavailable, when geometry load is requested, then the workspace shows a retryable status and keeps documents/evidence panels available.
@@ -122,6 +122,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 
 - Implemented `ICompareWorkingGeometryService` with safe scope-field validation, transaction-number normalization from `TR100000674` to `100000674`, and escaped definition-query construction.
 - Implemented `ICompareMapIntegrationService` / `ArcGisCompareMapIntegrationService` to load configured working polygons, lines, and points into a Compare group layer, apply definition queries, mark feature layers non-editable, and zoom to polygons.
+- Compare working polygon layers are now loaded with 60% ArcGIS layer transparency while preserving the existing point, line, label, and cadaster-context styling.
 - Added `CompareWorkspaceLoadService` and state records so Compare reuses `InnolaTransactionLoadService` for Case Folder documents while separately tracking geometry blockers and retryable active-map failures.
 - Added unit coverage for layer request construction, alternate scope fields, no-polygon approval blocking, map-unavailable retry state, missing working layer targets, and query escaping.
 
@@ -139,3 +140,4 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | Date | Version | Description | Author |
 |---|---:|---|---|
 | 2026-07-14 | 1.0 | Added Compare document/geometry load state, transaction-scoped working layer load plans, ArcGIS map integration, and regression coverage. | Amelia / Codex |
+| 2026-08-04 | 1.1 | Updated Compare working polygon map styling to use 60% transparency when loading transaction-scoped working geometry. | Amelia / Codex |

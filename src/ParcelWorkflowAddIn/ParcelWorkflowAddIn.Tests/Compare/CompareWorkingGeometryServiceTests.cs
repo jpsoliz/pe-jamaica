@@ -164,6 +164,19 @@ internal static class CompareWorkingGeometryServiceTests
             "Compare map integration should keep group cleanup explicit and local.");
     }
 
+    public static void MapIntegrationAppliesSixtyPercentTransparencyToWorkingPolygons()
+    {
+        var source = File.ReadAllText(FindArcGisCompareMapIntegrationService());
+
+        TestAssert.True(
+            source.Contains("internal const int WorkingPolygonTransparencyPercent = 60;", StringComparison.Ordinal),
+            "Compare working polygons should use the requested 60% layer transparency.");
+        TestAssert.True(
+            source.Contains("role == CompareWorkingLayerRole.Polygons", StringComparison.Ordinal)
+            && source.Contains("featureLayer.SetTransparency(WorkingPolygonTransparencyPercent)", StringComparison.Ordinal),
+            "Compare map integration should apply the working polygon transparency when loading polygon layers.");
+    }
+
     public static void CompareStartupDefersArcGisMapLayerLoadingUntilRefresh()
     {
         var shellState = File.ReadAllText(FindShellState());

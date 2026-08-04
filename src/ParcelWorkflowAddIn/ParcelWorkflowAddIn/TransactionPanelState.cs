@@ -131,7 +131,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StopTaskCommand = new RelayCommand(async () => await SaveCurrentTransactionAsync(), () => CanStopTask);
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
         ShowSupportingDocumentsCommand = new RelayCommand(ShowSupportingDocuments, () => CanShowSupportingDocuments);
-        OpenMapGeoreferenceCommand = new RelayCommand(OpenMapGeoreference, () => CanOpenMapGeoreference);
+        OpenMapGeoreferenceCommand = new RelayCommand(async () => await OpenMapGeoreferenceAsync(), () => CanOpenMapGeoreference);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
@@ -1170,7 +1170,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         TryShowSupportingDocumentsWindow(session.LoadedTransactionNumber ?? "Transaction");
     }
 
-    private void OpenMapGeoreference()
+    private async Task OpenMapGeoreferenceAsync()
     {
         if (!CanOpenMapGeoreference)
         {
@@ -1179,8 +1179,30 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         var transactionNumber = session.LoadedTransactionNumber ?? "Transaction";
+        try
+        {
+            var restoreResult = await new MapGeoreferenceOverlayService()
+                .TryRestoreLocalOverlayFromOutputGeodatabaseAsync(transactionNumber)
+                .ConfigureAwait(true);
+            if (restoreResult.Success)
+            {
+                StatusText = restoreResult.Message;
+                return;
+            }
+
+            StatusText = $"{restoreResult.Message} Opening M-Geo review.";
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            StatusText = $"Could not restore saved M-Geo overlay: {exception.Message}. Opening M-Geo review.";
+        }
+
         MapGeoreferenceWindow.ShowOrActivate(transactionNumber);
-        StatusText = $"Map georeference review opened for {transactionNumber}.";
     }
 
     private void ChooseAndAddDocuments()

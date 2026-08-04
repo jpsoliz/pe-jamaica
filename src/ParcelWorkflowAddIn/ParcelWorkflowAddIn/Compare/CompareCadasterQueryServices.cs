@@ -177,14 +177,30 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         }
 
         var result = await QueryInnolaSearchAsync(query, BuildVolumeFolioPayload(volumeNumber, folioNumber), cancellationToken).ConfigureAwait(false);
-        if (!ShouldFallbackToBaUnitVolumeFolioSearch(result))
+        if (ShouldFallbackToBaUnitVolumeFolioSearch(result)
+            || ShouldFallbackToBaUnitVolumeFolioAfterOwnerFailure(result))
         {
-            return result;
+            var fallback = await CreateBaUnitSearchFallbackService()
+                .QueryByVolumeFolioAsync(volume, folio, cancellationToken)
+                .ConfigureAwait(false);
+            return fallback.Success
+                ? fallback with
+                {
+                    Diagnostic = CombineDiagnostics(
+                        fallback.Diagnostic,
+                        result.Success
+                            ? $"Owner-search Vol/Fol attempt did not return a mapped property row: {result.Diagnostic}"
+                            : $"Owner-search Vol/Fol attempt failed first: {result.Diagnostic}")
+                }
+                : result with
+                {
+                    Diagnostic = CombineDiagnostics(
+                        result.Diagnostic,
+                        $"BA Unit Vol/Fol fallback also failed: {fallback.Diagnostic}")
+                };
         }
 
-        return await CreateBaUnitSearchFallbackService()
-            .QueryByVolumeFolioAsync(volume, folio, cancellationToken)
-            .ConfigureAwait(false);
+        return result;
     }
 
     private HttpRequestMessage CreateSearchRequest(Uri searchUri, string serverUrl, string payload, string accessToken, bool includeAccessToken)
@@ -215,14 +231,30 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         var query = new LegalCadasterQuery("land_valuation_number", null, null, null, landValuationNumber.Trim(), null, parish?.Trim());
         var payload = BuildSearchPayload(query);
         var result = await QueryInnolaSearchAsync(query, payload, cancellationToken).ConfigureAwait(false);
-        if (!ShouldFallbackToBaUnitLandValuationSearch(result))
+        if (ShouldFallbackToBaUnitLandValuationSearch(result)
+            || ShouldFallbackToBaUnitLandValuationAfterOwnerFailure(result))
         {
-            return result;
+            var fallback = await CreateBaUnitSearchFallbackService()
+                .QueryByLandValuationNumberAsync(landValuationNumber, parish, cancellationToken)
+                .ConfigureAwait(false);
+            return fallback.Success
+                ? fallback with
+                {
+                    Diagnostic = CombineDiagnostics(
+                        fallback.Diagnostic,
+                        result.Success
+                            ? $"Owner-search LandVal attempt did not return a mapped property row: {result.Diagnostic}"
+                            : $"Owner-search LandVal attempt failed first: {result.Diagnostic}")
+                }
+                : result with
+                {
+                    Diagnostic = CombineDiagnostics(
+                        result.Diagnostic,
+                        $"BA Unit LandVal fallback also failed: {fallback.Diagnostic}")
+                };
         }
 
-        return await CreateBaUnitSearchFallbackService()
-            .QueryByLandValuationNumberAsync(landValuationNumber, parish, cancellationToken)
-            .ConfigureAwait(false);
+        return result;
     }
 
     public Task<LegalCadasterQueryResult> QueryByNameAsync(
@@ -475,17 +507,24 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             && result.Success
             && result.Status == CompareEvidenceStatus.NoRecordReturned
             && result.Query.QueryKind.Equals("volume_folio", StringComparison.OrdinalIgnoreCase)
-            && result.Records.Count == 0
-            && (result.RawDebug?.RawRecordCount == 0 || HasMeaningfulPartySearchMatch(result.PartyRecords));
+            && result.Records.Count == 0;
     }
 
-    private static bool HasMeaningfulPartySearchMatch(IReadOnlyList<LegalCadasterPartyRecord>? partyRecords)
+    private bool ShouldFallbackToBaUnitVolumeFolioAfterOwnerFailure(LegalCadasterQueryResult result)
     {
-        return partyRecords?.Any(record =>
-            !string.IsNullOrWhiteSpace(record.PartyName)
-            || !string.IsNullOrWhiteSpace(record.FullAddress)
-            || !string.IsNullOrWhiteSpace(record.TaxNumber)
-            || !string.IsNullOrWhiteSpace(record.PartyStatus)) == true;
+        return source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            && !result.Success
+            && result.Retryable
+            && result.Query.QueryKind.Equals("volume_folio", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CombineDiagnostics(string? first, string? second)
+    {
+        var parts = new[] { first, second }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToArray();
+        return string.Join(" ", parts);
     }
 
     private bool ShouldFallbackToBaUnitPidSearch(LegalCadasterQueryResult result)
@@ -507,8 +546,15 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             && result.Success
             && result.Status == CompareEvidenceStatus.NoRecordReturned
             && result.Query.QueryKind.Equals("land_valuation_number", StringComparison.OrdinalIgnoreCase)
-            && result.Records.Count == 0
-            && (result.RawDebug?.RawRecordCount == 0 || HasMeaningfulPartySearchMatch(result.PartyRecords));
+            && result.Records.Count == 0;
+    }
+
+    private bool ShouldFallbackToBaUnitLandValuationAfterOwnerFailure(LegalCadasterQueryResult result)
+    {
+        return source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            && !result.Success
+            && result.Retryable
+            && result.Query.QueryKind.Equals("land_valuation_number", StringComparison.OrdinalIgnoreCase);
     }
 
     private InnolaBaUnitLegalCadasterQueryService CreateBaUnitSearchFallbackService()
