@@ -28,6 +28,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> compareWorkflowStages;
     private readonly Action<string>? compareWorkspaceLauncher;
     private readonly Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher;
+    private readonly Func<bool> isCompareWorkspaceOpen;
     private readonly Func<bool> supportingDocumentsLauncher;
     private readonly Action supportingDocumentsRefresher;
     private readonly Func<DateTimeOffset> clock;
@@ -92,7 +93,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher = null,
         Action? supportingDocumentsRefresher = null,
         InnolaTransactionLoadService? compareTransactionLoadService = null,
-        Func<bool>? supportingDocumentsLauncher = null)
+        Func<bool>? supportingDocumentsLauncher = null,
+        Func<bool>? isCompareWorkspaceOpen = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -115,6 +117,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             StringComparer.OrdinalIgnoreCase);
         this.compareWorkspaceLauncher = compareWorkspaceLauncher;
         this.compareWorkspaceLifecycleLauncher = compareWorkspaceLifecycleLauncher;
+        this.isCompareWorkspaceOpen = isCompareWorkspaceOpen ?? CompareWorkspaceWindowLifecycle.IsOpen;
         this.supportingDocumentsLauncher = supportingDocumentsLauncher ?? TryShowSupportingDocumentsSafely;
         this.supportingDocumentsRefresher = supportingDocumentsRefresher ?? (() => { });
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
@@ -128,6 +131,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StopTaskCommand = new RelayCommand(async () => await SaveCurrentTransactionAsync(), () => CanStopTask);
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
         ShowSupportingDocumentsCommand = new RelayCommand(ShowSupportingDocuments, () => CanShowSupportingDocuments);
+        OpenMapGeoreferenceCommand = new RelayCommand(OpenMapGeoreference, () => CanOpenMapGeoreference);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
@@ -157,6 +161,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public ICommand ViewDocumentsCommand { get; }
 
     public ICommand ShowSupportingDocumentsCommand { get; }
+
+    public ICommand OpenMapGeoreferenceCommand { get; }
 
     public ICommand AddDocumentCommand { get; }
 
@@ -454,21 +460,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public string SelectedReadinessText => DetailValue("Readiness", SelectedRow?.DisplayLoadability);
 
-    public string RefreshTooltip => CanRefresh ? "Refresh transactions list" : RefreshDisabledReason();
+    public string RefreshTooltip => CanRefresh ? "Refresh the Innola transaction list." : RefreshDisabledReason();
 
-    public string StartTransactionTooltip => CanStartTransaction ? "Start selected transaction" : StartTransactionDisabledReason();
+    public string StartTransactionTooltip => CanStartTransaction ? "Load and start the selected transaction." : StartTransactionDisabledReason();
 
-    public string StopTaskTooltip => CanStopTask ? "Save current transaction progress" : StopTaskDisabledReason();
+    public string StopTaskTooltip => CanStopTask ? "Save current transaction progress and release it for later resume." : StopTaskDisabledReason();
 
-    public string ViewDocumentsTooltip => CanViewDocuments ? "View transaction documents" : DocumentsDisabledReason();
+    public string ViewDocumentsTooltip => CanViewDocuments ? "View local source and output files for the active transaction." : DocumentsDisabledReason();
 
-    public string ShowSupportingDocumentsTooltip => CanShowSupportingDocuments ? "Open supporting documents" : DocumentsDisabledReason();
+    public string ShowSupportingDocumentsTooltip => CanShowSupportingDocuments ? "Open supporting documents for the active transaction." : DocumentsDisabledReason();
 
-    public string AddDocumentTooltip => CanAddDocument ? "Add document to transaction" : DocumentsDisabledReason();
+    public string OpenMapGeoreferenceTooltip => CanOpenMapGeoreference ? "Open map georeference review for the active transaction." : DocumentsDisabledReason();
 
-    public string CompleteTaskTooltip => CanCompleteTask ? "Complete current transaction" : CompleteTaskDisabledReason();
+    public string AddDocumentTooltip => CanAddDocument ? "Attach a document to the active transaction." : DocumentsDisabledReason();
 
-    public string ReopenCompareTooltip => CanReopenCompare ? "Reopen active Compare workspace" : ReopenCompareDisabledReason();
+    public string CompleteTaskTooltip => CanCompleteTask ? "Complete the active transaction in Innola." : CompleteTaskDisabledReason();
+
+    public string ReopenCompareTooltip => CanReopenCompare ? "Reopen the active Compare workspace." : ReopenCompareDisabledReason();
 
     public bool CanLoadSelectedTransaction => IsLoggedIn
         && !IsLoading
@@ -490,6 +498,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public bool CanShowSupportingDocuments => CanViewDocuments;
 
+    public bool CanOpenMapGeoreference => CanViewDocuments;
+
     public bool CanAddDocument => CanViewDocuments;
 
     public bool CanCompleteTask => IsLoggedIn && !IsLoading && lifecycleCoordinator is not null && session.CanCompleteTransaction;
@@ -498,6 +508,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         && !IsLoading
         && session.HasActiveTransaction
         && IsActiveTransactionCompareStage
+        && !isCompareWorkspaceOpen()
         && (compareWorkspaceLauncher is not null || compareWorkspaceLifecycleLauncher is not null);
 
     private bool IsActiveTransactionCompareStage => ParcelWorkflowStageRouter.Resolve(
@@ -801,6 +812,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     private void OpenCompareWorkspace(string requestedTransactionNumber)
     {
+        if (CompareWorkspaceWindowLifecycle.TryActivateExisting())
+        {
+            StatusText = $"Compare workspace for {requestedTransactionNumber} is already open.";
+            NotifyListState();
+            return;
+        }
+
         var lifecycleService = lifecycleCoordinator is null
             ? null
             : new TransactionPanelCompareTaskLifecycleService(this);
@@ -825,7 +843,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (!CanReopenCompare || string.IsNullOrWhiteSpace(ActiveTransactionNumber))
         {
             StatusText = session.HasActiveTransaction
-                ? "Reopen Compare is available only for active Compare-stage transactions."
+                ? ReopenCompareDisabledReason()
                 : "No active Compare transaction is available to reopen.";
             NotifyListState();
             return Task.CompletedTask;
@@ -950,6 +968,53 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return result.Success
                 ? CompareTaskLifecycleResult.Succeeded(StatusText)
                 : CompareTaskLifecycleResult.Failure(ErrorText ?? StatusText);
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+        }
+    }
+
+    internal async Task<CompareTaskLifecycleResult> CancelCurrentTransactionForCompareAsync(string? transactionNumber, CancellationToken cancellationToken = default)
+    {
+        if (lifecycleCoordinator is null)
+        {
+            return CompareTaskLifecycleResult.Failure("Cancel task is unavailable for the current transaction state.");
+        }
+
+        if (!MatchesActiveTransaction(transactionNumber))
+        {
+            return CompareTaskLifecycleResult.Failure("Cancel task is available only for the active Compare transaction.");
+        }
+
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = "Cancelling and closing transaction.";
+        try
+        {
+            var cancelledTransactionNumber = session.LoadedTransactionNumber;
+            var result = lifecycleCoordinator.CancelActiveProcess();
+            if (!result.Success)
+            {
+                ErrorText = result.ErrorMessage ?? "Could not cancel transaction. Try again.";
+                StatusText = ErrorText;
+                return CompareTaskLifecycleResult.Failure(StatusText);
+            }
+
+            SavedTransactionNumber = null;
+            session.ClearLoadedTransaction();
+            SelectedRow = null;
+            searchText = string.Empty;
+            selectedFilter = "All tasks";
+            NotifyPropertyChanged(nameof(SearchText));
+            NotifyPropertyChanged(nameof(SelectedFilter));
+            StatusText = result.StatusMessage ?? $"Cancelled {cancelledTransactionNumber}.";
+            NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+            await RefreshAsync(cancellationToken);
+            ErrorText = null;
+            StatusText = result.StatusMessage ?? $"Cancelled {cancelledTransactionNumber}.";
+            return CompareTaskLifecycleResult.Succeeded(StatusText);
         }
         finally
         {
@@ -1105,6 +1170,19 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         TryShowSupportingDocumentsWindow(session.LoadedTransactionNumber ?? "Transaction");
     }
 
+    private void OpenMapGeoreference()
+    {
+        if (!CanOpenMapGeoreference)
+        {
+            StatusText = DocumentsDisabledReason();
+            return;
+        }
+
+        var transactionNumber = session.LoadedTransactionNumber ?? "Transaction";
+        MapGeoreferenceWindow.ShowOrActivate(transactionNumber);
+        StatusText = $"Map georeference review opened for {transactionNumber}.";
+    }
+
     private void ChooseAndAddDocuments()
     {
         var dialog = new OpenFileDialog
@@ -1177,6 +1255,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private void HandleSessionChanged()
     {
         RefreshSessionState();
+        if (!session.IsTransactionLoaded)
+        {
+            MapGeoreferenceWindowLifecycle.CloseIfOpen();
+        }
+
         if (!session.IsLoggedIn)
         {
             refreshAfterLoginQueued = false;
@@ -1210,6 +1293,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanStopTask));
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
+        NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1605,6 +1689,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return "The active transaction is not a Compare task.";
         }
 
+        if (isCompareWorkspaceOpen())
+        {
+            return "Compare workspace is already open.";
+        }
+
         return "Compare workspace launcher is not configured.";
     }
 
@@ -1637,6 +1726,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(StopTaskTooltip));
         NotifyPropertyChanged(nameof(ViewDocumentsTooltip));
         NotifyPropertyChanged(nameof(ShowSupportingDocumentsTooltip));
+        NotifyPropertyChanged(nameof(OpenMapGeoreferenceTooltip));
         NotifyPropertyChanged(nameof(AddDocumentTooltip));
         NotifyPropertyChanged(nameof(CompleteTaskTooltip));
         NotifyPropertyChanged(nameof(ReopenCompareTooltip));
@@ -1658,6 +1748,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanStopTask));
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
+        NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1695,6 +1786,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (ShowSupportingDocumentsCommand is RelayCommand showSupportingDocuments)
         {
             showSupportingDocuments.RaiseCanExecuteChanged();
+        }
+
+        if (OpenMapGeoreferenceCommand is RelayCommand openMapGeoreference)
+        {
+            openMapGeoreference.RaiseCanExecuteChanged();
         }
 
         if (AddDocumentCommand is RelayCommand addDocument)
@@ -1806,6 +1902,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         public Task<CompareTaskLifecycleResult> SuspendAsync(string transactionNumber, CancellationToken cancellationToken = default)
         {
             return owner.SuspendCurrentTransactionForCompareAsync(transactionNumber, cancellationToken);
+        }
+
+        public Task<CompareTaskLifecycleResult> CancelAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            return owner.CancelCurrentTransactionForCompareAsync(transactionNumber, cancellationToken);
         }
 
         public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)

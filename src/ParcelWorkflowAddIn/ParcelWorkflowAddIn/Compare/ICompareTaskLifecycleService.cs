@@ -2,6 +2,8 @@ namespace ParcelWorkflowAddIn.Compare;
 
 public interface ICompareTaskLifecycleService
 {
+    Task<CompareTaskLifecycleResult> CancelAsync(string transactionNumber, CancellationToken cancellationToken = default);
+
     Task<CompareTaskLifecycleResult> SuspendAsync(string transactionNumber, CancellationToken cancellationToken = default);
 
     Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default);

@@ -373,6 +373,121 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal("Land", result.Records[0].PropertyType, "Fallback property type should map.");
     }
 
+    public static async Task InnolaOwnerVolumeFolioFallsBackToBaUnitWhenOwnerSearchReturnsOnlyPartyRows()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "type": "party_type_individual",
+                   "fullname": "SMITH, JOHN",
+                   "prid": "100778284",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK),
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "pid": "N/A",
+                   "baunit_type": "bu_type_land",
+                   "titleno": "RP88888888",
+                   "volume": 1234,
+                   "folio": 546,
+                   "tenurevalue": "Fee Simple",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByVolumeFolioAsync("1234", "546");
+
+        TestAssert.True(result.Success, "BA Unit fallback should succeed when owner search returns party rows but no property rows.");
+        TestAssert.Equal(CompareEvidenceStatus.Ready, result.Status, "Fallback property record should be ready.");
+        TestAssert.Equal(2, handler.RequestCount, "Volume/Folio should try owner search first, then BA Unit fallback for party-only owner results.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.RequestUris[0]?.ToString(), "First query should use owner search.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/search/", handler.RequestUris[1]?.ToString(), "Fallback query should use BA Unit property search.");
+        TestAssert.Equal("1234", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("546", result.Records[0].Folio, "Fallback folio should map.");
+        TestAssert.Equal("RP88888888", result.Records[0].TitleRecordId, "Fallback title should map.");
+    }
+
+    public static async Task InnolaOwnerLandValFallsBackToBaUnitWhenOwnerSearchReturnsOnlyPartyRows()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "type": "party_type_individual",
+                   "fullname": "SMITH, JOHN",
+                   "prid": "100778284",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK),
+            ("""
+             {
+               "error": null,
+               "total": 1,
+               "success": true,
+               "records": [
+                 {
+                   "pid": "N/A",
+                   "baunit_type": "bu_type_land",
+                   "titleno": "RP77777777",
+                   "volume": 1234,
+                   "folio": 546,
+                   "landvalnumber": "LV-123",
+                   "tenurevalue": "Fee Simple",
+                   "status": "reg_status_current"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalOwnerSearchSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByLandValuationNumberAsync("LV-123");
+
+        TestAssert.True(result.Success, "BA Unit fallback should succeed when LandVal owner search returns party rows but no property rows.");
+        TestAssert.Equal(CompareEvidenceStatus.Ready, result.Status, "Fallback property record should be ready.");
+        TestAssert.Equal(2, handler.RequestCount, "LandVal should try owner search first, then BA Unit fallback for party-only owner results.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/portal/searches", handler.RequestUris[0]?.ToString(), "First query should use owner search.");
+        TestAssert.Equal("https://eltrs-dev.innola-solutions.com/api/v4/rest/search/", handler.RequestUris[1]?.ToString(), "Fallback query should use BA Unit property search.");
+        TestAssert.Equal("LV-123", result.Records[0].LandValuationNumber, "Fallback LandVal should map.");
+        TestAssert.Equal("1234", result.Records[0].Volume, "Fallback volume should map.");
+        TestAssert.Equal("546", result.Records[0].Folio, "Fallback folio should map.");
+    }
+
     public static async Task InnolaOwnerPidSearchFallsBackToBaUnitWhenOwnerSearchIsUnauthorized()
     {
         var handler = new CapturingHttpMessageHandler(new[]

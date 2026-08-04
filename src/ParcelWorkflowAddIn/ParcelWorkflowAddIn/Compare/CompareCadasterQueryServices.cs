@@ -207,14 +207,22 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             && hasInnolaSessionCookie(serverUrl);
     }
 
-    public Task<LegalCadasterQueryResult> QueryByLandValuationNumberAsync(
+    public async Task<LegalCadasterQueryResult> QueryByLandValuationNumberAsync(
         string landValuationNumber,
         string? parish = null,
         CancellationToken cancellationToken = default)
     {
         var query = new LegalCadasterQuery("land_valuation_number", null, null, null, landValuationNumber.Trim(), null, parish?.Trim());
         var payload = BuildSearchPayload(query);
-        return QueryInnolaSearchAsync(query, payload, cancellationToken);
+        var result = await QueryInnolaSearchAsync(query, payload, cancellationToken).ConfigureAwait(false);
+        if (!ShouldFallbackToBaUnitLandValuationSearch(result))
+        {
+            return result;
+        }
+
+        return await CreateBaUnitSearchFallbackService()
+            .QueryByLandValuationNumberAsync(landValuationNumber, parish, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public Task<LegalCadasterQueryResult> QueryByNameAsync(
@@ -467,7 +475,17 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             && result.Success
             && result.Status == CompareEvidenceStatus.NoRecordReturned
             && result.Query.QueryKind.Equals("volume_folio", StringComparison.OrdinalIgnoreCase)
-            && result.RawDebug?.RawRecordCount == 0;
+            && result.Records.Count == 0
+            && (result.RawDebug?.RawRecordCount == 0 || HasMeaningfulPartySearchMatch(result.PartyRecords));
+    }
+
+    private static bool HasMeaningfulPartySearchMatch(IReadOnlyList<LegalCadasterPartyRecord>? partyRecords)
+    {
+        return partyRecords?.Any(record =>
+            !string.IsNullOrWhiteSpace(record.PartyName)
+            || !string.IsNullOrWhiteSpace(record.FullAddress)
+            || !string.IsNullOrWhiteSpace(record.TaxNumber)
+            || !string.IsNullOrWhiteSpace(record.PartyStatus)) == true;
     }
 
     private bool ShouldFallbackToBaUnitPidSearch(LegalCadasterQueryResult result)
@@ -481,6 +499,16 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         return !result.Success
             && result.Retryable
             && result.Diagnostic?.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private bool ShouldFallbackToBaUnitLandValuationSearch(LegalCadasterQueryResult result)
+    {
+        return source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
+            && result.Success
+            && result.Status == CompareEvidenceStatus.NoRecordReturned
+            && result.Query.QueryKind.Equals("land_valuation_number", StringComparison.OrdinalIgnoreCase)
+            && result.Records.Count == 0
+            && (result.RawDebug?.RawRecordCount == 0 || HasMeaningfulPartySearchMatch(result.PartyRecords));
     }
 
     private InnolaBaUnitLegalCadasterQueryService CreateBaUnitSearchFallbackService()

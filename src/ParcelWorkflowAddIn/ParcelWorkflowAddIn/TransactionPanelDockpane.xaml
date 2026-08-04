@@ -113,6 +113,15 @@
                        VerticalAlignment="Center" />
           </Button>
           <Button Style="{StaticResource ToolbarButton}"
+                  Command="{Binding State.OpenMapGeoreferenceCommand}"
+                  ToolTip="{Binding State.OpenMapGeoreferenceTooltip}">
+            <TextBlock Text="M-Geo"
+                       FontSize="10"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+          </Button>
+          <Button Style="{StaticResource ToolbarButton}"
                   Margin="0"
                   Command="{Binding State.ReopenCompareCommand}"
                   ToolTip="{Binding State.ReopenCompareTooltip}">

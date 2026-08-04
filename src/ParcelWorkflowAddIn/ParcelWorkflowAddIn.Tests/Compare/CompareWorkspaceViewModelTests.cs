@@ -279,6 +279,56 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal("Suspended from test.", viewModel.StatusText, "Suspend result message should be shown.");
     }
 
+    public static async Task CancelTaskAsksForConfirmationAndReleasesTransaction()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            CancelResult = CompareTaskLifecycleResult.Succeeded("Cancelled from test.")
+        };
+        var prompt = new RecordingCompareWorkspacePromptService();
+        var viewModel = CreateViewModel(
+            taskLifecycleService: lifecycle,
+            promptService: prompt);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        var closeRequested = false;
+        viewModel.CloseRequested += (_, _) => closeRequested = true;
+
+        viewModel.CancelTaskCommand.Execute(null);
+        await lifecycle.CancelObserved.Task;
+
+        TestAssert.Equal(1, prompt.CancelCalls, "Cancel should ask for user confirmation.");
+        TestAssert.Equal(1, lifecycle.CancelCalls, "Confirmed Cancel should release the active transaction through the lifecycle bridge.");
+        TestAssert.Equal("TR100000674", lifecycle.LastTransactionNumber, "Cancel should target the active Compare transaction.");
+        TestAssert.True(closeRequested, "Successful Cancel should ask the window to close after cleanup.");
+        TestAssert.False(viewModel.DocumentsAvailable, "Successful Cancel cleanup should clear document availability.");
+        TestAssert.False(viewModel.GeometryAvailable, "Successful Cancel cleanup should clear geometry availability.");
+    }
+
+    public static void CancelPromptCanKeepCompareOpenWithoutCleanup()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService();
+        var prompt = new RecordingCompareWorkspacePromptService
+        {
+            CancelResult = false
+        };
+        var viewModel = CreateViewModel(
+            taskLifecycleService: lifecycle,
+            promptService: prompt);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        var closeRequested = false;
+        viewModel.CloseRequested += (_, _) => closeRequested = true;
+
+        viewModel.CancelTaskCommand.Execute(null);
+
+        TestAssert.Equal(1, prompt.CancelCalls, "Cancel should ask for user confirmation.");
+        TestAssert.Equal(0, lifecycle.CancelCalls, "Rejected Cancel should not release the transaction.");
+        TestAssert.False(closeRequested, "Rejected Cancel should keep Compare open.");
+        TestAssert.True(viewModel.DocumentsAvailable, "Rejected Cancel should keep the loaded documents.");
+        TestAssert.True(viewModel.GeometryAvailable, "Rejected Cancel should keep the loaded geometry.");
+    }
+
     public static async Task SuspendTaskCleansCompareMapAndWorkspaceOnSuccess()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -615,6 +665,24 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(viewModel.SearchValidationMessage.Contains("numeric", StringComparison.OrdinalIgnoreCase), "Validation should explain numeric requirement.");
     }
 
+    public static async Task ManualVolumeFolioSearchAcceptsCombinedSlashValue()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var service = new CountingLegalCadasterQueryService();
+        var viewModel = CreateViewModel(service);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+        viewModel.SearchVolume = "1234/546";
+        viewModel.SearchFolio = string.Empty;
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.Equal(1, service.VolumeFolioCallCount, "Combined Volume/Folio input should be split before querying.");
+        TestAssert.Equal("1234", service.LastVolume, "Combined input should provide the volume value.");
+        TestAssert.Equal("546", service.LastFolio, "Combined input should provide the folio value.");
+        TestAssert.True(string.IsNullOrWhiteSpace(viewModel.SearchValidationMessage), "Valid combined Volume/Folio input should not show validation text.");
+    }
+
     public static async Task ManualLandValAndNameSearchBuildExpectedQueryKeys()
     {
         using var fixture = CreateCaseFolderWithSource();
@@ -637,6 +705,24 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.False(viewModel.QueryResults.Any(item => item.QueryKey == "land_val_no=LV-77"), "Manual search results should show the current query, not stale rows from the prior search.");
         TestAssert.True(viewModel.QueryResults.Any(item => item.QueryKey == "name=Brown"), "Owner name query key should be shown after the Name search.");
     }
+
+    public static async Task ManualNameSearchIgnoresParishFilter()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var service = new CountingLegalCadasterQueryService();
+        var viewModel = CreateViewModel(service);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Name;
+        viewModel.SearchName = "Smith";
+        viewModel.SearchParish = "Clarendon";
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.Equal(1, service.NameCallCount, "Name search should call the legal cadaster name query once.");
+        TestAssert.Equal("Smith", service.LastName, "Name search should pass the entered owner name.");
+        TestAssert.True(string.IsNullOrWhiteSpace(service.LastNameParish), "Name search should not send parish because Innola owner search is not parish-scoped.");
+    }
+
 
     public static async Task ValuableEvidencePersistsRoleTagAndRestoresWithoutRequery()
     {
@@ -786,6 +872,11 @@ internal static class CompareWorkspaceViewModelTests
     private sealed class CountingLegalCadasterQueryService : ILegalCadasterQueryService
     {
         public int VolumeFolioCallCount { get; private set; }
+        public int NameCallCount { get; private set; }
+        public string? LastVolume { get; private set; }
+        public string? LastFolio { get; private set; }
+        public string? LastName { get; private set; }
+        public string? LastNameParish { get; private set; }
 
         public Task<LegalCadasterQueryResult> QueryByParcelIdAsync(string parcelId, CancellationToken cancellationToken = default)
         {
@@ -795,6 +886,8 @@ internal static class CompareWorkspaceViewModelTests
         public Task<LegalCadasterQueryResult> QueryByVolumeFolioAsync(string volume, string folio, CancellationToken cancellationToken = default)
         {
             VolumeFolioCallCount++;
+            LastVolume = volume;
+            LastFolio = folio;
             return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("volume_folio", null, volume, folio), DateTimeOffset.UtcNow));
         }
 
@@ -805,6 +898,9 @@ internal static class CompareWorkspaceViewModelTests
 
         public Task<LegalCadasterQueryResult> QueryByNameAsync(string name, string? parish = null, CancellationToken cancellationToken = default)
         {
+            NameCallCount++;
+            LastName = name;
+            LastNameParish = parish;
             return Task.FromResult(LegalCadasterQueryResult.NoRecord(new LegalCadasterQuery("name", null, null, null, null, name, parish), DateTimeOffset.UtcNow));
         }
     }
@@ -862,13 +958,19 @@ internal static class CompareWorkspaceViewModelTests
     {
         public TaskCompletionSource<string> SuspendObserved { get; } = new();
 
+        public TaskCompletionSource<string> CancelObserved { get; } = new();
+
         public TaskCompletionSource<string> CompleteObserved { get; } = new();
+
+        public CompareTaskLifecycleResult CancelResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Cancelled.");
 
         public CompareTaskLifecycleResult SuspendResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Suspended.");
 
         public CompareTaskLifecycleResult CompleteResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Completed.");
 
         public int SuspendCalls { get; private set; }
+
+        public int CancelCalls { get; private set; }
 
         public int CompleteCalls { get; private set; }
 
@@ -880,6 +982,14 @@ internal static class CompareWorkspaceViewModelTests
             LastTransactionNumber = transactionNumber;
             SuspendObserved.TrySetResult(transactionNumber);
             return Task.FromResult(SuspendResult);
+        }
+
+        public Task<CompareTaskLifecycleResult> CancelAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        {
+            CancelCalls++;
+            LastTransactionNumber = transactionNumber;
+            CancelObserved.TrySetResult(transactionNumber);
+            return Task.FromResult(CancelResult);
         }
 
         public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
@@ -942,11 +1052,15 @@ internal static class CompareWorkspaceViewModelTests
     {
         public bool SaveResult { get; init; } = true;
 
+        public bool CancelResult { get; init; } = true;
+
         public bool SuspendResult { get; init; } = true;
 
         public bool FinalizeResult { get; init; } = true;
 
         public int SaveCalls { get; private set; }
+
+        public int CancelCalls { get; private set; }
 
         public int SaveCompletedCalls { get; private set; }
 
@@ -960,6 +1074,12 @@ internal static class CompareWorkspaceViewModelTests
         {
             SaveCalls++;
             return SaveResult;
+        }
+
+        public bool ConfirmCancel()
+        {
+            CancelCalls++;
+            return CancelResult;
         }
 
         public void ShowSaveCompleted(string message)

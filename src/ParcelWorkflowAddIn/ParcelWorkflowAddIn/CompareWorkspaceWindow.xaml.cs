@@ -11,6 +11,7 @@ namespace ParcelWorkflowAddIn;
 
 public partial class CompareWorkspaceWindow : ProWindow
 {
+    private static CompareWorkspaceWindow? activeWindow;
     private static readonly GridLength VisiblePdfPanelWidth = new(390);
     private static readonly GridLength VisiblePdfPanelSpacerWidth = new(8);
     private static readonly GridLength CollapsedPanelWidth = new(0);
@@ -39,6 +40,47 @@ public partial class CompareWorkspaceWindow : ProWindow
         ApplyPdfPanelLayout();
     }
 
+    internal static bool IsOpen => activeWindow is { IsVisible: true };
+
+    internal static bool TryActivateExisting()
+    {
+        if (activeWindow is not { IsVisible: true } window)
+        {
+            return false;
+        }
+
+        if (window.WindowState == WindowState.Minimized)
+        {
+            window.WindowState = WindowState.Normal;
+        }
+
+        window.Activate();
+        return true;
+    }
+
+    internal static void ShowOrActivate(Compare.CompareWorkspaceViewModel viewModel)
+    {
+        if (TryActivateExisting())
+        {
+            return;
+        }
+
+        var window = new CompareWorkspaceWindow(viewModel)
+        {
+            Owner = Application.Current?.MainWindow
+        };
+        activeWindow = window;
+        try
+        {
+            window.Show();
+        }
+        catch
+        {
+            activeWindow = null;
+            throw;
+        }
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         try
@@ -64,11 +106,19 @@ public partial class CompareWorkspaceWindow : ProWindow
         }
 
         e.Cancel = true;
-        _ = CloseWorkspaceThenCloseWindowAsync(runWorkspaceCleanup: true);
+        if (viewModel.CancelTaskCommand.CanExecute(null))
+        {
+            viewModel.CancelTaskCommand.Execute(null);
+        }
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        if (ReferenceEquals(activeWindow, this))
+        {
+            activeWindow = null;
+        }
+
         Closing -= OnClosing;
         viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         viewModel.CloseRequested -= OnViewModelCloseRequested;
@@ -115,11 +165,6 @@ public partial class CompareWorkspaceWindow : ProWindow
                 ShowFallback("The selected document could not be displayed in the embedded viewer. The Compare workspace remains available.");
             }
         }
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        _ = CloseWorkspaceThenCloseWindowAsync(runWorkspaceCleanup: true);
     }
 
     private void ShowActiveMapButton_Click(object sender, RoutedEventArgs e)

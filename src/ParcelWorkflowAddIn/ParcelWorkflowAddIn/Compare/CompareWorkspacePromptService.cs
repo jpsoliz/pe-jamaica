@@ -4,6 +4,8 @@ namespace ParcelWorkflowAddIn.Compare;
 
 public interface ICompareWorkspacePromptService
 {
+    bool ConfirmCancel();
+
     bool ConfirmSave();
 
     void ShowSaveCompleted(string message);
@@ -15,6 +17,11 @@ public interface ICompareWorkspacePromptService
 
 public sealed class AutoApproveCompareWorkspacePromptService : ICompareWorkspacePromptService
 {
+    public bool ConfirmCancel()
+    {
+        return true;
+    }
+
     public bool ConfirmSave()
     {
         return true;
@@ -37,6 +44,15 @@ public sealed class AutoApproveCompareWorkspacePromptService : ICompareWorkspace
 
 public sealed class MessageBoxCompareWorkspacePromptService : ICompareWorkspacePromptService
 {
+    public bool ConfirmCancel()
+    {
+        return MessageBox.Show(
+            "Cancel this Compare workspace? No changes will be saved, and the form and Compare map content will be cleared.",
+            "Compare Workspace",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question) == MessageBoxResult.Yes;
+    }
+
     public bool ConfirmSave()
     {
         return MessageBox.Show(

@@ -450,6 +450,48 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("TR100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
     }
 
+    public static async Task ActiveCompareTaskDisablesCmpWhenCompareWorkspaceIsOpen()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Compare Survey Plan", "tester", "2024-10-15T09:24:00-05:00", "Plan Examination")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero);
+        var compareWorkspaceOpen = false;
+        var launchedTransactions = new List<string>();
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination", "Cadastral Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" },
+            compareWorkflowStages: new[] { "Compare", "Compare Survey Plan" },
+            compareWorkspaceLifecycleLauncher: (transactionNumber, _) =>
+            {
+                launchedTransactions.Add(transactionNumber);
+                compareWorkspaceOpen = true;
+            },
+            supportingDocumentsLauncher: () => true,
+            isCompareWorkspaceOpen: () => compareWorkspaceOpen);
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(1, launchedTransactions.Count, "Initial Compare start should launch the workspace.");
+        TestAssert.False(panel.CanReopenCompare, "CMP should be disabled while the Compare workspace is already open.");
+        TestAssert.True(panel.ReopenCompareTooltip.Contains("already open", StringComparison.OrdinalIgnoreCase), "CMP tooltip should explain why the button is disabled.");
+    }
+
     public static void CompareWorkflowStageDoesNotResolveAsComputeWorkspace()
     {
         var computeStages = new[] { "Compute Survey Plan", "Assign Computation Task", "Computation Check" };
@@ -819,7 +861,7 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(string.Empty, panel.SearchText, "Cancel exit should clear transaction search text.");
         TestAssert.True(service.CallCount >= 2, "Cancel exit should refresh the transaction list.");
         TestAssert.Equal("All tasks", service.LastQuery?.Filter, "Cancel refresh should request the full task list.");
-        TestAssert.Equal(string.Empty, service.LastQuery?.SearchText, "Cancel refresh should not keep stale search text.");
+        TestAssert.Equal(string.Empty, service.LastQuery?.Search, "Cancel refresh should not keep stale search text.");
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Cancel exit should keep the transaction selected for context.");
         TestAssert.Equal(null, panel.SavedTransactionNumber, "Cancel exit should not mark the transaction as saved.");
     }

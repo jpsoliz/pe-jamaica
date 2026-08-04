@@ -135,6 +135,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             parameter => parameter is CompareValuableEvidenceItem && !IsLoading);
         TogglePdfPanelCommand = new RelayCommand(TogglePdfPanel);
         SaveProgressCommand = new RelayCommand(SaveProgress, () => CanSaveProgress);
+        CancelTaskCommand = new RelayCommand(async () => await CancelTaskAsync(), () => CanCancelTask);
         SuspendTaskCommand = new RelayCommand(async () => await SuspendTaskAsync(), () => CanSuspendTask);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteTaskAsync(), () => CanCompleteTask);
         BlockCompareCommand = new RelayCommand(BlockCompare, () => CanBlockCompare);
@@ -233,6 +234,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public ICommand TogglePdfPanelCommand { get; }
 
     public ICommand SaveProgressCommand { get; }
+
+    public ICommand CancelTaskCommand { get; }
 
     public ICommand SuspendTaskCommand { get; }
 
@@ -533,6 +536,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public bool CanRunEvidenceSearch => CanQueryLegalEvidence;
 
     public bool CanSaveProgress => layout is not null && !IsLoading;
+
+    public bool CanCancelTask => !IsLoading;
 
     public bool CanSuspendTask => layout is not null && !IsLoading && taskLifecycleService is not null;
 
@@ -851,19 +856,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         if (IsVolumeFolioSearchMode)
         {
-            if (string.IsNullOrWhiteSpace(SearchVolume) || string.IsNullOrWhiteSpace(SearchFolio))
+            if (!TryNormalizeVolumeFolio(SearchVolume, SearchFolio, out var volume, out var folio, out validationMessage))
             {
-                validationMessage = "Volume and folio are required before searching.";
                 return false;
             }
 
-            if (!int.TryParse(SearchVolume.Trim(), out _) || !int.TryParse(SearchFolio.Trim(), out _))
-            {
-                validationMessage = "Volume and folio must be numeric before searching.";
-                return false;
-            }
-
-            request = new CompareEvidenceSearchRequest("volume_folio", null, SearchVolume.Trim(), SearchFolio.Trim(), null, null, NullIfBlank(SearchParish));
+            request = new CompareEvidenceSearchRequest("volume_folio", null, volume, folio, null, null, NullIfBlank(SearchParish));
             return true;
         }
 
@@ -893,6 +891,77 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         validationMessage = "Select an evidence search mode before searching.";
         return false;
+    }
+
+    private static bool TryNormalizeVolumeFolio(
+        string? rawVolume,
+        string? rawFolio,
+        out string volume,
+        out string folio,
+        out string validationMessage)
+    {
+        volume = string.Empty;
+        folio = string.Empty;
+        validationMessage = string.Empty;
+
+        var volumeText = rawVolume?.Trim() ?? string.Empty;
+        var folioText = rawFolio?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(volumeText) && string.IsNullOrWhiteSpace(folioText))
+        {
+            validationMessage = "Volume and folio are required before searching.";
+            return false;
+        }
+
+        if (TrySplitCombinedVolumeFolio(volumeText, out var splitVolume, out var splitFolio)
+            && string.IsNullOrWhiteSpace(folioText))
+        {
+            volumeText = splitVolume;
+            folioText = splitFolio;
+        }
+        else if (TrySplitCombinedVolumeFolio(folioText, out splitVolume, out splitFolio)
+                 && string.IsNullOrWhiteSpace(volumeText))
+        {
+            volumeText = splitVolume;
+            folioText = splitFolio;
+        }
+
+        if (string.IsNullOrWhiteSpace(volumeText) || string.IsNullOrWhiteSpace(folioText))
+        {
+            validationMessage = "Volume and folio are required before searching. You can enter them separately or as 1234/546.";
+            return false;
+        }
+
+        if (!int.TryParse(volumeText, out _) || !int.TryParse(folioText, out _))
+        {
+            validationMessage = "Volume and folio must be numeric before searching. Use separate values or the format 1234/546.";
+            return false;
+        }
+
+        volume = volumeText;
+        folio = folioText;
+        return true;
+    }
+
+    private static bool TrySplitCombinedVolumeFolio(string value, out string volume, out string folio)
+    {
+        volume = string.Empty;
+        folio = string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var parts = value
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return false;
+        }
+
+        volume = parts[0];
+        folio = parts[1];
+        return true;
     }
 
     private void ApplyManualLegalSearchResult(LegalCadasterQueryResult result, CompareSurveyPlanEvidence plan)
@@ -1306,6 +1375,40 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task CancelTaskAsync(CancellationToken cancellationToken = default)
+    {
+        if (!promptService.ConfirmCancel())
+        {
+            StatusText = "Cancel stopped. Compare workspace remains open.";
+            return;
+        }
+
+        if (taskLifecycleService is null)
+        {
+            await CloseWorkspaceAsync(cancellationToken);
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        IsLoading = true;
+        StatusText = "Cancelling Compare task.";
+        try
+        {
+            var result = await taskLifecycleService.CancelAsync(TransactionNumber, cancellationToken);
+            StatusText = result.Message;
+            if (result.Success && result.ShouldCloseWorkspace)
+            {
+                await CleanupAfterTaskExitAsync(cancellationToken);
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
+    }
+
     private async Task CompleteTaskAsync(CancellationToken cancellationToken = default)
     {
         if (taskLifecycleService is null)
@@ -1494,6 +1597,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private async Task CleanupAfterTaskExitAsync(CancellationToken cancellationToken)
     {
         var groupLayerName = currentCompareGroupLayerName;
+        ParcelWorkflowAddIn.MapGeoreferenceWindowLifecycle.CloseIfOpen();
         TraceFinalizeStep(
             "cleanup_started",
             true,
@@ -1882,6 +1986,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanQueryFiscalEvidence));
         NotifyPropertyChanged(nameof(CanRunEvidenceSearch));
         NotifyPropertyChanged(nameof(CanSaveProgress));
+        NotifyPropertyChanged(nameof(CanCancelTask));
         NotifyPropertyChanged(nameof(CanSuspendTask));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanBlockCompare));
@@ -1907,6 +2012,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             MarkEvidenceResultValuableCommand,
             RemoveValuableEvidenceCommand,
             SaveProgressCommand,
+            CancelTaskCommand,
             SuspendTaskCommand,
             CompleteTaskCommand,
             BlockCompareCommand,

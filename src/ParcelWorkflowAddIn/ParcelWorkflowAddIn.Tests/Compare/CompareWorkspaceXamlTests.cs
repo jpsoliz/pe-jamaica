@@ -78,7 +78,8 @@ internal static class CompareWorkspaceXamlTests
             "Compare should not expose Block or Complete task in the simplified action row.");
         TestAssert.True(
             xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal)
-            && xaml.Contains("Cancels the Compare workspace without saving", StringComparison.Ordinal),
+            && xaml.Contains("Cancels the Compare workspace without saving", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding CancelTaskCommand}\"", StringComparison.Ordinal),
             "Compare should label the no-save cleanup action as Cancel.");
         TestAssert.True(
             xaml.Contains("regenerates and uploads the PDF report", StringComparison.Ordinal),

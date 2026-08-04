@@ -1,0 +1,294 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.MapGeoreferenceWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    x:ClassModifier="internal"
+                    Title="{Binding Title}"
+                    Width="1120"
+                    Height="780"
+                    MinWidth="860"
+                    MinHeight="560"
+                    WindowStartupLocation="CenterOwner"
+                    Background="#F7F8FA">
+  <controls:ProWindow.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
+    <Style x:Key="CompactButtonStyle" TargetType="Button">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="BorderBrush" Value="#C9D2D8" />
+      <Setter Property="Background" Value="#FFFFFF" />
+    </Style>
+
+    <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource CompactButtonStyle}">
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <Style x:Key="CoordinateTextBoxStyle" TargetType="TextBox">
+      <Setter Property="MinWidth" Value="108" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Margin" Value="0,2,8,6" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="#52616B" />
+    </Style>
+  </controls:ProWindow.Resources>
+
+  <DockPanel LastChildFill="True">
+    <Border DockPanel.Dock="Top"
+            Background="#FFFFFF"
+            BorderBrush="#C9D2D8"
+            BorderThickness="0,0,0,1"
+            Padding="12">
+      <DockPanel LastChildFill="True">
+        <Button DockPanel.Dock="Right"
+                Content="&#xE72C;"
+                Command="{Binding Documents.ReloadSupportingDocumentViewerCommand}"
+                Style="{StaticResource IconButtonStyle}"
+                ToolTip="Refresh source documents"
+                Margin="8,0,0,0" />
+        <StackPanel>
+          <ComboBox ItemsSource="{Binding GeoreferenceDocumentOptions}"
+                    SelectedItem="{Binding Documents.SelectedSupportingDocument, Mode=TwoWay}"
+                    DisplayMemberPath="DisplayLabel"
+                    IsEnabled="{Binding HasGeoreferenceDocumentOptions}"
+                    MinHeight="28" />
+          <TextBlock Text="{Binding Documents.SupportingDocumentListSummary}"
+                     FontSize="11"
+                     Foreground="#52616B"
+                     TextWrapping="Wrap"
+                     Margin="0,6,0,0" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid Margin="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="2*" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="360" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0"
+              BorderBrush="#C9D2D8"
+              BorderThickness="1"
+              Background="#FFFFFF"
+              Padding="10">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <StackPanel Margin="0,0,0,8">
+            <TextBlock Text="{Binding Documents.SelectedSupportingDocumentTitle}"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933"
+                       TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Documents.SelectedSupportingDocumentPath}"
+                       FontSize="11"
+                       Foreground="#52616B"
+                       TextWrapping="Wrap"
+                       Margin="0,2,0,0" />
+            <TextBlock Text="{Binding Documents.SupportingDocumentViewerStatusDetail}"
+                       FontSize="11"
+                       Foreground="#52616B"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+            <TextBlock Text="{Binding ActiveDocumentPickInstruction}"
+                       FontSize="11"
+                       Foreground="#1D4F8F"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+          </StackPanel>
+
+          <Grid Grid.Row="1">
+            <Border Background="#FFFFFF"
+                    BorderBrush="#E1E8ED"
+                    BorderThickness="1"
+                    Visibility="{Binding Documents.SupportingDocumentViewerUsesImage, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Auto">
+                <Image Source="{Binding Documents.SupportingDocumentViewerImageSource}"
+                       Stretch="Uniform"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
+              </ScrollViewer>
+            </Border>
+
+            <Border Background="#FFFFFF"
+                    BorderBrush="#E1E8ED"
+                    BorderThickness="1"
+                    Visibility="{Binding Documents.SupportingDocumentViewerUsesBrowser, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <Grid x:Name="MapGeoreferencePdfViewerHost" />
+            </Border>
+
+            <TextBox Text="{Binding Documents.SupportingDocumentTextContent, Mode=OneWay}"
+                     Visibility="{Binding Documents.SupportingDocumentViewerShowsText, Converter={StaticResource BooleanToVisibilityConverter}}"
+                     IsReadOnly="True"
+                     TextWrapping="NoWrap"
+                     AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     BorderThickness="0"
+                     FontFamily="Consolas"
+                     FontSize="12" />
+
+            <Border Background="#F3F6F7"
+                    BorderBrush="#E1E8ED"
+                    BorderThickness="1"
+                    Padding="12"
+                    Visibility="{Binding Documents.SupportingDocumentViewerShowsFallback, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="{Binding Documents.SupportingDocumentViewerModeLabel}"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933" />
+                <TextBlock Text="{Binding Documents.SupportingDocumentViewerFallbackMessage}"
+                           Margin="0,6,0,0"
+                           FontSize="12"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Documents.SupportingDocumentEmptyText}"
+                           Margin="0,8,0,0"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="#FFFFFF"
+                    BorderBrush="#1D4F8F"
+                    BorderThickness="2"
+                    Panel.ZIndex="10"
+                    Visibility="{Binding OverlayPickerImageAvailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Auto">
+                <Image x:Name="MapGeoreferencePickerImage"
+                       Source="{Binding OverlayPickerImageSource}"
+                       Stretch="None"
+                       Cursor="Cross"
+                       MouseLeftButtonDown="OnDocumentPickerImageMouseLeftButtonDown"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
+              </ScrollViewer>
+            </Border>
+          </Grid>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="2"
+              BorderBrush="#C9D2D8"
+              BorderThickness="1"
+              Background="#FFFFFF"
+              Padding="12">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <TextBlock Text="M-Geo"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933" />
+            <TextBlock Text="{Binding CoordinateSystemText}"
+                       Margin="0,4,0,12"
+                       Foreground="#52616B"
+                       TextWrapping="Wrap" />
+
+            <TextBlock Text="PDF point picking"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933" />
+            <StackPanel Orientation="Horizontal"
+                        Margin="0,6,0,8">
+              <Button Content="Capture PDF view"
+                      Click="OnCapturePdfViewClick"
+                      Style="{StaticResource CompactButtonStyle}"
+                      Margin="0,0,6,0" />
+              <Button Content="Pick PDF point 1"
+                      Command="{Binding PickDocumentPoint1Command}"
+                      Style="{StaticResource CompactButtonStyle}"
+                      Margin="0,0,6,0" />
+              <Button Content="Pick PDF point 2"
+                      Command="{Binding PickDocumentPoint2Command}"
+                      Style="{StaticResource CompactButtonStyle}" />
+            </StackPanel>
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding DocumentImagePoint1Text}"
+                         Style="{StaticResource FieldLabelStyle}" />
+              <TextBlock Grid.Column="1"
+                         Text="{Binding DocumentImagePoint2Text}"
+                         Style="{StaticResource FieldLabelStyle}" />
+            </Grid>
+            <TextBlock Text="JAD2001 coordinates for picked PDF points"
+                       FontWeight="SemiBold"
+                       Foreground="#1F2933" />
+            <Grid Margin="0,6,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <TextBlock Text="Point 1 Easting" Style="{StaticResource FieldLabelStyle}" />
+              <TextBlock Grid.Column="1" Text="Point 1 Northing" Style="{StaticResource FieldLabelStyle}" />
+              <TextBox Grid.Row="1" Text="{Binding MapPoint1Easting, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
+              <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MapPoint1Northing, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
+              <TextBlock Grid.Row="2" Text="Point 2 Easting" Style="{StaticResource FieldLabelStyle}" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="Point 2 Northing" Style="{StaticResource FieldLabelStyle}" />
+              <TextBox Grid.Row="3" Text="{Binding MapPoint2Easting, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
+              <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MapPoint2Northing, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
+            </Grid>
+
+            <Button Content="Check inputs"
+                    Command="{Binding CalculateDiagnosticsCommand}"
+                    Style="{StaticResource CompactButtonStyle}"
+                    HorizontalAlignment="Left"
+                    Margin="0,0,0,12" />
+            <Button Content="Create Overlay"
+                    Command="{Binding CreateOverlayCommand}"
+                    Style="{StaticResource CompactButtonStyle}"
+                    HorizontalAlignment="Left"
+                    Margin="0,0,0,12" />
+
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="1"
+                    Background="#F3F6F7"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="{Binding DiagnosticsSeverity}"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933" />
+                <TextBlock Text="{Binding DiagnosticsText}"
+                           Margin="0,6,0,0"
+                           TextWrapping="Wrap"
+                           Foreground="#1F2933" />
+              </StackPanel>
+            </Border>
+
+            <Border BorderBrush="#E1E8ED"
+                    BorderThickness="1"
+                    Background="#FAFBFC"
+                    Padding="10"
+                    Margin="0,12,0,0">
+              <TextBlock Text="{Binding OverlayStatusText}"
+                         TextWrapping="Wrap"
+                         Foreground="#52616B" />
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </DockPanel>
+</controls:ProWindow>

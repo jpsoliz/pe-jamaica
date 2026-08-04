@@ -128,6 +128,8 @@ The Compare workspace must preserve the existing Postman payload contract while 
 - [x] [Review][Patch] Validate manual Volume/Folio numeric input before calling the legal cadaster service [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareWorkspaceViewModel.cs:694]
 - [x] [Review][Patch] Apply `compare_cadaster_query_timeout_seconds` to live Innola BA Unit requests [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs:154]
 - [x] [Review][Patch] Map single-record objects under known response containers such as `result` [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs:361]
+- [x] [Review][Patch] Accept manual Volume/Folio input as either separate numeric values or a combined `1234/546` value, then keep the live adapter payload numeric and split.
+- [x] [Review][Patch] Fall back from owner-search Volume/Folio to BA Unit/property search whenever owner search maps no property records, including party-only responses.
 
 ## Developer Notes
 
@@ -206,6 +208,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | 2026-07-17 | 1.4 | Restored the Postman-confirmed owner-search transport as the default Compare legal search path and stored the Postman collection fixture for regression reference. | Amelia |
 | 2026-07-17 | 1.5 | Pinned Owner search to a single uppercase wildcard `owner` variable and added multi-row owner result mapping coverage. | Amelia |
 | 2026-07-17 | 1.6 | Added amendment for party-shaped Innola results: keep payload contract unchanged, separate party matches from property results, and allow party evidence to be kept and reported. | Mary / Amelia |
+| 2026-08-03 | 1.7 | Added combined Volume/Folio input parsing and broadened Volume/Folio BA Unit fallback when owner search returns no property rows. | Amelia |
 
 ## Dev Agent Record
 
@@ -249,6 +252,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 - Party-shaped Innola rows are now split into Related Party Matches instead of appearing as blank or misleading property Search Results rows.
 - Related Party Matches can be kept as Valuable Evidence with a party-oriented summary, and kept party evidence is restored from Compare draft persistence with other retained evidence.
 - Volume/Folio searches now fall back from the Postman-style owner search route to the BA Unit/property search route when owner search returns zero raw rows, matching the Staff Portal Properties search behavior while preserving party-row safeguards.
+- Volume/Folio searches also accept a combined typed value such as `1234/546` in the manual search UI and now fall back to BA Unit/property search when owner search returns only party rows or other raw rows without mapped property evidence.
 - PID searches now fall back from the Postman-style owner search route to the BA Unit/property search route when the owner route returns an Unauthorized retryable response, so PID `11140063` can resolve through the same property-search behavior seen in the Staff Portal without changing name or Volume/Folio search behavior.
 - Added tolerant response mapping for common record collection names and likely owner/parcel/volume/folio/title/land valuation/parish/role fields.
 - Updated Compare launch wiring so the live adapter can access the current in-memory Innola session without persisting secrets.

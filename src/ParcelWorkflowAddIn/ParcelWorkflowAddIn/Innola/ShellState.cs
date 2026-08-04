@@ -172,11 +172,7 @@ internal static class ShellState
             promptService: new MessageBoxCompareWorkspacePromptService(),
             reviewerId: Session.CurrentUser?.Username,
             reviewerDisplayName: Session.CurrentUser?.DisplayName);
-        var window = new CompareWorkspaceWindow(viewModel)
-        {
-            Owner = System.Windows.Application.Current?.MainWindow
-        };
-        window.Show();
+        CompareWorkspaceWindow.ShowOrActivate(viewModel);
     }
 
     private static IInnolaAuthService CreateAuthService()

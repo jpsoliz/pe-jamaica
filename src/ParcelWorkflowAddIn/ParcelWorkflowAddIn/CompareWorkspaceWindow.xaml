@@ -326,7 +326,7 @@
               Margin="0,6,8,6"
               Content="Cancel"
               ToolTip="Cancels the Compare workspace without saving, then clears the form and Compare map content."
-              Click="CloseButton_Click" />
+              Command="{Binding CancelTaskCommand}" />
     </Grid>
   </Grid>
 </controls:ProWindow>

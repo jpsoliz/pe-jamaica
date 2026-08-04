@@ -3403,6 +3403,28 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             workflowSession.SetValidationFailure(cleanupResult.Message);
         }
+
+        await CleanupMapGeoreferenceOverlayAsync(transactionNumber).ConfigureAwait(true);
+    }
+
+    private static async Task CleanupMapGeoreferenceOverlayAsync(string? transactionNumber)
+    {
+        if (string.IsNullOrWhiteSpace(transactionNumber))
+        {
+            return;
+        }
+
+        try
+        {
+            await new MapGeoreferenceOverlayService()
+                .RemoveOverlayAsync(transactionNumber)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            SupportingDocumentsDiagnostics.Write(
+                $"M-Geo overlay cleanup failed for transaction {transactionNumber}: {exception.GetType().Name}: {exception.Message}");
+        }
     }
 
     protected override void OnShow(bool isVisible)
@@ -4654,6 +4676,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         ReviewSegments.Clear();
         RefreshWorkflowProperties();
         SupportingDocumentsDockpaneViewModel.HideIfOpen();
+        MapGeoreferenceWindow.CloseIfOpen();
     }
 
     private async Task ReturnToTransactionListAsync(
