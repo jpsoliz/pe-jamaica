@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Reports;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -262,6 +263,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return InnolaAttachmentUploadResult.Failure("Could not prepare uploaded source for transaction registration.", exception.GetType().Name);
         }
 
+        RemovePreviousComputeReportSources(existingSources, sourceType);
         existingSources.Add(uploadedSource);
         var payload = new JsonArray(existingSources.Select(node => node.DeepClone()).ToArray());
         using var registerRequest = new HttpRequestMessage(
@@ -506,6 +508,54 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         {
             sourceObject["spatialUnitId"] = spatialUnitId;
         }
+    }
+
+    private static void RemovePreviousComputeReportSources(List<JsonNode> sources, string sourceType)
+    {
+        if (!string.Equals(sourceType, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        sources.RemoveAll(source => HasSourceType(source, sourceType));
+    }
+
+    private static bool HasSourceType(JsonNode? source, string sourceType)
+    {
+        if (source is not JsonObject sourceObject)
+        {
+            return false;
+        }
+
+        return IsSourceTypeMatch(sourceObject, sourceType)
+            || IsSourceTypeMatch(sourceObject["body"] as JsonObject, sourceType)
+            || IsSourceTypeMatch(sourceObject["link"] as JsonObject, sourceType);
+    }
+
+    private static bool IsSourceTypeMatch(JsonObject? sourceObject, string sourceType)
+    {
+        if (sourceObject is null)
+        {
+            return false;
+        }
+
+        foreach (var propertyName in new[] { "type", "sourceType", "source_type", "documentType", "document_type", "category" })
+        {
+            var value = ReadObjectString(sourceObject, propertyName);
+            if (string.Equals(value, sourceType, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? ReadObjectString(JsonObject sourceObject, string propertyName)
+    {
+        return sourceObject.TryGetPropertyValue(propertyName, out var value) && value is JsonValue jsonValue
+            ? jsonValue.ToString()
+            : null;
     }
 
     private static string? ResolveRegisteredType(string sourceType)

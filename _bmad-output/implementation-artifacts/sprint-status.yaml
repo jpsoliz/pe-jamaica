@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-04
+# last_updated: 2026-08-05
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-04
+last_updated: 2026-08-05
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -144,6 +144,7 @@ development_status:
   7-11-write-innola-plan-check-list-on-compute-finalize: done
   7-12-create-innola-compute-review-web-map-view-for-completed-transactions: in-progress
   7-13-add-internal-arcgis-portal-auth-provider-for-enterprise-operations: review
+  7-14-attach-formatted-compute-finalize-report-to-innola-transaction: review
   epic-7-retrospective: optional
 
   epic-8: in-progress
@@ -164,3 +165,7 @@ development_status:
   9-1-create-wix-based-target-machine-installer: in-progress
   9-2-add-supporting-documents-full-panel-viewer: done
   epic-9-retrospective: optional
+
+  epic-10: in-progress
+  10-1-create-user-training-and-test-guide-for-parcel-workflow-extension: review
+  epic-10-retrospective: optional

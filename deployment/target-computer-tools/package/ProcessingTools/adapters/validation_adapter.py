@@ -651,6 +651,11 @@ def _compute_closure_results(
             solver_status in {"passed", "warning"}
             and str(boundary_solver.get("geometry_source") or "").strip().lower() == "reviewed_boundary_segments"
         )
+        max_area_delta_percent = float(
+            profile.get("max_area_delta_percent")
+            or default_profile.get("max_area_delta_percent")
+            or 5.0
+        )
 
         coordinates: list[tuple[float, float]] = []
         coordinate_rows = 0
@@ -664,6 +669,29 @@ def _compute_closure_results(
 
         if solver_passed:
             closure_distance = boundary_solver.get("closure_distance_m")
+            area_delta_percent = boundary_solver.get("area_delta_percent")
+            solver_findings = [
+                str(finding)
+                for finding in (boundary_solver.get("findings") or [])
+                if str(finding).strip()
+            ]
+            has_scale_blocker = any(
+                "exceeds allowable reviewed-boundary scale tolerance" in finding.lower()
+                for finding in solver_findings
+            )
+            has_area_blocker = (
+                _is_number(area_delta_percent)
+                and max_area_delta_percent > 0
+                and abs(float(str(area_delta_percent).strip())) > max_area_delta_percent
+            )
+            status = "blocker" if (has_scale_blocker or has_area_blocker) else "pass"
+            evaluation_status = "failed" if status == "blocker" else "passed"
+            if has_scale_blocker:
+                message = "Reviewed boundary geometry requires an unacceptable scale change to fit the printed reference points."
+            elif has_area_blocker:
+                message = "Reviewed boundary area differs from the document area beyond the configured tolerance."
+            else:
+                message = "PXA reviewed boundary segment solver passed; point-row closure was superseded."
             results.append(
                 {
                     "parcel_group_id": group_id,
@@ -672,9 +700,9 @@ def _compute_closure_results(
                     "profile_rule_id": profile.get("rule_id") or default_profile.get("rule_id") or "closure_default_standard",
                     "profile_title": profile.get("title") or "Closure tolerance profile",
                     "severity": severity,
-                    "status": "pass",
-                    "evaluation_status": "passed",
-                    "message": "PXA reviewed boundary segment solver passed; point-row closure was superseded.",
+                    "status": status,
+                    "evaluation_status": evaluation_status,
+                    "message": message,
                     "allow_open_boundary": allow_open_boundary,
                     "coordinate_row_count": coordinate_rows,
                     "implicit_closure_used": True,
@@ -687,7 +715,8 @@ def _compute_closure_results(
                     "geometry_source": boundary_solver.get("geometry_source"),
                     "computed_area_sq_m": boundary_solver.get("computed_area_sq_m"),
                     "document_area_sq_m": boundary_solver.get("document_area_sq_m"),
-                    "area_delta_percent": boundary_solver.get("area_delta_percent"),
+                    "area_delta_percent": area_delta_percent,
+                    "max_area_delta_percent": max_area_delta_percent,
                 }
             )
             continue

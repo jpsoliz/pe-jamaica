@@ -454,6 +454,8 @@ public partial class ConfigurationWindow : ProWindow
         ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked = document.ReadinessDefaultRequireChainConsistency;
         ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked = document.ReadinessDefaultDetectDuplicateEdges;
         RenderReadinessRules(document.ReadinessRules);
+        SetSelectedTag(CompareSpatialSearchModeComboBox, document.CompareEnterpriseCadasterSpatialSearchMode);
+        CompareBufferDistanceMetersTextBox.Text = document.CompareEnterpriseCadasterBufferDistanceMeters.ToString("0.###");
         WorkingMapLayersGrid.ItemsSource = document.WorkingMapLayers.Select(layer => layer.Clone()).ToList();
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
@@ -569,6 +571,10 @@ public partial class ConfigurationWindow : ProWindow
         document.ReadinessDefaultRequireReferencedPoints = ReadinessDefaultRequireReferencedPointsCheckBox.IsChecked == true;
         document.ReadinessDefaultRequireChainConsistency = ReadinessDefaultRequireChainConsistencyCheckBox.IsChecked == true;
         document.ReadinessDefaultDetectDuplicateEdges = ReadinessDefaultDetectDuplicateEdgesCheckBox.IsChecked == true;
+        document.CompareEnterpriseCadasterSpatialSearchMode = GetSelectedTag(CompareSpatialSearchModeComboBox, SettingsWorkspaceService.CompareSpatialSearchModeIntersects);
+        document.CompareEnterpriseCadasterBufferDistanceMeters = ParsePositiveDouble(
+            CompareBufferDistanceMetersTextBox.Text,
+            document.CompareEnterpriseCadasterBufferDistanceMeters);
         WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
         document.WorkingMapLayers = WorkingMapLayersGrid.Items
@@ -1000,6 +1006,16 @@ public partial class ConfigurationWindow : ProWindow
     private static int ParsePositiveInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    private static double ParsePositiveDouble(string? value, double fallback)
+    {
+        return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var invariant)
+            && invariant > 0
+                ? invariant
+                : double.TryParse(value, out var local) && local > 0
+                    ? local
+                    : fallback;
     }
 
     private static List<string> SplitLines(string value)

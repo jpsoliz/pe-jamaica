@@ -15,6 +15,8 @@ internal static class CompareEnterpriseCadasterEvidenceTests
               "compare_enterprise_cadaster": {
                 "enabled": true,
                 "relationship_tolerance_meters": 0.12,
+                "spatial_search_mode": "buffer",
+                "buffer_distance_meters": 35.5,
                 "result_limit": 250,
                 "page_size": 75,
                 "legal": {
@@ -65,6 +67,8 @@ internal static class CompareEnterpriseCadasterEvidenceTests
 
         TestAssert.True(settings.CompareEnterpriseCadaster.Enabled, "Enterprise cadaster evidence should be enabled.");
         TestAssert.Equal(0.12, settings.CompareEnterpriseCadaster.RelationshipToleranceMeters, "Tolerance mismatch.");
+        TestAssert.Equal(CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer, settings.CompareEnterpriseCadaster.SpatialSearchMode, "Spatial search mode mismatch.");
+        TestAssert.Equal(35.5, settings.CompareEnterpriseCadaster.BufferDistanceMeters, "Buffer distance mismatch.");
         TestAssert.Equal(250, settings.CompareEnterpriseCadaster.ResultLimit, "Result limit mismatch.");
         TestAssert.Equal(75, settings.CompareEnterpriseCadaster.PageSize, "Page size mismatch.");
         TestAssert.True(settings.CompareEnterpriseCadaster.Legal.Enabled, "Legal source should be enabled.");
@@ -92,6 +96,8 @@ internal static class CompareEnterpriseCadasterEvidenceTests
         TestAssert.True(plan.LayerRequests.All(layer => layer.OutFields.Contains("pid")), "PID field should be requested.");
         TestAssert.True(plan.LayerRequests.All(layer => layer.ResultLimit == 100), "Result limit should be applied per source.");
         TestAssert.True(plan.LayerRequests.All(layer => layer.PageSize == 50), "Page size should be applied per source.");
+        TestAssert.True(plan.LayerRequests.All(layer => layer.SpatialSearchMode == CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer), "Spatial search mode should be applied per source.");
+        TestAssert.True(plan.LayerRequests.All(layer => layer.BufferDistanceMeters == 40), "Buffer distance should be applied per source.");
     }
 
     public static void DisabledSourceDoesNotBlockEnabledSource()
@@ -232,7 +238,11 @@ internal static class CompareEnterpriseCadasterEvidenceTests
                 "objectid",
                 "globalid",
                 null),
-            null);
+            null)
+        {
+            SpatialSearchMode = CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer,
+            BufferDistanceMeters = 40
+        };
     }
 
     private static CompareWorkingGeometryLoadPlan ReadyGeometryPlan()

@@ -46,7 +46,10 @@ public sealed record ComputeReviewDispositionDocument(
     [property: JsonPropertyName("working_package_upload_status")] string? WorkingPackageUploadStatus,
     [property: JsonPropertyName("compute_examination_report_ref")] string? ComputeExaminationReportRef = null,
     [property: JsonPropertyName("plan_check_api_status")] string? PlanCheckApiStatus = null,
-    [property: JsonPropertyName("plan_check_api_ref")] string? PlanCheckApiRef = null);
+    [property: JsonPropertyName("plan_check_api_ref")] string? PlanCheckApiRef = null,
+    [property: JsonPropertyName("compute_examination_pdf_report_ref")] string? ComputeExaminationPdfReportRef = null,
+    [property: JsonPropertyName("compute_report_attachment_source_type")] string? ComputeReportAttachmentSourceType = null,
+    [property: JsonPropertyName("compute_report_attachment_upload_status")] string? ComputeReportAttachmentUploadStatus = null);
 
 public sealed record ComputeReviewDispositionRequest(
     ComputeReviewDecision Decision,

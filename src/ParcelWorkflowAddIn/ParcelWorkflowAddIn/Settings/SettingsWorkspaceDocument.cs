@@ -126,6 +126,9 @@ public sealed class SettingsWorkspaceDocument
     public string GsiPasswordEnvironmentVariable { get; set; } = string.Empty;
     public string GsiPassword { get; set; } = string.Empty;
 
+    public string CompareEnterpriseCadasterSpatialSearchMode { get; set; } = "intersects";
+    public double CompareEnterpriseCadasterBufferDistanceMeters { get; set; } = 25.0;
+
     public List<EditablePreflightRule> PreflightRules { get; set; } = new();
     public List<EditableReadinessRule> ReadinessRules { get; set; } = new();
     public List<EditableWorkingMapLayer> WorkingMapLayers { get; set; } = new();

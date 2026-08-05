@@ -177,6 +177,54 @@ class OutputAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(854.8, polygons[0]["area_sq_m"], delta=1.0)
         self.assertEqual((712864.006, 670585.112), polygons[0]["coordinates"][0])
 
+    def test_output_adapter_rebuilds_reviewed_boundary_with_unit_suffix_distances(self):
+        self.assertAlmostEqual(8.495, output_adapter._parse_coordinate("8.495m"))
+        self.assertAlmostEqual(68.78333333333333, output_adapter._parse_bearing_azimuth_deg("N68 47E"))
+
+        review_data = {
+            "boundary_solver": {
+                "status": "warning",
+                "geometry_source": "reviewed_boundary_segments",
+                "findings": [
+                    "Reviewed boundary was rebuilt from bearings/distances and anchored to printed reference point 19.",
+                    "The unscaled reviewed boundary was kept because dimensions and area matched.",
+                ],
+            },
+            "segments": [
+                {"review_sequence": 1, "review_from_point": "19", "review_to_point": "A", "review_bearing_txt": "N74° 36'E", "review_distance_txt": "8.495m"},
+                {"review_sequence": 2, "review_from_point": "A", "review_to_point": "B", "review_bearing_txt": "S22° 17'E", "review_distance_txt": "14.184m"},
+                {"review_sequence": 3, "review_from_point": "B", "review_to_point": "4", "review_bearing_txt": "S70° 04'W", "review_distance_txt": "38.566m"},
+                {"review_sequence": 4, "review_from_point": "4", "review_to_point": "C", "review_bearing_txt": "N29° 12'W", "review_distance_txt": "14.119m"},
+                {"review_sequence": 5, "review_from_point": "C", "review_to_point": "D", "review_bearing_txt": "N68° 09'E", "review_distance_txt": "17.671m"},
+                {"review_sequence": 6, "review_from_point": "D", "review_to_point": "19", "review_bearing_txt": "N68 47E", "review_distance_txt": "14.133m"},
+            ],
+        }
+        point_groups = [
+            {
+                "group_id": "parcel-001",
+                "parcel_id": "parcel-001",
+                "points": [
+                    {"point_identifier": "19", "easting": 738860.904, "northing": 643112.324, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                    {"point_identifier": "4", "easting": 738823.139, "northing": 643098.375, "parcel_id": "parcel-001", "parcel_group_id": "parcel-001"},
+                ],
+            }
+        ]
+
+        points, segments = output_adapter._reviewed_boundary_construction_from_solver(review_data, point_groups)
+        polygons = output_adapter._polygon_rings_from_segments(segments)
+        point_4 = next(point for point in points if point["point_identifier"] == "4")
+        b_to_4 = next(segment for segment in segments if segment["from_point_id"] == "B" and segment["to_point_id"] == "4")
+
+        self.assertEqual(6, len(points))
+        self.assertEqual(6, len(segments))
+        self.assertAlmostEqual(738838.217, point_4["easting"], places=3)
+        self.assertAlmostEqual(643088.307, point_4["northing"], places=3)
+        self.assertEqual(4, point_4["point_order"])
+        self.assertNotAlmostEqual(738823.139, point_4["easting"], places=3)
+        self.assertAlmostEqual(38.566, b_to_4["distance_m"], places=3)
+        self.assertEqual(1, len(polygons))
+        self.assertAlmostEqual(569.932, polygons[0]["area_sq_m"], places=3)
+
     def test_output_adapter_writes_output_summary_and_geojson(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

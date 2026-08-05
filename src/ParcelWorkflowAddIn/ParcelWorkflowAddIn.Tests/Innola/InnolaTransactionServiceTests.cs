@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Workflow.Reports;
 using System.Net;
 using System.Text;
 
@@ -433,6 +434,70 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(handler.Requests[2].Uri.AbsoluteUri.Contains("typeKeyId=source", StringComparison.Ordinal), "Final request should register administrative sources.");
         TestAssert.True(handler.Requests[2].Body.Contains("\"type\":\"st_compare_report\"", StringComparison.Ordinal), "Registered source payload should preserve st_compare_report.");
         TestAssert.True(!handler.Requests[2].Body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Compare report must not be rewritten to the survey plan registered type.");
+    }
+
+    public static async Task AttachmentUploadReplacesExistingComputeReportSourceType()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 17,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 18 },
+                  "link": { "@id": 19 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, """
+                [
+                  { "@id": "obj:1", "type": "st_surveyplan" },
+                  { "@id": "obj:2", "type": "st_compute_report", "body": { "@id": "obj:3" } },
+                  { "@id": "obj:4", "sourceType": "st_compute_report" }
+                ]
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100000674",
+            "Compute Survey Plan",
+            "Compute",
+            DateTimeOffset.Parse("2026-07-22T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "compute_examination_report.pdf",
+            "application/pdf",
+            Encoding.UTF8.GetBytes("%PDF-1.4 test"),
+            ComputeReportAttachmentService.SourceType);
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Compute report upload and registration should succeed.");
+        var body = handler.Requests[2].Body;
+        TestAssert.True(body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Existing non-compute sources should be preserved.");
+        TestAssert.Equal(1, CountOccurrences(body, "\"type\":\"st_compute_report\""), "Only the newly uploaded compute report should remain.");
+        TestAssert.True(!body.Contains("\"sourceType\":\"st_compute_report\"", StringComparison.Ordinal), "Prior compute report source variants should be removed.");
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
     }
 
     private sealed class CapturingHttpMessageHandler : HttpMessageHandler

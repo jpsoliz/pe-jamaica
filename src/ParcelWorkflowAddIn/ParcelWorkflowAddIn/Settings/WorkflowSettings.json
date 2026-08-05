@@ -213,6 +213,8 @@
   "compare_enterprise_cadaster": {
     "enabled": true,
     "relationship_tolerance_meters": 0.05,
+    "spatial_search_mode": "intersects",
+    "buffer_distance_meters": 25.0,
     "result_limit": 250,
     "page_size": 100,
     "legal": {

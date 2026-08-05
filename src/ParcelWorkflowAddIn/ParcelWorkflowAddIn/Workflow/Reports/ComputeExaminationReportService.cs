@@ -68,13 +68,16 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             var enterpriseDisposition = RequireJsonArtifact(layout, layout.WorkingDirectory, "enterprise_working_disposition.json", "Enterprise disposition writeback");
             var spatialReviewApproval = RequireJsonArtifact(layout, layout.WorkingDirectory, "spatial_review_approval.json", "Final Review");
             var dispositionArtifact = RequireJsonArtifact(layout, layout.WorkingDirectory, ComputeReviewDispositionPersistenceService.DispositionArtifactFileName, "Compute disposition");
+            using var approvedReview = ReadOptionalJson(Path.Combine(layout.WorkingDirectory, "approved_review.json"));
+            using var extractionReviewData = ReadOptionalJson(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
+            var generatedAtUtc = DateTimeOffset.UtcNow.UtcDateTime.ToString("O");
 
             var report = new ComputeExaminationReportDocument(
                 "compute_examination_report_v1",
                 transaction.TransactionId,
                 transaction.TransactionNumber,
                 transaction.TaskId,
-                DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+                generatedAtUtc,
                 operatorId,
                 manifest.RunId,
                 new[]
@@ -113,7 +116,11 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                     MakeReference(layout, Path.Combine(layout.WorkingDirectory, ComputeReviewDispositionPersistenceService.DispositionArtifactFileName)),
                     MakeReference(layout, Path.Combine(layout.OutputDirectory, "output_summary.json")),
                     MakeReference(layout, Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json"))
-                });
+                },
+                BuildGeneralInfo(layout, transaction, generatedAtUtc, operatorId, approvedReview, extractionReviewData),
+                BuildParticipants(transaction, approvedReview, extractionReviewData),
+                BuildBoundarySegments(approvedReview, extractionReviewData),
+                BuildPoints(approvedReview, extractionReviewData));
 
             Directory.CreateDirectory(layout.ReportsDirectory);
             var reportPath = Path.Combine(layout.ReportsDirectory, ReportFileName);
@@ -153,6 +160,365 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         }
 
         return JsonDocument.Parse(File.ReadAllText(path));
+    }
+
+    private static JsonDocument? ReadOptionalJson(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonDocument.Parse(File.ReadAllText(path));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static ComputeExaminationReportGeneralInfo BuildGeneralInfo(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string generatedAtUtc,
+        string? operatorId,
+        JsonDocument? approvedReview,
+        JsonDocument? extractionReviewData)
+    {
+        var sourceDocument = Directory.Exists(layout.SourceDirectory)
+            ? Directory.EnumerateFiles(layout.SourceDirectory)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .Select(Path.GetFileName)
+                .FirstOrDefault()
+            : null;
+
+        return new ComputeExaminationReportGeneralInfo(new[]
+        {
+            new ComputeExaminationReportFieldValue("Transaction Number", transaction.TransactionNumber),
+            new ComputeExaminationReportFieldValue("Transaction Id", transaction.TransactionId),
+            new ComputeExaminationReportFieldValue("Task", transaction.TaskName),
+            new ComputeExaminationReportFieldValue("Transaction Type", transaction.TransactionType ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Process Step", transaction.ProcessStep),
+            new ComputeExaminationReportFieldValue("Application Id", transaction.ApplicationId ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Assigned User", transaction.AssignedUser ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Assigned Group", transaction.AssignedGroup ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Source Document", sourceDocument ?? "Not found"),
+            new ComputeExaminationReportFieldValue("Generated At UTC", generatedAtUtc),
+            new ComputeExaminationReportFieldValue("Operator", operatorId ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Volume / Folio", FindFirstString(approvedReview, extractionReviewData, "volume_folio", "volumeFolio", "volume/folio", "vol_folio", "volFolio") ?? "Not found"),
+            new ComputeExaminationReportFieldValue("Coordinate System", "JAD2001 / EPSG:3448 metres")
+        });
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportParticipant> BuildParticipants(
+        SelectedInnolaTransaction transaction,
+        JsonDocument? approvedReview,
+        JsonDocument? extractionReviewData)
+    {
+        var participants = new List<ComputeExaminationReportParticipant>();
+        AddParticipant(participants, transaction.AssignedUser, "Assigned User");
+        AddParticipant(participants, transaction.AssignedGroup, "Assigned Group");
+
+        foreach (var root in ExistingRoots(approvedReview, extractionReviewData))
+        {
+            foreach (var propertyName in new[] { "owner", "owners", "neighbor", "neighbors", "occupant", "occupants", "possessor", "possessors", "participant", "participants", "applicant", "applicants" })
+            {
+                foreach (var value in FindStringsByProperty(root, propertyName))
+                {
+                    AddParticipant(participants, value, "Participant");
+                }
+            }
+        }
+
+        return participants
+            .GroupBy(participant => participant.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(participant => participant.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportBoundarySegment> BuildBoundarySegments(params JsonDocument?[] documents)
+    {
+        return ExistingRoots(documents)
+            .SelectMany(EnumerateObjects)
+            .Where(IsLikelyBoundarySegment)
+            .Select(obj => new ComputeExaminationReportBoundarySegment(
+                ReadFlexibleString(obj, "seq", "sequence", "segment_seq", "segmentSequence") ?? string.Empty,
+                ReadFlexibleString(obj, "from", "from_point", "fromPoint", "from_label") ?? string.Empty,
+                ReadFlexibleString(obj, "to", "to_point", "toPoint", "to_label") ?? string.Empty,
+                ReadFlexibleString(obj, "bearing", "bearing_text", "bearingText") ?? string.Empty,
+                ReadFlexibleString(obj, "distance", "distance_m", "distanceText", "distance_text") ?? string.Empty,
+                ReadFlexibleString(obj, "notes", "note", "status", "review_note") ?? string.Empty,
+                ReadFlexibleBool(obj, "use_for_points", "useForPoints", "use", "used") ?? true))
+            .Where(segment => segment.UseForPoints)
+            .GroupBy(segment => $"{segment.Sequence}|{segment.From}|{segment.To}|{segment.Bearing}|{segment.Distance}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportPoint> BuildPoints(params JsonDocument?[] documents)
+    {
+        return ExistingRoots(documents)
+            .SelectMany(EnumerateObjects)
+            .Where(IsLikelyPoint)
+            .Select(obj => new ComputeExaminationReportPoint(
+                ReadFlexibleString(obj, "point", "label", "point_label", "pointLabel", "name") ?? string.Empty,
+                ReadFlexibleString(obj, "easting", "east", "x") ?? string.Empty,
+                ReadFlexibleString(obj, "northing", "north", "y") ?? string.Empty,
+                ReadFlexibleString(obj, "seq", "sequence") ?? string.Empty))
+            .Where(point => !string.IsNullOrWhiteSpace(point.Point))
+            .GroupBy(point => point.Point, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(point => ParseSequence(point.Sequence), Comparer<int?>.Create((left, right) =>
+            {
+                if (left.HasValue && right.HasValue)
+                {
+                    return left.Value.CompareTo(right.Value);
+                }
+
+                if (left.HasValue)
+                {
+                    return -1;
+                }
+
+                if (right.HasValue)
+                {
+                    return 1;
+                }
+
+                return 0;
+            }))
+            .ThenBy(point => point.Point, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IEnumerable<JsonElement> ExistingRoots(params JsonDocument?[] documents)
+    {
+        foreach (var document in documents)
+        {
+            if (document is not null)
+            {
+                yield return document.RootElement;
+            }
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateObjects(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            yield return element;
+            foreach (var property in element.EnumerateObject())
+            {
+                foreach (var child in EnumerateObjects(property.Value))
+                {
+                    yield return child;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                foreach (var child in EnumerateObjects(item))
+                {
+                    yield return child;
+                }
+            }
+        }
+    }
+
+    private static bool IsLikelyBoundarySegment(JsonElement element)
+    {
+        return !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "bearing", "bearing_text", "bearingText"))
+            && !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "distance", "distance_m", "distanceText", "distance_text"))
+            && (!string.IsNullOrWhiteSpace(ReadFlexibleString(element, "from", "from_point", "fromPoint", "from_label"))
+                || !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "to", "to_point", "toPoint", "to_label")));
+    }
+
+    private static bool IsLikelyPoint(JsonElement element)
+    {
+        return !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "point", "label", "point_label", "pointLabel", "name"))
+            && !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "easting", "east", "x"))
+            && !string.IsNullOrWhiteSpace(ReadFlexibleString(element, "northing", "north", "y"));
+    }
+
+    private static string? FindFirstString(JsonDocument? first, JsonDocument? second, params string[] propertyNames)
+    {
+        foreach (var root in ExistingRoots(first, second))
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                var value = FindStringsByProperty(root, propertyName).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> FindStringsByProperty(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var value in EnumerateStringValues(property.Value))
+                    {
+                        yield return value;
+                    }
+                }
+
+                foreach (var nested in FindStringsByProperty(property.Value, propertyName))
+                {
+                    yield return nested;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                foreach (var nested in FindStringsByProperty(item, propertyName))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateStringValues(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var value = element.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                yield return value;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                foreach (var value in EnumerateStringValues(item))
+                {
+                    yield return value;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Object)
+        {
+            var name = ReadFlexibleString(element, "name", "label", "value", "owner", "neighbor", "occupant", "possessor");
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                yield return name;
+            }
+        }
+    }
+
+    private static string? ReadFlexibleString(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            var found = false;
+            var property = default(JsonElement);
+            foreach (var candidate in element.EnumerateObject())
+            {
+                if (string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    property = candidate.Value;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                continue;
+            }
+
+            var value = property.ValueKind switch
+            {
+                JsonValueKind.String => property.GetString(),
+                JsonValueKind.Number => property.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool? ReadFlexibleBool(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            var found = false;
+            var property = default(JsonElement);
+            foreach (var candidate in element.EnumerateObject())
+            {
+                if (string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    property = candidate.Value;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                continue;
+            }
+
+            if (property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
+            {
+                return property.GetBoolean();
+            }
+
+            if (property.ValueKind == JsonValueKind.String && bool.TryParse(property.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private static int? ParseSequence(string? value)
+    {
+        return int.TryParse(value, out var parsed) ? parsed : null;
+    }
+
+    private static void AddParticipant(List<ComputeExaminationReportParticipant> participants, string? name, string role)
+    {
+        if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, "Not provided", StringComparison.OrdinalIgnoreCase))
+        {
+            participants.Add(new ComputeExaminationReportParticipant(name.Trim(), role));
+        }
     }
 
     private static ComputeExaminationReportStage BuildPreflightStage(string path, string stageId, string stageName)
@@ -259,13 +625,14 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             objects.Add("<< /Type /Catalog /Pages 2 0 R >>");
             objects.Add(string.Empty);
             objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+            objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
 
             foreach (var pageLines in pages)
             {
                 var contentObjectNumber = objects.Count + 2;
                 var pageObjectNumber = objects.Count + 1;
                 pageObjectNumbers.Add(pageObjectNumber);
-                objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {contentObjectNumber} 0 R >>");
+                objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {contentObjectNumber} 0 R >>");
                 objects.Add(BuildContentObject(pageLines));
             }
 
@@ -274,69 +641,89 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             File.WriteAllBytes(path, BuildPdfBytes(objects));
         }
 
-        private static IReadOnlyList<IReadOnlyList<string>> BuildPages(ComputeExaminationReportDocument report)
+        private static IReadOnlyList<IReadOnlyList<PdfLine>> BuildPages(ComputeExaminationReportDocument report)
         {
-            var lines = new List<string>
+            var lines = new List<PdfLine>
             {
-                "Compute Examination Report",
-                $"Transaction Number: {report.TransactionNumber}",
-                $"Transaction Id: {report.TransactionId}",
-                $"Task Id: {report.TaskId ?? string.Empty}",
-                $"Generated At UTC: {report.GeneratedAtUtc}",
-                $"Generated By: {report.GeneratedBy ?? string.Empty}",
-                $"Manifest Run Id: {report.ManifestRunId}",
-                string.Empty,
-                "Stage Summary"
+                new("Compute Examination Report", true, 14),
+                new($"Transaction Number: {report.TransactionNumber}", true),
+                new($"Generated At UTC: {report.GeneratedAtUtc}"),
+                new($"Generated By: {report.GeneratedBy ?? string.Empty}"),
+                PdfLine.Blank,
+                new("General Info", true, 12),
+                new("Field | Value", true)
             };
+
+            lines.AddRange(report.GeneralInfo.Fields.Select(field => new PdfLine($"{field.Field} | {field.Value}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Owner / Neighbor Found", true, 12));
+            lines.Add(new PdfLine("Role | Name", true));
+            lines.AddRange(report.OwnerNeighborFound.Count == 0
+                ? new[] { new PdfLine("Participant | Not found") }
+                : report.OwnerNeighborFound.Select(participant => new PdfLine($"{participant.Role} | {participant.Name}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Boundary Segments", true, 12));
+            lines.Add(new PdfLine("Seq | From | To | Bearing | Distance | Notes", true));
+            lines.AddRange(report.BoundarySegments.Count == 0
+                ? new[] { new PdfLine("No used boundary segments recorded.") }
+                : report.BoundarySegments.Select(segment => new PdfLine($"{segment.Sequence} | {segment.From} | {segment.To} | {segment.Bearing} | {segment.Distance} | {segment.Notes}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Points", true, 12));
+            lines.Add(new PdfLine("Point | Easting | Northing | Sequence", true));
+            lines.AddRange(report.Points.Count == 0
+                ? new[] { new PdfLine("No reviewed points recorded.") }
+                : report.Points.Select(point => new PdfLine($"{point.Point} | {point.Easting} | {point.Northing} | {point.Sequence}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Stage Summary", true, 12));
 
             foreach (var stage in report.Stages)
             {
-                lines.Add($"- {stage.StageName}: {stage.Status}");
+                lines.Add(new PdfLine($"- {stage.StageName}: {stage.Status}"));
                 if (stage.Findings.Count > 0)
                 {
                     var grouped = stage.Findings
                         .GroupBy(finding => NormalizeStatus(finding.Outcome))
                         .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
                         .Select(group => $"{group.Key}={group.Count()}");
-                    lines.Add($"  Findings: {string.Join(", ", grouped)}");
+                    lines.Add(new PdfLine($"  Findings: {string.Join(", ", grouped)}"));
                 }
 
                 foreach (var blocker in stage.Findings.Where(finding => IsReportableFinding(finding)).Take(4))
                 {
-                    lines.Add($"  {blocker.Outcome}: {blocker.DisplayName}");
+                    lines.Add(new PdfLine($"  {blocker.Outcome}: {blocker.DisplayName}"));
                 }
             }
 
-            lines.Add(string.Empty);
-            lines.Add("Closeout");
-            lines.Add($"Decision: {report.Closeout.Decision}");
-            lines.Add($"Operator: {report.Closeout.OperatorId ?? string.Empty}");
-            lines.Add($"Enterprise Disposition: {report.Closeout.EnterpriseDispositionStatus}");
-            lines.Add($"Spatial Unit Status: {report.Closeout.SpatialUnitApiStatus ?? string.Empty}");
-            lines.Add($"Spatial Unit Id: {report.Closeout.SpatialUnitId ?? string.Empty}");
-            lines.Add($"Working Package: {report.Closeout.WorkingPackageFileName ?? string.Empty}");
-            lines.Add($"Working Package Upload: {report.Closeout.WorkingPackageUploadStatus ?? string.Empty}");
-            lines.Add(string.Empty);
-            lines.Add("Artifact References");
-            lines.AddRange(report.ArtifactReferences.Select(reference => $"- {reference}"));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Closeout", true, 12));
+            lines.Add(new PdfLine($"Decision: {report.Closeout.Decision}"));
+            lines.Add(new PdfLine($"Operator: {report.Closeout.OperatorId ?? string.Empty}"));
+            lines.Add(new PdfLine($"Enterprise Disposition: {report.Closeout.EnterpriseDispositionStatus}"));
+            lines.Add(new PdfLine($"Spatial Unit Status: {report.Closeout.SpatialUnitApiStatus ?? string.Empty}"));
+            lines.Add(new PdfLine($"Spatial Unit Id: {report.Closeout.SpatialUnitId ?? string.Empty}"));
+            lines.Add(new PdfLine($"Working Package: {report.Closeout.WorkingPackageFileName ?? string.Empty}"));
+            lines.Add(new PdfLine($"Working Package Upload: {report.Closeout.WorkingPackageUploadStatus ?? string.Empty}"));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Artifact References", true, 12));
+            lines.AddRange(report.ArtifactReferences.Select(reference => new PdfLine($"- {reference}")));
 
             var wrapped = lines.SelectMany(WrapLine).ToArray();
             return wrapped
                 .Select((line, index) => new { line, index })
                 .GroupBy(item => item.index / MaxLinesPerPage)
-                .Select(group => (IReadOnlyList<string>)group.Select(item => item.line).ToArray())
+                .Select(group => (IReadOnlyList<PdfLine>)group.Select(item => item.line).ToArray())
                 .ToArray();
         }
 
-        private static string BuildContentObject(IReadOnlyList<string> lines)
+        private static string BuildContentObject(IReadOnlyList<PdfLine> lines)
         {
             var stream = new StringBuilder();
             stream.AppendLine("BT");
-            stream.AppendLine("/F1 10 Tf");
             stream.AppendLine("50 750 Td");
             foreach (var line in lines)
             {
-                stream.Append('(').Append(EscapePdfText(line)).AppendLine(") Tj");
+                stream.Append('/').Append(line.Bold ? "F2" : "F1").Append(' ').Append(line.FontSize).AppendLine(" Tf");
+                stream.Append('(').Append(EscapePdfText(line.Text)).AppendLine(") Tj");
                 stream.AppendLine("0 -15 Td");
             }
 
@@ -379,15 +766,15 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             return stream.ToArray();
         }
 
-        private static IEnumerable<string> WrapLine(string line)
+        private static IEnumerable<PdfLine> WrapLine(PdfLine line)
         {
-            if (line.Length <= MaxLineLength)
+            if (line.Text.Length <= MaxLineLength)
             {
                 yield return line;
                 yield break;
             }
 
-            var remaining = line;
+            var remaining = line.Text;
             while (remaining.Length > MaxLineLength)
             {
                 var splitAt = remaining.LastIndexOf(' ', MaxLineLength);
@@ -396,13 +783,13 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                     splitAt = MaxLineLength;
                 }
 
-                yield return remaining[..splitAt];
+                yield return new PdfLine(remaining[..splitAt], line.Bold, line.FontSize);
                 remaining = remaining[splitAt..].TrimStart();
             }
 
             if (remaining.Length > 0)
             {
-                yield return remaining;
+                yield return new PdfLine(remaining, line.Bold, line.FontSize);
             }
         }
 
@@ -426,6 +813,11 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         {
             return string.IsNullOrWhiteSpace(value) ? "unknown" : value;
         }
+
+        private sealed record PdfLine(string Text, bool Bold = false, int FontSize = 10)
+        {
+            public static PdfLine Blank { get; } = new(string.Empty);
+        }
     }
 }
 
@@ -439,7 +831,37 @@ public sealed record ComputeExaminationReportDocument(
     [property: JsonPropertyName("manifest_run_id")] string ManifestRunId,
     [property: JsonPropertyName("stages")] IReadOnlyList<ComputeExaminationReportStage> Stages,
     [property: JsonPropertyName("closeout")] ComputeExaminationReportCloseout Closeout,
-    [property: JsonPropertyName("artifact_references")] IReadOnlyList<string> ArtifactReferences);
+    [property: JsonPropertyName("artifact_references")] IReadOnlyList<string> ArtifactReferences,
+    [property: JsonPropertyName("general_info")] ComputeExaminationReportGeneralInfo GeneralInfo,
+    [property: JsonPropertyName("owner_neighbor_found")] IReadOnlyList<ComputeExaminationReportParticipant> OwnerNeighborFound,
+    [property: JsonPropertyName("boundary_segments")] IReadOnlyList<ComputeExaminationReportBoundarySegment> BoundarySegments,
+    [property: JsonPropertyName("points")] IReadOnlyList<ComputeExaminationReportPoint> Points);
+
+public sealed record ComputeExaminationReportGeneralInfo(
+    [property: JsonPropertyName("fields")] IReadOnlyList<ComputeExaminationReportFieldValue> Fields);
+
+public sealed record ComputeExaminationReportFieldValue(
+    [property: JsonPropertyName("field")] string Field,
+    [property: JsonPropertyName("value")] string Value);
+
+public sealed record ComputeExaminationReportParticipant(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("role")] string Role);
+
+public sealed record ComputeExaminationReportBoundarySegment(
+    [property: JsonPropertyName("seq")] string Sequence,
+    [property: JsonPropertyName("from")] string From,
+    [property: JsonPropertyName("to")] string To,
+    [property: JsonPropertyName("bearing")] string Bearing,
+    [property: JsonPropertyName("distance")] string Distance,
+    [property: JsonPropertyName("notes")] string Notes,
+    [property: JsonPropertyName("use_for_points")] bool UseForPoints);
+
+public sealed record ComputeExaminationReportPoint(
+    [property: JsonPropertyName("point")] string Point,
+    [property: JsonPropertyName("easting")] string Easting,
+    [property: JsonPropertyName("northing")] string Northing,
+    [property: JsonPropertyName("sequence")] string Sequence);
 
 public sealed record ComputeExaminationReportStage(
     [property: JsonPropertyName("stage_id")] string StageId,

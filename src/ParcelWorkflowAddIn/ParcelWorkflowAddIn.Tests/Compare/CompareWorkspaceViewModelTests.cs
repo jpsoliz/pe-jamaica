@@ -410,12 +410,14 @@ internal static class CompareWorkspaceViewModelTests
         {
             CompleteResult = CompareTaskLifecycleResult.Succeeded("Completed from test.")
         };
+        var prompt = new RecordingCompareWorkspacePromptService();
         var viewModel = CreateViewModel(
             new MockLegalCadasterQueryService(new[]
             {
                 LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
             }),
-            lifecycle);
+            lifecycle,
+            promptService: prompt);
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
         TestAssert.False(viewModel.CanApproveCompare, "Finalize should be disabled before evidence and notes are ready.");
@@ -438,6 +440,10 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(1, lifecycle.CompleteCalls, "Finalize should call the lifecycle bridge once.");
         TestAssert.True(closeRequested, "Successful finalize should ask the window to close after cleanup.");
         TestAssert.Equal("Completed from test.", viewModel.StatusText, "Finalize result message should be shown.");
+        TestAssert.Equal(1, prompt.FinalizeCompletedCalls, "Successful finalize should show one completion dialog.");
+        TestAssert.True(
+            prompt.LastFinalizeCompletedMessage?.Contains("next workflow stage", StringComparison.OrdinalIgnoreCase) == true,
+            "Finalize completion dialog should explain that the transaction moves to the next workflow stage.");
     }
 
     public static async Task FinalizeClearsWorkspaceAndDisablesCompletionAfterTaskClose()
@@ -445,13 +451,15 @@ internal static class CompareWorkspaceViewModelTests
         using var fixture = CreateCaseFolderWithSource();
         var lifecycle = new RecordingCompareTaskLifecycleService();
         var mapIntegration = new RecordingCompareMapIntegrationService();
+        var mgeoCleanup = new RecordingMGeoOverlayCleanupService();
         var viewModel = CreateViewModel(
             new MockLegalCadasterQueryService(new[]
             {
                 LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
             }),
             lifecycle,
-            mapIntegrationService: mapIntegration);
+            mapIntegrationService: mapIntegration,
+            mapGeoreferenceOverlayCleanup: mgeoCleanup.RemoveOverlayAsync);
         viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
 
         viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
@@ -468,10 +476,13 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(0, viewModel.ValuableEvidenceItems.Count, "Successful Finalize should clear retained evidence from the closed workspace.");
         TestAssert.False(viewModel.CompleteTaskCommand.CanExecute(null), "Complete task should be disabled after Finalize closes and clears the workspace.");
         TestAssert.Equal(1, mapIntegration.CleanupCalls, "Successful Finalize should remove Compare map content after task close.");
+        TestAssert.Equal(1, mgeoCleanup.CleanupCalls, "Successful Finalize should remove transaction-specific M-Geo overlay content after task close.");
+        TestAssert.Equal("TR100000674", mgeoCleanup.LastTransactionNumber, "M-Geo cleanup should target the active transaction.");
         var tracePath = Path.Combine(fixture.Layout.WorkingDirectory, "compare_finalize_trace.json");
         TestAssert.True(File.Exists(tracePath), "Finalize should write cleanup diagnostics.");
         var traceText = File.ReadAllText(tracePath);
         TestAssert.True(traceText.Contains("\"step\": \"cleanup_started\"", StringComparison.Ordinal), "Finalize trace should record cleanup start.");
+        TestAssert.True(traceText.Contains("\"step\": \"mgeo_overlay_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record M-Geo overlay cleanup.");
         TestAssert.True(traceText.Contains("\"step\": \"map_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record map cleanup result.");
         TestAssert.True(traceText.Contains("\"step\": \"form_cleanup_result\"", StringComparison.Ordinal), "Finalize trace should record form cleanup result.");
     }
@@ -825,7 +836,8 @@ internal static class CompareWorkspaceViewModelTests
         ICompareTaskLifecycleService? taskLifecycleService = null,
         ICompareReportAttachmentService? reportAttachmentService = null,
         ICompareMapIntegrationService? mapIntegrationService = null,
-        ICompareWorkspacePromptService? promptService = null)
+        ICompareWorkspacePromptService? promptService = null,
+        Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null)
     {
         return new CompareWorkspaceViewModel(new SelectedInnolaTransaction(
             "task-1",
@@ -838,7 +850,8 @@ internal static class CompareWorkspaceViewModelTests
             taskLifecycleService: taskLifecycleService,
             reportAttachmentService: reportAttachmentService,
             mapIntegrationService: mapIntegrationService,
-            promptService: promptService);
+            promptService: promptService,
+            mapGeoreferenceOverlayCleanup: mapGeoreferenceOverlayCleanup);
     }
 
     private static LegalCadasterRecord LegalRecord(
@@ -1066,6 +1079,10 @@ internal static class CompareWorkspaceViewModelTests
 
         public string? LastSaveCompletedMessage { get; private set; }
 
+        public int FinalizeCompletedCalls { get; private set; }
+
+        public string? LastFinalizeCompletedMessage { get; private set; }
+
         public int SuspendCalls { get; private set; }
 
         public int FinalizeCalls { get; private set; }
@@ -1088,6 +1105,12 @@ internal static class CompareWorkspaceViewModelTests
             LastSaveCompletedMessage = message;
         }
 
+        public void ShowFinalizeCompleted(string message)
+        {
+            FinalizeCompletedCalls++;
+            LastFinalizeCompletedMessage = message;
+        }
+
         public bool ConfirmSuspend()
         {
             SuspendCalls++;
@@ -1098,6 +1121,20 @@ internal static class CompareWorkspaceViewModelTests
         {
             FinalizeCalls++;
             return FinalizeResult;
+        }
+    }
+
+    private sealed class RecordingMGeoOverlayCleanupService
+    {
+        public int CleanupCalls { get; private set; }
+
+        public string? LastTransactionNumber { get; private set; }
+
+        public Task RemoveOverlayAsync(string? transactionNumber, CancellationToken cancellationToken = default)
+        {
+            CleanupCalls++;
+            LastTransactionNumber = transactionNumber;
+            return Task.CompletedTask;
         }
     }
 

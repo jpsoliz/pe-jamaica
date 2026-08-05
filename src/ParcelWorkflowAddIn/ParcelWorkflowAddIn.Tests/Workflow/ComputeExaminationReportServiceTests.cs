@@ -26,7 +26,24 @@ internal static class ComputeExaminationReportServiceTests
         WriteSummary(layout.GeoreferenceCheckSummaryPath, "georeference_check", "points_inside_parish", "Extracted points are inside parish");
         WriteSummary(layout.DimensionCheckSummaryPath, "dimension_check", "closure_tolerance", "Computed closure is within tolerance");
 
-        File.WriteAllText(Path.Combine(layout.WorkingDirectory, "approved_review.json"), "{\"status\":\"approved\",\"approved_by\":\"mary\"}");
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "approved_review.json"),
+            """
+            {
+              "status": "approved",
+              "approved_by": "mary",
+              "volume_folio": "1234/546",
+              "owners": [{"name": "Estate of Brown"}],
+              "boundary_segments": [
+                {"seq": 1, "from": "A", "to": "B", "bearing": "N12 30E", "distance": "10.000", "use_for_points": true, "notes": "Used segment"},
+                {"seq": 2, "from": "B", "to": "C", "bearing": "S12 30W", "distance": "10.000", "use_for_points": false, "notes": "Excluded segment"}
+              ],
+              "points": [
+                {"point": "A", "easting": 700000.123, "northing": 650000.456, "sequence": 1},
+                {"point": "B", "easting": 700010.123, "northing": 650010.456, "sequence": 2}
+              ]
+            }
+            """);
         File.WriteAllText(Path.Combine(layout.WorkingDirectory, "spatial_review_approval.json"), "{\"status\":\"approved\",\"operator_id\":\"mary\"}");
         File.WriteAllText(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json"), "{\"status\":\"succeeded\",\"run_id\":\"disp-run\"}");
         File.WriteAllText(Path.Combine(layout.OutputDirectory, "output_summary.json"), "{\"status\":\"succeeded\",\"run_id\":\"output-run\"}");
@@ -66,7 +83,13 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(result.Success, result.Message);
         TestAssert.True(File.Exists(result.ReportPath), "Report file should be written.");
         TestAssert.True(File.Exists(result.PdfReportPath), "High-level PDF report should be written.");
-        TestAssert.True(File.ReadAllText(result.PdfReportPath!)[..8] == "%PDF-1.4", "PDF report should use a PDF header.");
+        var pdfText = File.ReadAllText(result.PdfReportPath!);
+        TestAssert.True(pdfText[..8] == "%PDF-1.4", "PDF report should use a PDF header.");
+        TestAssert.True(pdfText.Contains("General Info", StringComparison.OrdinalIgnoreCase), "PDF report should include General Info section.");
+        TestAssert.True(pdfText.Contains("Owner / Neighbor Found", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
+        TestAssert.True(pdfText.Contains("Boundary Segments", StringComparison.OrdinalIgnoreCase), "PDF report should include boundary segments.");
+        TestAssert.True(pdfText.Contains("Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
+        TestAssert.True(pdfText.Contains("/Helvetica-Bold", StringComparison.OrdinalIgnoreCase), "PDF report should include a bold font for headings and labels.");
 
         using var report = JsonDocument.Parse(File.ReadAllText(result.ReportPath!));
         var root = report.RootElement;
@@ -74,6 +97,12 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.Equal("compute_examination_report_v1", root.GetProperty("schema_version").GetString(), "Report schema should be explicit.");
         TestAssert.Equal("100000379", root.GetProperty("transaction_number").GetString(), "Report should carry transaction number.");
         TestAssert.Equal("run-report", root.GetProperty("manifest_run_id").GetString(), "Report should reference manifest run.");
+        var generalInfo = root.GetProperty("general_info").GetProperty("fields").EnumerateArray().ToArray();
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Volume / Folio"
+            && field.GetProperty("value").GetString() == "1234/546"), "Report should include Volume/Folio from the reviewed document.");
+        TestAssert.Equal(1, root.GetProperty("boundary_segments").GetArrayLength(), "Report should include only used boundary segments.");
+        TestAssert.Equal(2, root.GetProperty("points").GetArrayLength(), "Report should include reviewed points.");
 
         var stageIds = root.GetProperty("stages").EnumerateArray()
             .Select(stage => stage.GetProperty("stage_id").GetString())

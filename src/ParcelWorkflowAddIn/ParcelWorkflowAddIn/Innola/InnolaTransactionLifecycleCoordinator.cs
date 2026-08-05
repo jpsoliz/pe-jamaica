@@ -20,6 +20,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
     private readonly CaseResumePackageService resumePackageService;
     private readonly ComputeReviewDispositionPersistenceService dispositionPersistenceService;
     private readonly IComputeExaminationReportService computeExaminationReportService;
+    private readonly IComputeReportAttachmentService computeReportAttachmentService;
     private readonly IInnolaPlanCheckService planCheckService;
     private readonly Func<DateTimeOffset> getUtcNow;
 
@@ -33,7 +34,8 @@ public sealed class InnolaTransactionLifecycleCoordinator
         CaseResumePackageService resumePackageService,
         Func<DateTimeOffset>? getUtcNow = null,
         IComputeExaminationReportService? computeExaminationReportService = null,
-        IInnolaPlanCheckService? planCheckService = null)
+        IInnolaPlanCheckService? planCheckService = null,
+        IComputeReportAttachmentService? computeReportAttachmentService = null)
     {
         this.sessionManager = sessionManager;
         this.detailService = detailService;
@@ -44,6 +46,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
         this.resumePackageService = resumePackageService;
         dispositionPersistenceService = new ComputeReviewDispositionPersistenceService();
         this.computeExaminationReportService = computeExaminationReportService ?? new ComputeExaminationReportService();
+        this.computeReportAttachmentService = computeReportAttachmentService ?? new ComputeReportAttachmentService(() => sessionManager.CurrentSession, detailService);
         this.planCheckService = planCheckService ?? new MockInnolaPlanCheckService();
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
@@ -434,7 +437,8 @@ public sealed class InnolaTransactionLifecycleCoordinator
 
                 disposition = disposition with
                 {
-                    ComputeExaminationReportRef = reportResult.ReportPath
+                    ComputeExaminationReportRef = reportResult.ReportPath,
+                    ComputeExaminationPdfReportRef = reportResult.PdfReportPath
                 };
                 dispositionPersistenceService.Save(layout, disposition);
                 UpdateManifestAndAudit(
@@ -445,6 +449,56 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     LifecycleStatusForManifest(),
                     completionReady: true,
                     completionReadyReason: "ready");
+
+                var attachmentResult = await computeReportAttachmentService.UploadAsync(
+                    sessionManager.SelectedTransaction!,
+                    reportResult.PdfReportPath!,
+                    cancellationToken).ConfigureAwait(false);
+                WriteComputeReportAttachmentEvidence(
+                    layout,
+                    sessionManager.SelectedTransaction!,
+                    reportResult.ReportPath,
+                    reportResult.PdfReportPath,
+                    attachmentResult.SourceType ?? ComputeReportAttachmentService.SourceType,
+                    attachmentResult.Success ? "uploaded" : "failed",
+                    attachmentResult.Message,
+                    attachmentResult.ErrorCategory,
+                    sessionManager.CurrentUser?.Username);
+
+                if (!attachmentResult.Success)
+                {
+                    var message = SafeRetryMessage(attachmentResult.Message, "Could not attach Compute report to the transaction. Try again.");
+                    sessionManager.MarkLifecycleError(message);
+                    UpdateManifestAndAudit(
+                        "compute_report_attachment_failed",
+                        "failed",
+                        message,
+                        attachmentResult.ErrorCategory,
+                        "error",
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        lastErrorCategory: attachmentResult.ErrorCategory,
+                        spatialUnitId: disposition.SpatialUnitId,
+                        spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
+                    return InnolaTransactionLoadResult.Failure(message);
+                }
+
+                disposition = disposition with
+                {
+                    ComputeReportAttachmentSourceType = attachmentResult.SourceType ?? ComputeReportAttachmentService.SourceType,
+                    ComputeReportAttachmentUploadStatus = "uploaded"
+                };
+                dispositionPersistenceService.Save(layout, disposition);
+                UpdateManifestAndAudit(
+                    "compute_report_attached",
+                    "succeeded",
+                    "Compute PDF report attached to the transaction.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready",
+                    spatialUnitId: disposition.SpatialUnitId,
+                    spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
 
                 if (!string.Equals(disposition.PlanCheckApiStatus, "saved", StringComparison.OrdinalIgnoreCase))
                 {
@@ -704,6 +758,60 @@ public sealed class InnolaTransactionLifecycleCoordinator
         {
             // Upload evidence must not block lifecycle failure reporting.
         }
+    }
+
+    private void WriteComputeReportAttachmentEvidence(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string? reportPath,
+        string? pdfReportPath,
+        string sourceType,
+        string uploadStatus,
+        string? message,
+        string? errorCategory,
+        string? operatorId)
+    {
+        try
+        {
+            Directory.CreateDirectory(layout.WorkingDirectory);
+            long? pdfBytes = null;
+            if (!string.IsNullOrWhiteSpace(pdfReportPath) && File.Exists(pdfReportPath))
+            {
+                pdfBytes = new FileInfo(pdfReportPath).Length;
+            }
+
+            var evidence = new
+            {
+                schema_version = "compute_report_attachment_v1",
+                transaction_id = transaction.TransactionId,
+                transaction_number = transaction.TransactionNumber,
+                task_id = transaction.TaskId,
+                operator_id = operatorId,
+                created_at_utc = NowString(),
+                report_ref = MakeRelativePath(layout, reportPath),
+                pdf_report_ref = MakeRelativePath(layout, pdfReportPath),
+                pdf_bytes = pdfBytes,
+                source_type = sourceType,
+                upload_status = uploadStatus,
+                error_category = errorCategory,
+                message = string.IsNullOrWhiteSpace(message) ? null : SanitizeUploadDiagnostic(message)
+            };
+
+            File.WriteAllText(
+                Path.Combine(layout.WorkingDirectory, "compute_report_attachment.json"),
+                JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Compute report attachment evidence write failed: {exception.GetType().Name}.");
+        }
+    }
+
+    private static string? MakeRelativePath(CaseFolderLayout layout, string? path)
+    {
+        return string.IsNullOrWhiteSpace(path)
+            ? null
+            : Path.GetRelativePath(layout.RootDirectory, path).Replace('\\', '/');
     }
 
     private static string SanitizeUploadDiagnostic(string value)

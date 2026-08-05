@@ -20,6 +20,12 @@
 - [WiX installer architecture](deployment/wix-installer-architecture.md) — Winston architecture decision for MSI/Burn and Python environment setup.
 - [ArcGIS Pro 3.7 environment installer inputs](deployment/arcgispro37/README.md) — reference files and package inventory for the target-machine installer.
 
+## Training
+
+- [Parcel Workflow Extension training guide source](training/parcel-workflow-extension-user-training-and-test-guide.md) — versioned source for the user training and test guide.
+- [Sidwell Cadastre Tools User Training and Test Guide](training/Sidwell_Cadastre_Tools_User_Training_and_Test_Guide.docx) — Word artifact for training review and delivery.
+- [Training screenshot inventory](training/screenshots/README.md) — screenshot naming and capture guidance for the Word guide.
+
 ## Planning artifacts (BMAD)
 
 - [_bmad-output/planning-artifacts/epics.md](../_bmad-output/planning-artifacts/epics.md)

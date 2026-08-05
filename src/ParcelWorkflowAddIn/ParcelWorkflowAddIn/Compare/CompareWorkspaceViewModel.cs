@@ -28,6 +28,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly ICompareReportAttachmentService? reportAttachmentService;
     private readonly ICompareMapIntegrationService? mapIntegrationService;
     private readonly ICompareWorkspacePromptService promptService;
+    private readonly Func<string?, CancellationToken, Task> mapGeoreferenceOverlayCleanup;
     private readonly string pdfViewerMode;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly string? reviewerId;
@@ -85,6 +86,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         ICompareReportAttachmentService? reportAttachmentService = null,
         ICompareMapIntegrationService? mapIntegrationService = null,
         ICompareWorkspacePromptService? promptService = null,
+        Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null,
         string? pdfViewerMode = null,
         Func<DateTimeOffset>? getUtcNow = null,
         string? reviewerId = null,
@@ -107,6 +109,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.reportAttachmentService = reportAttachmentService;
         this.mapIntegrationService = mapIntegrationService;
         this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
+        this.mapGeoreferenceOverlayCleanup = mapGeoreferenceOverlayCleanup
+            ?? ((transactionNumber, token) => new ParcelWorkflowAddIn.MapGeoreferenceOverlayService().RemoveOverlayAsync(transactionNumber, token));
         this.pdfViewerMode = string.IsNullOrWhiteSpace(pdfViewerMode)
             ? InnolaTransactionSettings.Load().PdfViewerMode
             : pdfViewerMode;
@@ -1565,6 +1569,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             if (result.Success && result.ShouldCloseWorkspace)
             {
                 await CleanupAfterTaskExitAsync(cancellationToken);
+                promptService.ShowFinalizeCompleted(
+                    "Compare transaction completed. It will move to the next workflow stage.");
+                TraceFinalizeStep("completion_dialog_shown", true, "Finalize completion dialog was shown to the examiner.", BuildFinalizeTraceDetails());
                 CloseRequested?.Invoke(this, EventArgs.Empty);
                 TraceFinalizeStep("close_requested", true, "Finalize requested the Compare window to close after cleanup.", BuildFinalizeTraceDetails());
             }
@@ -1598,6 +1605,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     {
         var groupLayerName = currentCompareGroupLayerName;
         ParcelWorkflowAddIn.MapGeoreferenceWindowLifecycle.CloseIfOpen();
+        await CleanupMapGeoreferenceOverlayAsync(cancellationToken);
         TraceFinalizeStep(
             "cleanup_started",
             true,
@@ -1641,6 +1649,30 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         ClearWorkspaceStateAfterTaskExit();
         TraceFinalizeStep("form_cleanup_result", true, "Compare form state was cleared after Finalize.", BuildFinalizeTraceDetails());
+    }
+
+    private async Task CleanupMapGeoreferenceOverlayAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await mapGeoreferenceOverlayCleanup(TransactionNumber, cancellationToken).ConfigureAwait(true);
+            TraceFinalizeStep(
+                "mgeo_overlay_cleanup_result",
+                true,
+                "Transaction-specific M-Geo overlay cleanup completed.",
+                BuildFinalizeTraceDetails());
+        }
+        catch (Exception exception)
+        {
+            var message = $"M-Geo overlay cleanup failed: {exception.Message}";
+            TraceFinalizeStep(
+                "mgeo_overlay_cleanup_result",
+                false,
+                message,
+                BuildFinalizeTraceDetails());
+            SupportingDocumentsDiagnostics.Write(
+                $"Compare M-Geo overlay cleanup failed for transaction {TransactionNumber}: {exception.GetType().Name}: {exception.Message}");
+        }
     }
 
     private void ClearWorkspaceStateAfterTaskExit()

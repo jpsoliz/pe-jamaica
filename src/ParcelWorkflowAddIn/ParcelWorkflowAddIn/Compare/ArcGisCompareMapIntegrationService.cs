@@ -390,7 +390,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
 
                 featureLayer.SetEditable(false);
                 var objectIdField = ResolveObjectIdField(featureLayer, request.FieldMap.ObjectIdField);
-                var objectIds = QueryContextObjectIds(featureLayer, reviewGeometries, request.ResultLimit);
+                var objectIds = QueryContextObjectIds(featureLayer, reviewGeometries, request, warnings);
                 if (objectIds.Count == 0)
                 {
                     map.RemoveLayer(featureLayer);
@@ -445,10 +445,11 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
     private static IReadOnlyList<long> QueryContextObjectIds(
         FeatureLayer featureLayer,
         IReadOnlyList<Geometry> reviewGeometries,
-        int resultLimit)
+        CompareEnterpriseCadasterLayerRequest request,
+        List<string> warnings)
     {
         var objectIds = new SortedSet<long>();
-        var limit = Math.Max(1, resultLimit);
+        var limit = Math.Max(1, request.ResultLimit);
         foreach (var geometry in reviewGeometries)
         {
             if (objectIds.Count >= limit)
@@ -456,9 +457,10 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
                 break;
             }
 
+            var filterGeometry = ResolveSpatialSearchGeometry(geometry, request, warnings);
             using var cursor = featureLayer.Search(new SpatialQueryFilter
             {
-                FilterGeometry = geometry,
+                FilterGeometry = filterGeometry,
                 SpatialRelationship = SpatialRelationship.Intersects,
                 WhereClause = "1=1",
                 RowCount = limit - objectIds.Count
@@ -475,6 +477,36 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         }
 
         return objectIds.ToArray();
+    }
+
+    private static Geometry ResolveSpatialSearchGeometry(
+        Geometry geometry,
+        CompareEnterpriseCadasterLayerRequest request,
+        List<string> warnings)
+    {
+        if (!string.Equals(
+                request.SpatialSearchMode,
+                CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return geometry;
+        }
+
+        if (request.BufferDistanceMeters <= 0)
+        {
+            warnings.Add($"{request.SourceName} context search requested buffer mode, but buffer_distance_meters is not positive. Intersect search was used.");
+            return geometry;
+        }
+
+        try
+        {
+            return GeometryEngine.Instance.Buffer(geometry, request.BufferDistanceMeters);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            warnings.Add($"{request.SourceName} context search could not create a {request.BufferDistanceMeters:0.###} m buffer: {exception.Message}. Intersect search was used.");
+            return geometry;
+        }
     }
 
     internal static string BuildObjectIdDefinitionQuery(string objectIdField, IReadOnlyCollection<long> objectIds)

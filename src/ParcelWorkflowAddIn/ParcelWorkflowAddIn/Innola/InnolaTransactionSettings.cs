@@ -1280,6 +1280,12 @@ public sealed record CompareEnterpriseCadasterSettings(
     CompareEnterpriseCadasterSourceSettings Survey,
     string? Warning)
 {
+    public const string SpatialSearchModeIntersects = "intersects";
+    public const string SpatialSearchModeBuffer = "buffer";
+
+    public string SpatialSearchMode { get; init; } = SpatialSearchModeIntersects;
+    public double BufferDistanceMeters { get; init; } = 25.0;
+
     public static CompareEnterpriseCadasterSettings Default { get; } = new(
         false,
         0.05,
@@ -1301,6 +1307,8 @@ public sealed record CompareEnterpriseCadasterSettings(
         var tolerance = ReadPositiveDouble(value, "relationship_tolerance_meters") ?? Default.RelationshipToleranceMeters;
         var resultLimit = ReadPositiveInt(value, "result_limit") ?? Default.ResultLimit;
         var pageSize = ReadPositiveInt(value, "page_size") ?? Default.PageSize;
+        var spatialSearchMode = NormalizeSpatialSearchMode(ReadString(value, "spatial_search_mode"));
+        var bufferDistanceMeters = ReadPositiveDouble(value, "buffer_distance_meters") ?? Default.BufferDistanceMeters;
         var legal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "legal", Default.Legal);
         var fiscal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "fiscal", Default.Fiscal);
         var survey = CompareEnterpriseCadasterSourceSettings.FromJson(value, "survey", Default.Survey);
@@ -1344,7 +1352,27 @@ public sealed record CompareEnterpriseCadasterSettings(
             legal,
             fiscal,
             survey,
-            warnings.Count == 0 ? null : string.Join(" ", warnings));
+            warnings.Count == 0 ? null : string.Join(" ", warnings))
+        {
+            SpatialSearchMode = spatialSearchMode,
+            BufferDistanceMeters = bufferDistanceMeters
+        };
+    }
+
+    public static string NormalizeSpatialSearchMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            SpatialSearchModeBuffer => SpatialSearchModeBuffer,
+            _ => SpatialSearchModeIntersects
+        };
+    }
+
+    public static bool IsSupportedSpatialSearchMode(string? value)
+    {
+        var mode = value?.Trim().ToLowerInvariant();
+        return string.Equals(mode, SpatialSearchModeIntersects, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mode, SpatialSearchModeBuffer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int? ReadPositiveInt(JsonElement element, string name)
@@ -1365,6 +1393,13 @@ public sealed record CompareEnterpriseCadasterSettings(
             && number > 0
                 ? number
                 : null;
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim()
+            : null;
     }
 
     private static bool? ReadBool(JsonElement element, string name)

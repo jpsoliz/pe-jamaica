@@ -2,21 +2,21 @@
 baseline_commit: handoff-2026-07-14
 ---
 
-# Story 8.4C: Add Enterprise Legal And Fiscal Neighbor Evidence For Compare
+# Story 8.4C: Add Enterprise Legal, Fiscal, And Survey Cadastre Neighbor Evidence For Compare
 
 Status: review
 
 ## Story
 
 As a cadastral examiner in Compare,  
-I want the parcel under review to load its touching, overlapping, and nearby Legal and Fiscal Cadastre parcel evidence from ArcGIS Enterprise,  
+I want the parcel under review to load its touching, overlapping, and configurable nearby Legal, Fiscal, and Survey Cadastre parcel evidence from ArcGIS Enterprise,  
 so that I can validate ownership, occupation, valuation, and neighboring parcel context without loading or editing the full cadastre.
 
 ## Business Context
 
-Compare is an evidence reconciliation stage, not another COGO editor. The source parcel being reviewed is the transaction-scoped `working_review` geometry loaded in ArcGIS Pro. The source-of-truth spatial context for validation is the Legal Cadastre and Fiscal Cadastre layers in ArcGIS Enterprise.
+Compare is an evidence reconciliation stage, not another COGO editor. The source parcel being reviewed is the transaction-scoped `working_review` geometry loaded in ArcGIS Pro. The source-of-truth spatial context for validation is the Legal Cadastre, Fiscal Cadastre, and Survey Cadastre layers in ArcGIS Enterprise.
 
-Stories 8.2 and 8.3 established the Compare workspace and active-map geometry pattern. Stories 8.4, 8.4A, and 8.4B added the query service seams, manual evidence search UI, evidence curation, and live Innola BA Unit search for Volume/Folio. This story adds the missing spatial evidence discovery layer: retrieve only the Legal and Fiscal parcels that spatially relate to the review parcel, classify them, display them as evidence, and let the examiner decide which ones are relevant.
+Stories 8.2 and 8.3 established the Compare workspace and active-map geometry pattern. Stories 8.4, 8.4A, and 8.4B added the query service seams, manual evidence search UI, evidence curation, and live Innola BA Unit search for Volume/Folio. This story adds the missing spatial evidence discovery layer: retrieve only the Legal, Fiscal, and Survey parcels that spatially relate to the review parcel, classify them, display them as evidence, and let the examiner decide which ones are relevant.
 
 Innola tabular searches remain part of the workflow, but they should be triggered from selected evidence rows or manual search fields using PID, Volume/Folio, Land Val No., or Name + Parish. The add-in must not run bulk Innola searches for every surrounding parcel by default.
 
@@ -24,33 +24,39 @@ Innola tabular searches remain part of the workflow, but they should be triggere
 
 - Use the active ArcGIS Pro map, not an embedded map in the Compare form.
 - Reuse or create a read-only map group named `Compare Review - {transactionNumber}`.
-- Query Legal and Fiscal Cadastre layers server-side using the review polygon geometry.
-- Do not load full Legal or Fiscal Cadastre layers into the map or memory.
+- Query Legal, Fiscal, and Survey Cadastre layers server-side using the review polygon geometry.
+- Support a configured spatial search mode: `intersects` for only intersecting/touching parcels, or `buffer` for surrounding parcels within a configured JAD2001 meter buffer.
+- Do not load full Legal, Fiscal, or Survey Cadastre layers into the map or memory.
 - Classify and sort the small server-returned candidate set locally.
 - Keep included/excluded evidence decisions in the Compare evidence model.
 - Keep Innola BA Unit and other tabular services behind the existing Compare query service seam.
 
 ## Acceptance Criteria
 
-1. Given a Compare transaction has a `working_review` polygon, when neighbor evidence refresh runs, then the add-in queries configured Legal Cadastre and Fiscal Cadastre Enterprise layers using the review polygon geometry.
-2. Given Legal or Fiscal Cadastre layers are large, when the query runs, then the query is server-side with a spatial filter, selected `outFields`, a result cap, pagination or transfer-limit handling, and no full-layer load.
+1. Given a Compare transaction has a `working_review` polygon, when neighbor evidence refresh runs, then the add-in queries configured Legal Cadastre, Fiscal Cadastre, and Survey Cadastre Enterprise layers using the review polygon geometry.
+2. Given Legal, Fiscal, or Survey Cadastre layers are large, when the query runs, then the query is server-side with a spatial filter, selected `outFields`, a result cap, pagination or transfer-limit handling, and no full-layer load.
+2a. Given `compare_enterprise_cadaster.spatial_search_mode` is `intersects`, when Load Compare Layers runs, then only parcels intersecting or touching the review polygon are requested.
+2b. Given `compare_enterprise_cadaster.spatial_search_mode` is `buffer`, when Load Compare Layers runs, then the review polygon is buffered by `buffer_distance_meters` in JAD2001/EPSG:3448 meters and parcels intersecting that buffer are requested.
 3. Given the Enterprise query returns candidate geometries, when Compare processes them, then each row is classified locally as `same/review match`, `touches`, `overlaps`, `contains`, `within`, or `intersects-only` using a configured tolerance.
 4. Given candidate rows are classified, when they are displayed, then the examiner can see source layer, parcel id/PID, Volume/Folio, Land Val No., owner/taxpayer/occupant, parish, object/global id, SUID when available, relationship type, and whether the row is included as evidence.
-5. Given overlaps or duplicate candidates exist, when the examiner reviews the list, then each Legal/Fiscal row can be included or excluded without deleting it from the result set.
+5. Given overlaps or duplicate candidates exist, when the examiner reviews the list, then each Legal/Fiscal/Survey row can be included or excluded without deleting it from the result set.
 6. Given the examiner includes rows, when Compare progress is saved, then included evidence references are persisted with the Compare draft/decision state and excluded rows do not count as supporting evidence.
-7. Given the active map is available, when neighbor evidence loads, then Legal and Fiscal neighbor layers are added or refreshed as read-only context inside the existing `Compare Review - {transactionNumber}` group and the map zoom remains focused on the review parcel extent.
+7. Given the active map is available, when neighbor evidence loads, then Legal, Fiscal, and Survey neighbor layers are added or refreshed as read-only context inside the existing `Compare Review - {transactionNumber}` group and the map zoom remains focused on the review parcel extent.
 8. Given no active map is available, when neighbor evidence loads, then the Compare form shows a clear diagnostic and still allows document review and manual Innola searches.
-9. Given only one of Legal or Fiscal Cadastre settings is enabled, when refresh runs, then the enabled source loads and the disabled or missing source is reported without blocking the workflow.
+9. Given only one of Legal, Fiscal, or Survey Cadastre settings is enabled, when refresh runs, then the enabled source loads and the disabled or missing source is reported without blocking the workflow.
 10. Given a spatial evidence row has PID, Volume/Folio, Land Val No., or Name + Parish values, when the examiner chooses to query Innola for that row, then the existing manual evidence search fields are seeded and the existing query service is used on demand.
 11. Given a server query exceeds the result limit or transfer limit, when Compare receives the response, then the UI shows a warning and keeps the returned candidates reviewable.
 12. Given automated tests run, then they cover spatial query plan construction, field mapping, disabled configuration, transfer-limit diagnostics, relationship classification, sorting, include/exclude persistence, active-map group reuse, and Innola search seeding from a spatial evidence row.
 
 ## Tasks / Subtasks
 
-- [x] Extend Compare settings for Enterprise Legal and Fiscal Cadastre layers. (AC: 1, 2, 4, 9)
-  - [x] Add layer URL settings for legal and fiscal parcel polygon sources.
+- [x] Extend Compare settings for Enterprise Legal, Fiscal, and Survey Cadastre layers. (AC: 1, 2, 2a, 2b, 4, 9)
+  - [x] Add layer URL settings for legal, fiscal, and survey parcel polygon sources.
   - [x] Add field mappings for parcel id/PID, volume, folio, land valuation number, owner/taxpayer/occupant, parish, SUID, object id, and global id.
   - [x] Add result limit, page size, relationship tolerance, and enabled/disabled flags.
+  - [x] Add `spatial_search_mode` with `intersects` and `buffer` options.
+  - [x] Add `buffer_distance_meters` for surrounding-parcel searches in JAD2001 meters.
+  - [x] Expose spatial search mode and buffer distance in the Settings form.
   - [x] Validate settings at Compare launch and surface non-secret diagnostics.
 
 - [x] Add spatial neighbor query service. (AC: 1, 2, 8, 9, 11)
@@ -68,7 +74,7 @@ Innola tabular searches remain part of the workflow, but they should be triggere
 
 - [x] Wire active-map context layers. (AC: 7, 8)
   - [x] Reuse `Compare Review - {transactionNumber}` if it already exists.
-  - [x] Add or refresh read-only Legal and Fiscal neighbor context layers.
+  - [x] Add or refresh read-only Legal, Fiscal, and Survey neighbor context layers.
   - [x] Avoid creating a new map unless there is no usable active map and the user explicitly requests one in a later story.
   - [x] Keep Compare geometry controls limited to `Show active map` and `Refresh`.
 
@@ -170,6 +176,8 @@ Suggested settings shape:
 "compare_enterprise_cadaster": {
   "enabled": true,
   "relationship_tolerance_meters": 0.05,
+  "spatial_search_mode": "intersects",
+  "buffer_distance_meters": 25.0,
   "result_limit": 250,
   "page_size": 100,
   "legal": {
@@ -198,11 +206,28 @@ Suggested settings shape:
     "parish_field": "parish",
     "suid_field": "suid",
     "global_id_field": "globalid"
+  },
+  "survey": {
+    "enabled": true,
+    "source_name": "Survey Cadastre",
+    "layer_url": "",
+    "parcel_id_field": "parcel_id",
+    "pid_field": "pid",
+    "parish_field": "parish",
+    "suid_field": "suid",
+    "global_id_field": "globalid"
   }
 }
 ```
 
 The final names can follow the existing settings conventions if there is already a better local pattern.
+
+`spatial_search_mode` controls the Load Compare Layers neighbor query:
+
+- `intersects`: request parcels that intersect or touch the review polygon.
+- `buffer`: buffer the review polygon by `buffer_distance_meters` in JAD2001/EPSG:3448 meters, then request parcels intersecting that buffer.
+
+The Settings form exposes both values under Map Layers > Compare Neighbor Search. Result caps still apply per Legal, Fiscal, and Survey source.
 
 ## UX Notes
 

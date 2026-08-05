@@ -1437,6 +1437,42 @@ so that I do not need to manually open a predefined project before I can process
 **When** cleanup runs  
 **Then** transaction-specific review groups are removed while shared base/reference layers can remain for the next transaction.
 
+## Epic 10: User Training and Test Documentation
+
+Prepare user-facing training and test documentation for SMD users who execute the Parcel Workflow Extension from Innola-assigned transactions through ArcGIS Pro Compute and Compare workflows.
+
+### Story 10.1: Create User Training and Test Guide for Parcel Workflow Extension
+
+As an SMD training lead and cadastral examiner,  
+I want a Word-based user training and test guide for the Parcel Workflow Extension,  
+so that users can learn, execute, and validate the Compute and Compare workflows using assigned Innola transactions.
+
+**Acceptance Criteria:**
+
+**Given** a user needs to learn the end-to-end process  
+**When** the guide is opened in Microsoft Word  
+**Then** it explains transaction assignment in Innola, ArcGIS Pro add-in login, transaction selection, Compute execution, Compare execution, and return to the Innola/e-title workflow.
+
+**Given** a user is preparing to run a transaction  
+**When** they review prerequisites  
+**Then** the guide lists ArcGIS Pro, add-in installation, Innola credentials, assigned transactions, configured folders, JAD2001/EPSG:3448 expectations, map/layer access, Python/ArcPy readiness, and OpenAI key requirements where applicable.
+
+**Given** a user runs the Compute workflow  
+**When** they follow the guide  
+**Then** it covers Supporting Document Check, Structure Check, Georeference Check, Dimension Check, Validate Points and Lines, M-Geo, Create Spatial Units, Final Review, Finalize, Suspend, and Cancel.
+
+**Given** a user reviews extracted geometry  
+**When** they use the Points Validation Tool  
+**Then** the guide explains source PDF review, boundary segments, points, add/edit/delete behavior, delete confirmation, fixed reference coordinates, rebuild points, save, and validation complete.
+
+**Given** a user needs to compare against surrounding parcel evidence  
+**When** they run the Compare workflow  
+**Then** the guide explains loading compare layers, reviewing Legal/Fiscal/Survey neighbor evidence, spatial search mode, Innola searches by name, PID, Volume/Folio, and LandVal, and Save/Finalize/Cancel behavior.
+
+**Given** the guide is used for UAT  
+**When** testing starts  
+**Then** it includes at least one complete training use case, screenshot placeholders, expected results, pass/fail/evidence fields, and troubleshooting guidance for common deployment, login, Python, ArcPy, OpenAI, document, map, validation, publish, and crash-dump issues.
+
 ## Appendix: Implementation & Testability Contract
 
 This appendix is binding for all implementation stories. It preserves the approved user-value backlog while defining the shared contracts needed to make the ArcGIS Pro add-in, Python/ArcPy processing wrappers, Case Folder artifacts, and QA fixtures consistent.

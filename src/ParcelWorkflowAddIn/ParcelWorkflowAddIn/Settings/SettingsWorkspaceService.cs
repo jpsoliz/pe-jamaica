@@ -18,6 +18,8 @@ public sealed class SettingsWorkspaceService
     public const string SpatialOutputCogoSourceModeSourceThenComputed = "source_then_computed";
     public const string SpatialOutputCogoSourceModePreferSource = "prefer_source";
     public const string SpatialOutputCogoSourceModePreferComputed = "prefer_computed";
+    public const string CompareSpatialSearchModeIntersects = CompareEnterpriseCadasterSettings.SpatialSearchModeIntersects;
+    public const string CompareSpatialSearchModeBuffer = CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer;
     public const string EnterpriseWorkingAdminCleanupModeDeactivate = "deactivate";
     public const string EnterpriseWorkingAdminCleanupModeDelete = "delete";
 
@@ -151,6 +153,8 @@ public sealed class SettingsWorkspaceService
             EnterpriseParcelFabricOverlaySource = transactionSettings.EnterpriseParcelFabricReview.OverlaySource,
             EnterpriseParcelFabricAllowReplaceTransactionScope = transactionSettings.EnterpriseParcelFabricReview.AllowReplaceTransactionScope,
             EnterpriseParcelFabricRequireActiveMap = transactionSettings.EnterpriseParcelFabricReview.RequireActiveMap,
+            CompareEnterpriseCadasterSpatialSearchMode = transactionSettings.CompareEnterpriseCadaster.SpatialSearchMode,
+            CompareEnterpriseCadasterBufferDistanceMeters = transactionSettings.CompareEnterpriseCadaster.BufferDistanceMeters,
             WorkingMapLayers = transactionSettings.WorkingMap.ReferenceLayers
                 .Select(EditableWorkingMapLayer.FromSettings)
                 .ToList(),
@@ -260,6 +264,16 @@ public sealed class SettingsWorkspaceService
         if (!IsSupportedSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode))
         {
             messages.Add(new("Spatial Workspace", "COGO Source Mode", $"COGO source mode '{document.SpatialOutputCogoSourceMode}' is not supported."));
+        }
+
+        if (!CompareEnterpriseCadasterSettings.IsSupportedSpatialSearchMode(document.CompareEnterpriseCadasterSpatialSearchMode))
+        {
+            messages.Add(new("Map Layers", "Compare Spatial Search", $"Compare spatial search mode '{document.CompareEnterpriseCadasterSpatialSearchMode}' is not supported."));
+        }
+
+        if (document.CompareEnterpriseCadasterBufferDistanceMeters <= 0)
+        {
+            messages.Add(new("Map Layers", "Compare Buffer Distance", "Compare buffer distance must be a positive number of meters."));
         }
 
         var closureMaxDistance = ParsePositiveDouble(document.ClosureDefaultMaxClosureDistanceM);
@@ -479,6 +493,7 @@ public sealed class SettingsWorkspaceService
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
         root["enterprise_working_admin"] = CreateEnterpriseWorkingAdminNode(document);
         root["enterprise_parcel_fabric_review"] = CreateEnterpriseParcelFabricReviewNode(document);
+        root["compare_enterprise_cadaster"] = CreateCompareEnterpriseCadasterNode(document, root["compare_enterprise_cadaster"] as JsonObject);
         root["working_map"] = CreateWorkingMapNode(document, root["working_map"] as JsonObject);
         SetString(root, "gsi_server_url", document.GsiServerUrl);
         SetString(root, "gsi_username", document.GsiUsername);
@@ -793,6 +808,16 @@ public sealed class SettingsWorkspaceService
             ["allow_replace_transaction_scope"] = document.EnterpriseParcelFabricAllowReplaceTransactionScope,
             ["require_active_map"] = document.EnterpriseParcelFabricRequireActiveMap
         };
+    }
+
+    private static JsonObject CreateCompareEnterpriseCadasterNode(
+        SettingsWorkspaceDocument document,
+        JsonObject? existingRoot)
+    {
+        var compare = existingRoot?.DeepClone() as JsonObject ?? new JsonObject();
+        compare["spatial_search_mode"] = CompareEnterpriseCadasterSettings.NormalizeSpatialSearchMode(document.CompareEnterpriseCadasterSpatialSearchMode);
+        compare["buffer_distance_meters"] = Math.Max(0.001, document.CompareEnterpriseCadasterBufferDistanceMeters);
+        return compare;
     }
 
     private static JsonObject CreateWorkingMapNode(SettingsWorkspaceDocument document, JsonObject? existingRoot)

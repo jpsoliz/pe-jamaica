@@ -176,6 +176,8 @@ public sealed class CompareEnterpriseCadasterEvidenceService : ICompareEnterpris
             settings.ResultLimit,
             settings.PageSize,
             settings.RelationshipToleranceMeters,
+            settings.SpatialSearchMode,
+            settings.BufferDistanceMeters,
             source));
     }
 }
@@ -314,6 +316,8 @@ public sealed record CompareEnterpriseCadasterLayerRequest(
     int ResultLimit,
     int PageSize,
     double RelationshipToleranceMeters,
+    string SpatialSearchMode,
+    double BufferDistanceMeters,
     CompareEnterpriseCadasterSourceSettings FieldMap);
 
 public sealed record CompareEnterpriseCadasterEvidenceRecord(

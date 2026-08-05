@@ -53,6 +53,8 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
 12. Given automated tests run, then they cover Save Draft, Suspend success/failure, Complete success/blocked/failure, Close window only, Reopen Compare without claim, Transaction Panel refresh/suppression behavior, and sanitized failure messages.
 13. Given the user clicks `Save`, `Suspend`, or `Finalize`, then the add-in asks for confirmation before mutating saved/task state.
 14. Given Suspend, Finalize, or Close window proceeds after required confirmation, then the Compare form state is cleared and every loaded Compare map group for that transaction is removed from the active map.
+15. Given Compare `Finalize` completes successfully, then the add-in shows a confirmation dialog explaining that the transaction is complete and will move to the next workflow stage.
+16. Given Compare `Finalize` completes successfully and the active map contains an `M-Geo` overlay for the same transaction, then the add-in removes that transaction-specific overlay as part of final cleanup.
 
 ## Tasks / Subtasks
 
@@ -86,6 +88,8 @@ This story adds explicit Compare-stage lifecycle actions and a reopen path for a
   - [x] Confirm Save, Suspend, and Finalize before saving or changing task state.
   - [x] Remove all matching transaction-scoped `Compare Review - <transaction>` map groups after successful Suspend/Finalize and window-only Close.
   - [x] Clear Compare form state after successful Suspend/Finalize/Close cleanup.
+  - [x] Show a completion dialog after successful Finalize so the examiner knows the transaction is being moved to the next workflow stage.
+  - [x] Remove transaction-specific `M-Geo` overlay map content during Compare cleanup.
 
 - [x] Preserve Compare decision semantics. (AC: 1, 4, 5)
   - [x] `Save draft` writes only `compare_review_draft.json`.
@@ -201,6 +205,7 @@ Manual validation target:
 | 2026-07-16 | 1.2 | Patched review finding: Complete task now revalidates current Compare readiness after approval. | Amelia |
 | 2026-07-17 | 1.3 | Aligned lifecycle copy with Story 8.5 Finalize terminology and removal of Return to Compute from Compare. | Codex |
 | 2026-07-17 | 1.4 | Added confirmation prompts and Compare form/map cleanup after confirmed Suspend/Finalize. | Codex |
+| 2026-08-05 | 1.5 | Added successful Finalize completion dialog and transaction-specific M-Geo overlay cleanup. | Amelia |
 
 ## Dev Agent Record
 

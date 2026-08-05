@@ -215,7 +215,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => FixedNow(),
-            new FakeReportService(success: true));
+            new FakeReportService(success: true),
+            computeReportAttachmentService: new FakeComputeReportAttachmentService(success: true));
 
         await coordinator.StartOrClaimAsync();
         var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
@@ -255,7 +256,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             new WorkflowLifecycleAuditService(() => FixedNow()),
             new CaseResumePackageService(() => FixedNow(), () => "test"),
             () => FixedNow(),
-            new FakeReportService(success: true));
+            new FakeReportService(success: true),
+            computeReportAttachmentService: new FakeComputeReportAttachmentService(success: true));
 
         await coordinator.StartOrClaimAsync();
         var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
@@ -312,6 +314,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(1, reportService.CallCount, "Report service should be called once.");
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
         TestAssert.True(!string.IsNullOrWhiteSpace(disposition?.ComputeExaminationReportRef), "Disposition should persist report reference.");
+        TestAssert.True(!string.IsNullOrWhiteSpace(disposition?.ComputeExaminationPdfReportRef), "Disposition should persist PDF report reference.");
+        TestAssert.Equal(ComputeReportAttachmentService.SourceType, disposition?.ComputeReportAttachmentSourceType, "Disposition should persist Compute report attachment source type.");
+        TestAssert.Equal("uploaded", disposition?.ComputeReportAttachmentUploadStatus, "Disposition should persist Compute report upload status.");
         TestAssert.Equal("saved", disposition?.PlanCheckApiStatus, "Disposition should persist Plan Check API status before package upload.");
         TestAssert.True(disposition?.PlanCheckApiRef?.EndsWith("plan_check_api_response.json", StringComparison.OrdinalIgnoreCase) == true, "Disposition should persist Plan Check response evidence reference.");
         var detail = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, selected);
@@ -339,7 +344,44 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_examination_report_generated", StringComparison.OrdinalIgnoreCase), "Audit should record report generation.");
+        TestAssert.True(audit.Contains("compute_report_attached", StringComparison.OrdinalIgnoreCase), "Audit should record Compute report attachment.");
         TestAssert.True(audit.Contains("compute_plan_check_writeback_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check writeback success.");
+    }
+
+    public static async Task CompleteStopsBeforePackageUploadWhenComputeReportAttachmentFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detailService = new MockInnolaTransactionDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var reportService = new FakeReportService(success: true);
+        var manager = await LoadedManager(tempRoot.Path);
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            reportService,
+            computeReportAttachmentService: new FakeComputeReportAttachmentService(success: false));
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should fail when Compute report attachment fails.");
+        TestAssert.Equal(1, reportService.CallCount, "Report service should still generate the local report before attachment.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after report attachment failure.");
+        var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
+        TestAssert.Equal(null, disposition?.ComputeReportAttachmentUploadStatus, "Failed attachment must not be recorded as uploaded.");
+        TestAssert.True(File.Exists(Path.Combine(layout.WorkingDirectory, "compute_report_attachment.json")), "Attachment diagnostics should be written.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_report_attachment_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Compute report attachment failure.");
     }
 
     public static async Task CompleteStopsBeforePackageUploadWhenReportGenerationFails()
@@ -413,7 +455,18 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(1, planChecks.CallCount, "Plan Check service should be called once.");
         TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after Plan Check failure.");
         var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
-        TestAssert.Equal(beforeCount, after.Detail!.Attachments.Count, "Completed package must not upload after Plan Check failure.");
+        TestAssert.Equal(beforeCount + 1, after.Detail!.Attachments.Count, "Only the compute report attachment should upload before Plan Check failure.");
+        var completedFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004");
+        TestAssert.True(
+            !after.Detail!.Attachments.Any(attachment =>
+                string.Equals(attachment.FileName, completedFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(attachment.Category, ShellState.CompletedAttachmentSourceType, StringComparison.OrdinalIgnoreCase)),
+            "Completed package must not upload after Plan Check failure.");
+        TestAssert.True(
+            after.Detail!.Attachments.Any(attachment =>
+                string.Equals(attachment.FileName, ComputeExaminationReportService.PdfReportFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(attachment.Category, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase)),
+            "Compute report should upload before Plan Check failure.");
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
         TestAssert.Equal(null, disposition?.PlanCheckApiStatus, "Failed Plan Check writeback must not be recorded as saved.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
@@ -686,6 +739,26 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             var pdfReportPath = Path.Combine(layout.ReportsDirectory, ComputeExaminationReportService.PdfReportFileName);
             File.WriteAllText(pdfReportPath, "%PDF-1.4\n% test pdf\n");
             return Task.FromResult(ComputeExaminationReportResult.Succeeded(reportPath, pdfReportPath));
+        }
+    }
+
+    private sealed class FakeComputeReportAttachmentService : IComputeReportAttachmentService
+    {
+        private readonly bool success;
+
+        public FakeComputeReportAttachmentService(bool success)
+        {
+            this.success = success;
+        }
+
+        public Task<ComputeReportAttachmentResult> UploadAsync(
+            SelectedInnolaTransaction transaction,
+            string pdfReportPath,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(success
+                ? ComputeReportAttachmentResult.Succeeded(ComputeReportAttachmentService.SourceType, pdfReportPath)
+                : ComputeReportAttachmentResult.Failed("Could not attach Compute report to the transaction. Try again.", "upload_failed"));
         }
     }
 

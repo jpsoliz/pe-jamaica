@@ -1174,6 +1174,7 @@
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
@@ -1182,7 +1183,47 @@
                      Margin="0,0,0,12"
                      TextWrapping="Wrap" />
 
-          <DataGrid Grid.Row="1"
+          <Expander Grid.Row="1"
+                    Header="Compare Neighbor Search"
+                    IsExpanded="True"
+                    Margin="0,0,0,12">
+            <Grid Margin="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170" />
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="170" />
+                <ColumnDefinition Width="140" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+
+              <TextBlock Text="Spatial search mode"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center"
+                         Margin="0,0,8,0" />
+              <ComboBox Grid.Column="1"
+                        x:Name="CompareSpatialSearchModeComboBox"
+                        Height="24">
+                <ComboBoxItem Tag="intersects" Content="Intersect parcels only" />
+                <ComboBoxItem Tag="buffer" Content="Surrounding parcels within buffer" />
+              </ComboBox>
+              <TextBlock Grid.Column="2"
+                         Text="Buffer distance (m)"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center"
+                         Margin="16,0,8,0" />
+              <TextBox Grid.Column="3"
+                       x:Name="CompareBufferDistanceMetersTextBox"
+                       Height="24" />
+              <TextBlock Grid.Column="4"
+                         Text="Buffer mode still honors the configured result limit for Legal, Fiscal, and Survey Cadastre."
+                         Foreground="#53636A"
+                         TextWrapping="Wrap"
+                         VerticalAlignment="Center"
+                         Margin="12,0,0,0" />
+            </Grid>
+          </Expander>
+
+          <DataGrid Grid.Row="2"
                     x:Name="WorkingMapLayersGrid"
                     AutoGenerateColumns="False"
                     CanUserAddRows="True"
