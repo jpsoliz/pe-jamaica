@@ -312,6 +312,14 @@
       "required": false,
       "internal_only": true,
       "extensions": [".zip"]
+    },
+    {
+      "source_type": "st_compute_report",
+      "workflow_role": "compute_report",
+      "display_name": "Compute report",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf"]
     }
   ],
   "compute_transaction_type_profiles": [

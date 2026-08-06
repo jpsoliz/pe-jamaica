@@ -27,42 +27,52 @@ This is the Compute equivalent of the Compare report attachment behavior already
 3. Given report generation or upload fails, then Finalize stops before transaction completion, shows a clear non-secret message, and keeps the local case state available for retry.
 4. Given Finalize is retried after a previous partial attempt, then report generation overwrites or safely replaces the local current report and does not create confusing duplicate local report artifacts.
 5. Given the report is opened, then it contains these sections in order:
+   - Transaction Info
    - General Info
-   - Owner / Neighbor Found
+   - Owners / Neighbors / Participants
    - Boundary Segments
    - Points
-6. Given the General Info section is rendered, then it uses a two-column Field/Value format where field labels are bold and values are regular weight.
-7. Given General Info evidence exists, then the report includes at least transaction number, transaction type/task, applicant when available, owner/responsible when available, parish when available, source document name, generated timestamp, operator when available, and Volume/Folio found in the document.
-8. Given Volume/Folio was extracted or manually reviewed, then the report labels it as `Volume / Folio` and includes the value found in the document. If it is unavailable, the report explicitly says `Not found`.
-9. Given Owner / Neighbor evidence exists, then the report includes owner, occupant, adjoining owner, neighbor, and related names found during Compute review where available. If the role is unclear, the report labels the person/entity as `Participant`. If no evidence exists, the section says `No owner, neighbor, possessor, or participant evidence recorded.`
-10. Given Boundary Segments are rendered, then the report includes only segments marked for use in point/parcel generation.
-11. Given Boundary Segments are rendered, then the table columns are `Seq`, `From`, `To`, `Bearing`, `Distance`, and `Notes`.
-12. Given Points are rendered, then the table columns are `Point`, `Easting`, `Northing`, and `Sequence`.
-13. Given coordinate values are rendered, then the report states that coordinates are in JAD2001 / EPSG:3448 metres.
-14. Given the PDF is generated, then it is formatted with a title, section headings, bold field labels, bold table headers, and readable table rows; it must not be a plain unstructured text dump.
-15. Given the PDF is attached, then the uploaded source registration preserves `st_compute_report` and must not be rewritten to the resume package or completed package source type.
-16. Given a previous `st_compute_report` attachment exists for the same transaction, when Finalize uploads the new Compute report, then the previous report is replaced/overwritten so Innola retains only the current Compute Finalize report for that transaction.
-17. Given the attachment succeeds, then local evidence records the report path, PDF path, source type, upload status, transaction id/number, operator, and timestamp without logging tokens, passwords, certificate material, or API keys.
-18. Given the attachment succeeds and later closeout steps succeed, then the user sees the normal successful Finalize completion behavior and the transaction can move to the next Innola workflow stage.
-19. Given automated tests run, then coverage proves report content, used-segment filtering, point table content, PDF creation, `st_compute_report` upload/replacement, failure short-circuit behavior, and sanitized diagnostics.
+6. Given the Transaction Info section is rendered, then it includes the latest loaded transaction metadata available from Innola/session state, including transaction number/id, transaction type, task/stage name, status, received/created date when available, assigned user/group when available, applicant, owner/responsible party, operator, source system/server, and generated timestamp.
+7. Given the General Info section is rendered, then it uses a two-column Field/Value format where field labels are bold and values are regular weight.
+8. Given General Info evidence exists, then the report includes the latest reviewed values shown in the PXA/PE review tabs where available, including coordinate system, document area, file reference, north arrow, parish, plan check date, survey date, survey instrument, surveyed by / surveyor, registration details, and source document name.
+9. Given Volume/Folio was extracted or manually reviewed, then the General Info section includes a `Volume / Folio` table with `Volume`, `Folio`, `Raw Text`, `Source`, and `Status`. If no reviewed Volume/Folio evidence exists, the report explicitly says `Not found`.
+10. Given Owners / Neighbors / Participants evidence exists, then the report includes all reviewed people/entity rows from Compute review, including party/owner, representative, occupant, adjoining owner, neighbor, and related names where available.
+11. Given a person/entity role is unclear, when the report is rendered, then the role is labeled as `Participant` instead of guessing owner, neighbor, or possessor.
+12. Given adjacent owner / neighbor rows exist, then the report includes an `Adjacent Owners / Neighbors` table with `Name`, `Role`, `From`, `To`, `Vol.`, `Folio`, and `Status` where available.
+13. Given no owner, neighbor, possessor, representative, or participant evidence exists, then the section says `No owner, neighbor, possessor, representative, or participant evidence recorded.`
+14. Given Boundary Segments are rendered, then the report includes only the latest reviewed segments marked for use in point/parcel generation after examiner edits, additions, exclusions, and rebuild actions.
+15. Given Boundary Segments are rendered, then the table columns are `Seq`, `From`, `To`, `Bearing`, `Distance`, and `Notes`.
+16. Given Points are rendered, then the table includes the latest reviewed point rows after examiner edits, additions, deletions, and rebuild actions.
+17. Given Points are rendered, then the table columns are `Point`, `Easting`, `Northing`, and `Sequence`.
+18. Given coordinate values are rendered, then the report states that coordinates are in JAD2001 / EPSG:3448 metres.
+19. Given the PDF is generated, then it is formatted with a title, section headings, bold field labels, bold table headers, and readable table rows; it must not be a plain unstructured text dump.
+20. Given the PDF is attached, then the uploaded source registration preserves `st_compute_report` and must not be rewritten to the resume package or completed package source type.
+21. Given a previous `st_compute_report` attachment exists for the same transaction, when Finalize uploads the new Compute report, then the previous report is replaced/overwritten so Innola retains only the current Compute Finalize report for that transaction.
+22. Given the attachment succeeds, then local evidence records the report path, PDF path, source type, upload status, transaction id/number, operator, and timestamp without logging tokens, passwords, certificate material, or API keys.
+23. Given the attachment succeeds and later closeout steps succeed, then the user sees the normal successful Finalize completion behavior and the transaction can move to the next Innola workflow stage.
+24. Given automated tests run, then coverage proves transaction metadata content, reviewed General Info content, Volume/Folio table content, participants/adjacent-neighbor content, used-segment filtering, latest point table content, PDF creation, `st_compute_report` upload/replacement, failure short-circuit behavior, and sanitized diagnostics.
 
 ## Tasks / Subtasks
 
-- [x] Extend the Compute report document model. (AC: 5-13)
-  - [x] Add structured report data for General Info, Owner / Neighbor Found, Boundary Segments, and Points.
+- [x] Extend the Compute report document model. (AC: 5-18)
+  - [x] Add structured report data for Transaction Info, General Info, Owners / Neighbors / Participants, Boundary Segments, and Points.
   - [x] Read values from saved case artifacts and reviewed data, not a fresh extraction run.
+  - [x] Include transaction number/id, transaction type, task/stage, status, dates, assigned user/group, applicant, owner/responsible, operator, server/source, and generated timestamp where available.
+  - [x] Include reviewed General Info rows from the PXA/PE review data: coordinate system, document area, file reference, north arrow, parish, plan check date, survey date, survey instrument, surveyed by / surveyor, registration details, and source document name.
   - [x] Include Volume/Folio evidence from reviewed general info or extraction metadata.
-  - [x] Include owner/occupant/neighbor/adjoining owner evidence where available.
-  - [x] Include only segments with `Use for points`/generation enabled.
-  - [x] Include the final reviewed points and sequence order.
+  - [x] Include owner/occupant/representative/neighbor/adjoining owner evidence where available, using `Participant` when the role is unclear.
+  - [x] Include only the latest reviewed segments with `Use for points`/generation enabled.
+  - [x] Include the latest reviewed points and sequence order after examiner edits, additions, deletions, and rebuild actions.
 
-- [x] Improve Compute PDF rendering. (AC: 6, 11-14)
+- [x] Improve Compute PDF rendering. (AC: 7, 9, 12, 15, 17-19)
   - [x] Reuse or extend `ComputeExaminationReportService` rather than creating an unrelated report path.
   - [x] Extend the current PDF writer or add a small internal rendering layer that supports bold headings, bold labels, and table headers.
+  - [x] Render Transaction Info and General Info as Field/Value rows.
+  - [x] Render Volume/Folio, participants, adjacent owners/neighbors, boundary segments, and points as readable tables.
   - [x] Keep the report layout deterministic for tests.
   - [x] Preserve the existing JSON report artifact for Plan Check and audit consumers.
 
-- [x] Attach the Compute PDF report to Innola on Finalize. (AC: 1-4, 15-18)
+- [x] Attach the Compute PDF report to Innola on Finalize. (AC: 1-4, 20-23)
   - [x] Add a Compute report attachment service or reuse a generic attachment upload service.
   - [x] Use source type `st_compute_report`.
   - [x] Replace/overwrite any previous `st_compute_report` attachment for the same transaction.
@@ -70,15 +80,17 @@ This is the Compute equivalent of the Compare report attachment behavior already
   - [x] Stop Finalize on report upload failure and show a retryable, non-secret message.
   - [x] Keep Compare report attachment behavior unchanged.
 
-- [x] Persist sanitized diagnostics. (AC: 17)
+- [x] Persist sanitized diagnostics. (AC: 22)
   - [x] Record local report path, PDF path, source type, file size, upload status, transaction id/number, operator, and timestamps.
   - [x] Redact credentials, tokens, certificate material, and API keys from logs and artifacts.
 
-- [x] Add regression tests. (AC: 19)
-  - [x] Report JSON contains General Info including Volume/Folio.
+- [x] Add regression tests. (AC: 24)
+  - [x] Report JSON contains Transaction Info metadata.
+  - [x] Report JSON contains reviewed General Info including Volume/Folio.
+  - [x] Report JSON contains participants and adjacent owners/neighbors with unclear roles normalized to `Participant`.
   - [x] PDF is created and contains the expected section headings/table text.
   - [x] Boundary Segments include only used segments.
-  - [x] Points table includes point label, easting, northing, and sequence.
+  - [x] Points table includes the latest reviewed point label, easting, northing, and sequence.
   - [x] Finalize uploads the generated PDF as `st_compute_report`.
   - [x] Finalize replaces/overwrites an existing `st_compute_report` attachment for the same transaction.
   - [x] Upload failure blocks task completion and preserves retryable local state.
@@ -108,6 +120,10 @@ Report data source guidance:
 
 - Prefer saved reviewed artifacts such as `working/approved_review.json`, `working/extraction_review_data.json`, `manifest.json`, `output/output_summary.json`, and closeout/disposition artifacts.
 - Do not recompute extraction during Finalize.
+- The report must reflect the latest examiner-reviewed state at Finalize time. If the examiner edited General Info, Participants, Boundary Segments, or Points in the review UI, the PDF and JSON report must use those saved reviewed values, not the original raw extraction values.
+- Transaction Info should come from the loaded Innola transaction/session metadata when available, with graceful `Not provided` values for optional fields that Innola did not return.
+- General Info should mirror the reviewed fields visible in the Compute/PXA review tab: coordinate system, document area, file reference, north arrow, parish, plan check date, survey date, survey instrument, surveyed by / surveyor, registration details, source document, and reviewed Volume/Folio rows.
+- Owners / Neighbors / Participants should combine reviewed party/owner/representative rows and adjacent owner/neighbor rows. Keep the two concepts readable in the PDF, but use the same section so the report does not lose ambiguous participant evidence.
 - If the exact owner/neighbor role is unclear, render it as `Participant`; do not guess whether the person/entity is an owner, neighbor, or possessor.
 - If the exact owner/neighbor evidence source is missing, render the section with a clear `No owner, neighbor, possessor, or participant evidence recorded.` message rather than failing Finalize.
 - Keep `st_compare_report` isolated to Compare. Compute Finalize must use `st_compute_report`.
@@ -144,17 +160,20 @@ Notes:
 
 - The story-specific tests passed and the solution build succeeded.
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- innola` now passes the new compute-report lifecycle tests, but still stops later in the unrelated Spatial Unit endpoint-login test: `Rejected Spatial Unit API login should fail`.
+- 2026-08-05 code patch re-ran `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compute examination report"` and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false`; both passed.
 
 ## Dev Agent Record
 
 Implementation summary:
 
-- Extended Compute report generation to render structured General Info, Owner / Neighbor Found, Boundary Segments, and Points sections into JSON and formatted PDF artifacts.
+- Extended Compute report generation to render structured Transaction Info, General Info, Owners / Neighbors / Participants, Boundary Segments, and Points sections into JSON and formatted PDF artifacts.
 - Added bold PDF headings, field labels, and table headers while preserving deterministic internal PDF generation.
 - Added Compute report attachment upload on Finalize using `st_compute_report`, before Plan Check and before transaction completion.
 - Added replacement behavior for existing `st_compute_report` sources so the latest Compute Finalize report is retained.
 - Added sanitized local attachment evidence in `working/compute_report_attachment.json`.
 - Added tests for report content, used-segment filtering, PDF bold text support, upload replacement, lifecycle success, and upload-failure short-circuit behavior.
+- Patched Compute report generation to read the full reviewed `extraction_review_data.json` artifact for Transaction Info, General Info, Volume/Folio, participants, adjacent owners/neighbors, used boundary segments, and latest point rows.
+- Expanded the report regression fixture so it proves the report uses reviewed tab data rather than only the approval summary.
 
 File List:
 
@@ -175,3 +194,5 @@ File List:
 | 2026-08-05 | 0.1 | Created story for formatted Compute Finalize PDF report attachment to Innola as `st_compute_report`. | Mary / Codex |
 | 2026-08-05 | 0.2 | Clarified participant labeling for ambiguous parties and required replacement of prior `st_compute_report` attachments. | Mary / Codex |
 | 2026-08-05 | 1.0 | Implemented formatted Compute PDF generation, `st_compute_report` upload/replacement on Finalize, diagnostics, and regression coverage. | Amelia / Codex |
+| 2026-08-05 | 1.1 | Expanded report scope to include Transaction Info, reviewed General Info tab data, participants/adjacent neighbors, and latest reviewed segment/point edits at Finalize. | Mary / Codex |
+| 2026-08-05 | 1.2 | Patched code and tests so Compute Finalize report generation consumes the reviewed extraction artifact for all Story 7-14 report sections. | Amelia / Codex |

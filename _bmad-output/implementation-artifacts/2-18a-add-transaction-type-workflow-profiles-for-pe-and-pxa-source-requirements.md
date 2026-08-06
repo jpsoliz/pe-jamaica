@@ -61,6 +61,10 @@ The existing global `compute_attachment_source_types.required` flag is not expre
 
 12. Given automated tests run, then coverage proves PE still uses the existing two-required-document flow and PXA uses the new single survey-plan-primary flow.
 
+13. Given Innola returns generated workflow outputs such as `st_compute_report` or `compute_examination_report.pdf` alongside submitted source files, when PE/PXA source requirements are evaluated, then those generated reports are treated as internal outputs and do not satisfy or block any PE/PXA supporting-document requirement.
+
+14. Given a PXA / Plan Examination by Area transaction is loaded, when the source inventory is displayed, then `st_surveyplan` may be promoted to the `survey_plan_pdf` role and the checklist does not display PE-only rows for `computation_sheet` or separate `plan_map_reference`.
+
 ## Tasks / Subtasks
 
 - [x] Define the transaction-type profile settings contract. (AC: 1-4, 10-11)
@@ -87,6 +91,8 @@ The existing global `compute_attachment_source_types.required` flag is not expre
   - [x] Show operator-facing messages that identify the active transaction profile.
   - [x] Preserve PE required roles exactly.
   - [x] Make PXA require only the configured scanned survey plan primary source unless optional roles are present.
+  - [x] Exclude generated compute reports from PE/PXA source-role matching before generic computation-sheet heuristics run.
+  - [x] Filter generated/internal sources from profile detection, preflight required-role evaluation, georeference readiness, and dimension readiness.
 
 - [x] Update WorkflowRules and extraction script-plan routing. (AC: 7, 9, 12)
   - [x] Add or enable matching by workflow profile/document profile in addition to transaction type names.
@@ -113,6 +119,8 @@ The existing global `compute_attachment_source_types.required` flag is not expre
   - [x] WorkflowRules resolver selects PE versus PXA profiles correctly.
   - [x] Missing/unknown profile blocks with clear diagnostics.
   - [x] Settings round-trip preserves profile JSON.
+  - [x] Generated reports cannot satisfy PE source roles.
+  - [x] PXA supporting-document inventory uses only PXA roles and excludes PE-only checklist rows.
 
 ## Dev Notes
 
@@ -228,9 +236,12 @@ PE:
 PXA:
 
 - `survey_plan_pdf` is primary.
+- If Innola supplies the PXA plan as `st_surveyplan`, the load process promotes that source to `survey_plan_pdf` for the PXA profile.
 - usually one parcel.
 - `coordinate_text_source` optional.
 - `dwg_source` optional.
+- No separate `plan_map_reference` row should be shown for PXA.
+- No `computation_sheet` row should be shown for PXA.
 - extraction profile: scanned single-parcel survey plan PDF from Story 2.18.
 
 ### Current PE/PXA Review - 2026-07-29
@@ -242,6 +253,7 @@ The current implementation still follows the intended two-line model:
 - PXA resolves to `pxa_single_parcel_survey_plan`, requires `survey_plan_pdf`, and keeps coordinate text / DWG as optional supporting sources.
 - `Plan Examination by Area` is configured as a PXA transaction type name alias. Rule resolution is profile-scoped, so the PXA script plan can still resolve even when the raw transaction type is the alias rather than literal `PXA`.
 - PXA does not require a computation sheet and PE does not route into the scanned survey-plan extractor.
+- Generated workflow artifacts such as `st_compute_report`, `compute_examination_report.pdf`, resume packages, and completed packages are internal outputs. They must be excluded before profile detection, source-role requirements, preflight inventory, georeference readiness, and dimension readiness are evaluated.
 
 Implementation review found no runtime mismatch in the source-role/profile split. The only gap was regression coverage for the `Plan Examination by Area` alias, now added to the workflow-rule resolver tests.
 

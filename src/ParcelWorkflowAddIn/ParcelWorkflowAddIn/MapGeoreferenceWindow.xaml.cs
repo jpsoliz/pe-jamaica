@@ -60,7 +60,6 @@ internal partial class MapGeoreferenceWindow : ProWindow
     {
         if (activeWindow is { IsVisible: true } window)
         {
-            _ = new MapGeoreferenceOverlayService().RemoveOverlayAsync(window.viewModel.TransactionNumber);
             window.Close();
         }
     }

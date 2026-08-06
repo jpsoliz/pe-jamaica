@@ -228,13 +228,16 @@ public sealed class ManifestPreflightService
         }
 
         var requiredRoles = GetRequiredRoles(manifest, profile.ProfileCode);
-        EvaluateSupportingDocumentInventory(manifest, requiredRoles, blockers, warnings, passed);
+        var sourceFiles = manifest.Payload.SourceFiles
+            .Where(source => !IsInternalGeneratedSource(source))
+            .ToArray();
+        EvaluateSupportingDocumentInventory(manifest, sourceFiles, requiredRoles, blockers, warnings, passed);
         foreach (var role in requiredRoles)
         {
-            await EvaluateRequiredRole(manifest.Payload.SourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            await EvaluateRequiredRole(sourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
         }
 
-        await EvaluateOptionalDwgSources(manifest.Payload.SourceFiles, layout, requiredRoles, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+        await EvaluateOptionalDwgSources(sourceFiles, layout, requiredRoles, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
     }
 
     private static void EvaluateScriptPlan(
@@ -294,7 +297,9 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> passed,
         bool requireConcreteValidation)
     {
-        var sources = manifest.Payload.SourceFiles;
+        var sources = manifest.Payload.SourceFiles
+            .Where(source => !IsInternalGeneratedSource(source))
+            .ToArray();
         var hasConcreteGeoreferenceValidation = false;
         var georeferenceSourceRule = ruleCatalog.TryGetRule("georeference_source_presence");
         if (georeferenceSourceRule is { Enabled: true })
@@ -521,7 +526,9 @@ public sealed class ManifestPreflightService
             return;
         }
 
-        var source = manifest.Payload.SourceFiles.FirstOrDefault(item => RuleAppliesToSource(rule, item));
+        var source = manifest.Payload.SourceFiles
+            .Where(item => !IsInternalGeneratedSource(item))
+            .FirstOrDefault(item => RuleAppliesToSource(rule, item));
         if (source is null)
         {
             AddRuleIssue(
@@ -1173,6 +1180,7 @@ public sealed class ManifestPreflightService
 
     private static void EvaluateSupportingDocumentInventory(
         ManifestDocument manifest,
+        IReadOnlyList<ManifestSourceFile> sourceFiles,
         IReadOnlyList<string> requiredRoles,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
@@ -1188,7 +1196,7 @@ public sealed class ManifestPreflightService
             .Where(role => !requiredRoles.Any(required => SourceRole.Matches(role, required)))
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var source = ResolveSourceForRole(manifest, role);
+            var source = ResolveSourceForRole(sourceFiles, role);
             var checkId = $"supporting_document_{NormalizeCheckIdSegment(role)}";
             if (source is not null)
             {
@@ -1210,14 +1218,17 @@ public sealed class ManifestPreflightService
         }
     }
 
-    private static ManifestSourceFile? ResolveSourceForRole(ManifestDocument manifest, string role)
+    private static ManifestSourceFile? ResolveSourceForRole(IReadOnlyList<ManifestSourceFile> sourceFiles, string role)
     {
-        return manifest.Payload.SourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, role));
+        return sourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, role));
     }
 
     private static ManifestSourceFile? ResolveSourceForDefinition(ManifestDocument manifest, ComputeAttachmentSourceTypeDefinition definition)
     {
-        var directMatch = manifest.Payload.SourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, definition.WorkflowRole)
+        var sourceFiles = manifest.Payload.SourceFiles
+            .Where(source => !IsInternalGeneratedSource(source))
+            .ToArray();
+        var directMatch = sourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, definition.WorkflowRole)
             || string.Equals(source.SourceType, definition.SourceType, StringComparison.OrdinalIgnoreCase));
         if (directMatch is not null)
         {
@@ -1230,16 +1241,18 @@ public sealed class ManifestPreflightService
         }
 
         var matchedProvenance = manifest.Payload.AttachmentProvenance.FirstOrDefault(attachment =>
+            !IsInternalGeneratedAttachment(attachment)
+            && (
             SourceRole.Matches(attachment.SourceRole, definition.WorkflowRole)
             || string.Equals(attachment.SourceType, definition.SourceType, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(attachment.Category, definition.SourceType, StringComparison.OrdinalIgnoreCase));
+            || string.Equals(attachment.Category, definition.SourceType, StringComparison.OrdinalIgnoreCase)));
 
         if (matchedProvenance is null)
         {
             return null;
         }
 
-        return manifest.Payload.SourceFiles.FirstOrDefault(source =>
+        return sourceFiles.FirstOrDefault(source =>
             string.Equals(source.CopiedPath, matchedProvenance.CopiedPath, StringComparison.OrdinalIgnoreCase))
             ?? new ManifestSourceFile(
                 matchedProvenance.ServiceReference,
@@ -1249,6 +1262,69 @@ public sealed class ManifestPreflightService
                 matchedProvenance.CopiedAt,
                 matchedProvenance.SourceRole,
                 matchedProvenance.SourceType ?? matchedProvenance.Category);
+    }
+
+    private static bool IsInternalGeneratedSource(ManifestSourceFile source)
+    {
+        var role = SourceRole.Normalize(source.SourceRole);
+        if (role is SourceRole.WorkflowResumePackage or SourceRole.ComputeReport or SourceRole.UnsupportedSource)
+        {
+            return true;
+        }
+
+        if (IsInternalGeneratedSourceType(source.SourceType))
+        {
+            return true;
+        }
+
+        return IsInternalGeneratedFileName(source.CopiedPath)
+            || IsInternalGeneratedFileName(source.OriginalPath);
+    }
+
+    private static bool IsInternalGeneratedAttachment(ManifestAttachmentProvenance attachment)
+    {
+        var role = SourceRole.Normalize(attachment.SourceRole);
+        if (role is SourceRole.WorkflowResumePackage or SourceRole.ComputeReport or SourceRole.UnsupportedSource)
+        {
+            return true;
+        }
+
+        if (IsInternalGeneratedSourceType(attachment.SourceType)
+            || IsInternalGeneratedSourceType(attachment.Category))
+        {
+            return true;
+        }
+
+        return IsInternalGeneratedFileName(attachment.FileName)
+            || IsInternalGeneratedFileName(attachment.CopiedPath)
+            || IsInternalGeneratedFileName(attachment.ServiceReference);
+    }
+
+    private static bool IsInternalGeneratedSourceType(string? sourceType)
+    {
+        return string.Equals(sourceType, "st_compute_report", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceType, "st_survey_zip", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceType, "sidwell_resume_package", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceType, "sidwell_completed_package", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInternalGeneratedFileName(string? pathOrFileName)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrFileName))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(pathOrFileName);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        return fileName.Contains("compute_examination_report", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("resume_package", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("completed_package", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("sidwell-case-state", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool RuleAppliesToSource(PreflightRuleDefinition rule, ManifestSourceFile source)

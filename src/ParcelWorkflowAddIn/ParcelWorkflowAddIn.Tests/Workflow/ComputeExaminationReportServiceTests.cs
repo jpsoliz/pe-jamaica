@@ -16,6 +16,8 @@ internal static class ComputeExaminationReportServiceTests
         var layout = CaseFolderLayout.For(tempRoot.Path, "TR100000379");
         Directory.CreateDirectory(layout.WorkingDirectory);
         Directory.CreateDirectory(layout.OutputDirectory);
+        Directory.CreateDirectory(layout.SourceDirectory);
+        File.WriteAllText(Path.Combine(layout.SourceDirectory, "DOC_PLAN_490957_D.pdf"), "placeholder pdf");
 
         var createdAt = DateTimeOffset.Parse("2026-07-03T12:00:00Z");
         ManifestSerializer.Write(
@@ -31,16 +33,140 @@ internal static class ComputeExaminationReportServiceTests
             """
             {
               "status": "approved",
-              "approved_by": "mary",
-              "volume_folio": "1234/546",
-              "owners": [{"name": "Estate of Brown"}],
-              "boundary_segments": [
-                {"seq": 1, "from": "A", "to": "B", "bearing": "N12 30E", "distance": "10.000", "use_for_points": true, "notes": "Used segment"},
-                {"seq": 2, "from": "B", "to": "C", "bearing": "S12 30W", "distance": "10.000", "use_for_points": false, "notes": "Excluded segment"}
+              "approved_by": "mary"
+            }
+            """);
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "1.0.0",
+              "transaction_number": "100000379",
+              "coordinate_system": {
+                "value": "JAD 2001 Coordinates",
+                "confidence": "0.95",
+                "review_status": "reviewed"
+              },
+              "north_arrow": {
+                "present": true,
+                "confidence": "0.9",
+                "review_status": "reviewed"
+              },
+              "survey_metadata": {
+                "document_area": {
+                  "value": "569.896 sq. metres",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "file_reference": {
+                  "value": "PE:490957",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "parish": {
+                  "value": "Saint Catherine",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "plan_check_date": {
+                  "value": "2025/08/11",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "survey_date": {
+                  "value": "June 4, 2025",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "survey_instrument": {
+                  "value": "Hi-Target ZTS 360R",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "surveyed_by": {
+                  "value": "Kevon L. Jarrett",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "registration_details": {
+                  "value": "Vol.1298 Fol.769",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
+                "volume_folio": [
+                  {
+                    "volume": "1298",
+                    "folio": "769",
+                    "raw_text": "Vol.1298 Fol.769",
+                    "source_page": "page 1",
+                    "source_zone": "near fence post",
+                    "review_status": "reviewed"
+                  }
+                ]
+              },
+              "parties": [
+                {
+                  "name": "Roxine Campbell",
+                  "role": "Surveyed For",
+                  "source_page": "page 1",
+                  "source_zone": "memorandum",
+                  "review_status": "reviewed"
+                }
               ],
-              "points": [
-                {"point": "A", "easting": 700000.123, "northing": 650000.456, "sequence": 1},
-                {"point": "B", "easting": 700010.123, "northing": 650010.456, "sequence": 2}
+              "representatives": [
+                {
+                  "name": "Kevon L. Jarrett",
+                  "role": "representative",
+                  "source_page": "page 1",
+                  "source_zone": "memorandum",
+                  "review_status": "reviewed"
+                }
+              ],
+              "adjacent_owners": [
+                {
+                  "name": "Austin S. Singh",
+                  "related_segment_from": "19",
+                  "related_segment_to": "W",
+                  "volume": "1571",
+                  "folio": "993",
+                  "review_status": "reviewed"
+                }
+              ],
+              "segments": [
+                {
+                  "sequence": 1,
+                  "from_point": "19",
+                  "to_point": "W",
+                  "bearing_txt": "N74 36E",
+                  "distance_txt": "8.495 m",
+                  "include_in_boundary": true,
+                  "review_notes": "Used segment"
+                },
+                {
+                  "sequence": 2,
+                  "from_point": "X",
+                  "to_point": "Y",
+                  "bearing_txt": "S12 30W",
+                  "distance_txt": "10.000 m",
+                  "include_in_boundary": false,
+                  "review_notes": "Excluded segment"
+                }
+              ],
+              "rows": [
+                {
+                  "point_identifier": "19",
+                  "easting": "738860.904",
+                  "northing": "643112.324",
+                  "sequence_in_group": 1,
+                  "review_status": "reviewed"
+                },
+                {
+                  "point_identifier": "W",
+                  "easting": "738869.094",
+                  "northing": "643114.58",
+                  "sequence_in_group": 2,
+                  "review_status": "reviewed"
+                }
               ]
             }
             """);
@@ -76,7 +202,12 @@ internal static class ComputeExaminationReportServiceTests
             "100000379",
             "Compute Survey Plan",
             "Plan Examination",
-            createdAt);
+            createdAt,
+            ApplicationId: "app-379",
+            TransactionType: "Compute Survey Plan",
+            Status: InnolaTransactionStatus.InProgress,
+            AssignedUser: "mary",
+            AssignedGroup: "Plan Examination");
 
         var result = new ComputeExaminationReportService().GenerateAsync(layout, transaction, disposition, "mary").GetAwaiter().GetResult();
 
@@ -85,8 +216,11 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(File.Exists(result.PdfReportPath), "High-level PDF report should be written.");
         var pdfText = File.ReadAllText(result.PdfReportPath!);
         TestAssert.True(pdfText[..8] == "%PDF-1.4", "PDF report should use a PDF header.");
+        TestAssert.True(pdfText.Contains("Transaction Info", StringComparison.OrdinalIgnoreCase), "PDF report should include Transaction Info section.");
         TestAssert.True(pdfText.Contains("General Info", StringComparison.OrdinalIgnoreCase), "PDF report should include General Info section.");
-        TestAssert.True(pdfText.Contains("Owner / Neighbor Found", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
+        TestAssert.True(pdfText.Contains("Volume / Folio", StringComparison.OrdinalIgnoreCase), "PDF report should include Volume/Folio section.");
+        TestAssert.True(pdfText.Contains("Owners / Neighbors / Participants", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
+        TestAssert.True(pdfText.Contains("Adjacent Owners / Neighbors", StringComparison.OrdinalIgnoreCase), "PDF report should include adjacent owner section.");
         TestAssert.True(pdfText.Contains("Boundary Segments", StringComparison.OrdinalIgnoreCase), "PDF report should include boundary segments.");
         TestAssert.True(pdfText.Contains("Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
         TestAssert.True(pdfText.Contains("/Helvetica-Bold", StringComparison.OrdinalIgnoreCase), "PDF report should include a bold font for headings and labels.");
@@ -97,12 +231,51 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.Equal("compute_examination_report_v1", root.GetProperty("schema_version").GetString(), "Report schema should be explicit.");
         TestAssert.Equal("100000379", root.GetProperty("transaction_number").GetString(), "Report should carry transaction number.");
         TestAssert.Equal("run-report", root.GetProperty("manifest_run_id").GetString(), "Report should reference manifest run.");
+        var transactionInfo = root.GetProperty("transaction_info").GetProperty("fields").EnumerateArray().ToArray();
+        TestAssert.True(transactionInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Transaction Type"
+            && field.GetProperty("value").GetString() == "Compute Survey Plan"), "Report should include transaction type.");
+        TestAssert.True(transactionInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Assigned To"
+            && field.GetProperty("value").GetString() == "mary"), "Report should include assigned user.");
+
         var generalInfo = root.GetProperty("general_info").GetProperty("fields").EnumerateArray().ToArray();
         TestAssert.True(generalInfo.Any(field =>
-            field.GetProperty("field").GetString() == "Volume / Folio"
-            && field.GetProperty("value").GetString() == "1234/546"), "Report should include Volume/Folio from the reviewed document.");
+            field.GetProperty("field").GetString() == "Coordinate system"
+            && field.GetProperty("value").GetString() == "JAD 2001 Coordinates"), "Report should include reviewed coordinate system.");
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Document area"
+            && field.GetProperty("value").GetString() == "569.896 sq. metres"), "Report should include reviewed document area.");
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Source document"
+            && field.GetProperty("value").GetString() == "DOC_PLAN_490957_D.pdf"), "Report should include source document.");
+
+        var volumeFolio = root.GetProperty("volume_folios").EnumerateArray().Single();
+        TestAssert.Equal("1298", volumeFolio.GetProperty("volume").GetString(), "Report should include reviewed Volume.");
+        TestAssert.Equal("769", volumeFolio.GetProperty("folio").GetString(), "Report should include reviewed Folio.");
+
+        var participants = root.GetProperty("participants").EnumerateArray().ToArray();
+        TestAssert.True(participants.Any(participant =>
+            participant.GetProperty("name").GetString() == "Roxine Campbell"
+            && participant.GetProperty("role").GetString() == "Surveyed For"), "Report should include reviewed party rows.");
+        TestAssert.True(participants.Any(participant =>
+            participant.GetProperty("name").GetString() == "Kevon L. Jarrett"
+            && participant.GetProperty("group").GetString() == "Representative"), "Report should include reviewed representatives.");
+
+        var adjacentOwner = root.GetProperty("adjacent_owners").EnumerateArray().Single();
+        TestAssert.Equal("Austin S. Singh", adjacentOwner.GetProperty("name").GetString(), "Report should include reviewed adjacent owners.");
+        TestAssert.Equal("Participant", adjacentOwner.GetProperty("role").GetString(), "Unclear adjacent owner roles should normalize to Participant.");
+        TestAssert.Equal("19", adjacentOwner.GetProperty("from").GetString(), "Report should include adjacent owner from-point.");
+        TestAssert.Equal("W", adjacentOwner.GetProperty("to").GetString(), "Report should include adjacent owner to-point.");
+
         TestAssert.Equal(1, root.GetProperty("boundary_segments").GetArrayLength(), "Report should include only used boundary segments.");
+        var segment = root.GetProperty("boundary_segments").EnumerateArray().Single();
+        TestAssert.Equal("19", segment.GetProperty("from").GetString(), "Report should include the latest reviewed segment from point.");
+        TestAssert.Equal("W", segment.GetProperty("to").GetString(), "Report should include the latest reviewed segment to point.");
         TestAssert.Equal(2, root.GetProperty("points").GetArrayLength(), "Report should include reviewed points.");
+        var firstPoint = root.GetProperty("points").EnumerateArray().First();
+        TestAssert.Equal("19", firstPoint.GetProperty("point").GetString(), "Report should include reviewed point label.");
+        TestAssert.Equal("738860.904", firstPoint.GetProperty("easting").GetString(), "Report should include reviewed point easting.");
 
         var stageIds = root.GetProperty("stages").EnumerateArray()
             .Select(stage => stage.GetProperty("stage_id").GetString())

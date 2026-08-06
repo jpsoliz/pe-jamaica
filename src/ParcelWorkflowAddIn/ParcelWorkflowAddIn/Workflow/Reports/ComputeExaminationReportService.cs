@@ -8,6 +8,7 @@ using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 
 namespace ParcelWorkflowAddIn.Workflow.Reports;
@@ -70,6 +71,7 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             var dispositionArtifact = RequireJsonArtifact(layout, layout.WorkingDirectory, ComputeReviewDispositionPersistenceService.DispositionArtifactFileName, "Compute disposition");
             using var approvedReview = ReadOptionalJson(Path.Combine(layout.WorkingDirectory, "approved_review.json"));
             using var extractionReviewData = ReadOptionalJson(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
+            var reviewedData = new ExtractionReviewPersistenceService().Load(layout);
             var generatedAtUtc = DateTimeOffset.UtcNow.UtcDateTime.ToString("O");
 
             var report = new ComputeExaminationReportDocument(
@@ -117,10 +119,13 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                     MakeReference(layout, Path.Combine(layout.OutputDirectory, "output_summary.json")),
                     MakeReference(layout, Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json"))
                 },
-                BuildGeneralInfo(layout, transaction, generatedAtUtc, operatorId, approvedReview, extractionReviewData),
-                BuildParticipants(transaction, approvedReview, extractionReviewData),
-                BuildBoundarySegments(approvedReview, extractionReviewData),
-                BuildPoints(approvedReview, extractionReviewData));
+                BuildTransactionInfo(manifest, transaction, generatedAtUtc, operatorId),
+                BuildGeneralInfo(layout, reviewedData),
+                BuildVolumeFolios(reviewedData, approvedReview, extractionReviewData),
+                BuildParticipants(reviewedData, approvedReview, extractionReviewData),
+                BuildAdjacentOwners(reviewedData),
+                BuildBoundarySegments(reviewedData, approvedReview, extractionReviewData),
+                BuildPoints(reviewedData, approvedReview, extractionReviewData));
 
             Directory.CreateDirectory(layout.ReportsDirectory);
             var reportPath = Path.Combine(layout.ReportsDirectory, ReportFileName);
@@ -179,13 +184,37 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         }
     }
 
-    private static ComputeExaminationReportGeneralInfo BuildGeneralInfo(
-        CaseFolderLayout layout,
+    private static ComputeExaminationReportGeneralInfo BuildTransactionInfo(
+        ManifestDocument manifest,
         SelectedInnolaTransaction transaction,
         string generatedAtUtc,
-        string? operatorId,
-        JsonDocument? approvedReview,
-        JsonDocument? extractionReviewData)
+        string? operatorId)
+    {
+        var innola = manifest.Payload.InnolaTransaction;
+        var lifecycle = manifest.Payload.InnolaLifecycle;
+
+        return new ComputeExaminationReportGeneralInfo(new[]
+        {
+            new ComputeExaminationReportFieldValue("Transaction", transaction.TransactionNumber),
+            new ComputeExaminationReportFieldValue("Transaction Id", transaction.TransactionId),
+            new ComputeExaminationReportFieldValue("Transaction Type", transaction.TransactionType ?? innola?.CaseType ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Task", transaction.TaskName),
+            new ComputeExaminationReportFieldValue("Stage", transaction.ProcessStep),
+            new ComputeExaminationReportFieldValue("Status", transaction.Status.ToString()),
+            new ComputeExaminationReportFieldValue("Selected At UTC", transaction.SelectedAt.UtcDateTime.ToString("O")),
+            new ComputeExaminationReportFieldValue("Loaded At UTC", innola?.LoadedAt ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Assigned To", FirstNonBlank(transaction.AssignedUser, innola?.AssignedUser, transaction.AssignedGroup, innola?.AssignedGroup) ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Applicant", "Not provided"),
+            new ComputeExaminationReportFieldValue("Owner / Responsible", FirstNonBlank(innola?.OwnerUser, transaction.AssignedUser, innola?.AssignedUser) ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Operator", operatorId ?? "Not provided"),
+            new ComputeExaminationReportFieldValue("Source System", SafeLoadInnolaServerUrl()),
+            new ComputeExaminationReportFieldValue("Generated At UTC", generatedAtUtc)
+        });
+    }
+
+    private static ComputeExaminationReportGeneralInfo BuildGeneralInfo(
+        CaseFolderLayout layout,
+        ExtractionReviewDocument? reviewedData)
     {
         var sourceDocument = Directory.Exists(layout.SourceDirectory)
             ? Directory.EnumerateFiles(layout.SourceDirectory)
@@ -194,32 +223,78 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 .FirstOrDefault()
             : null;
 
-        return new ComputeExaminationReportGeneralInfo(new[]
+        var fields = new List<ComputeExaminationReportFieldValue>
         {
-            new ComputeExaminationReportFieldValue("Transaction Number", transaction.TransactionNumber),
-            new ComputeExaminationReportFieldValue("Transaction Id", transaction.TransactionId),
-            new ComputeExaminationReportFieldValue("Task", transaction.TaskName),
-            new ComputeExaminationReportFieldValue("Transaction Type", transaction.TransactionType ?? "Not provided"),
-            new ComputeExaminationReportFieldValue("Process Step", transaction.ProcessStep),
-            new ComputeExaminationReportFieldValue("Application Id", transaction.ApplicationId ?? "Not provided"),
-            new ComputeExaminationReportFieldValue("Assigned User", transaction.AssignedUser ?? "Not provided"),
-            new ComputeExaminationReportFieldValue("Assigned Group", transaction.AssignedGroup ?? "Not provided"),
-            new ComputeExaminationReportFieldValue("Source Document", sourceDocument ?? "Not found"),
-            new ComputeExaminationReportFieldValue("Generated At UTC", generatedAtUtc),
-            new ComputeExaminationReportFieldValue("Operator", operatorId ?? "Not provided"),
-            new ComputeExaminationReportFieldValue("Volume / Folio", FindFirstString(approvedReview, extractionReviewData, "volume_folio", "volumeFolio", "volume/folio", "vol_folio", "volFolio") ?? "Not found"),
-            new ComputeExaminationReportFieldValue("Coordinate System", "JAD2001 / EPSG:3448 metres")
-        });
+            BuildMetadataField(reviewedData, "Coordinate system", "coordinate_system", "JAD2001 / EPSG:3448 metres"),
+            BuildMetadataField(reviewedData, "Document area", "document_area", "Not provided"),
+            BuildMetadataField(reviewedData, "File reference", "file_reference", "Not provided"),
+            BuildMetadataField(reviewedData, "North arrow", "north_arrow", "Not provided"),
+            BuildMetadataField(reviewedData, "Parish", "parish", "Not provided"),
+            BuildMetadataField(reviewedData, "Plan check date", "plan_check_date", "Not provided"),
+            BuildMetadataField(reviewedData, "Survey date", "survey_date", "Not provided"),
+            BuildMetadataField(reviewedData, "Survey instrument", "survey_instrument", "Not provided"),
+            BuildMetadataField(reviewedData, "Surveyed by / Surveyor", "surveyed_by", "Not provided"),
+            BuildMetadataField(reviewedData, "Registration details", "registration_details", "Not provided"),
+            new("Source document", sourceDocument ?? "Not found")
+        };
+
+        return new ComputeExaminationReportGeneralInfo(fields);
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportVolumeFolio> BuildVolumeFolios(
+        ExtractionReviewDocument? reviewedData,
+        JsonDocument? approvedReview,
+        JsonDocument? extractionReviewData)
+    {
+        if (reviewedData?.VolumeFolios.Count > 0)
+        {
+            return reviewedData.VolumeFolios
+                .Select(item => new ComputeExaminationReportVolumeFolio(
+                    NonEmpty(item.Volume),
+                    NonEmpty(item.Folio),
+                    NonEmpty(item.RawText),
+                    BuildSourceText(item.SourcePage, item.SourceZone),
+                    BuildStatusText(item.ReviewStatus, item.ReviewNotes)))
+                .ToArray();
+        }
+
+        var fallback = FindFirstString(approvedReview, extractionReviewData, "volume_folio", "volumeFolio", "volume/folio", "vol_folio", "volFolio");
+        if (string.IsNullOrWhiteSpace(fallback))
+        {
+            return Array.Empty<ComputeExaminationReportVolumeFolio>();
+        }
+
+        var parts = fallback.Split(new[] { '/', '\\' }, 2, StringSplitOptions.TrimEntries);
+        return new[]
+        {
+            new ComputeExaminationReportVolumeFolio(
+                parts.Length > 0 ? parts[0] : string.Empty,
+                parts.Length > 1 ? parts[1] : string.Empty,
+                fallback,
+                "review artifact",
+                string.Empty)
+        };
     }
 
     private static IReadOnlyList<ComputeExaminationReportParticipant> BuildParticipants(
-        SelectedInnolaTransaction transaction,
+        ExtractionReviewDocument? reviewedData,
         JsonDocument? approvedReview,
         JsonDocument? extractionReviewData)
     {
         var participants = new List<ComputeExaminationReportParticipant>();
-        AddParticipant(participants, transaction.AssignedUser, "Assigned User");
-        AddParticipant(participants, transaction.AssignedGroup, "Assigned Group");
+
+        if (reviewedData is not null)
+        {
+            foreach (var party in reviewedData.Parties)
+            {
+                AddParticipant(participants, "Party / Owner", party.Name, party.Role, BuildSourceText(party.SourcePage, party.SourceZone), BuildStatusText(party.ReviewStatus, party.ReviewNotes));
+            }
+
+            foreach (var representative in reviewedData.Representatives)
+            {
+                AddParticipant(participants, "Representative", representative.Name, representative.Role, BuildSourceText(representative.SourcePage, representative.SourceZone), BuildStatusText(representative.ReviewStatus, representative.ReviewNotes));
+            }
+        }
 
         foreach (var root in ExistingRoots(approvedReview, extractionReviewData))
         {
@@ -227,20 +302,59 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             {
                 foreach (var value in FindStringsByProperty(root, propertyName))
                 {
-                    AddParticipant(participants, value, "Participant");
+                    AddParticipant(participants, "Participant", value, "Participant", string.Empty, string.Empty);
                 }
             }
         }
 
         return participants
-            .GroupBy(participant => participant.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(participant => !string.IsNullOrWhiteSpace(participant.Name))
+            .GroupBy(participant => $"{participant.Group}|{participant.Name}", StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .OrderBy(participant => participant.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
-    private static IReadOnlyList<ComputeExaminationReportBoundarySegment> BuildBoundarySegments(params JsonDocument?[] documents)
+    private static IReadOnlyList<ComputeExaminationReportAdjacentOwner> BuildAdjacentOwners(ExtractionReviewDocument? reviewedData)
     {
+        if (reviewedData is null || reviewedData.AdjacentOwners.Count == 0)
+        {
+            return Array.Empty<ComputeExaminationReportAdjacentOwner>();
+        }
+
+        return reviewedData.AdjacentOwners
+            .Where(owner => !string.IsNullOrWhiteSpace(owner.Name))
+            .Select(owner => new ComputeExaminationReportAdjacentOwner(
+                owner.Name.Trim(),
+                NormalizeParticipantRole(owner.Role),
+                NonEmpty(owner.RelatedSegmentFrom),
+                NonEmpty(owner.RelatedSegmentTo),
+                NonEmpty(owner.Volume),
+                NonEmpty(owner.Folio),
+                BuildStatusText(owner.ReviewStatus, owner.ReviewNotes)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportBoundarySegment> BuildBoundarySegments(
+        ExtractionReviewDocument? reviewedData,
+        params JsonDocument?[] documents)
+    {
+        if (reviewedData?.Segments.Count > 0)
+        {
+            return reviewedData.Segments
+                .Where(segment => segment.EffectiveIncludeInBoundary)
+                .OrderBy(segment => segment.EffectiveSequence)
+                .Select(segment => new ComputeExaminationReportBoundarySegment(
+                    segment.EffectiveSequence == int.MaxValue ? string.Empty : segment.EffectiveSequence.ToString(),
+                    NonEmpty(segment.EffectiveFromPoint),
+                    NonEmpty(segment.EffectiveToPoint),
+                    NonEmpty(segment.EffectiveBearingText),
+                    FirstNonBlank(segment.EffectiveDistanceText, segment.EffectiveLengthText) ?? string.Empty,
+                    FirstNonBlank(segment.ReviewNotes, segment.Status, segment.AdjacentOwner) ?? string.Empty,
+                    true))
+                .ToArray();
+        }
+
         return ExistingRoots(documents)
             .SelectMany(EnumerateObjects)
             .Where(IsLikelyBoundarySegment)
@@ -258,8 +372,24 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             .ToArray();
     }
 
-    private static IReadOnlyList<ComputeExaminationReportPoint> BuildPoints(params JsonDocument?[] documents)
+    private static IReadOnlyList<ComputeExaminationReportPoint> BuildPoints(
+        ExtractionReviewDocument? reviewedData,
+        params JsonDocument?[] documents)
     {
+        if (reviewedData?.Rows.Count > 0)
+        {
+            return reviewedData.Rows
+                .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier))
+                .OrderBy(row => row.SequenceInGroup ?? int.MaxValue)
+                .ThenBy(row => row.PointIdentifier, StringComparer.OrdinalIgnoreCase)
+                .Select(row => new ComputeExaminationReportPoint(
+                    row.PointIdentifier.Trim(),
+                    NonEmpty(row.Easting),
+                    NonEmpty(row.Northing),
+                    row.SequenceInGroup?.ToString() ?? string.Empty))
+                .ToArray();
+        }
+
         return ExistingRoots(documents)
             .SelectMany(EnumerateObjects)
             .Where(IsLikelyPoint)
@@ -292,6 +422,30 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             }))
             .ThenBy(point => point.Point, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static ComputeExaminationReportFieldValue BuildMetadataField(
+        ExtractionReviewDocument? reviewedData,
+        string label,
+        string key,
+        string defaultValue)
+    {
+        var field = reviewedData?.SurveyMetadataFields.FirstOrDefault(candidate =>
+            string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(candidate.Label, label, StringComparison.OrdinalIgnoreCase));
+
+        if (field is null)
+        {
+            return new ComputeExaminationReportFieldValue(label, defaultValue);
+        }
+
+        var value = FirstNonBlank(field.Value, field.RawText);
+        if (string.IsNullOrWhiteSpace(value) && field.Present.HasValue)
+        {
+            value = field.Present.Value ? "Present" : "Not present";
+        }
+
+        return new ComputeExaminationReportFieldValue(label, value ?? defaultValue);
     }
 
     private static IEnumerable<JsonElement> ExistingRoots(params JsonDocument?[] documents)
@@ -513,11 +667,78 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         return int.TryParse(value, out var parsed) ? parsed : null;
     }
 
-    private static void AddParticipant(List<ComputeExaminationReportParticipant> participants, string? name, string role)
+    private static void AddParticipant(
+        List<ComputeExaminationReportParticipant> participants,
+        string group,
+        string? name,
+        string? role,
+        string source,
+        string status)
     {
         if (!string.IsNullOrWhiteSpace(name) && !string.Equals(name, "Not provided", StringComparison.OrdinalIgnoreCase))
         {
-            participants.Add(new ComputeExaminationReportParticipant(name.Trim(), role));
+            participants.Add(new ComputeExaminationReportParticipant(group, name.Trim(), NormalizeParticipantRole(role), source, status));
+        }
+    }
+
+    private static string NormalizeParticipantRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return "Participant";
+        }
+
+        var trimmed = role.Trim();
+        return string.Equals(trimmed, "unknown", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "unclear", StringComparison.OrdinalIgnoreCase)
+            ? "Participant"
+            : trimmed;
+    }
+
+    private static string BuildSourceText(string? sourcePage, string? sourceZone)
+    {
+        var page = NonEmpty(sourcePage);
+        var zone = NonEmpty(sourceZone);
+        if (string.IsNullOrWhiteSpace(page))
+        {
+            return zone;
+        }
+
+        return string.IsNullOrWhiteSpace(zone) ? page : $"{page} - {zone}";
+    }
+
+    private static string BuildStatusText(string? reviewStatus, string? reviewNotes)
+    {
+        return FirstNonBlank(reviewStatus, reviewNotes) ?? string.Empty;
+    }
+
+    private static string NonEmpty(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static string SafeLoadInnolaServerUrl()
+    {
+        try
+        {
+            return InnolaTransactionSettings.Load().ServerUrl;
+        }
+        catch (Exception)
+        {
+            return "Not provided";
         }
     }
 
@@ -650,17 +871,33 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 new($"Generated At UTC: {report.GeneratedAtUtc}"),
                 new($"Generated By: {report.GeneratedBy ?? string.Empty}"),
                 PdfLine.Blank,
-                new("General Info", true, 12),
+                new("Transaction Info", true, 12),
                 new("Field | Value", true)
             };
 
+            lines.AddRange(report.TransactionInfo.Fields.Select(field => new PdfLine($"{field.Field} | {field.Value}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("General Info", true, 12));
+            lines.Add(new PdfLine("Field | Value", true));
             lines.AddRange(report.GeneralInfo.Fields.Select(field => new PdfLine($"{field.Field} | {field.Value}")));
             lines.Add(PdfLine.Blank);
-            lines.Add(new PdfLine("Owner / Neighbor Found", true, 12));
-            lines.Add(new PdfLine("Role | Name", true));
-            lines.AddRange(report.OwnerNeighborFound.Count == 0
-                ? new[] { new PdfLine("Participant | Not found") }
-                : report.OwnerNeighborFound.Select(participant => new PdfLine($"{participant.Role} | {participant.Name}")));
+            lines.Add(new PdfLine("Volume / Folio", true, 12));
+            lines.Add(new PdfLine("Volume | Folio | Raw Text | Source | Status", true));
+            lines.AddRange(report.VolumeFolios.Count == 0
+                ? new[] { new PdfLine("Not found") }
+                : report.VolumeFolios.Select(item => new PdfLine($"{item.Volume} | {item.Folio} | {item.RawText} | {item.Source} | {item.Status}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Owners / Neighbors / Participants", true, 12));
+            lines.Add(new PdfLine("Group | Name | Role | Source | Status", true));
+            lines.AddRange(report.Participants.Count == 0
+                ? new[] { new PdfLine("No owner, neighbor, possessor, representative, or participant evidence recorded.") }
+                : report.Participants.Select(participant => new PdfLine($"{participant.Group} | {participant.Name} | {participant.Role} | {participant.Source} | {participant.Status}")));
+            lines.Add(PdfLine.Blank);
+            lines.Add(new PdfLine("Adjacent Owners / Neighbors", true, 12));
+            lines.Add(new PdfLine("Name | Role | From | To | Vol. | Folio | Status", true));
+            lines.AddRange(report.AdjacentOwners.Count == 0
+                ? new[] { new PdfLine("No adjacent owner or neighbor evidence recorded.") }
+                : report.AdjacentOwners.Select(owner => new PdfLine($"{owner.Name} | {owner.Role} | {owner.From} | {owner.To} | {owner.Volume} | {owner.Folio} | {owner.Status}")));
             lines.Add(PdfLine.Blank);
             lines.Add(new PdfLine("Boundary Segments", true, 12));
             lines.Add(new PdfLine("Seq | From | To | Bearing | Distance | Notes", true));
@@ -832,8 +1069,11 @@ public sealed record ComputeExaminationReportDocument(
     [property: JsonPropertyName("stages")] IReadOnlyList<ComputeExaminationReportStage> Stages,
     [property: JsonPropertyName("closeout")] ComputeExaminationReportCloseout Closeout,
     [property: JsonPropertyName("artifact_references")] IReadOnlyList<string> ArtifactReferences,
+    [property: JsonPropertyName("transaction_info")] ComputeExaminationReportGeneralInfo TransactionInfo,
     [property: JsonPropertyName("general_info")] ComputeExaminationReportGeneralInfo GeneralInfo,
-    [property: JsonPropertyName("owner_neighbor_found")] IReadOnlyList<ComputeExaminationReportParticipant> OwnerNeighborFound,
+    [property: JsonPropertyName("volume_folios")] IReadOnlyList<ComputeExaminationReportVolumeFolio> VolumeFolios,
+    [property: JsonPropertyName("participants")] IReadOnlyList<ComputeExaminationReportParticipant> Participants,
+    [property: JsonPropertyName("adjacent_owners")] IReadOnlyList<ComputeExaminationReportAdjacentOwner> AdjacentOwners,
     [property: JsonPropertyName("boundary_segments")] IReadOnlyList<ComputeExaminationReportBoundarySegment> BoundarySegments,
     [property: JsonPropertyName("points")] IReadOnlyList<ComputeExaminationReportPoint> Points);
 
@@ -844,9 +1084,28 @@ public sealed record ComputeExaminationReportFieldValue(
     [property: JsonPropertyName("field")] string Field,
     [property: JsonPropertyName("value")] string Value);
 
+public sealed record ComputeExaminationReportVolumeFolio(
+    [property: JsonPropertyName("volume")] string Volume,
+    [property: JsonPropertyName("folio")] string Folio,
+    [property: JsonPropertyName("raw_text")] string RawText,
+    [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("status")] string Status);
+
 public sealed record ComputeExaminationReportParticipant(
+    [property: JsonPropertyName("group")] string Group,
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("role")] string Role);
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("status")] string Status);
+
+public sealed record ComputeExaminationReportAdjacentOwner(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("from")] string From,
+    [property: JsonPropertyName("to")] string To,
+    [property: JsonPropertyName("volume")] string Volume,
+    [property: JsonPropertyName("folio")] string Folio,
+    [property: JsonPropertyName("status")] string Status);
 
 public sealed record ComputeExaminationReportBoundarySegment(
     [property: JsonPropertyName("seq")] string Sequence,

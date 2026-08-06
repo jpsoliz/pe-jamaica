@@ -8,6 +8,7 @@ public static class SourceRole
     public const string PlanMapReference = "plan_map_reference";
     public const string SurveyPlanPdf = "survey_plan_pdf";
     public const string WorkflowResumePackage = "workflow_resume_package";
+    public const string ComputeReport = "compute_report";
     public const string AmbiguousDocument = "ambiguous_document";
     public const string UnsupportedSource = "unsupported_source";
 
@@ -33,6 +34,7 @@ public static class SourceRole
             PlanMapReference => PlanMapReference,
             SurveyPlanPdf => SurveyPlanPdf,
             WorkflowResumePackage => WorkflowResumePackage,
+            ComputeReport => ComputeReport,
             AmbiguousDocument => AmbiguousDocument,
             UnsupportedSource => UnsupportedSource,
             var unknown => unknown
@@ -69,6 +71,7 @@ public static class SourceRole
             PlanMapReference => "survey plan / map reference",
             SurveyPlanPdf => "survey plan PDF",
             WorkflowResumePackage => "workflow package",
+            ComputeReport => "compute report",
             AmbiguousDocument => "unclassified source",
             UnsupportedSource => "unsupported source",
             null or "" => "source",

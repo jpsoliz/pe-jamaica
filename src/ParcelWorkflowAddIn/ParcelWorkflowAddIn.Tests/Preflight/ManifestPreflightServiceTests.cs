@@ -35,6 +35,57 @@ internal static class ManifestPreflightServiceTests
         AssertNoDownstreamArtifacts(layout);
     }
 
+    public static void ManifestPreflightIgnoresGeneratedComputeReportForRequiredRoles()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_a",
+            new[]
+            {
+                Source("compute_examination_report.pdf", ".pdf", "computation_source"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 5, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-generated-report")
+            .Run(layout, "tester");
+
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "required_role_computation_sheet"), "Generated Compute reports must not satisfy the required computation-sheet role.");
+        TestAssert.True(summary.Payload.PassedChecks.All(check =>
+            !string.Equals(check.AffectedPath, Path.Combine(layout.SourceDirectory, "compute_examination_report.pdf"), StringComparison.OrdinalIgnoreCase)), "Generated Compute reports must not appear as passed supporting documents.");
+    }
+
+    public static void PxaSupportingDocumentInventoryUsesOnlyPxaSourceRoles()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_490997_D.pdf", ".pdf", "survey_plan_pdf"),
+                Source("compute_examination_report.pdf", ".pdf", "computation_source")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 5, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pxa-roles")
+            .Run(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_survey_plan_pdf"), "PXA should require only the survey plan PDF.");
+        TestAssert.True(summary.Payload.PassedChecks.All(check =>
+            check.SourceRole is null
+            || !SourceRole.Matches(check.SourceRole, SourceRole.ComputationSheet)
+            || !string.Equals(Path.GetFileName(check.AffectedPath), "compute_examination_report.pdf", StringComparison.OrdinalIgnoreCase)), "PXA must not show generated Compute reports as computation sheets.");
+        TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Blockers).Concat(summary.Payload.Warnings).All(check =>
+            check.CheckId != "required_role_computation_sheet"
+            && check.CheckId != "required_role_plan_map_reference"
+            && check.CheckId != "supporting_document_computation_sheet"
+            && check.CheckId != "supporting_document_plan_map_reference"), "PXA should not list PE-only source roles.");
+    }
+
     public static void ManifestPreflightPassesValidScenarioB()
     {
         using var tempRoot = new TempDirectory();

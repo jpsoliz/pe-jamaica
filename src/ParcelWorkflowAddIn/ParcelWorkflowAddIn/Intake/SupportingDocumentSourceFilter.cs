@@ -25,6 +25,9 @@ public static class SupportingDocumentSourceFilter
         {
             SourceRole.CoordinateTextSource => options.ImportStructuredSurveyPoints,
             SourceRole.DwgSource => options.ImportAutoCadSurveySource,
+            SourceRole.WorkflowResumePackage => false,
+            SourceRole.ComputeReport => false,
+            SourceRole.UnsupportedSource => false,
             _ => true
         };
     }

@@ -37,7 +37,10 @@ public sealed class SourceInputProfileDetector
 
     public DetectedSourceInputProfile Detect(IReadOnlyList<ManifestSourceFile> sourceFiles)
     {
-        var classified = sourceFiles.Select(Classify).ToArray();
+        var effectiveSourceFiles = sourceFiles
+            .Where(source => !IsInternalGeneratedSource(source))
+            .ToArray();
+        var classified = effectiveSourceFiles.Select(Classify).ToArray();
         var hasComputation = HasRoleWithExtension(classified, SourceRole.ComputationSheet, ImageDocumentExtensions);
         var hasPoints = HasRoleWithExtension(classified, SourceRole.CoordinateTextSource, PointsComputationExtensions);
         var hasDwg = HasRoleWithExtension(classified, SourceRole.DwgSource, new[] { ".dwg" });
@@ -59,7 +62,7 @@ public sealed class SourceInputProfileDetector
             return Profile(SourceInputProfile.ScenarioA, SourceInputProfile.ScenarioALabel, "matched", Array.Empty<string>(), Array.Empty<string>());
         }
 
-        if (sourceFiles.Count == 0)
+        if (effectiveSourceFiles.Length == 0)
         {
             return Profile(
                 SourceInputProfile.IncompleteIntake,
@@ -137,6 +140,45 @@ public sealed class SourceInputProfileDetector
         }
 
         return new ClassifiedSourceFile(sourceFile, SourceRole.UnsupportedSource);
+    }
+
+    private static bool IsInternalGeneratedSource(ManifestSourceFile sourceFile)
+    {
+        var role = SourceRole.Normalize(sourceFile.SourceRole);
+        if (role is SourceRole.WorkflowResumePackage or SourceRole.ComputeReport or SourceRole.UnsupportedSource)
+        {
+            return true;
+        }
+
+        if (string.Equals(sourceFile.SourceType, "st_compute_report", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceFile.SourceType, "st_survey_zip", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceFile.SourceType, "sidwell_resume_package", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceFile.SourceType, "sidwell_completed_package", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return IsInternalGeneratedFileName(sourceFile.CopiedPath)
+            || IsInternalGeneratedFileName(sourceFile.OriginalPath);
+    }
+
+    private static bool IsInternalGeneratedFileName(string? pathOrFileName)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrFileName))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(pathOrFileName);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        return fileName.Contains("compute_examination_report", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("resume_package", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("completed_package", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains("sidwell-case-state", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ContainsAny(string value, params string[] tokens)

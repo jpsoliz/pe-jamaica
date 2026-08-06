@@ -56,6 +56,43 @@ internal static class SourceInputProfileDetectorTests
         TestAssert.Equal(0, profile.MissingRoles.Count, "PXA survey plan PDF should not require computation sheet.");
     }
 
+    public static void IgnoresGeneratedComputeReportWhenDetectingProfile()
+    {
+        var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 8, 5, 2, 0, 0, TimeSpan.Zero));
+        var sources = new[]
+        {
+            Source("compute_examination_report.pdf", ".pdf", SourceRole.ComputationSheet),
+            Source("plan.pdf", ".pdf", SourceRole.PlanMapReference)
+        };
+
+        var profile = detector.Detect(sources);
+
+        TestAssert.Equal(SourceInputProfile.IncompleteIntake, profile.ProfileCode, "Generated Compute report must not count as a computation sheet for profile detection.");
+        TestAssert.True(profile.MissingRoles.Contains(SourceRole.ComputationSheet), "The real computation sheet should still be required.");
+    }
+
+    public static void IgnoresInternalComputeReportSourceTypeWhenDetectingProfile()
+    {
+        var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 8, 5, 2, 0, 0, TimeSpan.Zero));
+        var sources = new[]
+        {
+            new ManifestSourceFile(
+                Path.Combine("C:\\incoming", "prior_report.pdf"),
+                Path.Combine("D:\\cases\\TR-SMD-0000001\\source", "prior_report.pdf"),
+                ".pdf",
+                100,
+                "2026-08-05T00:00:00Z",
+                SourceRole.ComputationSheet,
+                "st_compute_report"),
+            Source("plan.pdf", ".pdf", SourceRole.PlanMapReference)
+        };
+
+        var profile = detector.Detect(sources);
+
+        TestAssert.Equal(SourceInputProfile.IncompleteIntake, profile.ProfileCode, "st_compute_report must be ignored even when an old manifest role says computation_sheet.");
+        TestAssert.True(profile.MissingRoles.Contains(SourceRole.ComputationSheet), "The true computation sheet should still be missing.");
+    }
+
     public static void DetectsIncompleteIntakeWithMissingRoles()
     {
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 6, 9, 2, 0, 0, TimeSpan.Zero));

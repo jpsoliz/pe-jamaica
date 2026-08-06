@@ -47,7 +47,14 @@ internal static class ComputeAttachmentSourceTypeCatalog
             "Internal workflow package",
             Required: false,
             InternalOnly: true,
-            Extensions: new[] { ".zip" })
+            Extensions: new[] { ".zip" }),
+        new ComputeAttachmentSourceTypeDefinition(
+            "st_compute_report",
+            SourceRole.ComputeReport,
+            "Compute report",
+            Required: false,
+            InternalOnly: true,
+            Extensions: new[] { ".pdf" })
     };
 
     public static IReadOnlyList<string> RequiredWorkflowRoles { get; } = SafeDefaults

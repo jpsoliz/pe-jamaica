@@ -93,6 +93,68 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.Equal("St. Elizabeth", detail.Detail?.Parish, "Parish should map from nested application metadata.");
     }
 
+    public static async Task LiveDetailClassifiesComputeReportAsInternalBeforeComputationHeuristic()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                {
+                  "id": "task-1",
+                  "name": "Computation Check",
+                  "transactionId": "tx-1",
+                  "transactionCode": "PXA",
+                  "transaction": {
+                    "id": "tx-1",
+                    "transactionNo": "TR100000861",
+                    "transactionType": "Plan Examination by Area"
+                  },
+                  "application": {
+                    "sources": [
+                      {
+                        "id": "source-report-category",
+                        "fileName": "prior_report.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "st_compute_report",
+                        "size": 4
+                      },
+                      {
+                        "id": "source-report-filename",
+                        "fileName": "compute_examination_report.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "generated output",
+                        "size": 4
+                      },
+                      {
+                        "id": "source-computation",
+                        "fileName": "submitted_computation.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "st_surveysheet",
+                        "size": 4
+                      }
+                    ]
+                  }
+                }
+                """, "application/json"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var selected = new SelectedInnolaTransaction("task-1", "tx-1", "TR100000861", "Computation Check", "parcel_workflow", DateTimeOffset.UtcNow);
+
+        var detail = await service.GetTransactionDetailAsync(Session(), selected);
+
+        TestAssert.True(detail.Success, "Detail should load.");
+        TestAssert.Equal(3, detail.Detail?.Attachments.Count ?? -1, "Attachment count mismatch.");
+
+        var categoryReport = detail.Detail!.Attachments[0];
+        TestAssert.Equal("st_compute_report", categoryReport.SourceType, "Category-based report source type mismatch.");
+        TestAssert.Equal(SourceRole.ComputeReport, categoryReport.SourceRole, "Category-based report role mismatch.");
+
+        var filenameReport = detail.Detail.Attachments[1];
+        TestAssert.Equal("st_compute_report", filenameReport.SourceType, "Filename-based report source type mismatch.");
+        TestAssert.Equal(SourceRole.ComputeReport, filenameReport.SourceRole, "Filename-based report role mismatch.");
+
+        var computation = detail.Detail.Attachments[2];
+        TestAssert.Equal("st_surveysheet", computation.SourceType, "Submitted computation sheet source type mismatch.");
+        TestAssert.Equal(SourceRole.ComputationSheet, computation.SourceRole, "Submitted computation sheet role mismatch.");
+    }
+
     public static async Task LiveDetailFallsBackToTransactionSourcesAndDownloadsBody()
     {
         var handler = new SequenceHandler(

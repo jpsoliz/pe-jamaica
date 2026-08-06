@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Intake;
 using System.IO;
 
 namespace ParcelWorkflowAddIn.Workflow;
@@ -14,6 +15,7 @@ internal static class SupportingDocumentWorkspaceProjection
 
         return sourceFiles
             .Where(item => item.SourceFile.Copied && !string.IsNullOrWhiteSpace(item.SourceFile.CopiedPath))
+            .Where(item => !IsInternalGeneratedDocument(item.SourceFile))
             .Where(item => IsReadableSupportingDocumentFile(item.SourceFile))
             .GroupBy(item => BuildSafeSourceFileIdentity(item.SourceFile), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
@@ -60,6 +62,29 @@ internal static class SupportingDocumentWorkspaceProjection
             or ".jpeg"
             or ".tif"
             or ".tiff";
+    }
+
+    private static bool IsInternalGeneratedDocument(SourceFileCopyResult sourceFile)
+    {
+        var role = SourceRole.Normalize(sourceFile.SourceRole);
+        if (role is SourceRole.WorkflowResumePackage or SourceRole.ComputeReport or SourceRole.UnsupportedSource)
+        {
+            return true;
+        }
+
+        if (string.Equals(sourceFile.SourceType, "st_compute_report", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var fileName = sourceFile.FileName;
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = Path.GetFileName(sourceFile.CopiedPath);
+        }
+
+        return !string.IsNullOrWhiteSpace(fileName)
+            && fileName.Contains("compute_examination_report", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveSourceFileExtension(SourceFileCopyResult sourceFile)

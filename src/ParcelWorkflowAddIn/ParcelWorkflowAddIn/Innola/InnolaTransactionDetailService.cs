@@ -923,6 +923,12 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         definition = null!;
 
+        if (IsComputeReportAttachment(text)
+            && TrySelectSourceTypeDefinition("st_compute_report", extension, out definition))
+        {
+            return true;
+        }
+
         var exactConfigured = ConfiguredSourceTypes.FirstOrDefault(item =>
             text.Contains(item.SourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension));
         if (exactConfigured is not null)
@@ -977,14 +983,33 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return false;
         }
 
-        var configured = ConfiguredSourceTypes.FirstOrDefault(item =>
-            item.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension));
-        if (configured is null)
+        return TrySelectSourceTypeDefinition(sourceType, extension, out definition);
+    }
+
+    private static bool IsComputeReportAttachment(string text)
+    {
+        return text.Contains("st_compute_report", StringComparison.Ordinal)
+            || text.Contains("compute_examination_report", StringComparison.Ordinal)
+            || text.Contains("compute report", StringComparison.Ordinal)
+            || text.Contains("examination report", StringComparison.Ordinal);
+    }
+
+    private static bool TrySelectSourceTypeDefinition(
+        string sourceType,
+        string extension,
+        out ComputeAttachmentSourceTypeDefinition definition)
+    {
+        definition = ConfiguredSourceTypes.FirstOrDefault(item =>
+            item.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension))
+            ?? ComputeAttachmentSourceTypeCatalog.SafeDefaults.FirstOrDefault(item =>
+                item.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase) && item.SupportsExtension(extension))
+            ?? null!;
+
+        if (definition is null)
         {
             return false;
         }
 
-        definition = configured;
         return true;
     }
 

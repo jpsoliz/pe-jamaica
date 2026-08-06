@@ -22,13 +22,20 @@ so that the workflow can distinguish required survey inputs, optional direct-poi
    - `st_survey_points`
    - `st_autocad_file`
    - `st_survey_zip`
+   - `st_compute_report`
 
-3. Given a transaction is a compute-type transaction, when `Supporting Document Check` runs, then the stage treats the source types as follows:
-   - `st_surveysheet` = required primary source for point extraction
-   - `st_surveyplan` = required plan/map reference source
-   - `st_autocad_file` = required CAD/supporting spatial reference source
-   - `st_survey_points` = optional direct point-import source
-   - `st_survey_zip` = internal system package and excluded from business completeness checks
+3. Given a PE / Compute Survey Plan classic-flow transaction is loaded, when `Supporting Document Check` runs, then the visible source-role inventory is limited to:
+   - required `st_surveysheet` mapped to role `computation_sheet`
+   - required `st_surveyplan` mapped to role `plan_map_reference`
+   - optional `st_survey_points` mapped to role `coordinate_text_source`
+   - optional `st_autocad_file` mapped to role `dwg_source`
+   - excluded `st_survey_zip`, `st_compute_report`, resume/completed packages, and generated PDFs/reports.
+
+3a. Given a PXA / Plan Examination by Area transaction is loaded, when `Supporting Document Check` runs, then the visible source-role inventory is limited to:
+   - required survey plan PDF mapped to role `survey_plan_pdf`, including `st_surveyplan` when the PXA transaction profile promotes that source type to the primary survey-plan role
+   - optional `st_survey_points` mapped to role `coordinate_text_source`
+   - optional `st_autocad_file` mapped to role `dwg_source`
+   - excluded survey/computation-sheet rows, separate plan/map-reference rows, `st_compute_report`, generated compute reports, resume/completed packages, and generated PDFs/reports.
 
 4. Given one or more required source types are missing, when `Supporting Document Check` completes, then the workflow surfaces a blocker that clearly identifies which required source role(s) are missing and does not continue automatically into later automated stages.
 
@@ -40,6 +47,12 @@ so that the workflow can distinguish required survey inputs, optional direct-poi
    - excluded from supporting-document completeness
    - excluded from structure and georeference business readiness counts unless a dedicated internal workflow path explicitly uses it
    - still available for resume/suspend handling where needed.
+
+7a. Given `st_compute_report` or a generated `compute_examination_report.pdf` is present on a transaction, when attachments are classified, then it is marked as an internal generated report and is:
+   - excluded from supporting-document completeness
+   - excluded from PE/PXA source-role requirements
+   - excluded from source document viewers unless a report-specific history view explicitly requests it
+   - evaluated before generic `comput*` filename heuristics so it is never misclassified as `st_surveysheet`.
 
 8. Given the transaction may include multiple files of similar extension, when classification occurs, then the workflow persists both:
    - the configured source type
@@ -62,13 +75,16 @@ so that the workflow can distinguish required survey inputs, optional direct-poi
     - `st_survey_points`
     - `st_autocad_file`
     - `st_survey_zip`
+    - `st_compute_report`
   - [x] Define the expected file extension/content expectations for each source type.
   - [x] Define the mapped workflow source role for each source type.
 
 - [x] Externalize compute intake completeness rules by transaction type and source role. (AC: 3-4, 7, 9)
-  - [x] Mark `st_surveysheet`, `st_surveyplan`, and `st_autocad_file` as required for the current compute workflow.
-  - [x] Mark `st_survey_points` as optional.
+  - [x] Mark PE `st_surveysheet` and `st_surveyplan` as required through the PE transaction profile.
+  - [x] Mark PXA survey plan PDF as the only required PXA source through the PXA transaction profile.
+  - [x] Mark `st_survey_points` and `st_autocad_file` as optional where configured by the active transaction profile.
   - [x] Mark `st_survey_zip` as internal/excluded from business completeness.
+  - [x] Mark `st_compute_report` and `compute_examination_report.pdf` as internal/excluded before generic computation-sheet heuristics.
   - [x] Surface missing-role blocker messages in `Supporting Document Check`.
 
 - [x] Persist attachment classification for downstream stages. (AC: 5-8, 10)
@@ -84,13 +100,15 @@ so that the workflow can distinguish required survey inputs, optional direct-poi
   - [x] Clarify that ZIP is internal workflow packaging, not a submitted survey source.
 
 - [x] Add focused tests for source-type and completeness behavior. (AC: 1-10)
-  - [x] Required-role pass case: `st_surveysheet` + `st_surveyplan` + `st_autocad_file`.
+  - [x] PE required-role pass case: `st_surveysheet` + `st_surveyplan`; `st_autocad_file` remains optional when present.
   - [x] Missing survey sheet blocker case.
   - [x] Missing survey plan blocker case.
-  - [x] Missing DWG blocker case.
+  - [x] Optional DWG absent case does not block PE or PXA completeness.
   - [x] Optional structured points present but not required case.
   - [x] ZIP present but excluded from completeness case.
   - [x] Multiple same-extension attachments still classify to the right business role case.
+  - [x] Generated `st_compute_report` / `compute_examination_report.pdf` does not satisfy required PE roles.
+  - [x] PXA inventory shows only PXA source roles and does not show PE-only computation-sheet or plan/map-reference rows.
 
 ## Dev Notes
 
@@ -231,5 +249,5 @@ This story does:
 
 | Date | Version | Description | Author |
 |---|---:|---|---|
-| 2026-06-25 | 0.1 | Drafted the source-type and attachment-role story to formalize compute intake around required survey sheet, survey plan, DWG, optional structured points, and internal ZIP workflow packages. | Codex |
+| 2026-06-25 | 0.1 | Drafted the source-type and attachment-role story to formalize compute intake around required survey sheet and survey plan, optional DWG/structured points, and internal ZIP workflow packages. | Codex |
 | 2026-06-25 | 1.0 | Implemented the configured compute source-type registry, canonical source-role persistence, supporting-document completeness wiring, settings-surface editing, workflow-rule normalization, and build/test verification. | Codex |
