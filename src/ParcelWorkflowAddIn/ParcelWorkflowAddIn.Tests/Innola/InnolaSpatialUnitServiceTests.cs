@@ -105,8 +105,8 @@ internal static class InnolaSpatialUnitServiceTests
         var layout = CreateLayout(tempRoot.Path);
         WriteOutputSummary(layout);
         var handler = new RecordingHandler(
-            new[] { "{}" },
-            new[] { HttpStatusCode.Unauthorized });
+            new[] { "{}", "{}" },
+            new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized });
         var service = new InnolaSpatialUnitService(new HttpClient(handler));
         var session = Session() with { ServerUrl = "https://no-cookie.example.test/" };
 
@@ -138,10 +138,11 @@ internal static class InnolaSpatialUnitServiceTests
             layout.RootDirectory,
             Disposition(layout));
 
-        TestAssert.True(result.Success, "Spatial Unit save should retry with cookie-only auth after token Unauthorized.");
+        TestAssert.True(result.Success, "Spatial Unit save should retry with alternate auth after token Unauthorized.");
         TestAssert.Equal(3, handler.Requests.Count, "Spatial Unit service should retry default creation once, then save.");
         TestAssert.Equal("token-abc", handler.AccessTokens[0], "First default creation request should send Access-Token.");
-        TestAssert.True(handler.AccessTokens[1] is null, "Cookie-only default creation retry should omit Access-Token.");
+        TestAssert.Equal("token-abc", handler.AccessTokens[1], "Bearer default creation retry should retain Access-Token.");
+        TestAssert.True(handler.HasAuthorizationHeaders[1], "Bearer default creation retry should add an Authorization header.");
         TestAssert.Equal("token-abc", handler.AccessTokens[2], "Save request should still use Access-Token when default retry succeeds.");
     }
 
@@ -317,10 +318,13 @@ internal static class InnolaSpatialUnitServiceTests
 
         public List<string?> AccessTokens { get; } = new();
 
+        public List<bool> HasAuthorizationHeaders { get; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request.RequestUri!);
             AccessTokens.Add(request.Headers.TryGetValues("Access-Token", out var values) ? values.FirstOrDefault() : null);
+            HasAuthorizationHeaders.Add(request.Headers.Authorization is not null);
             Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
             var response = responses.Count > 0 ? responses.Dequeue() : "{}";
             var statusCode = statusCodes.Count > 0 ? statusCodes.Dequeue() : HttpStatusCode.OK;

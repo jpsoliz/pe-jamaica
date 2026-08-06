@@ -131,16 +131,30 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             session.ServerUrl,
             $"{InnolaSettings.V4RestPath}administrative/ladm-objects/create/multi?transactionId={Uri.EscapeDataString(transactionId)}");
         var requestBodyJson = requestBody.ToJsonString();
-        using var request = CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                "spatial unit default creation",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                transactionId,
+                MaxAttempts: 1),
+            () => CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await ReadFailureBodyAsync(response, cancellationToken).ConfigureAwait(false);
             if (ShouldRetryWithBearer(response.StatusCode, session.AccessToken))
             {
-                using var bearerRequest = CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson, includeBearerAuthorization: true);
-                using var bearerResponse = await httpClient.SendAsync(bearerRequest, cancellationToken).ConfigureAwait(false);
+                using var bearerResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "spatial unit default creation bearer",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateJsonPostRequest(uri, session.AccessToken, requestBodyJson, includeBearerAuthorization: true),
+                    cancellationToken).ConfigureAwait(false);
                 if (bearerResponse.IsSuccessStatusCode)
                 {
                     var bearerBody = await bearerResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -155,8 +169,15 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
-                using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, requestBodyJson);
-                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "spatial unit default creation cookie-only",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, requestBodyJson),
+                    cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -189,16 +210,30 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             session.ServerUrl,
             $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={SpatialUnitTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}");
         var payloadJson = payload.ToJsonString();
-        using var request = CreateJsonPostRequest(uri, session.AccessToken, payloadJson);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                "spatial unit save",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                transactionId,
+                MaxAttempts: 1),
+            () => CreateJsonPostRequest(uri, session.AccessToken, payloadJson),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await ReadFailureBodyAsync(response, cancellationToken).ConfigureAwait(false);
             if (ShouldRetryWithBearer(response.StatusCode, session.AccessToken))
             {
-                using var bearerRequest = CreateJsonPostRequest(uri, session.AccessToken, payloadJson, includeBearerAuthorization: true);
-                using var bearerResponse = await httpClient.SendAsync(bearerRequest, cancellationToken).ConfigureAwait(false);
+                using var bearerResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "spatial unit save bearer",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateJsonPostRequest(uri, session.AccessToken, payloadJson, includeBearerAuthorization: true),
+                    cancellationToken).ConfigureAwait(false);
                 if (bearerResponse.IsSuccessStatusCode)
                 {
                     var bearerBody = await bearerResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -216,8 +251,15 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
-                using var cookieOnlyRequest = CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, payloadJson);
-                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "spatial unit save cookie-only",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateJsonPostRequest(uri, InnolaHttp.SessionCookieAccessToken, payloadJson),
+                    cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

@@ -257,6 +257,7 @@ GPT-5 Codex
 - Added session-only Innola auth contracts, HTTP auth adapter, session manager, user/session models, and shell state.
 - Added command gates so Transaction Panel requires login and Parcel Workflow remains disabled until a future transaction-loaded state.
 - Expanded the Sidwell Co ribbon group to Login, Transaction Panel, Configuration, Parcel Workflow, and About.
+- Patch 2026-08-06: simplified the Cadastre tools ribbon to visible Login, Settings, and About only; Transaction Panel and Parcel Workflow remain registered for workflow-driven activation but are no longer direct ribbon menu buttons.
 - Added Login, Transaction Panel placeholder, Configuration, and About WPF surfaces.
 - Added automated tests for login state, logout/expiry, command gates, and secret non-persistence.
 - Applied code review patches so login response user/group/role fields are mapped into `InnolaUserContext`, and session change notifications after async login preserve the caller synchronization context for WPF safety.
@@ -314,3 +315,4 @@ Approved after patch.
 - 2026-06-10: Story 2.2 created and marked ready-for-dev.
 - 2026-06-10: Implemented Story 2.2 Sidwell shell, Innola login/session state, command gating, placeholder panels, tests, validation, and package generation; moved story to review.
 - 2026-06-10: Applied code review patches for user/group context mapping and WPF-safe session notifications; moved story to done.
+- 2026-08-06: Patch note added for Cadastre tools ribbon simplification to Login, Settings, and About.

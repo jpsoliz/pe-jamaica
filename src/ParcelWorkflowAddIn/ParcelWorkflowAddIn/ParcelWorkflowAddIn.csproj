@@ -6,10 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ParcelWorkflowAddIn</RootNamespace>
     <AssemblyName>ParcelWorkflowAddIn</AssemblyName>
-    <Version>1.1.106</Version>
-    <AssemblyVersion>1.1.106.0</AssemblyVersion>
-    <FileVersion>1.1.106.0</FileVersion>
-    <InformationalVersion>1.1.106</InformationalVersion>
+    <Version>1.1.112</Version>
+    <AssemblyVersion>1.1.112.0</AssemblyVersion>
+    <FileVersion>1.1.112.0</FileVersion>
+    <InformationalVersion>1.1.112</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <PlatformTarget>x64</PlatformTarget>
     <PackageType>Addin</PackageType>
@@ -29,6 +29,7 @@
     <Content Include="Config.daml" CopyToOutputDirectory="Never" />
     <Content Include="Fixtures\Compare\*.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="Fixtures\Compare\*.json" />
+    <Content Include="Images\Branding\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Images\Ribbon\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Resource Include="Images\Branding\*.png" />
     <Resource Include="Images\Ribbon\*.png" />

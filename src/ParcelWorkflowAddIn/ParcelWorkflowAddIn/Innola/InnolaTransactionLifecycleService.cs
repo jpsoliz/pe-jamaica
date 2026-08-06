@@ -21,14 +21,23 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
     {
         try
         {
-            using var httpRequest = CreateRequest(
-                HttpMethod.Post,
-                request.Session,
-                $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/start");
-            using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation(
+                    "transaction lifecycle start",
+                    InnolaApiRetryMode.VerifyBeforeRetry,
+                    request.Transaction.TransactionNumber,
+                    MaxAttempts: 1),
+                () => CreateRequest(
+                    HttpMethod.Post,
+                    request.Session,
+                    $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/start"),
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return Failure("Could not start transaction. Try again.", response.StatusCode.ToString());
+                return Failure(
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not start transaction. Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
             }
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -78,14 +87,23 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
                 return Failure("Completion transition unavailable.", "transition_unavailable");
             }
 
-            using var httpRequest = CreateRequest(
-                HttpMethod.Post,
-                request.Session,
-                $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/complete?transition={Uri.EscapeDataString(transition)}");
-            using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation(
+                    "transaction lifecycle complete",
+                    InnolaApiRetryMode.VerifyBeforeRetry,
+                    request.Transaction.TransactionNumber,
+                    MaxAttempts: 1),
+                () => CreateRequest(
+                    HttpMethod.Post,
+                    request.Session,
+                    $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/complete?transition={Uri.EscapeDataString(transition)}"),
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return Failure("Could not complete transaction. Try again.", response.StatusCode.ToString());
+                return Failure(
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not complete transaction. Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
             }
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -109,11 +127,14 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
 
     private async Task<string?> GetCompletionTransitionAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken)
     {
-        using var httpRequest = CreateRequest(
-            HttpMethod.Get,
-            request.Session,
-            $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/transitions");
-        using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation("transaction lifecycle transitions", TransactionNumber: request.Transaction.TransactionNumber),
+            () => CreateRequest(
+                HttpMethod.Get,
+                request.Session,
+                $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(request.Transaction.TaskId)}/transitions"),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return null;

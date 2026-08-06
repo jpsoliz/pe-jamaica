@@ -362,6 +362,7 @@ GPT-5 Codex
 - Refined the selected transaction inspector to show `Transaction Info:` with bold field captions and only Transaction, Task, Type, Applicant, Owner / Responsible, and Status.
 - Changed the connection/status footer into a collapsed `Connection Info` expander so it is available without taking panel space by default.
 - Reworked inspector label/value rendering to avoid inline `Run` bindings after ArcGIS Pro crash reports were generated during Transaction Panel testing.
+- Patch 2026-08-06: hid the unused Transaction List toolbar button for completing the active transaction; completion remains available through the appropriate workflow Finalize actions.
 
 ### File List
 
@@ -419,3 +420,4 @@ Approved after patch.
 | 2026-07-30 | 1.3 | Implemented active-queue filtering, disabled-action reasons, selected transaction inspector metadata, and regression tests; moved story to review. | Codex |
 | 2026-07-30 | 1.4 | Refined selected transaction inspector labels/fields and collapsed connection information into an expander. | Codex |
 | 2026-07-30 | 1.5 | Replaced inline Transaction Info bindings with safer label/value rows after ArcGIS Pro crash report review. | Codex |
+| 2026-08-06 | 1.6 | Hid the unused Complete active transaction toolbar action from the Transaction List panel. | Codex |

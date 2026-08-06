@@ -58,8 +58,8 @@ Use this as the permanent, append-only decision log for product, architecture, a
 - **DEC-2026-005** — 2026-06-11 — **Command ordering and UI discoverability**
   - **Owner:** Product/Developer
   - **Status:** Accepted
-  - **Decision:** Set ribbon order to Login → Transaction Panel → Parcel Workflow → Configuration → About.
-  - **Rationale:** Matches operator expected flow and reduces accidental mis-clicking.
+  - **Decision:** Keep the Cadastre tools ribbon focused on Login, Settings, and About; Transaction Panel and Parcel Workflow surfaces open from workflow state rather than direct ribbon commands.
+  - **Rationale:** Matches the current operator path and reduces unused entry points and accidental mis-clicking.
   - **Impacts:** `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Config.daml`.
 
 - **DEC-2026-006** — 2026-06-11 — **Keep model in mock mode + live mode**

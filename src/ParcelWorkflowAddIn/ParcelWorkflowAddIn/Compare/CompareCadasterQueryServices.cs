@@ -336,7 +336,11 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         CancellationToken cancellationToken)
     {
         using var request = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true);
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation($"{SearchDisplayName} search", MaxAttempts: 1),
+            () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true),
+            cancellationToken).ConfigureAwait(false);
         if (response.IsSuccessStatusCode)
         {
             return (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false), null);
@@ -346,7 +350,11 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         if (ShouldRetryWithoutAccessToken(response.StatusCode, serverUrl, request))
         {
             using var cookieOnlyRequest = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false);
-            using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+            using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation($"{SearchDisplayName} search cookie-only", MaxAttempts: 1),
+                () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false),
+                cancellationToken).ConfigureAwait(false);
             if (cookieOnlyResponse.IsSuccessStatusCode)
             {
                 return (await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false), null);

@@ -123,7 +123,7 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && !workflowDockpaneCode.Contains("TryShowSupportingDocumentsDockpane();", StringComparison.Ordinal)
             && !showWorkflowButtonCode.Contains("SupportingDocumentsDockpaneViewModel.Show();", StringComparison.Ordinal)
             && transactionPanelCode.Contains("supportingDocumentsRefresher();", StringComparison.Ordinal)
-            && transactionPanelXaml.Contains("Text=\"SD\"", StringComparison.Ordinal)
+            && transactionPanelXaml.Contains("Images\\TaskList\\SD_SupportingDocument.png", StringComparison.Ordinal)
             && transactionPanelXaml.Contains("ShowSupportingDocumentsCommand", StringComparison.Ordinal)
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
@@ -134,6 +134,61 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && projectionCode.Contains("or \".tiff\"", StringComparison.Ordinal)
             && projectionCode.Contains("item.SourceFile.Copied && !string.IsNullOrWhiteSpace(item.SourceFile.CopiedPath)", StringComparison.Ordinal),
             "Supporting Documents options should hide archives and unsupported or uncopied files while allowing documents and renderable images.");
+    }
+
+    public static void CadastreRibbonAndTransactionListHideUnusedEntryPoints()
+    {
+        var daml = File.ReadAllText(FindSourceFile("Config.daml"));
+        var transactionPanelXaml = File.ReadAllText(FindSourceFile("TransactionPanelDockpane.xaml"));
+        var groupStart = daml.IndexOf("<group id=\"ParcelWorkflow_Group\"", StringComparison.Ordinal);
+        var groupEnd = daml.IndexOf("</group>", groupStart, StringComparison.Ordinal);
+        TestAssert.True(groupStart >= 0 && groupEnd > groupStart, "Cadastre tools ribbon group should be present in Config.daml.");
+
+        var ribbonGroup = daml[groupStart..groupEnd];
+        TestAssert.True(
+            ribbonGroup.Contains("ParcelWorkflow_LoginButton", StringComparison.Ordinal)
+            && ribbonGroup.Contains("ParcelWorkflow_ConfigurationButton", StringComparison.Ordinal)
+            && ribbonGroup.Contains("ParcelWorkflow_AboutButton", StringComparison.Ordinal),
+            "Cadastre tools ribbon should keep Login, Settings, and About.");
+        TestAssert.True(
+            !ribbonGroup.Contains("ParcelWorkflow_TransactionPanelButton", StringComparison.Ordinal)
+            && !ribbonGroup.Contains("ParcelWorkflow_ShowDockpaneButton", StringComparison.Ordinal),
+            "Cadastre tools ribbon should hide Transaction Panel and Parcel Workflow [Compute] entry points.");
+        TestAssert.True(
+            !transactionPanelXaml.Contains("State.CompleteTaskCommand", StringComparison.Ordinal)
+            && !transactionPanelXaml.Contains("CompleteTransaction.png", StringComparison.Ordinal),
+            "Transaction List toolbar should hide the unused Complete active transaction button.");
+        TestAssert.True(
+            transactionPanelXaml.Contains("Images\\TaskList\\SD_SupportingDocument.png", StringComparison.Ordinal)
+            && transactionPanelXaml.Contains("Images\\TaskList\\MGeo_GeoreferencePlan.png", StringComparison.Ordinal)
+            && transactionPanelXaml.Contains("Images\\TaskList\\CPM_CompareTool.png", StringComparison.Ordinal),
+            "Transaction List toolbar should use the configured SD, M-Geo, and CMP task icons.");
+        TestAssert.True(
+            daml.Contains("largeImage=\"Install\\Images\\Ribbon\\Login32.png\"", StringComparison.Ordinal)
+            && daml.Contains("largeImage=\"Install\\Images\\Ribbon\\Configuration32.png\"", StringComparison.Ordinal)
+            && daml.Contains("largeImage=\"Install\\Images\\Ribbon\\About32.png\"", StringComparison.Ordinal),
+            "Cadastre tools ribbon commands should keep the individual Login, Settings, and About icons.");
+    }
+
+    public static void AboutWindowUsesCadastreToolBranding()
+    {
+        var aboutXaml = File.ReadAllText(FindSourceFile("AboutWindow.xaml"));
+
+        TestAssert.True(
+            aboutXaml.Contains("Images/Branding/CadastreToolAbout128.png", StringComparison.Ordinal),
+            "About window should show the 128px Cadastre Tool branding image.");
+    }
+
+    public static void AddInManagerUsesCadastreToolMetadata()
+    {
+        var daml = File.ReadAllText(FindSourceFile("Config.daml"));
+
+        TestAssert.True(
+            daml.Contains("<Name>Cadastre Tool by Sidwell</Name>", StringComparison.Ordinal),
+            "Add-In Manager title should use Cadastre Tool by Sidwell.");
+        TestAssert.True(
+            daml.Contains("<Image>Images\\Branding\\CadastreTool32.png</Image>", StringComparison.Ordinal),
+            "Add-In Manager should use the CadastreTool32 branding icon.");
     }
 
     public static void PxaReviewCloseAndEditDialogsUseOwnedWindows()

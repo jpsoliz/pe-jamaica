@@ -179,6 +179,8 @@ internal static class InnolaTransactionServiceTests
         var handler = new SequencedHttpMessageHandler(
             new SequencedResponse(HttpStatusCode.OK, "[]"),
             new SequencedResponse(HttpStatusCode.InternalServerError, "{}"),
+            new SequencedResponse(HttpStatusCode.InternalServerError, "{}"),
+            new SequencedResponse(HttpStatusCode.InternalServerError, "{}"),
             new SequencedResponse(HttpStatusCode.InternalServerError, "{}"));
         var service = new InnolaTransactionService(new HttpClient(handler));
 
@@ -195,9 +197,102 @@ internal static class InnolaTransactionServiceTests
 
         TestAssert.True(result.Success, "A failing search fallback should not turn an empty workflow result into a hard refresh failure.");
         TestAssert.Equal(0, result.Rows.Count, "Workflow empty result should remain empty.");
-        TestAssert.Equal(3, handler.Requests.Count, "InternalServerError should trigger one minimal search retry.");
-        TestAssert.True(handler.Requests[2].Body.Contains("\"limit\":25", StringComparison.Ordinal), "Retry search body should include limit.");
-        TestAssert.True(!handler.Requests[2].Body.Contains("orderBy", StringComparison.Ordinal), "Retry search body should remove orderBy.");
+        TestAssert.Equal(5, handler.Requests.Count, "InternalServerError should trigger resilience retries and one minimal search retry path.");
+        TestAssert.True(handler.Requests[3].Body.Contains("\"limit\":25", StringComparison.Ordinal), "Retry search body should include limit.");
+        TestAssert.True(!handler.Requests[3].Body.Contains("orderBy", StringComparison.Ordinal), "Retry search body should remove orderBy.");
+    }
+
+    public static async Task HttpTransactionServiceRetriesTransientWorkflowStatus()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.ServiceUnavailable, "{}"),
+            new SequencedResponse(HttpStatusCode.OK, """
+                [
+                  {
+                    "id": "task-1",
+                    "name": "Computation Check",
+                    "assignee": "tester",
+                    "taskKey": "task_enterdata",
+                    "transactionId": "100000004",
+                    "transaction": {
+                      "transactionNo": "TR100000004"
+                    }
+                  }
+                ]
+                """));
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs.innola-solutions.com/",
+            "token-abc",
+            "tester",
+            new[] { "survey" },
+            "parcel_workflow",
+            "All tasks",
+            "",
+            "Transaction no",
+            "Ascending"));
+
+        TestAssert.True(result.Success, "Transient 503 should be retried.");
+        TestAssert.Equal(1, result.Rows.Count, "Retried workflow response should map rows.");
+        TestAssert.Equal(2, handler.Requests.Count, "One 503 should produce one automatic retry.");
+    }
+
+    public static async Task HttpTransactionServiceRetriesDroppedWorkflowConnection()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(new HttpRequestException("connection reset")),
+            new SequencedResponse(HttpStatusCode.OK, """
+                [
+                  {
+                    "id": "task-1",
+                    "name": "Computation Check",
+                    "assignee": "tester",
+                    "taskKey": "task_enterdata",
+                    "transactionId": "100000004",
+                    "transaction": {
+                      "transactionNo": "TR100000004"
+                    }
+                  }
+                ]
+                """));
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs.innola-solutions.com/",
+            "token-abc",
+            "tester",
+            new[] { "survey" },
+            "parcel_workflow",
+            "All tasks",
+            "",
+            "Transaction no",
+            "Ascending"));
+
+        TestAssert.True(result.Success, "Dropped connection should be retried.");
+        TestAssert.Equal(2, handler.Requests.Count, "Connection failure should produce one automatic retry.");
+    }
+
+    public static async Task HttpTransactionServiceAuthFailureRequestsLoginAgain()
+    {
+        var handler = new SequencedHttpMessageHandler(new SequencedResponse(HttpStatusCode.Unauthorized, "{}"));
+        var service = new InnolaTransactionService(new HttpClient(handler));
+
+        var result = await service.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            "https://eltrs.innola-solutions.com/",
+            "token-abc",
+            "tester",
+            new[] { "survey" },
+            "parcel_workflow",
+            "All tasks",
+            "",
+            "Transaction no",
+            "Ascending"));
+
+        TestAssert.True(!result.Success, "Unauthorized response should fail.");
+        TestAssert.Equal("session_expired", result.ErrorCategory, "Unauthorized response should be classified as session expiration.");
+        TestAssert.Equal("Innola connection could not be restored. Please log in again and retry.", result.ErrorMessage, "Auth failure should request login again.");
+        TestAssert.True(!result.ErrorMessage!.Contains("token-abc", StringComparison.Ordinal), "Auth failure must not expose token.");
     }
 
     public static async Task HttpTransactionServiceUsesExactTransactionNumberSearchPayload()
@@ -386,7 +481,7 @@ internal static class InnolaTransactionServiceTests
             null));
 
         TestAssert.True(!httpResult.Success, "Unauthorized HTTP response should fail.");
-        TestAssert.Equal("Could not refresh transactions. Try again.", httpResult.ErrorMessage, "HTTP failure message mismatch.");
+        TestAssert.Equal("Innola connection could not be restored. Please log in again and retry.", httpResult.ErrorMessage, "HTTP failure message mismatch.");
         TestAssert.True(!httpResult.ErrorMessage!.Contains("token-abc", StringComparison.Ordinal), "HTTP failure must not expose token.");
     }
 
@@ -559,6 +654,11 @@ internal static class InnolaTransactionServiceTests
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body));
 
             var response = responses.Dequeue();
+            if (response.Exception is not null)
+            {
+                throw response.Exception;
+            }
+
             return new HttpResponseMessage(response.StatusCode)
             {
                 Content = new StringContent(response.Body, Encoding.UTF8, "application/json")
@@ -568,5 +668,14 @@ internal static class InnolaTransactionServiceTests
 
     private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string Body);
 
-    private sealed record SequencedResponse(HttpStatusCode StatusCode, string Body);
+    private sealed record SequencedResponse(HttpStatusCode StatusCode, string Body)
+    {
+        public SequencedResponse(Exception exception)
+            : this(HttpStatusCode.OK, string.Empty)
+        {
+            Exception = exception;
+        }
+
+        public Exception? Exception { get; }
+    }
 }

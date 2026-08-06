@@ -56,10 +56,23 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/my-tasks"));
         InnolaHttp.ApplyAuthHeaders(request, query.AccessToken);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation("transaction list workflow my-tasks"),
+            () =>
+            {
+                var retryRequest = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    InnolaHttp.BuildUri(query.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/my-tasks"));
+                InnolaHttp.ApplyAuthHeaders(retryRequest, query.AccessToken);
+                return retryRequest;
+            },
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", response.StatusCode.ToString());
+            return InnolaTransactionListResult.Failure(
+                InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not refresh transactions. Try again."),
+                InnolaApiResilience.CategoryFor(response.StatusCode));
         }
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -213,10 +226,31 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
         string processStep,
         CancellationToken cancellationToken)
     {
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var accessToken = request.Headers.TryGetValues("Access-Token", out var values)
+            ? values.FirstOrDefault()
+            : null;
+        var requestBody = request.Content is null
+            ? string.Empty
+            : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation("transaction list application search", MaxAttempts: 2),
+            () =>
+            {
+                var retryRequest = new HttpRequestMessage(request.Method, request.RequestUri);
+                InnolaHttp.ApplyAuthHeaders(retryRequest, accessToken);
+                retryRequest.Content = request.Content is null
+                    ? null
+                    : CreateApplicationSearchContent(requestBody);
+                return retryRequest;
+            },
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return InnolaTransactionListResult.Failure("Could not refresh transactions. Try again.", response.StatusCode.ToString());
+            return InnolaTransactionListResult.Failure(
+                InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not refresh transactions. Try again."),
+                InnolaApiResilience.CategoryFor(response.StatusCode));
         }
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

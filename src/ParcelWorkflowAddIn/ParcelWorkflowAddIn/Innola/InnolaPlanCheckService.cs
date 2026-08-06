@@ -99,15 +99,21 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
     private async Task<IReadOnlyList<JsonObject>> FetchPlansAsync(InnolaSession session, string transactionId, CancellationToken cancellationToken)
     {
         var uri = BuildPlanUri(session, transactionId);
-        using var request = CreateRequest(HttpMethod.Get, uri, session.AccessToken);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation("plan check fetch", TransactionNumber: transactionId),
+            () => CreateRequest(HttpMethod.Get, uri, session.AccessToken),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
-                using var cookieOnlyRequest = CreateRequest(HttpMethod.Get, uri, InnolaHttp.SessionCookieAccessToken);
-                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation("plan check fetch cookie-only", TransactionNumber: transactionId),
+                    () => CreateRequest(HttpMethod.Get, uri, InnolaHttp.SessionCookieAccessToken),
+                    cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -139,15 +145,29 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         var payload = new JsonArray(plans.Select(plan => plan.DeepClone()).ToArray());
         var uri = BuildPlanUri(session, transactionId);
         var payloadJson = payload.ToJsonString();
-        using var request = CreateRequest(HttpMethod.Post, uri, session.AccessToken, payloadJson);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                "plan check save",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                transactionId,
+                MaxAttempts: 1),
+            () => CreateRequest(HttpMethod.Post, uri, session.AccessToken, payloadJson),
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
             {
-                using var cookieOnlyRequest = CreateRequest(HttpMethod.Post, uri, InnolaHttp.SessionCookieAccessToken, payloadJson);
-                using var cookieOnlyResponse = await httpClient.SendAsync(cookieOnlyRequest, cancellationToken).ConfigureAwait(false);
+                using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "plan check save cookie-only",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateRequest(HttpMethod.Post, uri, InnolaHttp.SessionCookieAccessToken, payloadJson),
+                    cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

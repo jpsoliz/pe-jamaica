@@ -36,16 +36,24 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                InnolaHttp.BuildUri(session.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(selectedTransaction.TaskId)}"));
-            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation("transaction detail load", TransactionNumber: selectedTransaction.TransactionNumber),
+                () =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        InnolaHttp.BuildUri(session.ServerUrl, $"{InnolaSettings.V4RestPath}workflow/tasks/{Uri.EscapeDataString(selectedTransaction.TaskId)}"));
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Debug.WriteLine($"Innola transaction detail failed. TaskId={selectedTransaction.TaskId}; Status={response.StatusCode}.");
-                return InnolaTransactionDetailResult.Failure("Could not load transaction. Try again.", response.StatusCode.ToString());
+                return InnolaTransactionDetailResult.Failure(
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not load transaction. Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
             }
 
             var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -105,15 +113,24 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
                     ? $"{InnolaSettings.RestPath}scanning/source/{Uri.EscapeDataString(queryValue)}/body"
                 : $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}";
             var uri = InnolaHttp.BuildUri(session.ServerUrl, path);
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
             Debug.WriteLine($"Innola attachment download starting. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Reference={attachment.ServiceReference}; Path={path}.");
 
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation("attachment download", TransactionNumber: detail.TransactionNumber),
+                () =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Debug.WriteLine($"Innola attachment download failed. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Status={response.StatusCode}.");
-                return InnolaAttachmentContentResult.Failure("Could not load attachment. Try again.", response.StatusCode.ToString());
+                return InnolaAttachmentContentResult.Failure(
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not load attachment. Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
             }
 
             var content = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
@@ -150,39 +167,51 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             var uploadMode = NormalizeUploadMode(ShellState.AttachmentUploadMode);
             var query = BuildUploadQuery(selectedTransaction, sourceType, bindingMode, route, uploadMode);
             var requestPath = BuildUploadRequestPath(route, query);
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                InnolaHttp.BuildUri(
-                    session.ServerUrl,
-                    requestPath));
-            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-            using var formData = new MultipartFormDataContent();
-            using var fileContent = new ByteArrayContent(content);
-            fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-            formData.Add(fileContent, "file", fileName);
-
-            if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
-            {
-                formData.Add(new StringContent(sourceType), "sourceType");
-                formData.Add(new StringContent(ResolveUploadTaskValue(selectedTransaction, route, uploadMode)), "taskId");
-                if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
-                {
-                    formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
-                }
-            }
-            request.Content = formData;
             Debug.WriteLine(
                 $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; SourceType={sourceType}; Path={requestPath}.");
 
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation(
+                    "attachment upload",
+                    InnolaApiRetryMode.VerifyBeforeRetry,
+                    selectedTransaction.TransactionNumber,
+                    MaxAttempts: 1),
+                () =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Post,
+                        InnolaHttp.BuildUri(
+                            session.ServerUrl,
+                            requestPath));
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+
+                    var formData = new MultipartFormDataContent();
+                    var fileContent = new ByteArrayContent(content);
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                    formData.Add(fileContent, "file", fileName);
+
+                    if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
+                    {
+                        formData.Add(new StringContent(sourceType), "sourceType");
+                        formData.Add(new StringContent(ResolveUploadTaskValue(selectedTransaction, route, uploadMode)), "taskId");
+                        if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
+                        {
+                            formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
+                        }
+                    }
+
+                    request.Content = formData;
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                 Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={response.StatusCode}; Body={responseBody}.");
                 return InnolaAttachmentUploadResult.Failure(
-                    $"Could not upload attachment ({response.StatusCode}). Try again.",
-                    response.StatusCode.ToString());
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, $"Could not upload attachment ({response.StatusCode}). Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
             }
 
             var uploadResponseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
@@ -266,22 +295,33 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         RemovePreviousComputeReportSources(existingSources, sourceType);
         existingSources.Add(uploadedSource);
         var payload = new JsonArray(existingSources.Select(node => node.DeepClone()).ToArray());
-        using var registerRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            InnolaHttp.BuildUri(
-                session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(selectedTransaction.TransactionId)}"));
-        InnolaHttp.ApplyAuthHeaders(registerRequest, session.AccessToken);
-        registerRequest.Content = new StringContent(payload.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
-
-        using var registerResponse = await httpClient.SendAsync(registerRequest, cancellationToken).ConfigureAwait(false);
+        var payloadJson = payload.ToJsonString();
+        using var registerResponse = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                "uploaded source registration",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                selectedTransaction.TransactionNumber,
+                MaxAttempts: 1),
+            () =>
+            {
+                var registerRequest = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    InnolaHttp.BuildUri(
+                        session.ServerUrl,
+                        $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(selectedTransaction.TransactionId)}"));
+                InnolaHttp.ApplyAuthHeaders(registerRequest, session.AccessToken);
+                registerRequest.Content = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
+                return registerRequest;
+            },
+            cancellationToken).ConfigureAwait(false);
         if (!registerResponse.IsSuccessStatusCode)
         {
             var responseBody = await ReadResponseBodyAsync(registerResponse, cancellationToken).ConfigureAwait(false);
             Debug.WriteLine($"Innola uploaded source registration failed. TransactionId={selectedTransaction.TransactionId}; Status={registerResponse.StatusCode}; Body={responseBody}.");
             return InnolaAttachmentUploadResult.Failure(
-                $"Could not register uploaded source ({registerResponse.StatusCode}). Try again.",
-                registerResponse.StatusCode.ToString());
+                InnolaApiResilience.UserMessageFor(registerResponse.StatusCode, $"Could not register uploaded source ({registerResponse.StatusCode}). Try again."),
+                InnolaApiResilience.CategoryFor(registerResponse.StatusCode));
         }
 
         Debug.WriteLine($"Innola uploaded source registration completed. TransactionId={selectedTransaction.TransactionId}; SourceCount={existingSources.Count}.");
@@ -302,14 +342,20 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
 
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                InnolaHttp.BuildUri(
-                    session.ServerUrl,
-                    $"{InnolaSettings.RestPath}scanning/application/{Uri.EscapeDataString(selectedTransaction.ApplicationId)}"));
-            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation("scanning application source lookup", TransactionNumber: detail.TransactionNumber),
+                () =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        InnolaHttp.BuildUri(
+                            session.ServerUrl,
+                            $"{InnolaSettings.RestPath}scanning/application/{Uri.EscapeDataString(selectedTransaction.ApplicationId)}"));
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Debug.WriteLine($"Innola scanning application source lookup failed. ApplicationId={selectedTransaction.ApplicationId}; Status={response.StatusCode}.");
@@ -451,14 +497,20 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         string transactionId,
         CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            InnolaHttp.BuildUri(
-                session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
-        InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation("administrative source lookup", TransactionNumber: transactionId),
+            () =>
+            {
+                var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    InnolaHttp.BuildUri(
+                        session.ServerUrl,
+                        $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
+                InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                return request;
+            },
+            cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
@@ -658,14 +710,20 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         try
         {
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                InnolaHttp.BuildUri(
-                    session.ServerUrl,
-                    $"{InnolaSettings.RestPath}administrative/ladmobjects/getbytransaction?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
-            InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation("legacy administrative source lookup", TransactionNumber: transactionId),
+                () =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        InnolaHttp.BuildUri(
+                            session.ServerUrl,
+                            $"{InnolaSettings.RestPath}administrative/ladmobjects/getbytransaction?typeKeyId=source&transactionId={Uri.EscapeDataString(transactionId)}"));
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 Debug.WriteLine($"Innola source metadata lookup failed. LookupId={transactionId}; Status={response.StatusCode}.");
