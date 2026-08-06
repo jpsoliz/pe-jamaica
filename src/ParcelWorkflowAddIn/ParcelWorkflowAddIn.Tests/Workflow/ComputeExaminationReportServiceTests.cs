@@ -222,7 +222,11 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(pdfText.Contains("Owners / Neighbors / Participants", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
         TestAssert.True(pdfText.Contains("Adjacent Owners / Neighbors", StringComparison.OrdinalIgnoreCase), "PDF report should include adjacent owner section.");
         TestAssert.True(pdfText.Contains("Boundary Segments", StringComparison.OrdinalIgnoreCase), "PDF report should include boundary segments.");
-        TestAssert.True(pdfText.Contains("Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
+        TestAssert.True(pdfText.Contains("Survey Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
+        TestAssert.True(pdfText.Contains("Executive Summary", StringComparison.OrdinalIgnoreCase), "PDF report should include a professional executive summary section.");
+        TestAssert.True(pdfText.Contains("Workflow Stage Summary", StringComparison.OrdinalIgnoreCase), "PDF report should include a workflow stage summary section.");
+        TestAssert.True(pdfText.Contains("Page 1", StringComparison.OrdinalIgnoreCase), "PDF report should include page footer numbering.");
+        TestAssert.True(pdfText.Contains("0.094 0.204 0.29 rg", StringComparison.Ordinal), "PDF report should draw dark blue table/header fills.");
         TestAssert.True(pdfText.Contains("/Helvetica-Bold", StringComparison.OrdinalIgnoreCase), "PDF report should include a bold font for headings and labels.");
 
         using var report = JsonDocument.Parse(File.ReadAllText(result.ReportPath!));

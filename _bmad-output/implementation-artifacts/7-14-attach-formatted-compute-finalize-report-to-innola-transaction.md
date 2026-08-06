@@ -45,12 +45,26 @@ This is the Compute equivalent of the Compare report attachment behavior already
 16. Given Points are rendered, then the table includes the latest reviewed point rows after examiner edits, additions, deletions, and rebuild actions.
 17. Given Points are rendered, then the table columns are `Point`, `Easting`, `Northing`, and `Sequence`.
 18. Given coordinate values are rendered, then the report states that coordinates are in JAD2001 / EPSG:3448 metres.
-19. Given the PDF is generated, then it is formatted with a title, section headings, bold field labels, bold table headers, and readable table rows; it must not be a plain unstructured text dump.
-20. Given the PDF is attached, then the uploaded source registration preserves `st_compute_report` and must not be rewritten to the resume package or completed package source type.
-21. Given a previous `st_compute_report` attachment exists for the same transaction, when Finalize uploads the new Compute report, then the previous report is replaced/overwritten so Innola retains only the current Compute Finalize report for that transaction.
-22. Given the attachment succeeds, then local evidence records the report path, PDF path, source type, upload status, transaction id/number, operator, and timestamp without logging tokens, passwords, certificate material, or API keys.
-23. Given the attachment succeeds and later closeout steps succeed, then the user sees the normal successful Finalize completion behavior and the transaction can move to the next Innola workflow stage.
-24. Given automated tests run, then coverage proves transaction metadata content, reviewed General Info content, Volume/Folio table content, participants/adjacent-neighbor content, used-segment filtering, latest point table content, PDF creation, `st_compute_report` upload/replacement, failure short-circuit behavior, and sanitized diagnostics.
+19. Given the PDF is generated, then it uses the professional Compute Examination Report format modeled by `compute_examination_report_professional.pdf`: large title, transaction subtitle, generated timestamp/operator, summary strip, consistent section hierarchy, dark table headers, light table borders, alternating row shading where useful, readable margins, and footer page numbering.
+20. Given the professional report is rendered, then it includes these presentation sections in order when data is available:
+   - Compute Examination Report title block
+   - Executive Summary
+   - Plan and Survey Details
+   - Ownership, Representatives, and References
+   - Adjacent Owners / Neighbors
+   - Boundary Segments
+   - Survey Points
+   - Workflow Stage Summary
+   - Closeout
+   - Artifact References
+21. Given the report spans multiple pages, then each page includes a footer with `Compute Examination Report - Transaction <number>` and the current page number.
+22. Given tables are rendered, then table headers use a dark blue background with white bold text; body rows use readable text, consistent grid lines, and wrapped content that does not overlap or clip.
+23. Given the professional format is implemented, then the generation logic is part of the add-in report process or a packaged deterministic renderer. The local sample script path must not be required at runtime.
+24. Given the PDF is attached, then the uploaded source registration preserves `st_compute_report` and must not be rewritten to the resume package or completed package source type.
+25. Given a previous `st_compute_report` attachment exists for the same transaction, when Finalize uploads the new Compute report, then the previous report is replaced/overwritten so Innola retains only the current Compute Finalize report for that transaction.
+26. Given the attachment succeeds, then local evidence records the report path, PDF path, source type, upload status, transaction id/number, operator, and timestamp without logging tokens, passwords, certificate material, or API keys.
+27. Given the attachment succeeds and later closeout steps succeed, then the user sees the normal successful Finalize completion behavior and the transaction can move to the next Innola workflow stage.
+28. Given automated tests run, then coverage proves transaction metadata content, reviewed General Info content, Volume/Folio table content, participants/adjacent-neighbor content, used-segment filtering, latest point table content, PDF creation, professional layout markers, `st_compute_report` upload/replacement, failure short-circuit behavior, and sanitized diagnostics.
 
 ## Tasks / Subtasks
 
@@ -64,7 +78,7 @@ This is the Compute equivalent of the Compare report attachment behavior already
   - [x] Include only the latest reviewed segments with `Use for points`/generation enabled.
   - [x] Include the latest reviewed points and sequence order after examiner edits, additions, deletions, and rebuild actions.
 
-- [x] Improve Compute PDF rendering. (AC: 7, 9, 12, 15, 17-19)
+- [x] Improve Compute PDF rendering. (AC: 7, 9, 12, 15, 17-23)
   - [x] Reuse or extend `ComputeExaminationReportService` rather than creating an unrelated report path.
   - [x] Extend the current PDF writer or add a small internal rendering layer that supports bold headings, bold labels, and table headers.
   - [x] Render Transaction Info and General Info as Field/Value rows.
@@ -72,7 +86,15 @@ This is the Compute equivalent of the Compare report attachment behavior already
   - [x] Keep the report layout deterministic for tests.
   - [x] Preserve the existing JSON report artifact for Plan Check and audit consumers.
 
-- [x] Attach the Compute PDF report to Innola on Finalize. (AC: 1-4, 20-23)
+- [x] Adopt the professional Compute Examination Report layout. (AC: 19-23, 28)
+  - [x] Use the sample PDF as the visual reference for title block, executive summary, section hierarchy, table styling, footer, and pagination.
+  - [x] Port the reusable layout behavior from the sample generator into the existing add-in report generator, or package a deterministic renderer only if native implementation is not feasible.
+  - [x] Keep runtime report generation independent from `C:\Users\js91482\Documents\Codex\...` sample paths.
+  - [x] Render dark-blue table headers, light table grid/borders, alternating body row shading, and wrapped cell content without clipping.
+  - [x] Add Workflow Stage Summary, Closeout, and Artifact References sections using saved case artifacts.
+  - [x] Add tests or render checks that prove the professional report contains the expected title block, footer/page numbering, section headings, and table content.
+
+- [x] Attach the Compute PDF report to Innola on Finalize. (AC: 1-4, 24-27)
   - [x] Add a Compute report attachment service or reuse a generic attachment upload service.
   - [x] Use source type `st_compute_report`.
   - [x] Replace/overwrite any previous `st_compute_report` attachment for the same transaction.
@@ -80,11 +102,11 @@ This is the Compute equivalent of the Compare report attachment behavior already
   - [x] Stop Finalize on report upload failure and show a retryable, non-secret message.
   - [x] Keep Compare report attachment behavior unchanged.
 
-- [x] Persist sanitized diagnostics. (AC: 22)
+- [x] Persist sanitized diagnostics. (AC: 26)
   - [x] Record local report path, PDF path, source type, file size, upload status, transaction id/number, operator, and timestamps.
   - [x] Redact credentials, tokens, certificate material, and API keys from logs and artifacts.
 
-- [x] Add regression tests. (AC: 24)
+- [x] Add regression tests. (AC: 28)
   - [x] Report JSON contains Transaction Info metadata.
   - [x] Report JSON contains reviewed General Info including Volume/Folio.
   - [x] Report JSON contains participants and adjacent owners/neighbors with unclear roles normalized to `Participant`.
@@ -129,9 +151,19 @@ Report data source guidance:
 - Keep `st_compare_report` isolated to Compare. Compute Finalize must use `st_compute_report`.
 - Compute Finalize should replace any prior `st_compute_report` attachment for the same transaction. Innola should show the current report, not a history of stale Compute reports.
 
+Professional report format reference:
+
+- Sample PDF reviewed: `C:\Users\js91482\Documents\Codex\2026-08-05\th\outputs\compute_examination_report_professional.pdf`
+- Sample generator reviewed: `C:\Users\js91482\Documents\Codex\2026-08-05\th\work\build_compute_examination_report.py`
+- The sample script uses ReportLab-style concepts: letter page size, approximately 0.55 inch side margins, dark blue `#18344A` titles/table headers, light grid lines, repeating table headers, alternating row shading, and footer page numbering.
+- Treat these files as a design reference only. The production add-in must either port the equivalent rendering into `ComputeExaminationReportService`/the internal PDF writer or include a packaged renderer under the repository and installer. It must never depend on the user-local sample folder.
+- If a script renderer is added, it must be copied into the repository, included in the add-in/installer package, invoked with explicit input/output paths, logged with sanitized diagnostics, and covered by failure handling equivalent to the current PDF writer.
+- Preferred implementation: keep the existing C# report path and extend the internal PDF writer so Compute Finalize has no additional Python dependency.
+
 Formatting answer:
 
 - The PDF can and should be formatted. Bold field labels, section headings, table headers, and simple table borders are in scope. The report should not be limited to plain text.
+- The target is now the professional format: title block, executive summary strip/table, dark table headers, consistent table borders, alternating row shading, page footer/page number, and stable section order.
 
 ## Open Questions
 
@@ -161,6 +193,7 @@ Notes:
 - The story-specific tests passed and the solution build succeeded.
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- innola` now passes the new compute-report lifecycle tests, but still stops later in the unrelated Spatial Unit endpoint-login test: `Rejected Spatial Unit API login should fail`.
 - 2026-08-05 code patch re-ran `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compute examination report"` and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false`; both passed.
+- 2026-08-05 professional layout patch re-ran `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -- "compute examination report"` and `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false`; both passed.
 
 ## Dev Agent Record
 
@@ -174,6 +207,8 @@ Implementation summary:
 - Added tests for report content, used-segment filtering, PDF bold text support, upload replacement, lifecycle success, and upload-failure short-circuit behavior.
 - Patched Compute report generation to read the full reviewed `extraction_review_data.json` artifact for Transaction Info, General Info, Volume/Folio, participants, adjacent owners/neighbors, used boundary segments, and latest point rows.
 - Expanded the report regression fixture so it proves the report uses reviewed tab data rather than only the approval summary.
+- Replaced the plain line-based PDF output with a deterministic professional renderer: title block, summary strip, dark-blue table headers, light borders, alternating row shading, wrapped table cells, workflow summary, closeout, artifact references, and page footers.
+- Extended report tests to assert the professional layout markers, footer page numbering, and new section headings while preserving the JSON report artifact.
 
 File List:
 
@@ -196,3 +231,5 @@ File List:
 | 2026-08-05 | 1.0 | Implemented formatted Compute PDF generation, `st_compute_report` upload/replacement on Finalize, diagnostics, and regression coverage. | Amelia / Codex |
 | 2026-08-05 | 1.1 | Expanded report scope to include Transaction Info, reviewed General Info tab data, participants/adjacent neighbors, and latest reviewed segment/point edits at Finalize. | Mary / Codex |
 | 2026-08-05 | 1.2 | Patched code and tests so Compute Finalize report generation consumes the reviewed extraction artifact for all Story 7-14 report sections. | Amelia / Codex |
+| 2026-08-05 | 1.3 | Added professional Compute Examination Report format requirements based on the reviewed sample PDF and generator script. | Mary / Paige / Codex |
+| 2026-08-05 | 1.4 | Implemented professional Compute Examination Report PDF rendering and regression assertions for title, section, footer, and table styling markers. | Amelia / Codex |

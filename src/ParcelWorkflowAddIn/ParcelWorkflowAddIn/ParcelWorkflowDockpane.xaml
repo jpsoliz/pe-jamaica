@@ -1037,11 +1037,6 @@
                                TextWrapping="Wrap"
                                VerticalAlignment="Center"
                                Margin="0,0,8,0" />
-                    <Button DockPanel.Dock="Right"
-                            Content="Open COGO Reader"
-                            Command="{Binding OpenCogoReaderCommand}"
-                            IsEnabled="{Binding CanOpenCogoReader}"
-                            Style="{StaticResource SmallButtonStyle}" />
                   </DockPanel>
                 </Border>
 
@@ -1596,11 +1591,6 @@
                   <Button Content="Load layers"
                           Command="{Binding LoadSpatialReviewLayersCommand}"
                           IsEnabled="{Binding CanLoadSpatialReviewLayers}"
-                          Style="{StaticResource SmallButtonStyle}"
-                          Margin="0,0,6,0" />
-                  <Button Content="COGO Reader"
-                          Command="{Binding OpenCogoReaderCommand}"
-                          IsEnabled="{Binding CanOpenCogoReader}"
                           Style="{StaticResource SmallButtonStyle}"
                           Margin="0,0,6,0" />
                   <Button Content="Mark reviewed"

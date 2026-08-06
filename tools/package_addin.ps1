@@ -97,6 +97,40 @@ function Update-ConfigDamlAddInInfoVersion {
     return $Text.Remove($match.Index, $match.Length).Insert($match.Index, $updatedStartTag)
 }
 
+function Invoke-AddInPackageBuild {
+    $buildOutput = & $msbuild $projectPath `
+        /restore `
+        /t:Build `
+        /p:Configuration=$Configuration `
+        /p:BaseIntermediateOutputPath=$intermediateProjectRoot `
+        /p:MSBuildProjectExtensionsPath=$intermediateProjectRoot `
+        /p:IntermediateOutputPath=$intermediateOutputPath `
+        /p:UseSharedCompilation=false `
+        /nr:false `
+        /v:minimal 2>&1
+    $exitCode = $LASTEXITCODE
+    $buildLines = $buildOutput | ForEach-Object { $_.ToString() }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = $buildLines
+        Output = $buildLines -join "`n"
+    }
+}
+
+function Write-BuildOutput {
+    param([object]$BuildResult)
+
+    $BuildResult.Lines | ForEach-Object { Write-Host $_ }
+}
+
+function Test-IsTransientWpfGeneratedFileFailure {
+    param([string]$BuildOutput)
+
+    return $BuildOutput -match '_wpftmp\.csproj' `
+        -and $BuildOutput -match "\.g\.cs' could not be found"
+}
+
 $originalProjectText = Get-Content -LiteralPath $projectPath -Raw
 $originalConfigDamlText = Get-Content -LiteralPath $configDamlPath -Raw
 $nextVersion = Get-NextPatchVersion -ProjectText $originalProjectText
@@ -134,17 +168,17 @@ try {
     }
 
     New-Item -ItemType Directory -Path $intermediateRoot -Force | Out-Null
-    & $msbuild $projectPath `
-        /restore `
-        /t:Rebuild `
-        /p:Configuration=$Configuration `
-        /p:BaseIntermediateOutputPath=$intermediateProjectRoot `
-        /p:MSBuildProjectExtensionsPath=$intermediateProjectRoot `
-        /p:IntermediateOutputPath=$intermediateOutputPath `
-        /p:UseSharedCompilation=false `
-        /nr:false `
-        /v:minimal
-    if ($LASTEXITCODE -ne 0) {
+    $buildResult = Invoke-AddInPackageBuild
+    if ($buildResult.ExitCode -ne 0 -and (Test-IsTransientWpfGeneratedFileFailure -BuildOutput $buildResult.Output)) {
+        Write-Warning "WPF generated files were reported missing during the first package build after markup generation. Retrying once with the generated intermediate files in place."
+        $buildResult = Invoke-AddInPackageBuild
+        Write-BuildOutput -BuildResult $buildResult
+    }
+    else {
+        Write-BuildOutput -BuildResult $buildResult
+    }
+
+    if ($buildResult.ExitCode -ne 0) {
         throw "Add-in package build failed."
     }
 

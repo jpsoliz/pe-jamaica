@@ -139,10 +139,16 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(File.Exists(pdfReportPath), "Save should generate the Compare review report PDF.");
         var pdfText = File.ReadAllText(pdfReportPath);
         TestAssert.True(pdfText.StartsWith("%PDF-1.4", StringComparison.Ordinal), "PDF report should be a PDF document.");
+        TestAssert.True(pdfText.Contains("Compare Review Report", StringComparison.Ordinal), "PDF report should include the Compare report title.");
+        TestAssert.True(pdfText.Contains("Executive Summary", StringComparison.Ordinal), "PDF report should include the shared professional executive summary section.");
+        TestAssert.True(pdfText.Contains("Transaction Info", StringComparison.Ordinal), "PDF report should include the shared professional transaction section.");
         TestAssert.True(pdfText.Contains("Valuable Evidence", StringComparison.Ordinal), "PDF report should title the retained evidence section.");
-        TestAssert.True(pdfText.Contains("1. Owner: TRACEY, HOPETON SCOTT", StringComparison.Ordinal), "PDF report should number valuable evidence rows.");
+        TestAssert.True(pdfText.Contains("1. Owner", StringComparison.Ordinal), "PDF report should number valuable evidence rows.");
+        TestAssert.True(pdfText.Contains("TRACEY, HOPETON SCOTT", StringComparison.Ordinal), "PDF report should include valuable evidence details.");
         TestAssert.True(pdfText.Contains("Notes", StringComparison.Ordinal), "PDF report should include notes section.");
         TestAssert.True(pdfText.Contains("Reviewed survey plan against legal owner evidence.", StringComparison.Ordinal), "PDF report should include decision notes.");
+        TestAssert.True(pdfText.Contains("Page 1", StringComparison.Ordinal), "PDF report should include page footer numbering.");
+        TestAssert.True(pdfText.Contains("0.094 0.204 0.29 rg", StringComparison.Ordinal), "PDF report should draw dark blue table/header fills.");
         TestAssert.False(pdfText.Contains("Review Summary", StringComparison.Ordinal), "PDF report should not include internal review summary sections.");
         TestAssert.Equal("Save complete. Compare report generated and overwritten.", viewModel.StatusText, "Save should show a clear completion message.");
         TestAssert.True(viewModel.HasSavedCompareReport, "Save should mark the Compare report as generated.");
