@@ -166,6 +166,44 @@ public sealed class InnolaSessionManager
         Clear("Not logged in.", InnolaSessionStatus.LoggedOut);
     }
 
+    public async Task<InnolaSession?> RefreshCurrentSessionAsync(CancellationToken cancellationToken = default)
+    {
+        var current = CurrentSession;
+        if (current is null
+            || string.IsNullOrWhiteSpace(current.ServerUrl)
+            || string.IsNullOrWhiteSpace(current.Username)
+            || string.IsNullOrWhiteSpace(current.SessionPassword))
+        {
+            return null;
+        }
+
+        try
+        {
+            var result = await authService.LoginAsync(
+                current.ServerUrl,
+                current.Username,
+                current.SessionPassword,
+                cancellationToken);
+            if (!result.Success || result.Session is null)
+            {
+                return null;
+            }
+
+            CurrentSession = result.Session;
+            Status = InnolaSessionStatus.LoggedIn;
+            var displayName = string.IsNullOrWhiteSpace(result.Session.User.DisplayName)
+                ? result.Session.User.Username
+                : result.Session.User.DisplayName;
+            StatusText = $"Innola session refreshed for {displayName}.";
+            OnSessionChanged();
+            return CurrentSession;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     public void ExpireSession()
     {
         Clear("Session expired. Log in again.", InnolaSessionStatus.SessionExpired);

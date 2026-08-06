@@ -117,6 +117,38 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.True(result.Message.Contains("Sign in again", StringComparison.OrdinalIgnoreCase), "Rejected Spatial Unit API login should tell the user how to recover.");
     }
 
+    public static async Task RefreshesSessionBeforeSpatialUnitWrite()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteOutputSummary(layout);
+        var handler = new RecordingHandler(new[]
+        {
+            "[{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-1\",\"uid\":\"draft-uid-1\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-2\",\"uid\":\"draft-uid-2\"}]",
+            "[{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000004\",\"suid\":\"900001\"},{\"@c\":\"SpatialUnitExt\",\"id\":\"su-100000005\",\"suid\":\"900002\"}]"
+        });
+        var refreshedSession = Session() with { AccessToken = "token-refreshed" };
+        var refreshCalls = 0;
+        var service = new InnolaSpatialUnitService(
+            new HttpClient(handler),
+            (_, _) =>
+            {
+                refreshCalls++;
+                return Task.FromResult<InnolaSession?>(refreshedSession);
+            });
+
+        var result = await service.CreateOrUpdateAsync(
+            Session() with { AccessToken = "token-stale" },
+            Transaction(),
+            layout.RootDirectory,
+            Disposition(layout));
+
+        TestAssert.True(result.Success, "Spatial Unit save should succeed after preflight session refresh.");
+        TestAssert.Equal(1, refreshCalls, "Spatial Unit save should refresh the Innola session once before API writes.");
+        TestAssert.Equal("token-refreshed", handler.AccessTokens[0], "Default creation should use the refreshed token.");
+        TestAssert.Equal("token-refreshed", handler.AccessTokens[1], "Spatial Unit save should use the refreshed token.");
+    }
+
     public static async Task RetriesCookieOnlyWhenAccessTokenRejected()
     {
         using var tempRoot = new TempDirectory();

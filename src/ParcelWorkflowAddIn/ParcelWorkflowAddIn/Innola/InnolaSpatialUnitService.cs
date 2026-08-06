@@ -21,6 +21,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         WriteIndented = true
     };
     private readonly HttpClient httpClient;
+    private readonly Func<InnolaSession, CancellationToken, Task<InnolaSession?>>? refreshSession;
     private readonly OutputSummaryPersistenceService outputSummaryPersistenceService = new();
 
     public InnolaSpatialUnitService()
@@ -28,9 +29,12 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
     {
     }
 
-    public InnolaSpatialUnitService(HttpClient httpClient)
+    public InnolaSpatialUnitService(
+        HttpClient httpClient,
+        Func<InnolaSession, CancellationToken, Task<InnolaSession?>>? refreshSession = null)
     {
         this.httpClient = httpClient;
+        this.refreshSession = refreshSession;
     }
 
     public async Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
@@ -52,6 +56,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
         try
         {
+            session = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
             var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
             var outputSummary = outputSummaryPersistenceService.Load(layout);
             var spatialUnitCount = ResolveSpatialUnitCount(outputSummary);
@@ -109,6 +114,18 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
     {
         return exception.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<InnolaSession> RefreshSessionBeforeSpatialUnitWriteAsync(
+        InnolaSession session,
+        CancellationToken cancellationToken)
+    {
+        if (refreshSession is null || string.IsNullOrWhiteSpace(session.SessionPassword))
+        {
+            return session;
+        }
+
+        return await refreshSession(session, cancellationToken).ConfigureAwait(false) ?? session;
     }
 
     private async Task<IReadOnlyList<JsonObject>> CreateDefaultSpatialUnitsAsync(

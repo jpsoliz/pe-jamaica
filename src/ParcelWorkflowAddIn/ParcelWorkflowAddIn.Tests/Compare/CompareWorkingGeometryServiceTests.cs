@@ -177,6 +177,29 @@ internal static class CompareWorkingGeometryServiceTests
             "Compare map integration should apply the working polygon transparency when loading polygon layers.");
     }
 
+    public static void MapIntegrationLoadsAndLabelsWorkingPointsLinesAndPolygons()
+    {
+        var source = File.ReadAllText(FindArcGisCompareMapIntegrationService());
+
+        TestAssert.True(
+            source.Contains("BuildWorkingLayerName(request.Role, plan.ScopeValue)", StringComparison.Ordinal)
+            && source.Contains("working_review points", StringComparison.Ordinal)
+            && source.Contains("working_review lines", StringComparison.Ordinal)
+            && source.Contains("working_review polygons", StringComparison.Ordinal),
+            "Compare map integration should create explicit named working_review point, line, and polygon layers.");
+        TestAssert.True(
+            source.Contains("BuildPointLabelExpression(fieldNames)", StringComparison.Ordinal)
+            && source.Contains("BuildLineLabelExpression(fieldNames)", StringComparison.Ordinal)
+            && source.Contains("BuildPolygonLabelExpression(fieldNames)", StringComparison.Ordinal),
+            "Compare map integration should keep labels for working_review points, lines, and polygons.");
+        TestAssert.True(
+            source.Contains("workingFeatureCounts[request.Role]", StringComparison.Ordinal)
+            && source.Contains("CountText(CompareWorkingLayerRole.Points", StringComparison.Ordinal)
+            && source.Contains("CountText(CompareWorkingLayerRole.Lines", StringComparison.Ordinal)
+            && source.Contains("CountText(CompareWorkingLayerRole.Polygons", StringComparison.Ordinal),
+            "Compare loaded status should report feature counts for points, lines, and polygons.");
+    }
+
     public static void CompareStartupDefersArcGisMapLayerLoadingUntilRefresh()
     {
         var shellState = File.ReadAllText(FindShellState());

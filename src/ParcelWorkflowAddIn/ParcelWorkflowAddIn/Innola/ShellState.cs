@@ -210,7 +210,9 @@ internal static class ShellState
     {
         return Settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase)
             ? new MockInnolaSpatialUnitService()
-            : new InnolaSpatialUnitService(SharedInnolaHttpClient);
+            : new InnolaSpatialUnitService(
+                SharedInnolaHttpClient,
+                (_, cancellationToken) => Session.RefreshCurrentSessionAsync(cancellationToken));
     }
 
     private static IInnolaPlanCheckService CreatePlanCheckService()

@@ -137,6 +137,51 @@ internal static class InnolaSessionManagerTests
         TestAssert.True(!manager.IsTransactionLoaded, "Completed transaction should clear the active loaded transaction.");
     }
 
+    public static async Task RefreshCurrentSessionPreservesLoadedTransaction()
+    {
+        var refreshedSession = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-refreshed",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null);
+        var auth = new FakeAuthService
+        {
+            LoginResult = InnolaLoginResult.Succeeded(refreshedSession)
+        };
+        var manager = new InnolaSessionManager(auth);
+        manager.ApplySuccessfulSession(refreshedSession with { AccessToken = "token-stale" });
+        var selected = new InnolaTransactionRow(
+            "task-100000854",
+            "txn-100000854",
+            "100000854",
+            "Compute Survey Plan",
+            "parcel_workflow",
+            InnolaTransactionStatus.InProgress,
+            "Compute Survey Plan",
+            "Test User",
+            "tester",
+            null,
+            DateTimeOffset.UtcNow,
+            true,
+            true,
+            null,
+            null);
+        manager.SelectTransaction(selected, DateTimeOffset.UtcNow);
+        manager.MarkTransactionLoaded("100000854", @"C:\Cases\100000854", "2026-07-27T16:39:00Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-07-27T16:39:01Z", "Transaction is in progress.");
+
+        var result = await manager.RefreshCurrentSessionAsync();
+
+        TestAssert.Equal("token-refreshed", result?.AccessToken, "Refresh should return the refreshed session token.");
+        TestAssert.Equal("token-refreshed", manager.CurrentSession?.AccessToken, "Refresh should update the current session token.");
+        TestAssert.True(manager.IsTransactionLoaded, "Refresh must preserve the loaded transaction.");
+        TestAssert.Equal("100000854", manager.SelectedTransaction?.TransactionNumber, "Refresh must preserve the selected transaction.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Refresh must preserve lifecycle ownership state.");
+    }
+
     public static async Task SessionSecretsAreNotWrittenToSettingsOrCaseFolderFiles()
     {
         const string secretPassword = "super-secret-session-password";

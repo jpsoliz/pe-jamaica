@@ -210,14 +210,17 @@ Recommended status patterns:
 
 - 2026-08-06: Created story for Innola API connection health, retry, and session recovery across load, save, upload, and transaction movement operations.
 - 2026-08-06: Implemented shared Innola API resilience policy, wired live transaction list/detail/download/upload/lifecycle/Plan Check/Spatial Unit/Compare lookup HTTP calls, added transient retry and login-required auth handling, and moved story to review. Silent re-login/refresh and remote-state verification after ambiguous lifecycle writes remain follow-up items pending an Innola refresh/idempotency contract.
+- 2026-08-06: Patched Spatial Unit Finalize path to refresh the current Innola session once before Spatial Unit create/save writeback using the session-only in-memory password, preserving the loaded transaction and lifecycle state.
 
 ## Dev Agent Record
 
 ### Implementation Notes
 
 - Added `InnolaApiResilience`, `InnolaApiOperation`, and `InnolaApiRetryMode` as the central retry/classification surface.
+- Added `InnolaSessionManager.RefreshCurrentSessionAsync` so writeback flows can renew the active token without clearing the loaded transaction.
 - Direct transient retry now covers safe read operations such as transaction refresh, transaction detail load, attachment downloads, and source metadata lookups.
 - Write operations such as attachment upload, source registration, Plan Check writeback, Spatial Unit creation/save, and lifecycle start/complete use the shared policy with conservative `VerifyBeforeRetry`/single-attempt behavior to avoid duplicate uploads or duplicate workflow movement until Innola exposes reliable idempotency or state-verification support.
+- Spatial Unit creation/save now performs a one-time preflight session refresh before the first write request when session-only password data is available.
 - HTTP 401/403 responses now produce the user-facing login recovery message instead of raw/generic adapter errors.
 - Existing bearer/cookie fallback behavior for Plan Check, Spatial Unit, and Compare lookups was preserved.
 
@@ -229,9 +232,12 @@ Recommended status patterns:
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionLifecycleService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaPlanCheckService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSpatialUnitService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSessionManager.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaSpatialUnitServiceTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaSessionManagerTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 
 ### Validation
@@ -239,3 +245,5 @@ Recommended status patterns:
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj --configuration Release --artifacts-path .artifacts\build-check-story-2-22`
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --artifacts-path .artifacts\test-story-2-22-innola -- "innola"`
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --artifacts-path .artifacts\test-story-2-22-compare -- "compare innola"`
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --artifacts-path .artifacts\test-story-2-22-session-refresh -- "innola spatial unit service" "innola refresh current session"`
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj --configuration Release --artifacts-path .artifacts\build-story-2-22-session-refresh`

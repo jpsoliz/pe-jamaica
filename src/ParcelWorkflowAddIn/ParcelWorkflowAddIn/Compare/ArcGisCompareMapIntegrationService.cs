@@ -67,6 +67,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         var groupLayerName = BuildGroupLayerName(plan);
         var enterpriseCadasterSettings = settings.CompareEnterpriseCadaster;
         int? polygonFeatureCount = null;
+        var workingFeatureCounts = new Dictionary<CompareWorkingLayerRole, int?>();
         try
         {
             await QueuedTask.Run(() =>
@@ -79,16 +80,22 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     RemoveExistingLayer(mapView.Map, request.LayerUrl);
-                    var layer = LayerFactory.Instance.CreateLayer(new Uri(request.LayerUrl), groupLayer);
+                    var layer = LayerFactory.Instance.CreateLayer(
+                        new Uri(request.LayerUrl),
+                        groupLayer,
+                        0,
+                        BuildWorkingLayerName(request.Role, plan.ScopeValue));
                     if (layer is FeatureLayer featureLayer)
                     {
                         ApplyDefinitionQuery(featureLayer, request.DefinitionQuery);
                         featureLayer.SetEditable(false);
                         ApplyWorkingLayerStyle(featureLayer, request.Role, mapWarnings);
                         ApplyWorkingLayerLabels(featureLayer, request.Role, mapWarnings);
+                        var featureCount = CountFeatures(featureLayer, request.DefinitionQuery);
+                        workingFeatureCounts[request.Role] = featureCount;
                         if (request.Role == CompareWorkingLayerRole.Polygons)
                         {
-                            polygonFeatureCount = CountFeatures(featureLayer, request.DefinitionQuery);
+                            polygonFeatureCount = featureCount;
                             reviewGeometries.AddRange(ReadFeatureGeometries(featureLayer, request.DefinitionQuery));
                         }
                     }
@@ -142,14 +149,14 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         catch (Exception)
         {
             return CompareMapIntegrationResult.Loaded(
-                BuildLoadedMessage(plan, groupLayerName, polygonFeatureCount, zoomed: false, cadasterContextSummaries, mapWarnings),
+                BuildLoadedMessage(plan, groupLayerName, workingFeatureCounts, zoomed: false, cadasterContextSummaries, mapWarnings),
                 loadedLayerUrls,
                 groupLayerName,
                 polygonFeatureCount);
         }
 
         return CompareMapIntegrationResult.Loaded(
-            BuildLoadedMessage(plan, groupLayerName, polygonFeatureCount, zoomed: true, cadasterContextSummaries, mapWarnings),
+            BuildLoadedMessage(plan, groupLayerName, workingFeatureCounts, zoomed: true, cadasterContextSummaries, mapWarnings),
             loadedLayerUrls,
             groupLayerName,
             polygonFeatureCount);
@@ -272,6 +279,19 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             CompareWorkingLayerRole.Points => 2,
             _ => 3
         });
+    }
+
+    private static string BuildWorkingLayerName(CompareWorkingLayerRole role, string scopeValue)
+    {
+        var roleName = role switch
+        {
+            CompareWorkingLayerRole.Points => "working_review points",
+            CompareWorkingLayerRole.Lines => "working_review lines",
+            CompareWorkingLayerRole.Polygons => "working_review polygons",
+            _ => "working_review"
+        };
+
+        return $"{roleName} - {scopeValue}";
     }
 
     private static GroupLayer EnsureGroupLayer(Map map, string groupLayerName)
@@ -603,6 +623,29 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             return;
         }
 
+        if (role == CompareWorkingLayerRole.Lines)
+        {
+            try
+            {
+                var lineSymbol = SymbolFactory.Instance.ConstructLineSymbol(
+                    ColorFactory.Instance.CreateRGBColor(36, 87, 122, 100),
+                    1.6,
+                    SimpleLineStyle.Solid);
+                featureLayer.SetRenderer(new CIMSimpleRenderer
+                {
+                    Symbol = lineSymbol.MakeSymbolReference()
+                });
+            }
+            catch (Exception exception) when (exception is InvalidOperationException
+                or NotSupportedException
+                or ArgumentException)
+            {
+                warnings.Add($"{featureLayer.Name} line styling was skipped: {exception.Message}");
+            }
+
+            return;
+        }
+
         if (role != CompareWorkingLayerRole.Points)
         {
             return;
@@ -611,7 +654,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         try
         {
             var pointSymbol = SymbolFactory.Instance.ConstructPointSymbol(
-                ColorFactory.Instance.CreateRGBColor(255, 255, 255, 100),
+                ColorFactory.Instance.CreateRGBColor(31, 41, 55, 100),
                 5.0,
                 SimpleMarkerStyle.Circle);
             pointSymbol.SetSize(5.0);
@@ -959,14 +1002,12 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
     private static string BuildLoadedMessage(
         CompareWorkingGeometryLoadPlan plan,
         string groupLayerName,
-        int? polygonFeatureCount,
+        IReadOnlyDictionary<CompareWorkingLayerRole, int?> workingFeatureCounts,
         bool zoomed,
         IReadOnlyList<CompareCadasterMapContextSummary>? cadasterContextSummaries = null,
         IReadOnlyList<string>? warnings = null)
     {
-        var polygonText = polygonFeatureCount.HasValue
-            ? $"{polygonFeatureCount.Value} polygon feature(s)"
-            : "polygon features";
+        var workingText = BuildWorkingLayerCountMessage(workingFeatureCounts);
         var zoomText = zoomed
             ? "Map zoomed to the transaction layer."
             : "Layers were added, but the map could not zoom automatically.";
@@ -975,7 +1016,26 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
             ? $" Context warnings: {string.Join(" ", warnings.Where(warning => !string.IsNullOrWhiteSpace(warning)))}"
             : string.Empty;
 
-        return $"Compare working layers loaded into ArcGIS Pro map group '{groupLayerName}' for {plan.ScopeField} '{plan.ScopeValue}' ({polygonText}). {contextText} {zoomText}{warningText}";
+        return $"Compare working layers loaded into ArcGIS Pro map group '{groupLayerName}' for {plan.ScopeField} '{plan.ScopeValue}' ({workingText}). {contextText} {zoomText}{warningText}";
+    }
+
+    private static string BuildWorkingLayerCountMessage(IReadOnlyDictionary<CompareWorkingLayerRole, int?> workingFeatureCounts)
+    {
+        return string.Join(
+            ", ",
+            new[]
+            {
+                CountText(CompareWorkingLayerRole.Points, "point"),
+                CountText(CompareWorkingLayerRole.Lines, "line"),
+                CountText(CompareWorkingLayerRole.Polygons, "polygon")
+            });
+
+        string CountText(CompareWorkingLayerRole role, string label)
+        {
+            return workingFeatureCounts.TryGetValue(role, out var count) && count.HasValue
+                ? $"{count.Value} {label} feature(s)"
+                : $"{label} features";
+        }
     }
 
     private static string BuildCadasterContextMessage(IReadOnlyList<CompareCadasterMapContextSummary>? summaries)

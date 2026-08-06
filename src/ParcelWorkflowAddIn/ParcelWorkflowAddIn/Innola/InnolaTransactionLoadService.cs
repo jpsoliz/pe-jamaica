@@ -89,7 +89,7 @@ public sealed class InnolaTransactionLoadService
         }
 
         var session = sessionManager.CurrentSession;
-        var selected = sessionManager.SelectedTransaction;
+        var selected = NormalizeSelectedTransaction(sessionManager.SelectedTransaction);
         InnolaTransactionDetailResult detailResult;
         try
         {
@@ -107,7 +107,7 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure(SafeRetryMessage(detailResult.ErrorMessage));
         }
 
-        var detail = detailResult.Detail;
+        var detail = NormalizeDetail(detailResult.Detail);
         if (!MatchesSelectedTransaction(selected, detail))
         {
             sessionManager.ClearLoadedTransaction();
@@ -611,8 +611,24 @@ public sealed class InnolaTransactionLoadService
     private static bool MatchesSelectedTransaction(SelectedInnolaTransaction selected, InnolaTransactionDetail detail)
     {
         return selected.TaskId.Equals(detail.TaskId, StringComparison.OrdinalIgnoreCase)
-            && selected.TransactionNumber.Equals(detail.TransactionNumber, StringComparison.OrdinalIgnoreCase)
+            && InnolaTransactionNumbers.NormalizeWorkflowKey(selected.TransactionNumber).Equals(detail.TransactionNumber, StringComparison.OrdinalIgnoreCase)
             && selected.ProcessStep.Equals(detail.ProcessStep, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static InnolaTransactionDetail NormalizeDetail(InnolaTransactionDetail detail)
+    {
+        var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(detail.TransactionNumber);
+        return normalizedTransactionNumber.Equals(detail.TransactionNumber, StringComparison.Ordinal)
+            ? detail
+            : detail with { TransactionNumber = normalizedTransactionNumber };
+    }
+
+    private static SelectedInnolaTransaction NormalizeSelectedTransaction(SelectedInnolaTransaction selected)
+    {
+        var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(selected.TransactionNumber);
+        return normalizedTransactionNumber.Equals(selected.TransactionNumber, StringComparison.Ordinal)
+            ? selected
+            : selected with { TransactionNumber = normalizedTransactionNumber };
     }
 
     private static IReadOnlyList<ManifestSourceFile> DeduplicateSourceFiles(IReadOnlyList<ManifestSourceFile> sourceFiles)

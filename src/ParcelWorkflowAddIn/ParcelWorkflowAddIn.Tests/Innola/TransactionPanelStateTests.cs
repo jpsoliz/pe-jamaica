@@ -447,7 +447,7 @@ internal static class TransactionPanelStateTests
         TestAssert.True(suspendResult.Success, "Lifecycle bridge should suspend through the panel path.");
         TestAssert.Equal(1, lifecycleService.SaveProgressCalls, "Suspend should save progress through the existing lifecycle service.");
         TestAssert.False(panel.IsTransactionPanelLocked, "Suspend from Compare should unlock the transaction panel.");
-        TestAssert.Equal("TR100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
+        TestAssert.Equal("100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
     }
 
     public static async Task ActiveCompareTaskDisablesCmpWhenCompareWorkspaceIsOpen()

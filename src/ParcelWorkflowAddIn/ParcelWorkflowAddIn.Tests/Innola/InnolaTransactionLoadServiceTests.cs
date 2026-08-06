@@ -14,18 +14,18 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
         TestAssert.True(result.Success, "Mock transaction load should succeed.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should stay disabled until the transaction is started/claimed.");
-        TestAssert.Equal("TR100000004", manager.LoadedTransactionNumber, "Loaded transaction mismatch.");
+        TestAssert.Equal("100000004", manager.LoadedTransactionNumber, "Loaded transaction mismatch.");
         TestAssert.True(File.Exists(Path.Combine(result.Layout!.RootDirectory, "manifest.json")), "Manifest should exist.");
 
         var manifest = ManifestSerializer.Read(result.Layout.ManifestPath);
-        TestAssert.Equal("TR100000004", manifest.TransactionId, "Manifest transaction id mismatch.");
+        TestAssert.Equal("100000004", manifest.TransactionId, "Manifest transaction id mismatch.");
         TestAssert.Equal("task-100000004", manifest.Payload.InnolaTransaction!.TaskId, "Innola task id mismatch.");
         TestAssert.Equal("tester", manifest.Payload.InnolaTransaction.SelectedUser, "Selected user mismatch.");
         TestAssert.Equal(2, manifest.Payload.AttachmentProvenance!.Count, "Attachment provenance count mismatch.");
@@ -39,12 +39,37 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(caseText.Contains("PDF", StringComparison.OrdinalIgnoreCase), "Fixture content should be written.");
     }
 
+    public static async Task LoadNormalizesPrefixedInnolaTransactionNumberForCaseFolder()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000071", "100000071", "TR100000071", "Computation Check"), FixedNow());
+        var detail = Detail(
+            "task-100000071",
+            "100000071",
+            "TR100000071",
+            "Computation Check",
+            DefaultAttachments());
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Prefixed transaction should load.");
+        TestAssert.Equal("100000071", manager.LoadedTransactionNumber, "Loaded transaction should use the Enterprise workflow key.");
+        TestAssert.Equal(Path.Combine(tempRoot.Path, "100000071"), result.Layout!.RootDirectory, "Case folder should use the normalized transaction number.");
+        TestAssert.True(!Directory.Exists(Path.Combine(tempRoot.Path, "TR100000071")), "Prefixed transaction folder should not be created.");
+
+        var manifest = ManifestSerializer.Read(result.Layout.ManifestPath);
+        TestAssert.Equal("100000071", manifest.TransactionId, "Manifest transaction id should use the normalized transaction number.");
+        TestAssert.Equal("100000071", manifest.Payload.InnolaTransaction?.TransactionNumber, "Manifest Innola transaction number should match Enterprise working_review.");
+    }
+
     public static async Task InProgressTaskAssignedToCurrentUserReopensWithWorkflowActionsEnabled()
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
         manager.SelectTransaction(
-            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+            Row("task-100000004", "100000004", "100000004", "Computation Check")
                 with { Status = InnolaTransactionStatus.InProgress, AssignedUser = "Test User (tester)" },
             FixedNow());
         var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
@@ -64,11 +89,11 @@ internal static class InnolaTransactionLoadServiceTests
         var detail = Detail(
             "task-100000004",
             "100000004",
-            "TR100000004",
+            "100000004",
             "Computation Check",
             DefaultAttachments()) with { AssignedUser = null, AssignedGroup = "survey" };
         manager.SelectTransaction(
-            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+            Row("task-100000004", "100000004", "100000004", "Computation Check")
                 with { Status = InnolaTransactionStatus.InProgress, AssignedUser = null, AssignedGroup = "survey" },
             FixedNow());
         var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
@@ -88,11 +113,11 @@ internal static class InnolaTransactionLoadServiceTests
         var detail = Detail(
             "task-100000004",
             "100000004",
-            "TR100000004",
+            "100000004",
             "Computation Check",
             DefaultAttachments()) with { AssignedUser = "other.user", AssignedGroup = "survey" };
         manager.SelectTransaction(
-            Row("task-100000004", "100000004", "TR100000004", "Computation Check")
+            Row("task-100000004", "100000004", "100000004", "Computation Check")
                 with { Status = InnolaTransactionStatus.InProgress, AssignedUser = "other.user" },
             FixedNow());
         var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
@@ -136,14 +161,14 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var detail = Detail("task-other", "100000999", "TR100000999", "Computation Check", DefaultAttachments());
         var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
         TestAssert.True(!result.Success, "Mismatched detail should fail.");
-        TestAssert.True(!Directory.Exists(Path.Combine(tempRoot.Path, "TR100000004")), "Mismatch should not create selected transaction folder.");
+        TestAssert.True(!Directory.Exists(Path.Combine(tempRoot.Path, "100000004")), "Mismatch should not create selected transaction folder.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled.");
     }
 
@@ -151,9 +176,9 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var badAttachment = new InnolaAttachmentMetadata("att-bad", "script.exe", ".exe", "application/octet-stream", null, "bad", 4, null, "mock-attachment:att-bad", true);
-        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", new[] { badAttachment })), tempRoot.Path);
+        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "100000004", "Computation Check", new[] { badAttachment })), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
@@ -166,7 +191,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var attachments = new[]
         {
             new InnolaAttachmentMetadata("att-one", "plan.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-one", true),
@@ -174,13 +199,13 @@ internal static class InnolaTransactionLoadServiceTests
         };
         var service = LoadService(
             manager,
-            new FailingSecondAttachmentService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments)),
+            new FailingSecondAttachmentService(Detail("task-100000004", "100000004", "100000004", "Computation Check", attachments)),
             tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
         TestAssert.True(!result.Success, "Load should fail when a later attachment fails.");
-        var sourceDirectory = Path.Combine(tempRoot.Path, "TR100000004", "source");
+        var sourceDirectory = Path.Combine(tempRoot.Path, "100000004", "source");
         TestAssert.True(!Directory.Exists(sourceDirectory) || Directory.GetFiles(sourceDirectory).Length == 0, "Previously written attachment files should be cleaned up after failed load.");
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after partial attachment failure.");
     }
@@ -189,7 +214,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, new ThrowingDetailService(), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
@@ -203,9 +228,9 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var badAttachment = new InnolaAttachmentMetadata("att-path", "..\\escape.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-path", true);
-        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", new[] { badAttachment })), tempRoot.Path);
+        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "100000004", "Computation Check", new[] { badAttachment })), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
@@ -218,13 +243,13 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var duplicateAttachments = new[]
         {
             new InnolaAttachmentMetadata("att-one", "plan.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-one", true),
             new InnolaAttachmentMetadata("att-two", "plan.pdf", ".pdf", "application/pdf", SourceRole.ComputationSource, "computation", 4, null, "mock-attachment:att-two", true)
         };
-        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", duplicateAttachments)), tempRoot.Path);
+        var service = LoadService(manager, new CountingDetailService(Detail("task-100000004", "100000004", "100000004", "Computation Check", duplicateAttachments)), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
 
@@ -239,7 +264,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
 
         var first = await service.LoadSelectedTransactionAsync();
@@ -266,7 +291,7 @@ internal static class InnolaTransactionLoadServiceTests
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
         var detailService = new MockInnolaTransactionDetailService();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, detailService, tempRoot.Path);
 
         var first = await service.LoadSelectedTransactionAsync();
@@ -298,7 +323,7 @@ internal static class InnolaTransactionLoadServiceTests
 
         Directory.Delete(layout.RootDirectory, recursive: true);
         manager.ClearLoadedTransaction();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
 
         var second = await service.LoadSelectedTransactionAsync();
 
@@ -315,21 +340,21 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
 
-        var firstLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "intake", "old", new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero));
-        var secondLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "review_approved", "new", new DateTimeOffset(2026, 6, 10, 13, 0, 0, TimeSpan.Zero));
+        var firstLayout = BuildResumeCaseFolder(tempRoot.Path, "100000004", "intake", "old", new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero));
+        var secondLayout = BuildResumeCaseFolder(tempRoot.Path, "100000004", "review_approved", "new", new DateTimeOffset(2026, 6, 10, 13, 0, 0, TimeSpan.Zero));
 
         var oldPackage = BuildResumePackage(firstLayout, manager.SelectedTransaction!, new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero));
         var newPackage = BuildResumePackage(secondLayout, manager.SelectedTransaction!, new DateTimeOffset(2026, 6, 10, 13, 0, 0, TimeSpan.Zero));
 
         var attachments = new[]
         {
-            new InnolaAttachmentMetadata("resume-old", "sidwell-case-state-TR100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-old", true),
-            new InnolaAttachmentMetadata("resume-new", "sidwell-case-state-TR100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-new", true)
+            new InnolaAttachmentMetadata("resume-old", "sidwell-case-state-100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-old", true),
+            new InnolaAttachmentMetadata("resume-new", "sidwell-case-state-100000004.zip", ".zip", "application/zip", null, InnolaResumePackageConventions.ResumeSourceType, null, null, "mock-attachment:resume-new", true)
         };
 
-        var detail = Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments);
+        var detail = Detail("task-100000004", "100000004", "100000004", "Computation Check", attachments);
         var service = LoadService(
             manager,
             new MultiResumeAttachmentDetailService(
@@ -356,25 +381,25 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
-        var currentRow = Row("task-current", "transaction-current", "TR100000004", "Compare");
+        var currentRow = Row("task-current", "transaction-current", "100000004", "Compare");
         var staleTransaction = new SelectedInnolaTransaction(
             "task-current",
             "transaction-old",
-            "TR100000004",
+            "100000004",
             "Compare",
             "parcel_workflow",
             FixedNow(),
             TransactionType: "Plan Examination");
         manager.SelectTransaction(currentRow, FixedNow());
 
-        var staleLayout = BuildResumeCaseFolder(tempRoot.Path, "TR100000004", "review_approved", "stale", FixedNow());
+        var staleLayout = BuildResumeCaseFolder(tempRoot.Path, "100000004", "review_approved", "stale", FixedNow());
         var stalePackage = BuildResumePackage(staleLayout, staleTransaction, FixedNow());
         Directory.Delete(staleLayout.RootDirectory, recursive: true);
 
         var sourceAttachment = DefaultAttachments()[0];
         var resumeAttachment = new InnolaAttachmentMetadata(
             "resume-stale",
-            "sidwell-case-state-TR100000004.zip",
+            "sidwell-case-state-100000004.zip",
             ".zip",
             "application/zip",
             null,
@@ -413,7 +438,7 @@ internal static class InnolaTransactionLoadServiceTests
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
         var detailService = new MockInnolaTransactionDetailService();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, detailService, tempRoot.Path);
 
         var first = await service.LoadSelectedTransactionAsync();
@@ -444,7 +469,7 @@ internal static class InnolaTransactionLoadServiceTests
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
         var detailService = new MockInnolaTransactionDetailService();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, detailService, tempRoot.Path);
 
         var first = await service.LoadSelectedTransactionAsync();
@@ -453,7 +478,7 @@ internal static class InnolaTransactionLoadServiceTests
         var layout = first.Layout!;
         Directory.CreateDirectory(layout.OutputDirectory);
         File.WriteAllText(Path.Combine(layout.OutputDirectory, "output_summary.json"), "{\"status\":\"ready\"}");
-        var gdbDirectory = Path.Combine(layout.OutputDirectory, "TR100000004_parcel_output.gdb");
+        var gdbDirectory = Path.Combine(layout.OutputDirectory, "100000004_parcel_output.gdb");
         Directory.CreateDirectory(gdbDirectory);
         File.WriteAllText(Path.Combine(gdbDirectory, "a00000001.gdbtable"), "file geodatabase table");
         File.WriteAllText(Path.Combine(gdbDirectory, "parcel_lines.BL4XFY3.52320.6628.sr.lock"), "runtime lock");
@@ -467,7 +492,7 @@ internal static class InnolaTransactionLoadServiceTests
         using var archive = new ZipArchive(File.OpenRead(package.PackagePath!), ZipArchiveMode.Read);
         var names = archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToArray();
         TestAssert.True(
-            names.Contains("output/TR100000004_parcel_output.gdb/a00000001.gdbtable"),
+            names.Contains("output/100000004_parcel_output.gdb/a00000001.gdbtable"),
             "Completed package should include real file geodatabase contents.");
         TestAssert.True(
             !names.Any(name => name.EndsWith(".lock", StringComparison.OrdinalIgnoreCase)),
@@ -478,7 +503,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => FixedNow(), () => "run-existing");
-        var created = store.CreateCase(tempRoot.Path, "TR100000004", "tester");
+        var created = store.CreateCase(tempRoot.Path, "100000004", "tester");
         var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
         ManifestSerializer.Write(created.Layout.ManifestPath, manifest with
         {
@@ -486,7 +511,7 @@ internal static class InnolaTransactionLoadServiceTests
             {
                 InnolaTransaction = new ManifestInnolaTransaction(
                     "other",
-                    "TR100000004",
+                    "100000004",
                     "task-other",
                     "Other Task",
                     "parcel_workflow",
@@ -501,7 +526,7 @@ internal static class InnolaTransactionLoadServiceTests
             }
         });
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var service = LoadService(manager, new MockInnolaTransactionDetailService(), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
@@ -514,7 +539,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => FixedNow(), () => "run-existing");
-        var created = store.CreateCase(tempRoot.Path, "TR100000004", "tester");
+        var created = store.CreateCase(tempRoot.Path, "100000004", "tester");
         var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
         ManifestSerializer.Write(created.Layout.ManifestPath, manifest with
         {
@@ -522,7 +547,7 @@ internal static class InnolaTransactionLoadServiceTests
             {
                 InnolaTransaction = new ManifestInnolaTransaction(
                     "100000004",
-                    "TR100000004",
+                    "100000004",
                     "task-compute",
                     "Compute Survey Plan",
                     "parcel_workflow",
@@ -538,8 +563,8 @@ internal static class InnolaTransactionLoadServiceTests
         });
 
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-compare", "100000004", "TR100000004", "Compare Survey Plan"), FixedNow());
-        var detail = Detail("task-compare", "100000004", "TR100000004", "Compare Survey Plan", DefaultAttachments());
+        manager.SelectTransaction(Row("task-compare", "100000004", "100000004", "Compare Survey Plan"), FixedNow());
+        var detail = Detail("task-compare", "100000004", "100000004", "Compare Survey Plan", DefaultAttachments());
         var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
@@ -554,7 +579,7 @@ internal static class InnolaTransactionLoadServiceTests
     {
         using var tempRoot = new TempDirectory();
         var store = new CaseFolderStore(() => FixedNow(), () => "run-existing");
-        var created = store.CreateCase(tempRoot.Path, "TR100000004", "tester");
+        var created = store.CreateCase(tempRoot.Path, "100000004", "tester");
         var manifest = ManifestSerializer.Read(created.Layout!.ManifestPath);
         ManifestSerializer.Write(created.Layout.ManifestPath, manifest with
         {
@@ -562,7 +587,7 @@ internal static class InnolaTransactionLoadServiceTests
             {
                 InnolaTransaction = new ManifestInnolaTransaction(
                     "100000004",
-                    "TR100000004",
+                    "100000004",
                     "task-compute",
                     "Compute Survey Plan",
                     "parcel_workflow",
@@ -578,10 +603,10 @@ internal static class InnolaTransactionLoadServiceTests
         });
 
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-compare", "100000004", "TR100000004", "Compare Survey Plan"), FixedNow());
+        manager.SelectTransaction(Row("task-compare", "100000004", "100000004", "Compare Survey Plan"), FixedNow());
         var completedPackage = new InnolaAttachmentMetadata(
             "completed-package",
-            InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004"),
+            InnolaResumePackageConventions.BuildCompletedAttachmentFileName("100000004"),
             ".zip",
             "application/zip",
             null,
@@ -590,7 +615,7 @@ internal static class InnolaTransactionLoadServiceTests
             null,
             "mock-attachment:completed-package",
             true);
-        var detail = Detail("task-compare", "100000004", "TR100000004", "Compare Survey Plan", new[] { completedPackage });
+        var detail = Detail("task-compare", "100000004", "100000004", "Compare Survey Plan", new[] { completedPackage });
         var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
 
         var result = await service.LoadSelectedTransactionAsync();
@@ -606,7 +631,7 @@ internal static class InnolaTransactionLoadServiceTests
         using var tempRoot = new TempDirectory();
         using var rules = TempFile.FromExisting(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Settings", "WorkflowRules.json"));
         var manager = LoggedInManager();
-        manager.SelectTransaction(Row("task-100000004", "100000004", "TR100000004", "Computation Check"), FixedNow());
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
         var attachments = new[]
         {
             new InnolaAttachmentMetadata("att-computation", "BELLEV029GEOLANCOMSHEET.pdf", ".pdf", "application/pdf", SourceRole.ComputationSource, "computation", 4, null, "mock-attachment:att-computation", true),
@@ -614,7 +639,7 @@ internal static class InnolaTransactionLoadServiceTests
         };
         var service = LoadService(
             manager,
-            new CountingDetailService(Detail("task-100000004", "100000004", "TR100000004", "Computation Check", attachments)),
+            new CountingDetailService(Detail("task-100000004", "100000004", "100000004", "Computation Check", attachments)),
             tempRoot.Path,
             new WorkflowRuleResolver(new WorkflowRuleRegistry(() => rules.Path), () => FixedNow()));
 
