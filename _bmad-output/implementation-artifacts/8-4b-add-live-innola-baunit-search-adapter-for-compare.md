@@ -130,6 +130,8 @@ The Compare workspace must preserve the existing Postman payload contract while 
 - [x] [Review][Patch] Map single-record objects under known response containers such as `result` [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareCadasterQueryServices.cs:361]
 - [x] [Review][Patch] Accept manual Volume/Folio input as either separate numeric values or a combined `1234/546` value, then keep the live adapter payload numeric and split.
 - [x] [Review][Patch] Fall back from owner-search Volume/Folio to BA Unit/property search whenever owner search maps no property records, including party-only responses.
+- [x] [TR 100000627][Patch] Remove the Compare ownership search `MaxAttempts: 1` override so PID, Volume/Folio, Land Val No., Owner, and paged Innola search calls use the shared retry policy for transient 5xx/timeouts.
+- [x] [TR 100000627][Patch] Surface Innola 401/403 failures as `Please log in again` guidance instead of the generic `search failed` Compare status.
 
 ## Developer Notes
 
@@ -209,6 +211,7 @@ dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWor
 | 2026-07-17 | 1.5 | Pinned Owner search to a single uppercase wildcard `owner` variable and added multi-row owner result mapping coverage. | Amelia |
 | 2026-07-17 | 1.6 | Added amendment for party-shaped Innola results: keep payload contract unchanged, separate party matches from property results, and allow party evidence to be kept and reported. | Mary / Amelia |
 | 2026-08-03 | 1.7 | Added combined Volume/Folio input parsing and broadened Volume/Folio BA Unit fallback when owner search returns no property rows. | Amelia |
+| 2026-08-09 | 1.8 | Enabled shared retries for Compare ownership searches and added explicit login-required status for Innola auth failures found during TR 100000627 testing. | Amelia |
 
 ## Dev Agent Record
 

@@ -144,6 +144,7 @@ Manual validation target:
 | 2026-07-15 | 1.0 | Initial story for collapsible PDF panel in Compare workspace. | Sally / Mary |
 | 2026-07-15 | 1.1 | Implemented collapsible PDF state, window column collapse behavior, and tests. | Amelia |
 | 2026-07-15 | 1.2 | Added compact window resize on PDF hide and expanded width restore on PDF show. | Amelia |
+| 2026-08-09 | 1.3 | Added a column splitter so the document and Compare panels can be resized while preserving hide/show behavior. | Amelia |
 
 ## Dev Agent Record
 
@@ -173,6 +174,7 @@ Manual validation target:
 - Added named PDF panel and spacer columns in the Compare window.
 - Added code-behind layout adjustment that collapses/restores the PDF panel without clearing or recreating WebView2.
 - Added compact Compare window sizing when the PDF is hidden and previous expanded width restore when the PDF is shown.
+- Added a visible grid splitter between the PDF panel and Compare controls; it is hidden with the PDF panel.
 - Preserved selected PDF document and viewer navigation state across toggles.
 - Added focused ViewModel and XAML tests for the collapsible PDF and compact resize behavior.
 

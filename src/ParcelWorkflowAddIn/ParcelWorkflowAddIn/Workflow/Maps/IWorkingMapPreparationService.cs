@@ -76,6 +76,12 @@ public sealed record WorkingMapLayerPlan(
     double? MinScale,
     double? MaxScale);
 
+public sealed record WorkingMapExistingLayerSnapshot(string Name, string? Uri);
+
+public sealed record WorkingMapPreparedStatus(
+    bool IsPrepared,
+    IReadOnlyList<WorkingMapLayerPlan> MissingRequiredLayers);
+
 public static class WorkingMapPreparationPlanner
 {
     public static WorkingMapPreparationPlan Build(WorkingMapSettings settings, InnolaTransactionDetail? detail)
@@ -204,8 +210,28 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
                 return WorkingMapPreparationResult.Failed($"Working map '{plan.MapName}' could not be opened or created.", warnings);
             }
 
-            await AddReferenceLayersAsync(preparedView.Map, plan, warnings, cancellationToken).ConfigureAwait(false);
+            var existingLayers = await CaptureExistingLayerSnapshotsAsync(preparedView.Map, cancellationToken).ConfigureAwait(false);
+            var preparedStatus = EvaluatePreparedMap(plan, existingLayers);
+            var missingForegroundLayers = MissingForegroundReferenceLayers(plan, existingLayers);
+
             await ZoomToExtentAsync(preparedView, plan.ZoomExtent).ConfigureAwait(false);
+            await ApplyExistingReferenceLayerPropertiesAsync(preparedView.Map, plan, cancellationToken).ConfigureAwait(false);
+
+            if (missingForegroundLayers.Count > 0)
+            {
+                await AddReferenceLayersAsync(
+                    preparedView.Map,
+                    plan with { Layers = missingForegroundLayers },
+                    warnings,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (preparedStatus.IsPrepared && missingForegroundLayers.Count == 0)
+            {
+                return WorkingMapPreparationResult.Succeeded(
+                    $"Working map '{plan.MapName}' is ready; existing map and required layers were reused.",
+                    warnings);
+            }
         }
         catch (Exception exception) when (exception is ArgumentException
             or InvalidOperationException
@@ -342,6 +368,34 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
         }).ConfigureAwait(false);
     }
 
+    private static async Task<IReadOnlyList<WorkingMapExistingLayerSnapshot>> CaptureExistingLayerSnapshotsAsync(
+        Map map,
+        CancellationToken cancellationToken)
+    {
+        return await QueuedTask.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return FlattenLayers(map.Layers)
+                .Select(layer => new WorkingMapExistingLayerSnapshot(layer.Name, layer.URI))
+                .ToArray();
+        }).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyExistingReferenceLayerPropertiesAsync(
+        Map map,
+        WorkingMapPreparationPlan plan,
+        CancellationToken cancellationToken)
+    {
+        await QueuedTask.Run(() =>
+        {
+            foreach (var layer in plan.Layers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ApplySafeLayerProperties(FindLayer(map, layer), layer);
+            }
+        }).ConfigureAwait(false);
+    }
+
     private static Basemap ResolveBasemap(string? configuredBasemap)
     {
         var normalized = configuredBasemap?.Trim().Replace("-", "_", StringComparison.Ordinal).ToLowerInvariant();
@@ -364,6 +418,34 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
         }
 
         return !BasemapRoleMatchesDefault(layer.BasemapRole, configuredDefaultBasemap);
+    }
+
+    internal static bool ShouldPrepareLayerInForeground(WorkingMapLayerPlan layer)
+    {
+        return layer.Required || layer.Visible;
+    }
+
+    internal static WorkingMapPreparedStatus EvaluatePreparedMap(
+        WorkingMapPreparationPlan plan,
+        IReadOnlyList<WorkingMapExistingLayerSnapshot> existingLayers)
+    {
+        var missingRequiredLayers = plan.Layers
+            .Where(layer => layer.Required)
+            .Where(layer => ShouldAddReferenceLayer(layer, plan.DefaultBasemap))
+            .Where(layer => !LayerSnapshotExists(existingLayers, layer))
+            .ToArray();
+        return new WorkingMapPreparedStatus(missingRequiredLayers.Length == 0, missingRequiredLayers);
+    }
+
+    private static IReadOnlyList<WorkingMapLayerPlan> MissingForegroundReferenceLayers(
+        WorkingMapPreparationPlan plan,
+        IReadOnlyList<WorkingMapExistingLayerSnapshot> existingLayers)
+    {
+        return plan.Layers
+            .Where(layer => ShouldAddReferenceLayer(layer, plan.DefaultBasemap))
+            .Where(ShouldPrepareLayerInForeground)
+            .Where(layer => !LayerSnapshotExists(existingLayers, layer))
+            .ToArray();
     }
 
     private static bool BasemapRoleMatchesDefault(string basemapRole, string? configuredDefaultBasemap)
@@ -405,6 +487,14 @@ public sealed class ArcGisWorkingMapPreparationService : IWorkingMapPreparationS
     private static bool LayerAlreadyExists(Map map, WorkingMapLayerPlan plan)
     {
         return FindLayer(map, plan) is not null;
+    }
+
+    private static bool LayerSnapshotExists(
+        IReadOnlyList<WorkingMapExistingLayerSnapshot> existingLayers,
+        WorkingMapLayerPlan plan)
+    {
+        return existingLayers.Any(layer => layer.Name.Equals(plan.Name, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(layer.Uri) && layer.Uri.Equals(plan.Url, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static Layer? FindLayer(Map map, WorkingMapLayerPlan plan)

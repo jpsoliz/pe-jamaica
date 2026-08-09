@@ -64,6 +64,7 @@
     "reuse_existing": true,
     "activate_on_transaction_load": true,
     "cleanup_transaction_groups_on_close": true,
+    "preload_after_login": true,
     "default_basemap": "esri_world_imagery",
     "alternate_basemaps": [
       "open_basemap",

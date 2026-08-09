@@ -33,11 +33,29 @@ internal static class MapGeoreferenceOverlayTests
         var source = File.ReadAllText(FindSourceFile("TransactionPanelState.cs"));
 
         TestAssert.True(
-            source.Contains("TryRestoreLocalOverlayFromOutputGeodatabaseAsync(transactionNumber)", StringComparison.Ordinal),
-            "The M-Geo button should first try to restore the transaction output-GDB overlay.");
+            source.Contains("TryRestorePersistedOverlayAsync(transactionNumber)", StringComparison.Ordinal),
+            "The M-Geo button should restore the persisted overlay, including the saved image fallback when the output-GDB raster cannot be loaded.");
         TestAssert.True(
             source.Contains("MapGeoreferenceWindow.ShowOrActivate(transactionNumber)", StringComparison.Ordinal),
             "The M-Geo button should still open the review form when no saved overlay can be restored.");
+    }
+
+    public static void PersistedOverlayRestoreFallsBackToSavedImage()
+    {
+        var source = File.ReadAllText(FindSourceFile("MapGeoreferenceOverlayService.cs"));
+
+        TestAssert.True(
+            source.Contains("outputGeodatabaseRestoreFailure", StringComparison.Ordinal),
+            "Persisted restore should remember output-GDB raster load failures.");
+        TestAssert.True(
+            source.Contains("File.Exists(artifact.ImagePath)", StringComparison.Ordinal),
+            "Persisted restore should fall back to the saved georeferenced image when it is still available.");
+        TestAssert.True(
+            source.Contains("management.DefineProjection", StringComparison.Ordinal),
+            "Saved image fallback should define the raster projection before adding it to ArcGIS Pro.");
+        TestAssert.True(
+            source.Contains("SpatialReferenceBuilder.CreateSpatialReference(Jad2001Wkid)", StringComparison.Ordinal),
+            "Saved image fallback should define the overlay as JAD2001 / EPSG:3448.");
     }
 
     private static string FindSourceFile(string fileName)

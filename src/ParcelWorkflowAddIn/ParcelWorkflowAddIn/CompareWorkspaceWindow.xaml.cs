@@ -184,6 +184,7 @@ public partial class CompareWorkspaceWindow : ProWindow
 
         var isVisible = viewModel.IsPdfPanelVisible;
         PdfPanel.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+        PdfPanelSplitter.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
         PdfPanelColumn.Width = isVisible ? VisiblePdfPanelWidth : CollapsedPanelWidth;
         PdfPanelSpacerColumn.Width = isVisible ? VisiblePdfPanelSpacerWidth : CollapsedPanelWidth;
 

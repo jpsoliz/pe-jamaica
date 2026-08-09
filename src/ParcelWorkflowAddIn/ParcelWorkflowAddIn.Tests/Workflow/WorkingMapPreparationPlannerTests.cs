@@ -228,6 +228,155 @@ internal static class WorkingMapPreparationPlannerTests
             "Reused active workflow maps must also be corrected to JAD2001.");
     }
 
+    public static void PreparedMapEvaluationRequiresConfiguredRequiredLayersOnly()
+    {
+        var required = new WorkingMapLayerPlan(
+            "Legal_Cadastre",
+            "map_service_url",
+            "https://example.test/legal",
+            "Cadastre Reference",
+            true,
+            true,
+            10,
+            1.0,
+            null,
+            null,
+            null);
+        var hiddenOptional = required with
+        {
+            Name = "Survey_Cadastre",
+            Url = "https://example.test/survey",
+            Required = false,
+            Visible = false,
+            Order = 30
+        };
+        var plan = new WorkingMapPreparationPlan(
+            true,
+            true,
+            "Jamaica",
+            true,
+            true,
+            true,
+            true,
+            "esri_world_imagery",
+            Array.Empty<string>(),
+            WorkingMapSettings.Default.DefaultExtent,
+            new[] { required, hiddenOptional },
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        var prepared = ArcGisWorkingMapPreparationService.EvaluatePreparedMap(
+            plan,
+            new[] { new WorkingMapExistingLayerSnapshot("Legal_Cadastre", "https://example.test/legal") });
+        var missingRequired = ArcGisWorkingMapPreparationService.EvaluatePreparedMap(
+            plan,
+            Array.Empty<WorkingMapExistingLayerSnapshot>());
+
+        TestAssert.True(prepared.IsPrepared, "Hidden optional layers should not prevent transaction-load map reuse when required layers are present.");
+        TestAssert.Equal(0, prepared.MissingRequiredLayers.Count, "Prepared map should not report missing required layers.");
+        TestAssert.False(missingRequired.IsPrepared, "Missing configured required layers should require foreground preparation.");
+        TestAssert.Equal("Legal_Cadastre", missingRequired.MissingRequiredLayers[0].Name, "Missing required layer should be reported.");
+    }
+
+    public static void ForegroundPreparationAddsRequiredAndVisibleLayersOnly()
+    {
+        var required = new WorkingMapLayerPlan(
+            "Legal_Cadastre",
+            "map_service_url",
+            "https://example.test/legal",
+            "Cadastre Reference",
+            true,
+            true,
+            10,
+            1.0,
+            null,
+            null,
+            null);
+        var visibleOptional = required with
+        {
+            Name = "Parishes",
+            Url = "https://example.test/parishes",
+            Required = false,
+            Visible = true
+        };
+        var hiddenOptional = required with
+        {
+            Name = "Survey_Cadastre",
+            Url = "https://example.test/survey",
+            Required = false,
+            Visible = false
+        };
+
+        TestAssert.True(ArcGisWorkingMapPreparationService.ShouldPrepareLayerInForeground(required), "Required layers should be prepared in the foreground.");
+        TestAssert.True(ArcGisWorkingMapPreparationService.ShouldPrepareLayerInForeground(visibleOptional), "Visible optional layers should still be prepared in the foreground.");
+        TestAssert.False(ArcGisWorkingMapPreparationService.ShouldPrepareLayerInForeground(hiddenOptional), "Hidden optional layers should not slow transaction selection.");
+    }
+
+    public static void WorkingMapPreparationZoomsBeforeAddingMissingReferenceLayers()
+    {
+        var source = File.ReadAllText(FindWorkingMapPreparationService());
+        var zoomIndex = source.IndexOf("await ZoomToExtentAsync(preparedView, plan.ZoomExtent)", StringComparison.Ordinal);
+        var addIndex = source.IndexOf("await AddReferenceLayersAsync(", StringComparison.Ordinal);
+
+        TestAssert.True(zoomIndex >= 0, "Working map preparation should explicitly zoom to transaction/default extent.");
+        TestAssert.True(addIndex >= 0, "Working map preparation should still add missing foreground reference layers.");
+        TestAssert.True(zoomIndex < addIndex, "Working map preparation should zoom to parish/default extent before adding missing heavy reference layers.");
+    }
+
+    public static void WorkingMapPreloadIsWiredAfterLoginWithoutBlockingRefresh()
+    {
+        var shellState = File.ReadAllText(FindShellState());
+        var transactionPanel = File.ReadAllText(FindTransactionPanelState());
+
+        TestAssert.True(
+            shellState.Contains("WorkingMapPreloader", StringComparison.Ordinal)
+            && shellState.Contains("StartWorkingMapPreloadAfterLogin", StringComparison.Ordinal),
+            "ShellState should expose a non-blocking working-map preload hook.");
+        TestAssert.True(
+            transactionPanel.Contains("QueueWorkingMapPreloadAfterLogin()", StringComparison.Ordinal)
+            && transactionPanel.IndexOf("QueueWorkingMapPreloadAfterLogin()", StringComparison.Ordinal) < transactionPanel.IndexOf("QueueRefreshAfterLogin()", StringComparison.Ordinal),
+            "Transaction panel should queue preload after login without waiting on transaction refresh.");
+    }
+
+    public static async Task WorkingMapPreloadCapturesSuccessAndFailureWithoutThrowing()
+    {
+        var successService = new FakeWorkingMapPreparationService(WorkingMapPreparationResult.Succeeded("Jamaica ready."));
+        var successPreloader = new WorkingMapPreloadService(successService, () => WorkingMapSettings.Default);
+
+        await successPreloader.PreloadAsync(CancellationToken.None);
+
+        TestAssert.True(successPreloader.StatusText.Contains("completed", StringComparison.OrdinalIgnoreCase), "Successful preload should record completion.");
+        TestAssert.Equal("working-map-preload", successService.LastDetail?.TransactionNumber, "Preload must not require a real selected transaction.");
+
+        var failedService = new FakeWorkingMapPreparationService(WorkingMapPreparationResult.Failed("Required layer unavailable."));
+        var failedPreloader = new WorkingMapPreloadService(failedService, () => WorkingMapSettings.Default);
+
+        await failedPreloader.PreloadAsync(CancellationToken.None);
+
+        TestAssert.True(failedPreloader.StatusText.Contains("skipped", StringComparison.OrdinalIgnoreCase), "Failed preload should be recorded as non-blocking skipped work.");
+        TestAssert.True(failedPreloader.StatusText.Contains("Required layer unavailable", StringComparison.OrdinalIgnoreCase), "Failed preload status should preserve actionable diagnostics.");
+    }
+
+    public static async Task WorkingMapPreloadCoalescesDuplicateStarts()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new FakeWorkingMapPreparationService(WorkingMapPreparationResult.Succeeded("Jamaica ready."), gate.Task);
+        var preloader = new WorkingMapPreloadService(service, () => WorkingMapSettings.Default);
+
+        preloader.StartWorkingMapPreloadAfterLogin();
+        preloader.StartWorkingMapPreloadAfterLogin();
+        TestAssert.True(SpinWait.SpinUntil(() => service.RequestCount == 1, TimeSpan.FromSeconds(1)), "First preload should start.");
+        TestAssert.Equal(1, service.RequestCount, "Duplicate preload starts should coalesce while a preload is in flight.");
+
+        gate.SetResult();
+        if (preloader.CurrentPreloadTask is not null)
+        {
+            await preloader.CurrentPreloadTask;
+        }
+
+        TestAssert.Equal(1, service.RequestCount, "Only one background preload should run for duplicate login notifications.");
+    }
+
     private static string FindWorkingMapPreparationService()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -250,5 +399,71 @@ internal static class WorkingMapPreparationPlannerTests
         }
 
         throw new FileNotFoundException("Could not locate IWorkingMapPreparationService.cs from the test output directory.");
+    }
+
+    private static string FindShellState()
+    {
+        return FindSourceFile("Innola", "ShellState.cs");
+    }
+
+    private static string FindTransactionPanelState()
+    {
+        return FindSourceFile("TransactionPanelState.cs");
+    }
+
+    private static string FindSourceFile(params string[] segments)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var parts = new List<string>
+            {
+                directory.FullName,
+                "src",
+                "ParcelWorkflowAddIn",
+                "ParcelWorkflowAddIn"
+            };
+            parts.AddRange(segments);
+            var candidate = Path.Combine(parts.ToArray());
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate source file {string.Join("/", segments)} from the test output directory.");
+    }
+
+    private sealed class FakeWorkingMapPreparationService : IWorkingMapPreparationService
+    {
+        private readonly WorkingMapPreparationResult result;
+        private readonly Task? waitBeforeResult;
+
+        public FakeWorkingMapPreparationService(WorkingMapPreparationResult result, Task? waitBeforeResult = null)
+        {
+            this.result = result;
+            this.waitBeforeResult = waitBeforeResult;
+        }
+
+        public int RequestCount { get; private set; }
+
+        public InnolaTransactionDetail? LastDetail { get; private set; }
+
+        public async Task<WorkingMapPreparationResult> PrepareWorkingMapAsync(
+            WorkingMapSettings settings,
+            InnolaTransactionDetail detail,
+            CancellationToken cancellationToken = default)
+        {
+            RequestCount++;
+            LastDetail = detail;
+            if (waitBeforeResult is not null)
+            {
+                await waitBeforeResult.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
     }
 }

@@ -299,6 +299,57 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Cookie-only retry should map the successful BA Unit response.");
     }
 
+    public static async Task InnolaBaUnitVolumeFolioSearchRetriesTransientFailures()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"message":"temporary"}""", HttpStatusCode.InternalServerError),
+            ("""{"message":"temporary"}""", HttpStatusCode.ServiceUnavailable),
+            ("""
+             {
+               "records": [
+                 {
+                   "owners": "TRACEY, HOPETON SCOTT",
+                   "pid": "10843842",
+                   "volume": 1486,
+                   "folio": 393,
+                   "landvalnumber": "16505005179"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "BA Unit search should retry transient Innola failures.");
+        TestAssert.Equal(3, handler.RequestCount, "BA Unit search should use the shared three-attempt retry policy for transient failures.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Transient retry should map the successful final response.");
+    }
+
+    public static async Task InnolaBaUnitVolumeFolioSearchAuthFailureRequestsLoginAgain()
+    {
+        var handler = new CapturingHttpMessageHandler("""{"message":"Full authentication is required to access this resource"}""", HttpStatusCode.Unauthorized);
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session(),
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false);
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(!result.Success, "BA Unit search should fail when Innola rejects the active login.");
+        TestAssert.Equal(InnolaApiResilience.LoginRequiredMessage, result.Message, "Auth failures should ask the user to log in again.");
+        TestAssert.Equal(1, handler.RequestCount, "Auth failures should not be retried as transient server failures.");
+    }
+
     public static async Task InnolaOwnerVolumeFolioSearchPostsPostmanPayload()
     {
         var handler = new CapturingHttpMessageHandler("""{"records":[]}""");
@@ -842,6 +893,8 @@ internal static class CompareCadasterQueryServiceTests
         var handler = new CapturingHttpMessageHandler(new[]
         {
             ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
             (
                 """
                 {
@@ -871,9 +924,11 @@ internal static class CompareCadasterQueryServiceTests
         var result = await service.QueryByVolumeFolioAsync("1369", "899");
 
         TestAssert.True(result.Success, "Volume/Folio search should fall back to BA Unit when owner search fails.");
-        TestAssert.Equal(2, handler.RequestCount, "Owner-search failure should be followed by one BA Unit fallback request.");
+        TestAssert.Equal(4, handler.RequestCount, "Owner-search failure should retry before one BA Unit fallback request.");
         AssertOwnerSearchEnvelope(handler.RequestBodies[0], expectedSearchKind: "owner");
-        using (var document = JsonDocument.Parse(handler.RequestBodies[1]))
+        AssertOwnerSearchEnvelope(handler.RequestBodies[1], expectedSearchKind: "owner");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[2], expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.RequestBodies[3]))
         {
             var root = document.RootElement;
             TestAssert.Equal("baunit", root.GetProperty("searchKind").GetString(), "Fallback searchKind should use BA Unit.");
@@ -893,6 +948,8 @@ internal static class CompareCadasterQueryServiceTests
     {
         var handler = new CapturingHttpMessageHandler(new[]
         {
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
+            ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
             ("""{"error":"owner search unavailable"}""", HttpStatusCode.BadGateway),
             (
                 """
@@ -923,9 +980,11 @@ internal static class CompareCadasterQueryServiceTests
         var result = await service.QueryByLandValuationNumberAsync("16505005179");
 
         TestAssert.True(result.Success, "LandVal search should fall back to BA Unit when owner search fails.");
-        TestAssert.Equal(2, handler.RequestCount, "Owner-search failure should be followed by one BA Unit fallback request.");
+        TestAssert.Equal(4, handler.RequestCount, "Owner-search failure should retry before one BA Unit fallback request.");
         AssertOwnerSearchEnvelope(handler.RequestBodies[0], expectedSearchKind: "owner");
-        using (var document = JsonDocument.Parse(handler.RequestBodies[1]))
+        AssertOwnerSearchEnvelope(handler.RequestBodies[1], expectedSearchKind: "owner");
+        AssertOwnerSearchEnvelope(handler.RequestBodies[2], expectedSearchKind: "owner");
+        using (var document = JsonDocument.Parse(handler.RequestBodies[3]))
         {
             var root = document.RootElement;
             TestAssert.Equal("baunit", root.GetProperty("searchKind").GetString(), "Fallback searchKind should use BA Unit.");

@@ -838,6 +838,7 @@ public sealed class SettingsWorkspaceService
             ["reuse_existing"] = defaults.ReuseExisting,
             ["activate_on_transaction_load"] = defaults.ActivateOnTransactionLoad,
             ["cleanup_transaction_groups_on_close"] = defaults.CleanupTransactionGroupsOnClose,
+            ["preload_after_login"] = defaults.PreloadAfterLogin,
             ["default_basemap"] = defaults.DefaultBasemap,
             ["alternate_basemaps"] = CreateStringArray(defaults.AlternateBasemaps),
             ["default_extent"] = new JsonObject

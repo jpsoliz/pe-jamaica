@@ -30,6 +30,10 @@ internal static class ShellState
 
     public static CaseResumePackageService ResumePackages { get; } = new();
 
+    public static WorkingMapPreloadService WorkingMapPreloader { get; } = new(
+        new ArcGisWorkingMapPreparationService(),
+        () => Settings.WorkingMap);
+
     public static InnolaTransactionLoadService TransactionLoader { get; } = new(
         Session,
         TransactionDetails,
@@ -118,6 +122,11 @@ internal static class ShellState
     public static string ClientCertificateStatus => Settings.ClientCertificate.Enabled
         ? $"Client certificate: {Settings.ClientCertificate.SubjectName ?? Settings.ClientCertificate.Thumbprint ?? "configured"}"
         : "Client certificate: disabled";
+
+    public static void StartWorkingMapPreloadAfterLogin()
+    {
+        WorkingMapPreloader.StartWorkingMapPreloadAfterLogin();
+    }
 
     public static void OpenCompareWorkspace(string transactionNumber)
     {

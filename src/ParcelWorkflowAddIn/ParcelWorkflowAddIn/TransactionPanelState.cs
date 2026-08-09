@@ -43,6 +43,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private InnolaTransactionRow? selectedRow;
     private bool isLoading;
     private bool refreshAfterLoginQueued;
+    private bool workingMapPreloadQueued;
     private string? savedTransactionNumber;
     private string statusText = "Not logged in.";
     private string? errorText;
@@ -137,6 +138,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
         session.SessionChanged += (_, _) => HandleSessionChanged();
         RefreshSessionState();
+        QueueWorkingMapPreloadAfterLogin();
         QueueRefreshAfterLogin();
     }
 
@@ -1182,7 +1184,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         try
         {
             var restoreResult = await new MapGeoreferenceOverlayService()
-                .TryRestoreLocalOverlayFromOutputGeodatabaseAsync(transactionNumber)
+                .TryRestorePersistedOverlayAsync(transactionNumber)
                 .ConfigureAwait(true);
             if (restoreResult.Success)
             {
@@ -1285,6 +1287,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (!session.IsLoggedIn)
         {
             refreshAfterLoginQueued = false;
+            workingMapPreloadQueued = false;
             SavedTransactionNumber = null;
             locallyCompletedTransactionNumbers.Clear();
             allRows.Clear();
@@ -1297,6 +1300,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
+        QueueWorkingMapPreloadAfterLogin();
         QueueRefreshAfterLogin();
     }
 
@@ -1424,6 +1428,17 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         refreshAfterLoginQueued = true;
         _ = RefreshAfterLoginAsync();
+    }
+
+    private void QueueWorkingMapPreloadAfterLogin()
+    {
+        if (workingMapPreloadQueued || !IsLoggedIn || IsTransactionPanelLocked)
+        {
+            return;
+        }
+
+        workingMapPreloadQueued = true;
+        ShellState.StartWorkingMapPreloadAfterLogin();
     }
 
     private async Task RefreshAfterLoginAsync()

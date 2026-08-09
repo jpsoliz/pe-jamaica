@@ -80,12 +80,27 @@ internal sealed class MapGeoreferenceOverlayService
         string transactionNumber,
         CancellationToken cancellationToken = default)
     {
-        var outputGeodatabaseResult = await TryRestoreLocalOverlayFromOutputGeodatabaseAsync(
-            transactionNumber,
-            cancellationToken).ConfigureAwait(false);
-        if (outputGeodatabaseResult.Success)
+        string? outputGeodatabaseRestoreFailure = null;
+        try
         {
-            return outputGeodatabaseResult;
+            var outputGeodatabaseResult = await TryRestoreLocalOverlayFromOutputGeodatabaseAsync(
+                transactionNumber,
+                cancellationToken).ConfigureAwait(false);
+            if (outputGeodatabaseResult.Success)
+            {
+                return outputGeodatabaseResult;
+            }
+
+            outputGeodatabaseRestoreFailure = outputGeodatabaseResult.Message;
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            outputGeodatabaseRestoreFailure = exception.Message;
         }
 
         var artifact = LoadOverlayArtifact(transactionNumber);
@@ -94,10 +109,13 @@ internal sealed class MapGeoreferenceOverlayService
             return MapGeoreferenceOverlayResult.Failed("No saved M-Geo overlay was found for this transaction.");
         }
 
-        var preferredPath = !string.IsNullOrWhiteSpace(artifact.RasterDatasetPath)
-            && Directory.Exists(Path.GetDirectoryName(artifact.RasterDatasetPath) ?? string.Empty)
+        var imageAvailable = !string.IsNullOrWhiteSpace(artifact.ImagePath) && File.Exists(artifact.ImagePath);
+        var preferredPath = imageAvailable
+            ? artifact.ImagePath
+            : (!string.IsNullOrWhiteSpace(artifact.RasterDatasetPath)
+                && Directory.Exists(Path.GetDirectoryName(artifact.RasterDatasetPath) ?? string.Empty)
                 ? artifact.RasterDatasetPath
-                : artifact.ImagePath;
+                : artifact.ImagePath);
 
         if (string.IsNullOrWhiteSpace(preferredPath)
             || (!preferredPath.Contains(".gdb", StringComparison.OrdinalIgnoreCase) && !File.Exists(preferredPath)))
@@ -113,7 +131,9 @@ internal sealed class MapGeoreferenceOverlayService
 
         return loadResult.Success
             ? MapGeoreferenceOverlayResult.Succeeded(
-                $"Restored saved 70% transparent M-Geo overlay from {preferredPath}.",
+                string.IsNullOrWhiteSpace(outputGeodatabaseRestoreFailure)
+                    ? $"Restored saved 70% transparent M-Geo overlay from {preferredPath}."
+                    : $"Restored saved 70% transparent M-Geo overlay from {preferredPath}. Output geodatabase raster restore was skipped: {outputGeodatabaseRestoreFailure}",
                 artifact.ImagePath,
                 loadResult.GroupLayerName ?? BuildGroupName(transactionNumber),
                 artifact.RasterDatasetPath)
@@ -246,6 +266,8 @@ internal sealed class MapGeoreferenceOverlayService
         string failureMessage,
         CancellationToken cancellationToken)
     {
+        await EnsureFileRasterProjectionAsync(overlayPath, cancellationToken).ConfigureAwait(false);
+
         var mapView = MapView.Active;
         if (mapView?.Map is null)
         {
@@ -299,6 +321,44 @@ internal sealed class MapGeoreferenceOverlayService
         return MapGeoreferenceOverlayLayerLoadResult.Succeeded(
             $"Created 70% transparent M-Geo overlay in '{groupName}'.",
             groupName);
+    }
+
+    private static async Task EnsureFileRasterProjectionAsync(string overlayPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(overlayPath)
+            || overlayPath.Contains(".gdb", StringComparison.OrdinalIgnoreCase)
+            || !File.Exists(overlayPath))
+        {
+            return;
+        }
+
+        var extension = Path.GetExtension(overlayPath);
+        if (!extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".tif", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var projectionPath = Path.ChangeExtension(overlayPath, ".prj");
+        if (!File.Exists(projectionPath))
+        {
+            File.WriteAllText(projectionPath, Jad2001Prj);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = await Geoprocessing.ExecuteToolAsync(
+            "management.DefineProjection",
+            Geoprocessing.MakeValueArray(
+                overlayPath,
+                SpatialReferenceBuilder.CreateSpatialReference(Jad2001Wkid)),
+            flags: GPExecuteToolFlags.None).ConfigureAwait(false);
+        if (result.IsFailed)
+        {
+            throw new InvalidOperationException(BuildGeoprocessingMessage(result));
+        }
     }
 
     private static async Task<MapGeoreferenceOverlayPersistenceResult> TryPersistOverlayRasterAsync(

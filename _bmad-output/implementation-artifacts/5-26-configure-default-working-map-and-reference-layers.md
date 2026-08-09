@@ -20,6 +20,15 @@ The add-in should be able to prepare the working map on transaction load using c
 
 This story is not about generating parcel output layers. It prepares the base/reference map context needed before and during the workflow; generated transaction review layers remain handled by the output/map integration stories.
 
+## Performance Amendment: Reuse First, Parish First, Warm Later
+
+Field testing on TR 100000627 and related transaction-load flows showed that selecting a transaction can feel slow because ArcGIS Pro initializes imagery, cadastre, survey, and other reference services during the same user-visible load path. The existing story already owns working-map reuse, duplicate prevention, and transaction parish zoom. This amendment tightens that behavior into a performance requirement:
+
+- If the configured working map and required reference layers are already present, transaction load should not rebuild or re-add the map context.
+- Transaction parish should be used as the first spatial context whenever available, so the user lands in the relevant parish instead of waiting on broad Jamaica/full-extent drawing.
+- Heavy reference layer creation should be limited to missing layers only.
+- Optional preload/warm-up may happen outside transaction selection, but it must never become a hard dependency for opening a transaction.
+
 ## Acceptance Criteria
 
 1. Given a supported Compute transaction is loaded, when no active map exists, then the add-in creates or opens a configured working map without requiring a predefined `.aprx` project.
@@ -44,6 +53,11 @@ This story is not about generating parcel output layers. It prepares the base/re
 20. Given any Compute or Compare workflow map is created, reused, or activated, when map preparation completes, then the ArcGIS Pro map coordinate system is JAD 2001 Jamaica Grid / EPSG:3448.
 21. Given configured public basemaps such as Esri imagery, Open Basemap Streets, World Topographic, or World Hillshade use Web Mercator, when they are added for display, then they must not change the workflow map coordinate system away from JAD2001.
 22. Given generated review/output layers are loaded into the workflow map, when their spatial reference is inspected, then they declare JAD2001/EPSG:3448 or the workflow reports a clear blocker before moving forward.
+23. Given the configured working map is already open or available in the project and all required reference layers are already present, when a transaction is selected, then map preparation skips full reference-layer creation and only activates/reuses the map, verifies JAD2001, applies safe display settings if needed, and zooms to the transaction context.
+24. Given the selected transaction includes a parish, when map preparation runs, then the map zooms to the matching parish extent before adding any missing heavy reference layers where ArcGIS Pro SDK ordering allows it.
+25. Given only optional reference layers such as imagery alternatives, Fiscal Cadastre, Survey Cadastre, hillshade, or other context layers are missing, when transaction load runs, then the transaction can continue while those layers are added lazily, skipped, or reported as non-blocking warnings according to configuration.
+26. Given a background working-map preload is enabled after login/startup, when preload succeeds, then later transaction selection reuses the warmed map/layers instead of paying the full setup cost in the transaction selection path.
+27. Given a background working-map preload fails, times out, or is cancelled, when the user selects a transaction, then normal transaction load still prepares or reuses the map through the existing foreground path and reports only actionable required-layer blockers.
 
 ## Tasks / Subtasks
 
@@ -101,6 +115,21 @@ This story is not about generating parcel output layers. It prepares the base/re
   - [x] Re-apply JAD2001 when reusing an existing configured map, so Web Mercator basemaps cannot leave the map canvas in Web Mercator.
   - [x] Fail clearly when the configured working map is missing and map creation is disabled, instead of silently using an unrelated active map.
   - [x] Add regression coverage that the working-map service explicitly sets the map spatial reference to EPSG:3448.
+
+- [x] Optimize transaction-load map preparation. (AC: 23-25)
+  - [x] Add an explicit prepared-map check that verifies configured map name, JAD2001 spatial reference, required reference layers, and configured layer URL/name identity.
+  - [x] If the map is prepared, skip full reference-layer creation and perform only activation, JAD2001 verification, safe property refresh, and transaction-context zoom.
+  - [x] Reorder preparation so transaction parish/default extent zoom happens before missing heavy reference layer creation where ArcGIS Pro SDK behavior permits.
+  - [x] Add only missing required layers in the foreground transaction-load path.
+  - [x] Treat missing optional layers as warnings or lazy/background candidates, not transaction blockers.
+  - [x] Add timing/status diagnostics that make clear whether the map was reused, partially prepared, or fully prepared.
+
+- [x] Add optional working-map preload/warm-up. (AC: 26-27)
+  - [x] Start preload after Innola login or app startup only when configured/enabled.
+  - [x] Preload should prepare the configured shared working map and required reference layers without selecting or claiming a transaction.
+  - [x] Preload must be cancellable and must not block transaction list refresh or transaction selection.
+  - [x] If preload fails, store/report a non-blocking warning and allow foreground transaction load to prepare the map normally.
+  - [x] Add tests for preload success, preload failure fallback, and no duplicate foreground work after a successful preload.
 
 ### Review Findings
 
@@ -293,9 +322,21 @@ Likely files and boundaries to inspect:
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/InnolaTransactionSettings.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/SettingsWorkspaceService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Output/IOutputMapIntegrationService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionLoadService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
 - Existing transaction cleanup behavior in `ParcelWorkflowDockpaneViewModel` and map review cleanup services.
 
 Map/layer operations should stay behind ArcGIS integration services and use ArcGIS Pro SDK threading (`QueuedTask`) rules. ViewModels should request map preparation; they should not create maps/layers directly.
+
+### Performance Implementation Guidance
+
+Prefer a conservative two-phase implementation:
+
+1. Foreground quick win: keep the existing transaction load integration, but make `ArcGisWorkingMapPreparationService` reuse-first. Add an internal readiness check before `AddReferenceLayersAsync`; if all required layers are present, skip layer creation and zoom directly to the parish/default extent.
+2. Background warm-up: add a separate optional preload entry point after login/startup. It may call the same map preparation service with no transaction detail or with a safe default extent, but must not claim a task, open a case folder, or make transaction selection depend on preload completion.
+
+Do not remove the existing foreground map preparation path. Preload is an optimization only; transaction selection must remain correct when preload never ran.
 
 ### UX Expectations
 
@@ -310,6 +351,7 @@ Minimum automated verification:
 
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj /p:Platform=x64`
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --no-build /p:Platform=x64`
+- Focused working-map tests should cover prepared-map detection, missing-required-layer behavior, missing-optional-layer warning behavior, parish-before-heavy-layer ordering where testable, and preload failure fallback.
 
 Manual smoke test:
 
@@ -334,6 +376,8 @@ Manual smoke test:
 - 2026-07-26: Clarified parish zoom behavior to use the loaded transaction parish value and fall back to full Jamaica extent when parish is absent; patched default parish extents and tests.
 - 2026-07-26: Patched alternate basemap-role handling so the configured Open Basemap Streets layer is added as a reference option when imagery is the active default basemap.
 - 2026-07-31: Enforced JAD2001/EPSG:3448 as the working map coordinate system on map create/reuse and corrected story examples that still used WGS84 extents.
+- 2026-08-09: Added performance amendment for reuse-first transaction loading, parish-first zoom, missing-layer-only foreground preparation, and optional background working-map preload.
+- 2026-08-09: Implemented the performance amendment with prepared-map evaluation, parish-first zoom before foreground missing-layer creation, foreground required/visible layer selection, and non-blocking post-login preload.
 
 ## Dev Agent Record
 
@@ -345,6 +389,9 @@ GPT-5 Codex
 
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj /p:Platform=x64`
 - `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\bin\x64\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.exe`
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release` passed with 0 warnings and 0 errors.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -- "working map"` passed 16 tests.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release` ran through the working-map tests and failed at the pre-existing `SurveyPlanBoundarySolverTests.RebuildKeepsConflictingPrintedReferenceCoordinates` assertion: expected `warning`, got `blocked`.
 
 ### Completion Notes
 
@@ -354,6 +401,10 @@ GPT-5 Codex
 - The active default basemap is not duplicated as an operational layer, but alternate configured basemap-role layers such as Open Basemap Streets are now added to the map as reference options.
 - Working maps are explicitly reset to JAD 2001 Jamaica Grid / EPSG:3448 on create and reuse so Web Mercator basemaps cannot control the workflow map coordinate system.
 - Existing cleanup remains transaction-specific: shared reference/base layers are not removed by transaction close/suspend/finalize cleanup.
+- Added prepared-map evaluation based on configured required reference layers and existing layer name/URI snapshots; already-prepared maps now skip full reference-layer creation and report reuse.
+- Moved transaction parish/default zoom before foreground missing-layer creation so ArcGIS starts in the relevant parish context before missing heavy services are added.
+- Limited foreground transaction-load preparation to required and visible missing reference layers; hidden optional layers no longer slow transaction selection.
+- Added `preload_after_login` and a non-blocking `WorkingMapPreloadService` kicked after login before auto-refresh; preload failure is captured as status and foreground transaction load remains authoritative.
 - Manual ArcGIS Pro smoke test was not run in this shell session.
 
 ### File List
@@ -367,7 +418,10 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionLoadService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/IWorkingMapPreparationService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Maps/WorkingMapPreloadService.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/WorkflowSettings.json`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/SettingsWorkspaceService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowAddIn.csproj`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionDetailServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionSettingsTests.cs`

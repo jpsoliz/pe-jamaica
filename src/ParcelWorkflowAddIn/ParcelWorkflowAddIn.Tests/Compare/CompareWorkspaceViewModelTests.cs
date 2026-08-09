@@ -651,6 +651,26 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.Equal(0, viewModel.QueryResults.Count, "Failed legal searches should not add blank query result rows.");
     }
 
+    public static async Task ManualSearchAuthFailureRequestsLoginAgain()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var viewModel = CreateViewModel(new UnsupportedLegalCadasterQueryService(
+            InnolaApiResilience.LoginRequiredMessage,
+            "Innola BA Unit search returned Unauthorized."));
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.VolumeFolio;
+        viewModel.SearchVolume = "1486";
+        viewModel.SearchFolio = "393";
+
+        await viewModel.RunEvidenceSearchAsync();
+
+        TestAssert.Equal(
+            $"Volume/Folio search: {InnolaApiResilience.LoginRequiredMessage}",
+            viewModel.EvidenceSearchStatusMessage,
+            "Auth failures should ask the user to log in again instead of showing generic search failure.");
+        TestAssert.Equal(0, viewModel.QueryResults.Count, "Failed legal searches should not add blank query result rows.");
+    }
+
     public static async Task ManualSearchValidationBlocksBlankRequiredValues()
     {
         using var fixture = CreateCaseFolderWithSource();

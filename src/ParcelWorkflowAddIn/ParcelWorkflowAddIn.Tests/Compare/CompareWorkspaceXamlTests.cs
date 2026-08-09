@@ -43,6 +43,11 @@ internal static class CompareWorkspaceXamlTests
             xaml.Contains("x:Name=\"PdfPanel\"", StringComparison.Ordinal),
             "Compare workspace should name the PDF panel for code-behind visibility updates.");
         TestAssert.True(
+            xaml.Contains("x:Name=\"PdfPanelSplitter\"", StringComparison.Ordinal)
+            && xaml.Contains("ResizeDirection=\"Columns\"", StringComparison.Ordinal)
+            && xaml.Contains("ResizeBehavior=\"PreviousAndNext\"", StringComparison.Ordinal),
+            "Compare workspace should expose a splitter so the document and Compare panels can be resized.");
+        TestAssert.True(
             xaml.Contains("Command=\"{Binding TogglePdfPanelCommand}\"", StringComparison.Ordinal),
             "Compare workspace should bind a visible command for hiding/restoring the PDF panel.");
         TestAssert.True(
@@ -53,6 +58,9 @@ internal static class CompareWorkspaceXamlTests
             codeBehind.Contains("CompactCompareWindowWidth", StringComparison.Ordinal)
             && codeBehind.Contains("ExpandedCompareWindowMinWidth", StringComparison.Ordinal),
             "Compare workspace should resize to compact width when the PDF panel is hidden and restore expanded sizing when shown.");
+        TestAssert.True(
+            codeBehind.Contains("PdfPanelSplitter.Visibility", StringComparison.Ordinal),
+            "Compare workspace should hide the resize splitter when the PDF panel is collapsed.");
     }
 
     public static void CompareWorkspaceExposesTaskLifecycleCommands()

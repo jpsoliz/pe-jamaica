@@ -9,6 +9,7 @@ public sealed record WorkingMapSettings(
     bool ReuseExisting,
     bool ActivateOnTransactionLoad,
     bool CleanupTransactionGroupsOnClose,
+    bool PreloadAfterLogin,
     string DefaultBasemap,
     IReadOnlyList<string> AlternateBasemaps,
     WorkingMapExtent DefaultExtent,
@@ -20,6 +21,7 @@ public sealed record WorkingMapSettings(
     public static WorkingMapSettings Default { get; } = new(
         true,
         "Jamaica",
+        true,
         true,
         true,
         true,
@@ -133,6 +135,7 @@ public sealed record WorkingMapSettings(
             ReadBool(value, "reuse_existing") ?? Default.ReuseExisting,
             ReadBool(value, "activate_on_transaction_load") ?? Default.ActivateOnTransactionLoad,
             ReadBool(value, "cleanup_transaction_groups_on_close") ?? Default.CleanupTransactionGroupsOnClose,
+            ReadBool(value, "preload_after_login") ?? Default.PreloadAfterLogin,
             ReadNonEmptyString(value, "default_basemap") ?? Default.DefaultBasemap,
             ReadStringArray(value, "alternate_basemaps", Default.AlternateBasemaps),
             WorkingMapExtent.FromJson(value, "default_extent", Default.DefaultExtent),

@@ -79,6 +79,16 @@
         </Grid>
       </Border>
 
+      <GridSplitter x:Name="PdfPanelSplitter"
+                    Grid.Column="1"
+                    Width="8"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Background="#D5E0E7"
+                    ResizeBehavior="PreviousAndNext"
+                    ResizeDirection="Columns"
+                    ShowsPreview="True" />
+
       <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>

@@ -338,7 +338,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         using var request = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true);
         using var response = await InnolaApiResilience.SendAsync(
             httpClient,
-            new InnolaApiOperation($"{SearchDisplayName} search", MaxAttempts: 1),
+            new InnolaApiOperation($"{SearchDisplayName} search"),
             () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true),
             cancellationToken).ConfigureAwait(false);
         if (response.IsSuccessStatusCode)
@@ -352,7 +352,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             using var cookieOnlyRequest = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false);
             using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
                 httpClient,
-                new InnolaApiOperation($"{SearchDisplayName} search cookie-only", MaxAttempts: 1),
+                new InnolaApiOperation($"{SearchDisplayName} search cookie-only"),
                 () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false),
                 cancellationToken).ConfigureAwait(false);
             if (cookieOnlyResponse.IsSuccessStatusCode)
@@ -361,15 +361,21 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             }
 
             var cookieOnlyFailureBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var cookieOnlyFailureMessage = InnolaApiResilience.IsAuthorizationFailure(cookieOnlyResponse.StatusCode)
+                ? InnolaApiResilience.LoginRequiredMessage
+                : $"{SearchDisplayName} could not be completed. Try again.";
             return (null, LegalCadasterQueryResult.Failed(
                 query,
-                $"{SearchDisplayName} could not be completed. Try again.",
+                cookieOnlyFailureMessage,
                 $"{BuildFailureDiagnostic(cookieOnlyResponse.StatusCode, serverUrl, cookieOnlyRequest, $"{SearchDisplayName} cookie-only retry", cookieOnlyFailureBody)} Initial Access-Token response was {(int)response.StatusCode} {response.StatusCode}: {LegalCadasterQueryResult.Redact(failureBody)}"));
         }
 
+        var failureMessage = InnolaApiResilience.IsAuthorizationFailure(response.StatusCode)
+            ? InnolaApiResilience.LoginRequiredMessage
+            : $"{SearchDisplayName} could not be completed. Try again.";
         return (null, LegalCadasterQueryResult.Failed(
             query,
-            $"{SearchDisplayName} could not be completed. Try again.",
+            failureMessage,
             BuildFailureDiagnostic(response.StatusCode, serverUrl, request, SearchDisplayName, failureBody)));
     }
 

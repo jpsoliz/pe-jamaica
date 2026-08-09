@@ -1106,6 +1106,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         var label = EvidenceSearchLabel(result.Query);
         if (!result.Success)
         {
+            if (string.Equals(result.Message, InnolaApiResilience.LoginRequiredMessage, StringComparison.Ordinal))
+            {
+                return $"{label}: {InnolaApiResilience.LoginRequiredMessage}";
+            }
+
             return $"{label}: search failed. Try again.";
         }
 
