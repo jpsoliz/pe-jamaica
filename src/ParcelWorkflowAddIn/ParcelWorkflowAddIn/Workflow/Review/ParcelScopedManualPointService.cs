@@ -8,7 +8,8 @@ public sealed class ParcelScopedManualPointService
         string? parcelName,
         string? traverseId,
         int? insertAfterSequence = null,
-        string? insertAfterPointIdentifier = null)
+        string? insertAfterPointIdentifier = null,
+        bool preferMissingPreviousPoint = false)
     {
         var normalizedGroupId = NormalizeRequired(parcelGroupId, "parcel");
         var normalizedParcelName = NormalizeOptional(parcelName) ?? normalizedGroupId;
@@ -17,10 +18,10 @@ public sealed class ParcelScopedManualPointService
         var existingParcelRows = document.Rows
             .Where(row => string.Equals(row.ParcelGroupId, normalizedGroupId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        var nextSequence = ResolveNextSequence(existingParcelRows, insertAfterSequence);
-        if (insertAfterSequence is > 0)
+        var insertion = ResolveInsertion(existingParcelRows, insertAfterSequence, insertAfterPointIdentifier, preferMissingPreviousPoint);
+        if (insertion.ShiftFromSequence is > 0)
         {
-            foreach (var row in existingParcelRows.Where(row => row.SequenceInGroup >= nextSequence))
+            foreach (var row in existingParcelRows.Where(row => row.SequenceInGroup >= insertion.ShiftFromSequence))
             {
                 row.SequenceInGroup++;
             }
@@ -28,13 +29,13 @@ public sealed class ParcelScopedManualPointService
 
         return new ExtractionReviewRow
         {
-            RowId = BuildUniqueManualRowId(document, normalizedGroupId, nextSequence),
+            RowId = BuildUniqueManualRowId(document, normalizedGroupId, insertion.Sequence),
             ParcelGroupId = normalizedGroupId,
             ParcelName = normalizedParcelName,
             TraverseId = normalizedTraverseId,
-            SequenceInGroup = nextSequence,
+            SequenceInGroup = insertion.Sequence,
             GroupConfidence = "manual_current_parcel",
-            PointIdentifier = BuildPointIdentifier(normalizedGroupId, nextSequence, insertAfterSequence, insertAfterPointIdentifier, existingParcelRows),
+            PointIdentifier = BuildPointIdentifier(normalizedGroupId, insertion.Sequence, insertion.PointIdentifier, insertAfterSequence, insertAfterPointIdentifier, existingParcelRows),
             Easting = string.Empty,
             Northing = string.Empty,
             Length = string.Empty,
@@ -66,17 +67,30 @@ public sealed class ParcelScopedManualPointService
         return changedCount;
     }
 
-    private static int ResolveNextSequence(IReadOnlyList<ExtractionReviewRow> existingRows, int? insertAfterSequence)
+    private static ManualPointInsertion ResolveInsertion(
+        IReadOnlyCollection<ExtractionReviewRow> existingRows,
+        int? insertAfterSequence,
+        string? insertAfterPointIdentifier,
+        bool preferMissingPreviousPoint)
     {
         if (insertAfterSequence is > 0)
         {
-            return insertAfterSequence.Value + 1;
+            if (preferMissingPreviousPoint
+                && TryDecrementTrailingPointNumber(insertAfterPointIdentifier, out var previousPointIdentifier)
+                && !PointIdentifierExists(existingRows, previousPointIdentifier))
+            {
+                return new ManualPointInsertion(insertAfterSequence.Value, insertAfterSequence.Value, previousPointIdentifier);
+            }
+
+            var nextSequence = insertAfterSequence.Value + 1;
+            return new ManualPointInsertion(nextSequence, nextSequence, null);
         }
 
-        return existingRows
+        var appendSequence = existingRows
             .Select(row => row.SequenceInGroup ?? 0)
             .DefaultIfEmpty(0)
             .Max() + 1;
+        return new ManualPointInsertion(appendSequence, null, null);
     }
 
     private static string BuildUniqueManualRowId(ExtractionReviewDocument document, string parcelGroupId, int sequence)
@@ -96,12 +110,17 @@ public sealed class ParcelScopedManualPointService
     private static string BuildPointIdentifier(
         string parcelGroupId,
         int sequence,
+        string? preferredPointIdentifier,
         int? insertAfterSequence,
         string? insertAfterPointIdentifier,
         IReadOnlyCollection<ExtractionReviewRow> existingRows)
     {
         string candidate;
-        if (insertAfterSequence is > 0
+        if (!string.IsNullOrWhiteSpace(preferredPointIdentifier))
+        {
+            candidate = preferredPointIdentifier.Trim();
+        }
+        else if (insertAfterSequence is > 0
             && TryIncrementTrailingPointNumber(insertAfterPointIdentifier, out var insertedPointIdentifier))
         {
             candidate = insertedPointIdentifier;
@@ -117,7 +136,7 @@ public sealed class ParcelScopedManualPointService
     private static string BuildUniquePointIdentifier(string candidate, IReadOnlyCollection<ExtractionReviewRow> existingRows)
     {
         var uniqueCandidate = candidate;
-        while (existingRows.Any(row => string.Equals(row.PointIdentifier, uniqueCandidate, StringComparison.OrdinalIgnoreCase)))
+        while (PointIdentifierExists(existingRows, uniqueCandidate))
         {
             if (TryIncrementTrailingPointNumber(uniqueCandidate, out var incrementedCandidate))
             {
@@ -129,6 +148,11 @@ public sealed class ParcelScopedManualPointService
         }
 
         return uniqueCandidate;
+    }
+
+    private static bool PointIdentifierExists(IReadOnlyCollection<ExtractionReviewRow> existingRows, string pointIdentifier)
+    {
+        return existingRows.Any(row => string.Equals(row.PointIdentifier, pointIdentifier, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryIncrementTrailingPointNumber(string? pointIdentifier, out string insertedPointIdentifier)
@@ -162,6 +186,37 @@ public sealed class ParcelScopedManualPointService
         return true;
     }
 
+    private static bool TryDecrementTrailingPointNumber(string? pointIdentifier, out string insertedPointIdentifier)
+    {
+        insertedPointIdentifier = string.Empty;
+        var normalized = NormalizeOptional(pointIdentifier);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        var index = normalized.Length - 1;
+        while (index >= 0 && char.IsDigit(normalized[index]))
+        {
+            index--;
+        }
+
+        if (index == normalized.Length - 1)
+        {
+            return false;
+        }
+
+        var prefix = normalized[..(index + 1)];
+        var numberText = normalized[(index + 1)..];
+        if (!int.TryParse(numberText, out var number) || number <= 0)
+        {
+            return false;
+        }
+
+        insertedPointIdentifier = $"{prefix}{number - 1}";
+        return true;
+    }
+
     private static string NormalizeRequired(string? value, string fallback)
     {
         var normalized = NormalizeOptional(value);
@@ -180,4 +235,6 @@ public sealed class ParcelScopedManualPointService
             .Replace(" ", "-", StringComparison.Ordinal)
             .Replace("_", "-", StringComparison.Ordinal);
     }
+
+    private sealed record ManualPointInsertion(int Sequence, int? ShiftFromSequence, string? PointIdentifier);
 }

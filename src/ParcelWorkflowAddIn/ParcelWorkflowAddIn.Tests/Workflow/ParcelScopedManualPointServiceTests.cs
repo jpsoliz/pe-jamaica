@@ -122,6 +122,50 @@ internal static class ParcelScopedManualPointServiceTests
         TestAssert.Equal("P17", manualRow.PointIdentifier, "Inserted manual row should avoid a duplicate default point identifier.");
     }
 
+    public static void CreateManualRowPrefersMissingPreviousPointBeforeSelectedPoint()
+    {
+        var document = new ExtractionReviewDocument();
+        document.Rows.Add(new ExtractionReviewRow { RowId = "row-1", ParcelGroupId = "parcel-006", SequenceInGroup = 1, PointIdentifier = "114300706_P1" });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "row-2", ParcelGroupId = "parcel-006", SequenceInGroup = 2, PointIdentifier = "114300706_P2" });
+
+        var service = new ParcelScopedManualPointService();
+        var manualRow = service.CreateManualRow(
+            document,
+            "parcel-006",
+            "114300706",
+            "114300706",
+            insertAfterSequence: 1,
+            insertAfterPointIdentifier: "114300706_P1",
+            preferMissingPreviousPoint: true);
+
+        TestAssert.Equal(1, manualRow.SequenceInGroup ?? -1, "Missing previous point should be inserted at the selected point's current sequence.");
+        TestAssert.Equal("114300706_P0", manualRow.PointIdentifier, "Cursor on P1 should propose the missing P0 for PE visual review.");
+        TestAssert.Equal(2, document.Rows.First(row => row.RowId == "row-1").SequenceInGroup ?? -1, "Selected row should shift after inserted P0.");
+        TestAssert.Equal(3, document.Rows.First(row => row.RowId == "row-2").SequenceInGroup ?? -1, "Later rows should shift after inserted P0.");
+    }
+
+    public static void CreateManualRowFallsBackToNextPointWhenPreviousPointExists()
+    {
+        var document = new ExtractionReviewDocument();
+        document.Rows.Add(new ExtractionReviewRow { RowId = "row-0", ParcelGroupId = "parcel-006", SequenceInGroup = 1, PointIdentifier = "P0" });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "row-1", ParcelGroupId = "parcel-006", SequenceInGroup = 2, PointIdentifier = "P1" });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "row-2", ParcelGroupId = "parcel-006", SequenceInGroup = 3, PointIdentifier = "P2" });
+
+        var service = new ParcelScopedManualPointService();
+        var manualRow = service.CreateManualRow(
+            document,
+            "parcel-006",
+            "parcel-006",
+            "parcel-006",
+            insertAfterSequence: 2,
+            insertAfterPointIdentifier: "P1",
+            preferMissingPreviousPoint: true);
+
+        TestAssert.Equal(3, manualRow.SequenceInGroup ?? -1, "When the previous point exists, insertion should fall back to after the selected row.");
+        TestAssert.Equal("P3", manualRow.PointIdentifier, "Duplicate cleanup cases should not create another P0/P1/P2.");
+        TestAssert.Equal(4, document.Rows.First(row => row.RowId == "row-2").SequenceInGroup ?? -1, "Rows after the selected row should shift forward.");
+    }
+
     public static void NormalizeSequencesClosesGapAfterRemoval()
     {
         var rows = new List<ExtractionReviewRow>

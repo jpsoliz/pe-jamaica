@@ -6,10 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ParcelWorkflowAddIn</RootNamespace>
     <AssemblyName>ParcelWorkflowAddIn</AssemblyName>
-    <Version>1.1.121</Version>
-    <AssemblyVersion>1.1.121.0</AssemblyVersion>
-    <FileVersion>1.1.121.0</FileVersion>
-    <InformationalVersion>1.1.121</InformationalVersion>
+    <Version>1.1.124</Version>
+    <AssemblyVersion>1.1.124.0</AssemblyVersion>
+    <FileVersion>1.1.124.0</FileVersion>
+    <InformationalVersion>1.1.124</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <PlatformTarget>x64</PlatformTarget>
     <PackageType>Addin</PackageType>

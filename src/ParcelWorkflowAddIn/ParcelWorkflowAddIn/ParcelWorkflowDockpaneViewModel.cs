@@ -2037,7 +2037,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             parcelName,
             traverseId,
             insertAfterRow?.SequenceInGroup,
-            insertAfterRow?.PointIdentifier);
+            insertAfterRow?.PointIdentifier,
+            preferMissingPreviousPoint: !IsPxaSurveyPlanReview);
         var draft = PointEditDraft.CreateForNew(manualRow);
         if (!TryEditReviewPoint(draft, out var committedDraft))
         {
@@ -2047,9 +2048,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         committedDraft.ApplyTo(manualRow);
-        InsertManualReviewRow(loadedReviewDocument.Rows, manualRow, insertAfterRow?.Model);
+        var insertBeforeAnchor = insertAfterRow is not null
+            && manualRow.SequenceInGroup.HasValue
+            && insertAfterRow.SequenceInGroup.HasValue
+            && manualRow.SequenceInGroup.Value <= insertAfterRow.SequenceInGroup.Value;
+        InsertManualReviewRow(loadedReviewDocument.Rows, manualRow, insertAfterRow?.Model, insertBeforeAnchor);
         var reviewRow = new ExtractionReviewRowViewModel(manualRow, OnReviewRowChanged);
-        InsertManualReviewRowViewModel(reviewRow, insertAfterRow);
+        InsertManualReviewRowViewModel(reviewRow, insertAfterRow, insertBeforeAnchor);
         RefreshReviewRowSequences(parcelGroupId);
         SetReviewWorkspaceParcelContext(parcelGroupId, parcelName, traverseId, refreshProperties: false);
         SelectedReviewRow = reviewRow;
@@ -2073,24 +2078,24 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 .LastOrDefault();
     }
 
-    private static void InsertManualReviewRow(IList<ExtractionReviewRow> rows, ExtractionReviewRow manualRow, ExtractionReviewRow? insertAfterRow)
+    private static void InsertManualReviewRow(IList<ExtractionReviewRow> rows, ExtractionReviewRow manualRow, ExtractionReviewRow? anchorRow, bool insertBeforeAnchor)
     {
-        var insertIndex = insertAfterRow is null ? -1 : rows.IndexOf(insertAfterRow);
+        var insertIndex = anchorRow is null ? -1 : rows.IndexOf(anchorRow);
         if (insertIndex >= 0)
         {
-            rows.Insert(insertIndex + 1, manualRow);
+            rows.Insert(insertBeforeAnchor ? insertIndex : insertIndex + 1, manualRow);
             return;
         }
 
         rows.Add(manualRow);
     }
 
-    private void InsertManualReviewRowViewModel(ExtractionReviewRowViewModel reviewRow, ExtractionReviewRowViewModel? insertAfterRow)
+    private void InsertManualReviewRowViewModel(ExtractionReviewRowViewModel reviewRow, ExtractionReviewRowViewModel? anchorRow, bool insertBeforeAnchor)
     {
-        var insertIndex = insertAfterRow is null ? -1 : ReviewRows.IndexOf(insertAfterRow);
+        var insertIndex = anchorRow is null ? -1 : ReviewRows.IndexOf(anchorRow);
         if (insertIndex >= 0)
         {
-            ReviewRows.Insert(insertIndex + 1, reviewRow);
+            ReviewRows.Insert(insertBeforeAnchor ? insertIndex : insertIndex + 1, reviewRow);
             return;
         }
 

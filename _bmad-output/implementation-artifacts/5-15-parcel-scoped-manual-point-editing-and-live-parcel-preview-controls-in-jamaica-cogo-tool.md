@@ -39,6 +39,9 @@ This story hardens the review workspace into a parcel-safe editing experience wh
 9. Given the examiner may abandon a partial manual add, when a manual point is created but not completed, then the workspace provides an explicit way to cancel or discard the in-progress add without leaving orphaned parcel rows behind.
 10. Given review approval must remain trustworthy, when manual edits exist, then `Approve review` stays blocked until all parcel-scoped blockers are cleared, including missing point identifiers, invalid coordinates, duplicate point IDs inside the parcel, invalid sequence values, or unassigned parcel membership.
 11. Given the current Jamaica review workspace is no longer just a spike, when this story is implemented, then the window copy, control states, and messages describe parcel-scoped editing as part of the supported review workflow rather than as provisional behavior.
+12. Given a PE transaction visual review shows a missing previous point label, when the examiner selects point `Pn` and uses `Add point`, then the tool should prefer creating missing `P(n-1)` before the selected row when that label is not already present in the same parcel.
+13. Given a PE transaction contains duplicate extracted point rows caused by unclear source text, when the examiner removes duplicate rows during visual review, then the row order is re-sequenced for that parcel without silently renumbering surviving point labels.
+14. Given inserting a missing middle point could require renumbering later point labels and segment references, when the missing previous label already exists or renumbering would affect existing labels, then the tool must avoid silent mass renumbering and continue to use the safe unique-point fallback unless an explicit renumber workflow is introduced later.
 
 ## Tasks / Subtasks
 
@@ -75,6 +78,12 @@ This story hardens the review workspace into a parcel-safe editing experience wh
   - [x] If only one parcel exists, render the parcel selector as disabled or read-only.
   - [x] Review related controls (`Add point`, `Remove point`, `Save review`, `Approve review`) so their enable/disable logic matches edit mode and review lock state.
   - [x] Ensure control-state behavior remains compact and understandable inside ArcGIS Pro.
+
+- [x] Add PE visual-review correction behavior for missing previous points and duplicate cleanup. (AC: 12-14)
+  - [x] Prefer `P(n-1)` before the selected `Pn` when that prior label is missing in the active PE parcel.
+  - [x] Keep duplicate cleanup as delete-selected-row plus parcel-local re-sequencing, without automatic surviving-label renumbering.
+  - [x] Preserve the existing unique-next fallback when the previous label already exists to avoid silent mass renumbering.
+  - [x] Add regression coverage for `P1 -> P0` and fallback when `P0` already exists.
 
 ## Dev Notes
 
@@ -128,6 +137,20 @@ Preferred parcel-edit workflow:
 7. Examiner either saves the row or cancels/discards it.
 8. Approval remains blocked until all parcel-scoped manual edit blockers are cleared.
 
+### PE Visual-Review Correction Amendment
+
+For PE transactions, extracted parcel rows can be ambiguous because source text may omit a starting point or duplicate a short run of labels such as `P0`, `P1`, and `P2`. The practical correction model is:
+
+1. Missing previous point:
+   - if the selected point is `Pn` and `P(n-1)` is absent in the same parcel, `Add point` proposes `P(n-1)` and inserts it before the selected row.
+   - example: in TR `100000629`, parcel `114300706`, selecting `114300706_P1` proposes `114300706_P0`.
+2. Duplicate cleanup:
+   - the examiner deletes the extra duplicate point rows during visual review.
+   - the parcel row sequence is normalized after delete, but surviving point labels are not silently renamed.
+3. Renumbering:
+   - mass renumbering later points is intentionally out of scope for the quick add path.
+   - if needed later, it must be a separate explicit workflow with confirmation and segment-reference updates.
+
 ### Validation Rules to Treat as Story-Binding
 
 This story should define explicit parcel-scoped blockers for:
@@ -156,10 +179,11 @@ This keeps the preview trustworthy without making the workspace feel unstable.
 ### UX Guardrails
 
 - Do not allow manual edit mode to silently switch parcels.
-- Do not allow delete of extracted rows.
+- Do not allow accidental delete of extracted rows; PE duplicate cleanup requires the existing explicit delete confirmation and save-to-persist flow.
 - Do not require a full extraction rerun for manual point corrections.
 - Do not leave orphan manual rows behind when the user cancels an add.
 - Do not let the active parcel control imply meaningful switching when only one parcel exists.
+- Do not silently renumber existing PE point labels when adding or removing rows during visual review.
 
 ### Suggested Success Criteria
 
@@ -201,6 +225,7 @@ Codex GPT-5
 - Locked active parcel switching while a manual point is in progress and added an explicit discard path for incomplete manual adds.
 - Wired live review refresh so parcel summaries and preview bindings react to review content changes without rerunning extraction.
 - Updated Jamaica review workspace controls and copy to reflect supported parcel-scoped review behavior instead of provisional spike language.
+- Added PE visual-review insertion behavior so selecting `Pn` can add missing `P(n-1)` before the selected row, while duplicate cleanup remains delete-and-resequence without silent label renumbering.
 
 ### File List
 
@@ -221,3 +246,4 @@ Codex GPT-5
 |---|---:|---|---|
 | 2026-06-17 | 0.1 | Initial story for parcel-scoped manual point editing, edit-mode locking, parcel-local validation, and live parcel preview behavior in the Jamaica COGO Tool. | Codex |
 | 2026-06-17 | 1.0 | Implemented parcel-scoped manual add/discard flow, parcel-local validation, parcel-lock behavior, and live review refresh wiring; updated tests and story record. | Codex |
+| 2026-08-09 | 1.1 | Added PE visual-review correction amendment for missing previous points, duplicate cleanup, and no silent mass renumbering. | Mary / Amelia / Codex |

@@ -390,6 +390,8 @@ var tests = new (string Name, Action Run)[]
     ("parcel scoped manual point inserts after selected sequence", ParcelScopedManualPointServiceTests.CreateManualRowInsertsAfterSelectedSequenceAndShiftsLaterRows),
     ("parcel scoped manual point normalizes sequence gap before insert", ParcelScopedManualPointServiceTests.CreateManualRowNormalizesSequenceGapBeforeInsert),
     ("parcel scoped manual point skips existing point identifier", ParcelScopedManualPointServiceTests.CreateManualRowSkipsExistingPointIdentifier),
+    ("parcel scoped manual point prefers missing previous point", ParcelScopedManualPointServiceTests.CreateManualRowPrefersMissingPreviousPointBeforeSelectedPoint),
+    ("parcel scoped manual point falls back when previous exists", ParcelScopedManualPointServiceTests.CreateManualRowFallsBackToNextPointWhenPreviousPointExists),
     ("parcel scoped manual point normalizes sequence gap after removal", ParcelScopedManualPointServiceTests.NormalizeSequencesClosesGapAfterRemoval),
     ("manual boundary segment uses next sequence and defaults", ManualBoundarySegmentServiceTests.CreateManualSegmentUsesNextSequenceAndManualDefaults),
     ("pxa review xaml uses tab scoped commands", JamaicaReviewWorkspaceXamlTests.PxaReviewUsesTabScopedCommandsAndHidesGlobalPointToolbar),
