@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-                          desktopVersion="3.6" version="1.1.124">
+                          desktopVersion="3.6" version="1.1.134">
     <Name>Cadastre Tool by Sidwell</Name>
     <Image>Images\Branding\CadastreTool32.png</Image>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
@@ -65,6 +65,15 @@
                 largeImage="Install\Images\Ribbon\About32.png">
           <tooltip heading="About">About this add-in<disabledText /></tooltip>
         </button>
+        <tool id="ParcelWorkflow_TitlePlanMapPointTool"
+              caption="Pick title-plan map point"
+              className="TitlePlanMapPointTool"
+              loadOnClick="true"
+              condition="esri_mapping_mapPane"
+              smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
+              largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
+          <tooltip heading="Pick title-plan map point">Capture the next ArcGIS Pro map click as a matching title-plan control point<disabledText /></tooltip>
+        </tool>
       </controls>
       <dockPanes>
         <dockPane id="ParcelWorkflow_TransactionPanelDockpane"

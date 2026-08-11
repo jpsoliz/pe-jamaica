@@ -133,6 +133,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ViewDocumentsCommand = new RelayCommand(ViewLoadedDocuments, () => CanViewDocuments);
         ShowSupportingDocumentsCommand = new RelayCommand(ShowSupportingDocuments, () => CanShowSupportingDocuments);
         OpenMapGeoreferenceCommand = new RelayCommand(async () => await OpenMapGeoreferenceAsync(), () => CanOpenMapGeoreference);
+        OpenTitlePlanImagePlacementCommand = new RelayCommand(OpenTitlePlanImagePlacement, () => CanOpenTitlePlanImagePlacement);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
@@ -165,6 +166,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public ICommand ShowSupportingDocumentsCommand { get; }
 
     public ICommand OpenMapGeoreferenceCommand { get; }
+
+    public ICommand OpenTitlePlanImagePlacementCommand { get; }
 
     public ICommand AddDocumentCommand { get; }
 
@@ -474,6 +477,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public string OpenMapGeoreferenceTooltip => CanOpenMapGeoreference ? "Open map georeference review for the active transaction." : DocumentsDisabledReason();
 
+    public string OpenTitlePlanImagePlacementTooltip => CanOpenTitlePlanImagePlacement
+        ? "Place a title-plan image from transaction attachments for map comparison."
+        : TitlePlanImagePlacementDisabledReason();
+
     public string AddDocumentTooltip => CanAddDocument ? "Attach a document to the active transaction." : DocumentsDisabledReason();
 
     public string CompleteTaskTooltip => CanCompleteTask ? "Complete the active transaction in Innola." : CompleteTaskDisabledReason();
@@ -501,6 +508,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public bool CanShowSupportingDocuments => CanViewDocuments;
 
     public bool CanOpenMapGeoreference => CanViewDocuments;
+
+    public bool CanOpenTitlePlanImagePlacement => CanViewDocuments && HasTitlePlanPlacementSourceAttachments();
 
     public bool CanAddDocument => CanViewDocuments;
 
@@ -1207,6 +1216,19 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         MapGeoreferenceWindow.ShowOrActivate(transactionNumber);
     }
 
+    private void OpenTitlePlanImagePlacement()
+    {
+        if (!CanOpenTitlePlanImagePlacement)
+        {
+            StatusText = TitlePlanImagePlacementDisabledReason();
+            return;
+        }
+
+        var transactionNumber = session.LoadedTransactionNumber ?? "Transaction";
+        MapGeoreferenceWindow.ShowOrActivate(transactionNumber, MapGeoreferenceWorkflowMode.ImageComparison);
+        StatusText = $"Opening title-plan image placement for {transactionNumber}.";
+    }
+
     private void ChooseAndAddDocuments()
     {
         var dialog = new OpenFileDialog
@@ -1320,6 +1342,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
+        NotifyPropertyChanged(nameof(CanOpenTitlePlanImagePlacement));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1684,6 +1707,46 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return "Load a transaction before using documents.";
     }
 
+    private string TitlePlanImagePlacementDisabledReason()
+    {
+        if (!CanViewDocuments)
+        {
+            return DocumentsDisabledReason();
+        }
+
+        return "No PDF or raster image attachments are available in the loaded transaction Case Folder source area.";
+    }
+
+    private bool HasTitlePlanPlacementSourceAttachments()
+    {
+        var folder = session.LoadedCaseFolderPath;
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return false;
+        }
+
+        var sourceFolder = Path.Combine(folder, "source");
+        if (!Directory.Exists(sourceFolder))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(sourceFolder)
+                .Any(path => IsTitlePlanPlacementSourceExtension(Path.GetExtension(path)));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsTitlePlanPlacementSourceExtension(string? extension)
+    {
+        return extension?.ToLowerInvariant() is ".pdf" or ".png" or ".jpg" or ".jpeg" or ".tif" or ".tiff";
+    }
+
     private string CompleteTaskDisabledReason()
     {
         if (!IsLoggedIn)
@@ -1764,6 +1827,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(ViewDocumentsTooltip));
         NotifyPropertyChanged(nameof(ShowSupportingDocumentsTooltip));
         NotifyPropertyChanged(nameof(OpenMapGeoreferenceTooltip));
+        NotifyPropertyChanged(nameof(OpenTitlePlanImagePlacementTooltip));
         NotifyPropertyChanged(nameof(AddDocumentTooltip));
         NotifyPropertyChanged(nameof(CompleteTaskTooltip));
         NotifyPropertyChanged(nameof(ReopenCompareTooltip));
@@ -1786,6 +1850,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanViewDocuments));
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
+        NotifyPropertyChanged(nameof(CanOpenTitlePlanImagePlacement));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1828,6 +1893,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (OpenMapGeoreferenceCommand is RelayCommand openMapGeoreference)
         {
             openMapGeoreference.RaiseCanExecuteChanged();
+        }
+
+        if (OpenTitlePlanImagePlacementCommand is RelayCommand openTitlePlanImagePlacement)
+        {
+            openTitlePlanImagePlacement.RaiseCanExecuteChanged();
         }
 
         if (AddDocumentCommand is RelayCommand addDocument)

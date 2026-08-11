@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -31,17 +32,25 @@ internal partial class MapGeoreferenceWindow : ProWindow
         viewModel.Documents.PropertyChanged += OnDocumentsPropertyChanged;
     }
 
-    internal static void ShowOrActivate(string transactionNumber)
+    internal static void ShowOrActivate(
+        string transactionNumber,
+        MapGeoreferenceWorkflowMode mode = MapGeoreferenceWorkflowMode.CoordinateControl)
     {
         if (activeWindow is { IsVisible: true })
         {
-            activeWindow.viewModel.Reload();
-            activeWindow.Activate();
-            return;
+            if (activeWindow.viewModel.Mode == mode
+                && string.Equals(activeWindow.viewModel.TransactionNumber, transactionNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                activeWindow.viewModel.Reload();
+                activeWindow.Activate();
+                return;
+            }
+
+            activeWindow.Close();
         }
 
         var documents = new SupportingDocumentsDockpaneViewModel();
-        var viewModel = new MapGeoreferenceViewModel(transactionNumber, documents);
+        var viewModel = new MapGeoreferenceViewModel(transactionNumber, documents, mode);
         var window = new MapGeoreferenceWindow(viewModel);
         activeWindow = window;
         try
@@ -107,6 +116,11 @@ internal partial class MapGeoreferenceWindow : ProWindow
         {
             UpdatePdfWebViewVisibilityForPicker();
         }
+
+        if (e.PropertyName is nameof(MapGeoreferenceViewModel.SelectedSourcePageNumber))
+        {
+            _ = SafeRefreshPdfViewerAsync();
+        }
     }
 
     private async Task SafeRefreshPdfViewerAsync()
@@ -131,7 +145,7 @@ internal partial class MapGeoreferenceWindow : ProWindow
         }
 
         var browserUri = viewModel.Documents.SupportingDocumentViewerBrowserUri;
-        var navigationKey = viewModel.Documents.SupportingDocumentViewerNavigationKey;
+        var navigationKey = BuildPdfNavigationKey(viewModel.Documents.SupportingDocumentViewerNavigationKey);
         if (!viewModel.Documents.SupportingDocumentViewerUsesBrowser || browserUri is null)
         {
             lastNavigationKey = null;
@@ -160,7 +174,7 @@ internal partial class MapGeoreferenceWindow : ProWindow
         viewModel.MarkRenderAttempt(
             $"Loading {viewModel.Documents.SelectedSupportingDocument?.FileLabel ?? "selected document"} from {browserUri.LocalPath}");
         var webView = await EnsurePdfWebViewAsync();
-        if (!string.Equals(navigationKey, viewModel.Documents.SupportingDocumentViewerNavigationKey, StringComparison.Ordinal)
+        if (!string.Equals(navigationKey, BuildPdfNavigationKey(viewModel.Documents.SupportingDocumentViewerNavigationKey), StringComparison.Ordinal)
             || !Equals(browserUri, viewModel.Documents.SupportingDocumentViewerBrowserUri))
         {
             return;
@@ -168,7 +182,7 @@ internal partial class MapGeoreferenceWindow : ProWindow
 
         if (webView.CoreWebView2 is not null)
         {
-            webView.CoreWebView2.Navigate(browserUri.AbsoluteUri);
+            webView.CoreWebView2.Navigate(BuildPdfBrowserUri(browserUri));
             lastNavigationKey = navigationKey;
             viewModel.MarkRenderReady("Embedded PDF loaded.");
         }
@@ -203,6 +217,12 @@ internal partial class MapGeoreferenceWindow : ProWindow
                 return;
             }
 
+            await RefreshPdfViewerAsync();
+            if (viewModel.SelectedPdfPageNumber.HasValue)
+            {
+                await Task.Delay(350);
+            }
+
             await using var stream = new MemoryStream();
             await pdfWebView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
             stream.Position = 0;
@@ -220,6 +240,27 @@ internal partial class MapGeoreferenceWindow : ProWindow
             SupportingDocumentsDiagnostics.Write($"M-Geo PDF capture failure: {exception.GetType().Name}: {exception.Message}");
             viewModel.MarkRenderFailure($"Could not capture the PDF view for point picking: {exception.Message}");
         }
+    }
+
+    private string BuildPdfNavigationKey(string? navigationKey)
+    {
+        return viewModel.SelectedPdfPageNumber is { } pageNumber
+            ? $"{navigationKey ?? string.Empty}#page={pageNumber.ToString(CultureInfo.InvariantCulture)}"
+            : navigationKey ?? string.Empty;
+    }
+
+    private string BuildPdfBrowserUri(Uri browserUri)
+    {
+        if (viewModel.SelectedPdfPageNumber is not { } pageNumber)
+        {
+            return browserUri.AbsoluteUri;
+        }
+
+        var builder = new UriBuilder(browserUri)
+        {
+            Fragment = $"page={pageNumber.ToString(CultureInfo.InvariantCulture)}"
+        };
+        return builder.Uri.AbsoluteUri;
     }
 
     private void OnDocumentPickerImageMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

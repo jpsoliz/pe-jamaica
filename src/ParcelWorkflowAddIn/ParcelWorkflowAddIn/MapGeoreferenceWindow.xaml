@@ -17,6 +17,7 @@
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Padding" Value="8,4" />
       <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Margin" Value="0,0,6,6" />
       <Setter Property="BorderBrush" Value="#C9D2D8" />
       <Setter Property="Background" Value="#FFFFFF" />
     </Style>
@@ -29,7 +30,7 @@
     </Style>
 
     <Style x:Key="CoordinateTextBoxStyle" TargetType="TextBox">
-      <Setter Property="MinWidth" Value="108" />
+      <Setter Property="MinWidth" Value="96" />
       <Setter Property="MinHeight" Value="26" />
       <Setter Property="Margin" Value="0,2,8,6" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -71,9 +72,9 @@
 
     <Grid Margin="8">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="2*" />
+        <ColumnDefinition Width="*" MinWidth="420" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="360" />
+        <ColumnDefinition Width="360" MinWidth="300" MaxWidth="520" />
       </Grid.ColumnDefinitions>
 
       <Border Grid.Column="0"
@@ -183,6 +184,15 @@
         </Grid>
       </Border>
 
+      <GridSplitter Grid.Column="1"
+                    Width="8"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Background="#EEF2F5"
+                    ShowsPreview="True"
+                    ResizeDirection="Columns"
+                    ResizeBehavior="PreviousAndNext" />
+
       <Border Grid.Column="2"
               BorderBrush="#C9D2D8"
               BorderThickness="1"
@@ -190,7 +200,7 @@
               Padding="12">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel>
-            <TextBlock Text="M-Geo"
+            <TextBlock Text="{Binding WorkflowHeading}"
                        FontSize="16"
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
@@ -199,24 +209,30 @@
                        Foreground="#52616B"
                        TextWrapping="Wrap" />
 
-            <TextBlock Text="PDF point picking"
+            <StackPanel Margin="0,0,0,12">
+              <TextBlock Text="{Binding SourcePageLabel}"
+                         Style="{StaticResource FieldLabelStyle}" />
+              <TextBox Text="{Binding SelectedSourcePageNumber, UpdateSourceTrigger=PropertyChanged}"
+                       Style="{StaticResource CoordinateTextBoxStyle}"
+                       HorizontalAlignment="Left"
+                       MinWidth="88" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding PointPickingHeading}"
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
-            <StackPanel Orientation="Horizontal"
-                        Margin="0,6,0,8">
-              <Button Content="Capture PDF view"
+            <WrapPanel Margin="0,6,0,8">
+              <Button Content="{Binding CapturePdfButtonText}"
                       Click="OnCapturePdfViewClick"
-                      Style="{StaticResource CompactButtonStyle}"
-                      Margin="0,0,6,0" />
-              <Button Content="Pick PDF point 1"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="{Binding PickPoint1ButtonText}"
                       Command="{Binding PickDocumentPoint1Command}"
-                      Style="{StaticResource CompactButtonStyle}"
-                      Margin="0,0,6,0" />
-              <Button Content="Pick PDF point 2"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="{Binding PickPoint2ButtonText}"
                       Command="{Binding PickDocumentPoint2Command}"
                       Style="{StaticResource CompactButtonStyle}" />
-            </StackPanel>
-            <Grid Margin="0,0,0,10">
+            </WrapPanel>
+            <Grid Margin="0,0,0,6">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
@@ -227,7 +243,24 @@
                          Text="{Binding DocumentImagePoint2Text}"
                          Style="{StaticResource FieldLabelStyle}" />
             </Grid>
-            <TextBlock Text="JAD2001 coordinates for picked PDF points"
+            <WrapPanel Margin="0,0,0,8">
+              <Button Content="Map 1"
+                      Command="{Binding PickMapPoint1Command}"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="Map 2"
+                      Command="{Binding PickMapPoint2Command}"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="Clear 1"
+                      Command="{Binding ClearPoint1Command}"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="Clear 2"
+                      Command="{Binding ClearPoint2Command}"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="Clear all"
+                      Command="{Binding ClearAllPointsCommand}"
+                      Style="{StaticResource CompactButtonStyle}" />
+            </WrapPanel>
+            <TextBlock Text="{Binding CoordinateEntryHeading}"
                        FontWeight="SemiBold"
                        Foreground="#1F2933" />
             <Grid Margin="0,6,0,10">
@@ -250,17 +283,41 @@
               <TextBox Grid.Row="3" Text="{Binding MapPoint2Easting, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
               <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MapPoint2Northing, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource CoordinateTextBoxStyle}" />
             </Grid>
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding MapPoint1Text}"
+                         Style="{StaticResource FieldLabelStyle}" />
+              <TextBlock Grid.Column="1"
+                         Text="{Binding MapPoint2Text}"
+                         Style="{StaticResource FieldLabelStyle}" />
+            </Grid>
 
-            <Button Content="Check inputs"
+            <StackPanel Margin="0,0,0,12">
+              <TextBlock Text="{Binding OverlayTransparencyText}"
+                         Style="{StaticResource FieldLabelStyle}" />
+              <Slider Minimum="0"
+                      Maximum="90"
+                      TickFrequency="10"
+                      IsSnapToTickEnabled="True"
+                      Value="{Binding OverlayTransparencyPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </StackPanel>
+
+            <Button Content="{Binding CheckInputsButtonText}"
                     Command="{Binding CalculateDiagnosticsCommand}"
                     Style="{StaticResource CompactButtonStyle}"
                     HorizontalAlignment="Left"
-                    Margin="0,0,0,12" />
-            <Button Content="Create Overlay"
-                    Command="{Binding CreateOverlayCommand}"
-                    Style="{StaticResource CompactButtonStyle}"
-                    HorizontalAlignment="Left"
-                    Margin="0,0,0,12" />
+                    Margin="0,0,0,6" />
+            <WrapPanel Margin="0,0,0,12">
+              <Button Content="{Binding CreateOverlayButtonText}"
+                      Command="{Binding CreateOverlayCommand}"
+                      Style="{StaticResource CompactButtonStyle}" />
+              <Button Content="Remove Overlay"
+                      Command="{Binding RemoveOverlayCommand}"
+                      Style="{StaticResource CompactButtonStyle}" />
+            </WrapPanel>
 
             <Border BorderBrush="#C9D2D8"
                     BorderThickness="1"
