@@ -1174,7 +1174,6 @@
         <Grid Margin="0,8,0,0">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
@@ -1183,47 +1182,7 @@
                      Margin="0,0,0,12"
                      TextWrapping="Wrap" />
 
-          <Expander Grid.Row="1"
-                    Header="Compare Neighbor Search"
-                    IsExpanded="True"
-                    Margin="0,0,0,12">
-            <Grid Margin="8">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="170" />
-                <ColumnDefinition Width="220" />
-                <ColumnDefinition Width="170" />
-                <ColumnDefinition Width="140" />
-                <ColumnDefinition Width="*" />
-              </Grid.ColumnDefinitions>
-
-              <TextBlock Text="Spatial search mode"
-                         FontWeight="SemiBold"
-                         VerticalAlignment="Center"
-                         Margin="0,0,8,0" />
-              <ComboBox Grid.Column="1"
-                        x:Name="CompareSpatialSearchModeComboBox"
-                        Height="24">
-                <ComboBoxItem Tag="intersects" Content="Intersect parcels only" />
-                <ComboBoxItem Tag="buffer" Content="Surrounding parcels within buffer" />
-              </ComboBox>
-              <TextBlock Grid.Column="2"
-                         Text="Buffer distance (m)"
-                         FontWeight="SemiBold"
-                         VerticalAlignment="Center"
-                         Margin="16,0,8,0" />
-              <TextBox Grid.Column="3"
-                       x:Name="CompareBufferDistanceMetersTextBox"
-                       Height="24" />
-              <TextBlock Grid.Column="4"
-                         Text="Buffer mode still honors the configured result limit for Legal, Fiscal, and Survey Cadastre."
-                         Foreground="#53636A"
-                         TextWrapping="Wrap"
-                         VerticalAlignment="Center"
-                         Margin="12,0,0,0" />
-            </Grid>
-          </Expander>
-
-          <DataGrid Grid.Row="2"
+          <DataGrid Grid.Row="1"
                     x:Name="WorkingMapLayersGrid"
                     AutoGenerateColumns="False"
                     CanUserAddRows="True"
@@ -1250,6 +1209,119 @@
             </DataGrid.Columns>
           </DataGrid>
         </Grid>
+      </TabItem>
+      <TabItem Header="Parcel Search">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,8,0,0">
+            <TextBlock Text="Configure the source layers, field mappings, parish lookup, and advanced JSON used by the Search dockpane."
+                       Foreground="#53636A"
+                       Margin="0,0,0,12"
+                       TextWrapping="Wrap" />
+
+            <Expander Header="Compare Neighbor Search"
+                      IsExpanded="False"
+                      Margin="0,0,0,12">
+              <StackPanel Margin="8">
+                <TextBlock Text="These settings are used by Compare neighbor discovery, not by the map reference layer list or the Parcel Search dockpane."
+                           Foreground="#53636A"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <Grid Margin="0,0,0,4">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="170" />
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="170" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+
+                  <TextBlock Text="Spatial relationship"
+                             FontWeight="SemiBold"
+                             VerticalAlignment="Center"
+                             Margin="0,0,8,0" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="CompareSpatialSearchModeComboBox"
+                            Height="24">
+                    <ComboBoxItem Tag="intersects" Content="Intersect parcels only" />
+                    <ComboBoxItem Tag="buffer" Content="Surrounding parcels within buffer" />
+                  </ComboBox>
+                  <TextBlock Grid.Column="2"
+                             Text="Buffer distance (m)"
+                             FontWeight="SemiBold"
+                             VerticalAlignment="Center"
+                             Margin="16,0,8,0" />
+                  <TextBox Grid.Column="3"
+                           x:Name="CompareBufferDistanceMetersTextBox"
+                           Height="24" />
+                  <TextBlock Grid.Column="4"
+                             Text="Buffer mode still honors the configured result limit for Legal, Fiscal, and Survey Cadastre."
+                             Foreground="#53636A"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center"
+                             Margin="12,0,0,0" />
+                </Grid>
+              </StackPanel>
+            </Expander>
+
+            <Border BorderBrush="#D8DFE4"
+                    BorderThickness="1"
+                    Padding="10"
+                    Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Parcel search layer and field mappings"
+                           FontWeight="SemiBold"
+                           Foreground="#1F2933"
+                           Margin="0,0,0,6" />
+                <TextBlock Text="Legal, Cadastral, Survey, and parish lookup sources can use different field names while supporting the same search criteria."
+                           Foreground="#53636A"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <ListView x:Name="ParcelSearchSourceSummaryListView"
+                          MinHeight="180"
+                          Margin="0,0,0,0">
+                  <ListView.View>
+                    <GridView>
+                      <GridViewColumn Header="Source"
+                                      Width="80"
+                                      DisplayMemberBinding="{Binding Source}" />
+                      <GridViewColumn Header="Status"
+                                      Width="70"
+                                      DisplayMemberBinding="{Binding Status}" />
+                      <GridViewColumn Header="Layer"
+                                      Width="230"
+                                      DisplayMemberBinding="{Binding Layer}" />
+                      <GridViewColumn Header="Search fields"
+                                      Width="260"
+                                      DisplayMemberBinding="{Binding SearchFields}" />
+                      <GridViewColumn Header="Display fields"
+                                      Width="180"
+                                      DisplayMemberBinding="{Binding DisplayFields}" />
+                    </GridView>
+                  </ListView.View>
+                </ListView>
+              </StackPanel>
+            </Border>
+
+            <Expander Header="Advanced JSON"
+                      IsExpanded="False"
+                      Margin="0,0,0,8">
+              <StackPanel Margin="8">
+                <TextBlock Text="Edit the raw compare_enterprise_cadaster JSON only when a setting is not exposed in the summary grid."
+                           Foreground="#53636A"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <TextBox x:Name="CompareEnterpriseCadasterSourcesTextBox"
+                         AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         MinHeight="260" />
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
       <TabItem Header="Enterprise Admin">
         <ScrollViewer VerticalScrollBarVisibility="Auto">

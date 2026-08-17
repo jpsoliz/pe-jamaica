@@ -175,11 +175,12 @@ internal static class SettingsWorkspaceServiceTests
         var service = new SettingsWorkspaceService(new PreflightRuleCatalogLoader(rulesPath, settingsPath));
         var document = service.Load(settingsPath);
 
-        TestAssert.Equal(7, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
+        TestAssert.Equal(8, SettingsWorkspaceDocument.TabNames.Count, "Tab count mismatch.");
         TestAssert.Equal("General", SettingsWorkspaceDocument.TabNames[0], "First tab mismatch.");
         TestAssert.Equal("Structure Rules", SettingsWorkspaceDocument.TabNames[3], "Rules tab should use Structure Rules language.");
         TestAssert.Equal("Map Layers", SettingsWorkspaceDocument.TabNames[5], "Map layer tab mismatch.");
-        TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[6], "Last tab mismatch.");
+        TestAssert.Equal("Parcel Search", SettingsWorkspaceDocument.TabNames[6], "Parcel Search tab mismatch.");
+        TestAssert.Equal("Enterprise Admin", SettingsWorkspaceDocument.TabNames[7], "Last tab mismatch.");
         TestAssert.Equal("https://example.local/", document.InnolaServerUrl, "Innola server mismatch.");
         TestAssert.Equal("openai", document.OcrEngine, "OCR engine mismatch.");
         TestAssert.True(document.OpenAiEnabled, "OpenAI enabled mismatch.");
@@ -432,6 +433,9 @@ internal static class SettingsWorkspaceServiceTests
         document.GsiUsername = "gsi-user";
         document.GsiPasswordMode = SettingsWorkspaceService.GsiPasswordModeDirect;
         document.GsiPassword = "masked-secret";
+        document.CompareEnterpriseCadasterSpatialSearchMode = SettingsWorkspaceService.CompareSpatialSearchModeIntersects;
+        document.CompareEnterpriseCadasterBufferDistanceMeters = 25;
+        document.CompareEnterpriseCadasterSourcesJson = ValidParcelSearchSourcesJson();
         var openBasemapLayer = document.WorkingMapLayers.Single(layer => layer.Name == "Open Basemap Streets");
         openBasemapLayer.Visible = true;
         openBasemapLayer.Group = "Basemap Options";
@@ -481,6 +485,9 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal(@"D:\cases\maintenance.json", reloaded.EnterpriseWorkingAdminLastMaintenanceAuditPath, "Enterprise admin audit path save mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeDirect, reloaded.GsiPasswordMode, "GSI password mode save mismatch.");
         TestAssert.Equal("masked-secret", reloaded.GsiPassword, "GSI password save mismatch.");
+        TestAssert.Equal(SettingsWorkspaceService.CompareSpatialSearchModeIntersects, reloaded.CompareEnterpriseCadasterSpatialSearchMode, "Parcel search spatial mode save mismatch.");
+        TestAssert.Equal(25, reloaded.CompareEnterpriseCadasterBufferDistanceMeters, "Parcel search buffer distance save mismatch.");
+        TestAssert.True(reloaded.CompareEnterpriseCadasterSourcesJson.Contains("\"legal\"", StringComparison.Ordinal), "Parcel search source JSON should round-trip.");
         var reloadedOpenBasemapLayer = reloaded.WorkingMapLayers.Single(layer => layer.Name == "Open Basemap Streets");
         TestAssert.True(reloadedOpenBasemapLayer.Visible, "Open basemap visibility should save from settings.");
         TestAssert.Equal("Basemap Options", reloadedOpenBasemapLayer.Group, "Open basemap group should save from settings.");
@@ -676,6 +683,7 @@ internal static class SettingsWorkspaceServiceTests
         scopedRule.Enabled = true;
         scopedRule.Severity = "warning";
         scopedRule.DetectDuplicateEdges = false;
+        document.CompareEnterpriseCadasterSourcesJson = ValidParcelSearchSourcesJson();
 
         service.Save(document);
 
@@ -725,5 +733,71 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.True(messages.Any(message => message.FieldName == "Readiness Default Severity"), "Expected default readiness severity validation message.");
         TestAssert.True(messages.Any(message => message.FieldName == "Readiness Default Minimum Segment Count"), "Expected default minimum segment validation message.");
         TestAssert.True(messages.Any(message => message.FieldName.Contains("Readiness Rule", StringComparison.OrdinalIgnoreCase)), "Expected readiness rule validation message.");
+    }
+
+    private static string ValidParcelSearchSourcesJson()
+    {
+        return
+            """
+            {
+              "enabled": true,
+              "result_limit": 250,
+              "page_size": 100,
+              "legal": {
+                "enabled": true,
+                "source_name": "Legal Cadastre",
+                "display_name": "Legal",
+                "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/FeatureServer/15",
+                "sublayer_name": "Legal_Parcel",
+                "parcel_id_field": "lot_number",
+                "volume_field": "",
+                "folio_field": "",
+                "combined_volume_folio_field": "vol_folio",
+                "combined_volume_folio_separator": "/",
+                "land_valuation_number_field": "Lv_NUMBER",
+                "pe_number_field": "pe_number",
+                "dp_number_field": "dp_number",
+                "r_number_field": "r_number",
+                "parish_field": "parish",
+                "object_id_field": "objectid",
+                "global_id_field": "globalid"
+              },
+              "fiscal": {
+                "enabled": true,
+                "source_name": "Fiscal Cadastre",
+                "display_name": "Cadastral",
+                "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/FeatureServer/1",
+                "sublayer_name": "Parcels",
+                "parcel_id_field": "pid",
+                "volume_field": "LT_Volume",
+                "folio_field": "LT_Folio",
+                "title_reference_field": "Title_Reference",
+                "land_valuation_number_field": "Lv_number",
+                "dp_number_field": "dp_number",
+                "r_number_field": "r_number",
+                "parish_field": "parish",
+                "object_id_field": "objectid",
+                "global_id_field": "globalid"
+              },
+              "survey": {
+                "enabled": true,
+                "source_name": "Survey Cadastre",
+                "display_name": "Survey",
+                "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Survey_Cadastre/FeatureServer/0",
+                "sublayer_name": "COGO_Fabric",
+                "parcel_id_field": "objectid",
+                "pe_number_field": "PE_number",
+                "object_id_field": "objectid",
+                "global_id_field": "globalid"
+              },
+              "parish_source": {
+                "enabled": true,
+                "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/FeatureServer/0",
+                "sublayer_name": "Parishes",
+                "parish_name_field": "Parish_nam"
+              },
+              "popup_fields": []
+            }
+            """;
     }
 }

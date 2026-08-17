@@ -1285,6 +1285,8 @@ public sealed record CompareEnterpriseCadasterSettings(
 
     public string SpatialSearchMode { get; init; } = SpatialSearchModeIntersects;
     public double BufferDistanceMeters { get; init; } = 25.0;
+    public ParcelSearchParishSourceSettings ParishSource { get; init; } = ParcelSearchParishSourceSettings.Default;
+    public IReadOnlyList<ParcelSearchPopupFieldSettings> PopupFields { get; init; } = ParcelSearchPopupFieldSettings.Defaults;
 
     public static CompareEnterpriseCadasterSettings Default { get; } = new(
         false,
@@ -1355,7 +1357,9 @@ public sealed record CompareEnterpriseCadasterSettings(
             warnings.Count == 0 ? null : string.Join(" ", warnings))
         {
             SpatialSearchMode = spatialSearchMode,
-            BufferDistanceMeters = bufferDistanceMeters
+            BufferDistanceMeters = bufferDistanceMeters,
+            ParishSource = ParcelSearchParishSourceSettings.FromJson(value),
+            PopupFields = ParcelSearchPopupFieldSettings.FromJson(value)
         };
     }
 
@@ -1410,6 +1414,139 @@ public sealed record CompareEnterpriseCadasterSettings(
     }
 }
 
+public sealed record ParcelSearchPopupFieldSettings(
+    string FieldName,
+    string Alias,
+    bool Visible)
+{
+    public static IReadOnlyList<ParcelSearchPopupFieldSettings> Defaults { get; } = new[]
+    {
+        new ParcelSearchPopupFieldSettings("PID", "PID", true),
+        new ParcelSearchPopupFieldSettings("strata_extension", "Strata Extension", true),
+        new ParcelSearchPopupFieldSettings("landval_number", "LandVal No.", true),
+        new ParcelSearchPopupFieldSettings("Title_Reference", "Title Reference", true),
+        new ParcelSearchPopupFieldSettings("LT_Volume", "Volume", true),
+        new ParcelSearchPopupFieldSettings("LT_Folio", "Folio", true),
+        new ParcelSearchPopupFieldSettings("LT_Multiple", "LT Multiple", true),
+        new ParcelSearchPopupFieldSettings("r_number", "R Number", true),
+        new ParcelSearchPopupFieldSettings("R_Number", "R Number", true),
+        new ParcelSearchPopupFieldSettings("dp_number", "DP Number", true),
+        new ParcelSearchPopupFieldSettings("lot_number", "Lot Number", true),
+        new ParcelSearchPopupFieldSettings("street_address", "Street Address", true),
+        new ParcelSearchPopupFieldSettings("scheme_address", "Scheme Address", true),
+        new ParcelSearchPopupFieldSettings("Location", "Location", true),
+        new ParcelSearchPopupFieldSettings("District", "District", true),
+        new ParcelSearchPopupFieldSettings("parish", "Parish", true)
+    };
+
+    public static IReadOnlyList<ParcelSearchPopupFieldSettings> FromJson(JsonElement compareRoot)
+    {
+        if (!compareRoot.TryGetProperty("popup_fields", out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return Defaults;
+        }
+
+        var fields = value
+            .EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.Object)
+            .Select(item =>
+            {
+                var fieldName = NormalizePopupFieldName(ReadString(item, "field_name") ?? ReadString(item, "name") ?? string.Empty);
+                var alias = ReadString(item, "alias") ?? fieldName;
+                return string.IsNullOrWhiteSpace(fieldName)
+                    ? null
+                    : new ParcelSearchPopupFieldSettings(
+                        fieldName,
+                        string.IsNullOrWhiteSpace(alias) ? fieldName : alias,
+                        ReadBool(item, "visible") ?? true);
+            })
+            .Where(item => item is not null)
+            .Cast<ParcelSearchPopupFieldSettings>()
+            .ToArray();
+
+        return fields.Length == 0 ? Defaults : fields;
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim()
+            : null;
+    }
+
+    private static string NormalizePopupFieldName(string fieldName)
+    {
+        return string.Equals(fieldName, "Lv_number", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fieldName, "Lv_NUMBER", StringComparison.OrdinalIgnoreCase)
+                ? "landval_number"
+                : fieldName;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+}
+
+public sealed record ParcelSearchParishSourceSettings(
+    bool Enabled,
+    string SourceKind,
+    string SourceName,
+    string? LayerUrl,
+    string? SublayerName,
+    string ParishNameField,
+    string? Warning)
+{
+    public static ParcelSearchParishSourceSettings Default { get; } = new(
+        true,
+        "fiscal",
+        "Fiscal Cadastre Parishes",
+        null,
+        "Parishes",
+        "Parish_nam",
+        null);
+
+    public static ParcelSearchParishSourceSettings FromJson(JsonElement compareRoot)
+    {
+        if (!compareRoot.TryGetProperty("parish_source", out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return Default;
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? Default.Enabled;
+        var sourceName = ReadString(value, "source_name") ?? Default.SourceName;
+        var layerUrl = ReadString(value, "layer_url") ?? Default.LayerUrl;
+        var warning = enabled && string.IsNullOrWhiteSpace(layerUrl)
+            ? $"{sourceName} parish source is enabled but layer_url is not configured."
+            : null;
+
+        return new ParcelSearchParishSourceSettings(
+            enabled,
+            ReadString(value, "source_kind") ?? Default.SourceKind,
+            sourceName,
+            layerUrl,
+            ReadString(value, "sublayer_name") ?? Default.SublayerName,
+            ReadString(value, "parish_name_field") ?? Default.ParishNameField,
+            warning);
+    }
+
+    private static string? ReadString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+    }
+}
+
 public sealed record CompareEnterpriseCadasterSourceSettings(
     bool Enabled,
     string SourceName,
@@ -1428,6 +1565,15 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
     string? GlobalIdField,
     string? Warning)
 {
+    public string? PeNumberField { get; init; }
+    public string? SublayerName { get; init; }
+    public string? DisplayName { get; init; }
+    public string? LotNumberField { get; init; }
+    public string? CombinedVolumeFolioField { get; init; }
+    public string CombinedVolumeFolioSeparator { get; init; } = "/";
+    public string? DpNumberField { get; init; }
+    public string? RNumberField { get; init; }
+
     public static CompareEnterpriseCadasterSourceSettings Disabled(string sourceName)
     {
         return new CompareEnterpriseCadasterSourceSettings(
@@ -1446,7 +1592,17 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
             "suid",
             "objectid",
             "globalid",
-            null);
+            null)
+        {
+            PeNumberField = "pe_number",
+            SublayerName = null,
+            DisplayName = sourceName,
+            LotNumberField = "lot_number",
+            CombinedVolumeFolioField = null,
+            CombinedVolumeFolioSeparator = "/",
+            DpNumberField = "dp_number",
+            RNumberField = "r_number"
+        };
     }
 
     public static CompareEnterpriseCadasterSourceSettings FromJson(
@@ -1462,6 +1618,29 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
         var enabled = ReadBool(value, "enabled") ?? fallback.Enabled;
         var sourceName = ReadString(value, "source_name") ?? fallback.SourceName;
         var layerUrl = ReadString(value, "layer_url") ?? fallback.LayerUrl;
+        var parcelIdField = NormalizeParcelSearchFieldName(propertyName, "parcel_id_field", ReadString(value, "parcel_id_field") ?? fallback.ParcelIdField);
+        var pidField = NormalizeParcelSearchFieldName(propertyName, "pid_field", ReadString(value, "pid_field") ?? fallback.PidField);
+        var volumeField = NormalizeParcelSearchFieldName(propertyName, "volume_field", ReadString(value, "volume_field") ?? fallback.VolumeField);
+        var folioField = NormalizeParcelSearchFieldName(propertyName, "folio_field", ReadString(value, "folio_field") ?? fallback.FolioField);
+        var landValuationField = NormalizeParcelSearchFieldName(propertyName, "land_valuation_number_field", ReadString(value, "land_valuation_number_field") ?? fallback.LandValuationNumberField);
+        if (string.Equals(propertyName, "legal", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(landValuationField))
+        {
+            landValuationField = "Lv_NUMBER";
+        }
+        var peNumberField = NormalizeParcelSearchFieldName(propertyName, "pe_number_field", ReadString(value, "pe_number_field") ?? fallback.PeNumberField);
+        var lotNumberField = NormalizeParcelSearchFieldName(propertyName, "lot_number_field", ReadString(value, "lot_number_field") ?? fallback.LotNumberField);
+        var combinedVolumeFolioField = NormalizeParcelSearchFieldName(propertyName, "combined_volume_folio_field", ReadString(value, "combined_volume_folio_field") ?? fallback.CombinedVolumeFolioField);
+        var dpNumberField = NormalizeParcelSearchFieldName(propertyName, "dp_number_field", ReadString(value, "dp_number_field") ?? fallback.DpNumberField);
+        var rNumberField = NormalizeParcelSearchFieldName(propertyName, "r_number_field", ReadString(value, "r_number_field") ?? fallback.RNumberField);
+        if (string.Equals(propertyName, "legal", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(combinedVolumeFolioField)
+            && string.Equals(volumeField, "vol_fol", StringComparison.OrdinalIgnoreCase))
+        {
+            volumeField = string.Empty;
+            combinedVolumeFolioField = "vol_folio";
+        }
+
         var warning = enabled && string.IsNullOrWhiteSpace(layerUrl)
             ? $"{sourceName} is enabled but layer_url is not configured."
             : null;
@@ -1470,11 +1649,11 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
             enabled,
             sourceName,
             layerUrl,
-            ReadString(value, "parcel_id_field") ?? fallback.ParcelIdField,
-            ReadString(value, "pid_field") ?? fallback.PidField,
-            ReadString(value, "volume_field") ?? fallback.VolumeField,
-            ReadString(value, "folio_field") ?? fallback.FolioField,
-            ReadString(value, "land_valuation_number_field") ?? fallback.LandValuationNumberField,
+            parcelIdField ?? fallback.ParcelIdField,
+            pidField,
+            volumeField,
+            folioField,
+            landValuationField,
             ReadString(value, "owner_field") ?? fallback.OwnerField,
             ReadString(value, "occupant_field") ?? fallback.OccupantField,
             ReadString(value, "taxpayer_field") ?? fallback.TaxpayerField,
@@ -1482,7 +1661,61 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
             ReadString(value, "suid_field") ?? fallback.SuidField,
             ReadString(value, "object_id_field") ?? fallback.ObjectIdField,
             ReadString(value, "global_id_field") ?? fallback.GlobalIdField,
-            warning);
+            warning)
+        {
+            PeNumberField = peNumberField,
+            SublayerName = ReadString(value, "sublayer_name") ?? fallback.SublayerName,
+            DisplayName = ReadString(value, "display_name") ?? fallback.DisplayName ?? sourceName,
+            LotNumberField = lotNumberField,
+            CombinedVolumeFolioField = combinedVolumeFolioField,
+            CombinedVolumeFolioSeparator = ReadString(value, "combined_volume_folio_separator") ?? fallback.CombinedVolumeFolioSeparator,
+            DpNumberField = dpNumberField,
+            RNumberField = rNumberField
+        };
+    }
+
+    private static string? NormalizeParcelSearchFieldName(string sourceKey, string settingName, string? fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(fieldName))
+        {
+            return fieldName;
+        }
+
+        if (string.Equals(sourceKey, "legal", StringComparison.OrdinalIgnoreCase))
+        {
+            return settingName switch
+            {
+                "parcel_id_field" or "pid_field" when string.Equals(fieldName, "cad_number", StringComparison.OrdinalIgnoreCase) => "lot_number",
+                "land_valuation_number_field" when string.Equals(fieldName, "lv_number", StringComparison.OrdinalIgnoreCase) => "Lv_NUMBER",
+                "combined_volume_folio_field" when string.Equals(fieldName, "vol_fol", StringComparison.OrdinalIgnoreCase) => "vol_folio",
+                _ => fieldName
+            };
+        }
+
+        if (string.Equals(sourceKey, "fiscal", StringComparison.OrdinalIgnoreCase))
+        {
+            return fieldName.ToLowerInvariant() switch
+            {
+                "lv_number" => "Lv_number",
+                "lt_volume" => "LT_Volume",
+                "lt_folio" => "LT_Folio",
+                "title_reference" => "Title_Reference",
+                "r_number" => "R_Number",
+                _ => fieldName
+            };
+        }
+
+        if (string.Equals(sourceKey, "survey", StringComparison.OrdinalIgnoreCase))
+        {
+            return settingName is "parcel_id_field" or "pid_field" or "pe_number_field"
+                && (string.Equals(fieldName, "parcel_id", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(fieldName, "pid", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(fieldName, "pe_number", StringComparison.OrdinalIgnoreCase))
+                    ? "PE_number"
+                    : fieldName;
+        }
+
+        return fieldName;
     }
 
     public IReadOnlyList<string> EvidenceFields()
@@ -1497,6 +1730,11 @@ public sealed record CompareEnterpriseCadasterSourceSettings(
             OwnerField,
             OccupantField,
             TaxpayerField,
+            PeNumberField,
+            LotNumberField,
+            CombinedVolumeFolioField,
+            DpNumberField,
+            RNumberField,
             ParishField,
             SuidField,
             ObjectIdField,

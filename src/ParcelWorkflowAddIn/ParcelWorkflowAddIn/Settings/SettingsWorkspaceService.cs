@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Review;
@@ -10,6 +11,7 @@ namespace ParcelWorkflowAddIn.Settings;
 
 public sealed class SettingsWorkspaceService
 {
+    private static readonly Regex ArcGisFieldNamePattern = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     public const string GsiPasswordModeEnvironmentVariable = "environment_variable";
     public const string GsiPasswordModeDirect = "direct";
     public const string OpenAiExtractionProfileCustom = "custom";
@@ -155,6 +157,7 @@ public sealed class SettingsWorkspaceService
             EnterpriseParcelFabricRequireActiveMap = transactionSettings.EnterpriseParcelFabricReview.RequireActiveMap,
             CompareEnterpriseCadasterSpatialSearchMode = transactionSettings.CompareEnterpriseCadaster.SpatialSearchMode,
             CompareEnterpriseCadasterBufferDistanceMeters = transactionSettings.CompareEnterpriseCadaster.BufferDistanceMeters,
+            CompareEnterpriseCadasterSourcesJson = ReadJson(settingsRoot, "compare_enterprise_cadaster"),
             WorkingMapLayers = transactionSettings.WorkingMap.ReferenceLayers
                 .Select(EditableWorkingMapLayer.FromSettings)
                 .ToList(),
@@ -268,12 +271,39 @@ public sealed class SettingsWorkspaceService
 
         if (!CompareEnterpriseCadasterSettings.IsSupportedSpatialSearchMode(document.CompareEnterpriseCadasterSpatialSearchMode))
         {
-            messages.Add(new("Map Layers", "Compare Spatial Search", $"Compare spatial search mode '{document.CompareEnterpriseCadasterSpatialSearchMode}' is not supported."));
+            messages.Add(new("Parcel Search", "Compare Spatial Search", $"Compare spatial search mode '{document.CompareEnterpriseCadasterSpatialSearchMode}' is not supported."));
         }
 
         if (document.CompareEnterpriseCadasterBufferDistanceMeters <= 0)
         {
-            messages.Add(new("Map Layers", "Compare Buffer Distance", "Compare buffer distance must be a positive number of meters."));
+            messages.Add(new("Parcel Search", "Compare Buffer Distance", "Compare buffer distance must be a positive number of meters."));
+        }
+
+        if (string.IsNullOrWhiteSpace(document.CompareEnterpriseCadasterSourcesJson))
+        {
+            messages.Add(new("Parcel Search", "Parcel Search Sources", "Parcel search source mappings JSON is required."));
+        }
+        else
+        {
+            try
+            {
+                var node = JsonNode.Parse(document.CompareEnterpriseCadasterSourcesJson) as JsonObject;
+                if (node is null)
+                {
+                    messages.Add(new("Parcel Search", "Parcel Search Sources", "Parcel search source mappings must be a JSON object."));
+                }
+                else
+                {
+                    ValidateParcelSearchSourceNode(node, "legal", messages);
+                    ValidateParcelSearchSourceNode(node, "fiscal", messages);
+                    ValidateParcelSearchSourceNode(node, "survey", messages);
+                    ValidateParcelSearchParishSourceNode(node, messages);
+                }
+            }
+            catch (JsonException exception)
+            {
+                messages.Add(new("Parcel Search", "Parcel Search Sources", $"Parcel search source mappings must be valid JSON. {exception.Message}"));
+            }
         }
 
         var closureMaxDistance = ParsePositiveDouble(document.ClosureDefaultMaxClosureDistanceM);
@@ -814,10 +844,133 @@ public sealed class SettingsWorkspaceService
         SettingsWorkspaceDocument document,
         JsonObject? existingRoot)
     {
-        var compare = existingRoot?.DeepClone() as JsonObject ?? new JsonObject();
+        var compare = !string.IsNullOrWhiteSpace(document.CompareEnterpriseCadasterSourcesJson)
+            ? JsonNode.Parse(document.CompareEnterpriseCadasterSourcesJson) as JsonObject ?? new JsonObject()
+            : existingRoot?.DeepClone() as JsonObject ?? new JsonObject();
         compare["spatial_search_mode"] = CompareEnterpriseCadasterSettings.NormalizeSpatialSearchMode(document.CompareEnterpriseCadasterSpatialSearchMode);
         compare["buffer_distance_meters"] = Math.Max(0.001, document.CompareEnterpriseCadasterBufferDistanceMeters);
         return compare;
+    }
+
+    private static void ValidateParcelSearchSourceNode(
+        JsonObject compareRoot,
+        string sourceKey,
+        List<SettingsWorkspaceValidationMessage> messages)
+    {
+        if (compareRoot[sourceKey] is not JsonObject source)
+        {
+            messages.Add(new("Parcel Search", "Parcel Search Sources", $"Parcel search source '{sourceKey}' must be configured."));
+            return;
+        }
+
+        var enabled = source["enabled"]?.GetValue<bool?>() ?? false;
+        if (!enabled)
+        {
+            return;
+        }
+
+        foreach (var field in new[]
+        {
+            "source_name",
+            "layer_url",
+            "parcel_id_field",
+            "sublayer_name"
+        })
+        {
+            if (source[field] is not JsonValue value
+                || !value.TryGetValue<string>(out var text)
+                || string.IsNullOrWhiteSpace(text))
+            {
+                messages.Add(new("Parcel Search", "Parcel Search Sources", $"Enabled parcel search source '{sourceKey}' should configure {field}."));
+            }
+        }
+
+        if (string.Equals(sourceKey, "survey", StringComparison.OrdinalIgnoreCase)
+            && (source["pe_number_field"] is not JsonValue surveyPeValue
+                || !surveyPeValue.TryGetValue<string>(out var surveyPeField)
+                || string.IsNullOrWhiteSpace(surveyPeField)))
+        {
+            messages.Add(new("Parcel Search", "Parcel Search Sources", "Enabled survey parcel search source should configure pe_number_field."));
+        }
+
+        if (!string.Equals(sourceKey, "survey", StringComparison.OrdinalIgnoreCase)
+            && source["combined_volume_folio_field"] is null
+            && source["volume_field"] is null
+            && source["folio_field"] is null)
+        {
+            messages.Add(new("Parcel Search", "Parcel Search Sources", $"Enabled parcel search source '{sourceKey}' should configure a volume/folio field mapping."));
+        }
+
+        ValidateArcGisFieldNames(
+            source,
+            $"parcel search source '{sourceKey}'",
+            messages,
+            "parcel_id_field",
+            "pid_field",
+            "volume_field",
+            "folio_field",
+            "land_valuation_number_field",
+            "owner_field",
+            "occupant_field",
+            "taxpayer_field",
+            "parish_field",
+            "suid_field",
+            "object_id_field",
+            "global_id_field",
+            "pe_number_field",
+            "lot_number_field",
+            "combined_volume_folio_field",
+            "dp_number_field",
+            "r_number_field");
+    }
+
+    private static void ValidateParcelSearchParishSourceNode(
+        JsonObject compareRoot,
+        List<SettingsWorkspaceValidationMessage> messages)
+    {
+        if (compareRoot["parish_source"] is not JsonObject source)
+        {
+            messages.Add(new("Parcel Search", "Parcel Search Sources", "Parcel search parish_source should be configured for the parish selector."));
+            return;
+        }
+
+        var enabled = source["enabled"]?.GetValue<bool?>() ?? false;
+        if (!enabled)
+        {
+            return;
+        }
+
+        foreach (var field in new[] { "layer_url", "sublayer_name", "parish_name_field" })
+        {
+            if (source[field] is not JsonValue value
+                || !value.TryGetValue<string>(out var text)
+                || string.IsNullOrWhiteSpace(text))
+            {
+                messages.Add(new("Parcel Search", "Parcel Search Sources", $"Enabled parish source should configure {field}."));
+            }
+        }
+
+        ValidateArcGisFieldNames(source, "parcel search parish_source", messages, "parish_name_field");
+    }
+
+    private static void ValidateArcGisFieldNames(
+        JsonObject source,
+        string label,
+        List<SettingsWorkspaceValidationMessage> messages,
+        params string[] fieldSettingNames)
+    {
+        foreach (var settingName in fieldSettingNames)
+        {
+            if (source[settingName] is not JsonValue value || !value.TryGetValue<string>(out var fieldName) || string.IsNullOrWhiteSpace(fieldName))
+            {
+                continue;
+            }
+
+            if (!ArcGisFieldNamePattern.IsMatch(fieldName.Trim()))
+            {
+                messages.Add(new("Parcel Search", "Parcel Search Sources", $"{label} has invalid ArcGIS field name syntax in {settingName}."));
+            }
+        }
     }
 
     private static JsonObject CreateWorkingMapNode(SettingsWorkspaceDocument document, JsonObject? existingRoot)

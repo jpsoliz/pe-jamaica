@@ -375,9 +375,25 @@ public partial class ConfigurationWindow : ProWindow
 
     private static string? ReadJsonString(JsonObject node, string propertyName)
     {
-        return node.TryGetPropertyValue(propertyName, out var value) && value is not null
-            ? value.GetValue<string>()
-            : null;
+        return node.TryGetPropertyValue(propertyName, out var value)
+            && value is JsonValue jsonValue
+            && jsonValue.TryGetValue<string>(out var text)
+                ? text
+                : null;
+    }
+
+    private static bool? ReadJsonBool(JsonObject node, string propertyName)
+    {
+        return node.TryGetPropertyValue(propertyName, out var value)
+            && value is JsonValue jsonValue
+            && jsonValue.TryGetValue<bool>(out var result)
+                ? result
+                : null;
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
     }
 
     private void ReloadWorkspace(string? footerMessage = null)
@@ -456,6 +472,8 @@ public partial class ConfigurationWindow : ProWindow
         RenderReadinessRules(document.ReadinessRules);
         SetSelectedTag(CompareSpatialSearchModeComboBox, document.CompareEnterpriseCadasterSpatialSearchMode);
         CompareBufferDistanceMetersTextBox.Text = document.CompareEnterpriseCadasterBufferDistanceMeters.ToString("0.###");
+        CompareEnterpriseCadasterSourcesTextBox.Text = document.CompareEnterpriseCadasterSourcesJson;
+        RenderParcelSearchSourceSummary(document.CompareEnterpriseCadasterSourcesJson);
         WorkingMapLayersGrid.ItemsSource = document.WorkingMapLayers.Select(layer => layer.Clone()).ToList();
         EnterpriseWorkingEnabledCheckBox.IsChecked = document.EnterpriseWorkingEnabled;
         EnterpriseWorkingServiceRootTextBox.Text = document.EnterpriseWorkingServiceRoot;
@@ -575,6 +593,8 @@ public partial class ConfigurationWindow : ProWindow
         document.CompareEnterpriseCadasterBufferDistanceMeters = ParsePositiveDouble(
             CompareBufferDistanceMetersTextBox.Text,
             document.CompareEnterpriseCadasterBufferDistanceMeters);
+        document.CompareEnterpriseCadasterSourcesJson = CompareEnterpriseCadasterSourcesTextBox.Text.Trim();
+        RenderParcelSearchSourceSummary(document.CompareEnterpriseCadasterSourcesJson);
         WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         WorkingMapLayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
         document.WorkingMapLayers = WorkingMapLayersGrid.Items
@@ -889,6 +909,107 @@ public partial class ConfigurationWindow : ProWindow
         }
     }
 
+    private void RenderParcelSearchSourceSummary(string settingsJson)
+    {
+        var rows = new List<ParcelSearchSourceSummaryRow>();
+        try
+        {
+            var root = JsonNode.Parse(settingsJson) as JsonObject;
+            if (root is null)
+            {
+                rows.Add(new ParcelSearchSourceSummaryRow("Settings", "Invalid", "JSON object required", "Fix the parcel search mapping JSON.", string.Empty));
+                ParcelSearchSourceSummaryListView.ItemsSource = rows;
+                return;
+            }
+
+            rows.Add(BuildParcelSearchSourceSummaryRow(root, "legal", "Legal"));
+            rows.Add(BuildParcelSearchSourceSummaryRow(root, "fiscal", "Cadastral"));
+            rows.Add(BuildParcelSearchSourceSummaryRow(root, "survey", "Survey"));
+            rows.Add(BuildParcelSearchParishSummaryRow(root));
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            rows.Add(new ParcelSearchSourceSummaryRow("Settings", "Invalid", "JSON parse error", exception.Message, string.Empty));
+        }
+
+        ParcelSearchSourceSummaryListView.ItemsSource = rows;
+    }
+
+    private static ParcelSearchSourceSummaryRow BuildParcelSearchSourceSummaryRow(JsonObject root, string key, string displayName)
+    {
+        if (root[key] is not JsonObject source)
+        {
+            return new ParcelSearchSourceSummaryRow(displayName, "Missing", "Not configured", "Add this source mapping.", string.Empty);
+        }
+
+        var enabled = ReadJsonBool(source, "enabled") ?? false;
+        var layerUrl = ReadJsonString(source, "layer_url");
+        var sublayer = ReadJsonString(source, "sublayer_name");
+        var layer = string.IsNullOrWhiteSpace(layerUrl)
+            ? "Layer URL missing"
+            : string.IsNullOrWhiteSpace(sublayer)
+                ? layerUrl
+                : $"{sublayer} - {layerUrl}";
+        var fields = new[]
+        {
+            ("Volume", ReadJsonString(source, "volume_field")),
+            ("Folio", ReadJsonString(source, "folio_field")),
+            ("Vol/Folio", ReadJsonString(source, "combined_volume_folio_field")),
+            ("Name", FirstNonBlank(
+                ReadJsonString(source, "owner_field"),
+                ReadJsonString(source, "occupant_field"),
+                ReadJsonString(source, "taxpayer_field"))),
+            ("PE", ReadJsonString(source, "pe_number_field")),
+            ("LandVal", ReadJsonString(source, "land_valuation_number_field")),
+            ("Parish", ReadJsonString(source, "parish_field"))
+        }
+            .Where(field => !string.IsNullOrWhiteSpace(field.Item2))
+            .Select(field => $"{field.Item1}: {field.Item2}")
+            .ToArray();
+        var displayFields = new[]
+        {
+            ("PID", ReadJsonString(source, "pid_field")),
+            ("Parcel ID", ReadJsonString(source, "parcel_id_field")),
+            ("Lot", ReadJsonString(source, "lot_number_field")),
+            ("Object ID", ReadJsonString(source, "object_id_field")),
+            ("Global ID", ReadJsonString(source, "global_id_field"))
+        }
+            .Where(field => !string.IsNullOrWhiteSpace(field.Item2))
+            .Select(field => $"{field.Item1}: {field.Item2}")
+            .ToArray();
+
+        return new ParcelSearchSourceSummaryRow(
+            displayName,
+            enabled ? "Enabled" : "Disabled",
+            layer,
+            fields.Length == 0 ? "No search fields configured" : string.Join("; ", fields),
+            displayFields.Length == 0 ? "No display fields configured" : string.Join("; ", displayFields));
+    }
+
+    private static ParcelSearchSourceSummaryRow BuildParcelSearchParishSummaryRow(JsonObject root)
+    {
+        if (root["parish_source"] is not JsonObject source)
+        {
+            return new ParcelSearchSourceSummaryRow("Parish List", "Missing", "Not configured", "Add parish_source.", string.Empty);
+        }
+
+        var enabled = ReadJsonBool(source, "enabled") ?? true;
+        var layerUrl = ReadJsonString(source, "layer_url");
+        var sublayer = ReadJsonString(source, "sublayer_name");
+        var layer = string.IsNullOrWhiteSpace(layerUrl)
+            ? "Layer URL missing"
+            : string.IsNullOrWhiteSpace(sublayer)
+                ? layerUrl
+                : $"{sublayer} - {layerUrl}";
+
+        return new ParcelSearchSourceSummaryRow(
+            "Parish List",
+            enabled ? "Enabled" : "Disabled",
+            layer,
+            $"Parish: {ReadJsonString(source, "parish_name_field") ?? "(missing)"}",
+            "Combo source");
+    }
+
     private void ApplyReviewWorkspacePresentation()
     {
         var mode = GetSelectedTag(ReviewWorkspaceModeComboBox, InnolaTransactionSettings.ReviewWorkspaceModeNormal);
@@ -1082,6 +1203,13 @@ public partial class ConfigurationWindow : ProWindow
         ComboBox SeverityComboBox,
         TextBox? MinSegmentCountTextBox,
         CheckBox? BehaviorCheckBox);
+
+    private sealed record ParcelSearchSourceSummaryRow(
+        string Source,
+        string Status,
+        string Layer,
+        string SearchFields,
+        string DisplayFields);
 
     private sealed record EnterpriseAdminProcessResult(
         int ExitCode,

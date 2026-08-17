@@ -10,7 +10,8 @@ $projectDir = Split-Path -Parent $projectPath
 $configDamlPath = Join-Path $Root 'src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Config.daml'
 $outputDir = Join-Path $Root "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/bin/$Configuration/net8.0-windows"
 $packagePath = Join-Path $outputDir 'ParcelWorkflowAddIn.esriAddInX'
-$intermediateRoot = Join-Path $Root ".artifacts\msbuild-obj\ParcelWorkflowAddIn\$Configuration\"
+$intermediateRunId = [guid]::NewGuid().ToString('N')
+$intermediateRoot = Join-Path $Root ".artifacts\msbuild-obj\ParcelWorkflowAddIn\$Configuration\package-$intermediateRunId\"
 $intermediateProjectRoot = Join-Path $intermediateRoot 'project\'
 $intermediateOutputPath = Join-Path $intermediateProjectRoot 'net8.0-windows\'
 $sdkTargets = 'C:\Program Files\ArcGIS\Pro\bin\Esri.ProApp.SDK.Desktop.targets'
@@ -86,6 +87,11 @@ function Update-ConfigDamlAddInInfoVersion {
 
     $addInInfoStartTag = $match.Value
     if ($addInInfoStartTag -match '\bversion\s*=') {
+        $currentVersionMatch = [regex]::Match($addInInfoStartTag, '\bversion\s*=\s*"(?<version>\d+\.\d+\.\d+)"')
+        if ($currentVersionMatch.Success -and $currentVersionMatch.Groups['version'].Value -eq $Version) {
+            return $Text
+        }
+
         return Update-RequiredVersionText `
             $Text `
             '(<AddInInfo\b[^>]*?\bversion\s*=\s*")\d+\.\d+\.\d+(")' `

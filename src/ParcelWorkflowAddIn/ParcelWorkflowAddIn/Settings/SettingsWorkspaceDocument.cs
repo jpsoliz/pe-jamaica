@@ -12,6 +12,7 @@ public sealed class SettingsWorkspaceDocument
         "Structure Rules",
         "Spatial Workspace",
         "Map Layers",
+        "Parcel Search",
         "Enterprise Admin"
     };
 
@@ -128,6 +129,7 @@ public sealed class SettingsWorkspaceDocument
 
     public string CompareEnterpriseCadasterSpatialSearchMode { get; set; } = "intersects";
     public double CompareEnterpriseCadasterBufferDistanceMeters { get; set; } = 25.0;
+    public string CompareEnterpriseCadasterSourcesJson { get; set; } = string.Empty;
 
     public List<EditablePreflightRule> PreflightRules { get; set; } = new();
     public List<EditableReadinessRule> ReadinessRules { get; set; } = new();

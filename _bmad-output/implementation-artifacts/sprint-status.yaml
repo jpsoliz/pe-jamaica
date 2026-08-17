@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-10
+# last_updated: 2026-08-16
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-10
+last_updated: 2026-08-16
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -161,6 +161,7 @@ development_status:
   8-4e-add-compare-task-lifecycle-actions-and-reopen-active-workspace: review
   8-5-persist-compare-decision-and-unlock-commit-stage: review
   8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
+  8-7-add-parcel-search-dockpane-tab: done
   epic-8-retrospective: optional
 
   epic-9: in-progress

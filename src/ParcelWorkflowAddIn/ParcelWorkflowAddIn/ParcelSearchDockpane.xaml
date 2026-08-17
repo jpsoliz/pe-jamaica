@@ -1,0 +1,182 @@
+<UserControl x:Class="ParcelWorkflowAddIn.ParcelSearchDockpane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ParcelWorkflowAddIn"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=local:ParcelSearchDockpaneViewModel}"
+             Background="#F7F8FA"
+             FontFamily="Segoe UI">
+  <UserControl.Resources>
+    <Style x:Key="LabelText" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#52616B" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,8,6" />
+    </Style>
+    <Style x:Key="InputBox" TargetType="TextBox">
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style x:Key="ActionButton" TargetType="Button">
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="10,3" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="BorderBrush" Value="#C9D2D8" />
+      <Setter Property="Background" Value="#FFFFFF" />
+    </Style>
+    <Style x:Key="PanelBox" TargetType="Border">
+      <Setter Property="BorderBrush" Value="#D8DFE4" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="#FFFFFF" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="8" />
+      <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+  </UserControl.Resources>
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="10">
+      <Border Style="{StaticResource PanelBox}">
+        <StackPanel>
+          <TextBlock Text="Scope"
+                     FontWeight="SemiBold"
+                     Foreground="#1F2933"
+                     Margin="0,0,0,8" />
+          <Grid Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Sources" Style="{StaticResource LabelText}" />
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        Margin="0,0,0,6">
+              <CheckBox Content="Legal"
+                        IsChecked="{Binding SearchLegal, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        Margin="0,3,14,0" />
+              <CheckBox Content="Cadastral"
+                        IsChecked="{Binding SearchCadastral, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        Margin="0,3,14,0" />
+              <CheckBox Content="Survey"
+                        IsChecked="{Binding SearchSurvey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        Margin="0,3,0,0" />
+            </StackPanel>
+          </Grid>
+
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Parish" Style="{StaticResource LabelText}" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding ParishOptions}"
+                      SelectedItem="{Binding SelectedParish, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      MinHeight="26"
+                      IsEditable="False" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Style="{StaticResource PanelBox}">
+        <StackPanel>
+          <TextBlock Text="Search Criteria"
+                     FontWeight="SemiBold"
+                     Foreground="#1F2933"
+                     Margin="0,0,0,8" />
+
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="Volume" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="0" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="1" Text="Folio" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding Folio, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="2" Text="Name" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="2" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="3" Text="PE Number" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="3" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding PeNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="4" Text="LandVal No." Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="4" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding LandValuationNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="5" Text="DP Number" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="5" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding DpNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Grid.Row="6" Text="R Number" Style="{StaticResource LabelText}" />
+            <TextBox Grid.Row="6" Grid.Column="1" Style="{StaticResource InputBox}" Text="{Binding RNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+          </Grid>
+
+          <TextBlock Text="* = any characters. ? = one character for number-like text."
+                     Foreground="#53636A"
+                     TextWrapping="Wrap"
+                     FontSize="11"
+                     Margin="0,4,0,0" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+        <Button Content="Search" Command="{Binding SearchCommand}" Style="{StaticResource ActionButton}" />
+        <Button Content="Clear Search" Command="{Binding ClearSearchCommand}" Style="{StaticResource ActionButton}" />
+      </StackPanel>
+
+      <Border Style="{StaticResource PanelBox}">
+        <StackPanel>
+          <TextBlock Text="Results"
+                     FontWeight="SemiBold"
+                     Foreground="#1F2933"
+                     Margin="0,0,0,6" />
+          <TextBlock Text="{Binding ResultCount, StringFormat={}{0} parcels found}"
+                     Margin="0,0,0,2" />
+          <TextBlock Text="{Binding ResultLayerName, StringFormat=Layer: {0}}"
+                     Margin="0,0,0,2" />
+          <TextBlock Text="{Binding LastUpdatedText, StringFormat=Last updated: {0}}"
+                     Margin="0,0,0,8" />
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Rectangle Width="18" Height="8" Fill="#2563EB" Margin="0,4,4,0" />
+            <TextBlock Text="Legal" FontSize="11" Margin="0,0,12,0" />
+            <Rectangle Width="18" Height="8" Fill="#D97706" Margin="0,4,4,0" />
+            <TextBlock Text="Cadastral" FontSize="11" Margin="0,0,12,0" />
+            <Rectangle Width="18" Height="8" Fill="#059669" Margin="0,4,4,0" />
+            <TextBlock Text="Survey" FontSize="11" />
+          </StackPanel>
+          <Button Content="Zoom to Results"
+                  Command="{Binding ZoomToResultsCommand}"
+                  Style="{StaticResource ActionButton}"
+                  HorizontalAlignment="Left" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock Text="{Binding StatusText}"
+                 TextWrapping="NoWrap"
+                 TextTrimming="CharacterEllipsis"
+                 Foreground="#1F2933"
+                 FontSize="11"
+                 Margin="0,0,0,6" />
+      <TextBlock Text="{Binding DiagnosticsText}"
+                 TextWrapping="Wrap"
+                 Foreground="#7A4B00"
+                 FontSize="11" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

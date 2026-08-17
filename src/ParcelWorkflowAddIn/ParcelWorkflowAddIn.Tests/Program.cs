@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.Tests.Compare;
 using ParcelWorkflowAddIn.Tests.Enterprise;
 using ParcelWorkflowAddIn.Tests.Innola;
 using ParcelWorkflowAddIn.Tests.Intake;
+using ParcelWorkflowAddIn.Tests.ParcelSearch;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Tests.Settings;
 using ParcelWorkflowAddIn.Tests.Workflow;
@@ -167,6 +168,40 @@ var tests = new (string Name, Action Run)[]
     ("compare enterprise cadaster classifier sorts spatial relationships", CompareEnterpriseCadasterEvidenceTests.ClassifierSortsOverlapsBeforeTouchesAndExcludedRowsLast),
     ("compare enterprise cadaster viewmodel loads rows and seeds search", () => CompareEnterpriseCadasterEvidenceTests.ViewModelLoadsSpatialRowsAndSeedsManualSearch().GetAwaiter().GetResult()),
     ("compare enterprise cadaster draft persists included evidence", CompareEnterpriseCadasterEvidenceTests.DraftPersistsIncludedSpatialEvidence),
+    ("parcel search cadastral scope plans fiscal source", ParcelSearchServiceTests.CadastralScopePlansFiscalSource),
+    ("parcel search all scope plans legal fiscal and survey", ParcelSearchServiceTests.AllScopePlansLegalFiscalAndSurvey),
+    ("parcel search multiple selected scopes plan only selected sources", ParcelSearchServiceTests.MultipleSelectedScopesPlanOnlyThoseSources),
+    ("parcel search empty explicit scope blocks search", ParcelSearchServiceTests.EmptyExplicitScopeBlocksSearch),
+    ("parcel search empty criteria blocks search", ParcelSearchServiceTests.EmptyCriteriaBlocksSearch),
+    ("parcel search wildcards and case-insensitive name query", ParcelSearchServiceTests.WildcardsAndCaseInsensitiveNameBuildExpectedWhereClause),
+    ("parcel search literal sql like wildcards are escaped", ParcelSearchServiceTests.LiteralSqlLikeWildcardsAreEscaped),
+    ("parcel search missing field mapping excludes source with warning", ParcelSearchServiceTests.MissingFieldMappingExcludesSourceWithWarning),
+    ("parcel search working gdb path uses user scoped name", ParcelSearchServiceTests.WorkingGdbPathUsesUserScopedName),
+    ("parcel search result layer contract includes metadata", ParcelSearchServiceTests.ResultLayerContractIncludesRequiredMetadata),
+    ("parcel search clear keeps reusable layer", ParcelSearchServiceTests.ClearSearchKeepsReusableLayer),
+    ("parcel search settings parse sublayers fields and parish source", ParcelSearchServiceTests.SettingsParseSublayersSourceSpecificFieldsAndParishSource),
+    ("parcel search settings default missing legal land val field to live name", ParcelSearchServiceTests.SettingsDefaultMissingLegalLandValFieldToLiveName),
+    ("parcel search settings default missing fiscal r number field to live name", ParcelSearchServiceTests.SettingsDefaultMissingFiscalRNumberFieldToLiveName),
+    ("parcel search settings migrate legacy parcel search field names", ParcelSearchServiceTests.SettingsMigrateLegacyParcelSearchFieldNames),
+    ("parcel search legal combined volume folio field", ParcelSearchServiceTests.CombinedVolumeFolioUsesConfiguredLegalField),
+    ("parcel search fiscal combined title reference wildcard", ParcelSearchServiceTests.CombinedVolumeOnlyUsesWildcardForMissingFolio),
+    ("parcel search fiscal volume and folio prefer separate fields", ParcelSearchServiceTests.FiscalVolumeAndFolioPreferSeparateConfiguredFields),
+    ("parcel search source specific identifiers are out fields", ParcelSearchServiceTests.SourceSpecificIdentifierFieldsAreIncludedInOutFields),
+    ("parcel search dp and r number criteria use configured fields", ParcelSearchServiceTests.DpAndRNumberCriteriaUseConfiguredFields),
+    ("parcel search fiscal volume folio and r number use live field names", ParcelSearchServiceTests.FiscalVolumeFolioAndRNumberUseLiveLayerFieldNames),
+    ("parcel search active criteria plan per parcel label fields", ParcelSearchServiceTests.ActiveSearchCriteriaPlanPerParcelLabelFields),
+    ("parcel search landval only plans one landval label field", ParcelSearchServiceTests.LandValOnlySearchPlansOneLandValLabelField),
+    ("parcel search result labels resolve configured fields to actual returned fields", ParcelSearchServiceTests.ResultLabelsResolveConfiguredFieldsToActualReturnedFields),
+    ("parcel search result label diagnostics show configured actual and sample values", ParcelSearchServiceTests.ResultLabelDiagnosticsShowConfiguredActualAndSampleValues),
+    ("parcel search map integration queries selected sources and materializes results", ParcelSearchServiceTests.MapIntegrationQueriesSelectedSourcesAndMaterializesResults),
+    ("parcel search map integration requires active map before querying", ParcelSearchServiceTests.MapIntegrationRequiresActiveMapBeforeQuerying),
+    ("parcel search specific parish spatial filter is passed to source queries", ParcelSearchServiceTests.SpecificParishSpatialFilterIsPassedToSourceQueries),
+    ("parcel search saint parish spatial filter uses st aliases", ParcelSearchServiceTests.SaintParishSpatialFilterUsesStAliases),
+    ("parcel search attribute parish fallback uses st aliases", ParcelSearchServiceTests.AttributeParishFallbackUsesStAliases),
+    ("parcel search all failed source queries return failure", ParcelSearchServiceTests.AllFailedSourceQueriesReturnFailure),
+    ("parcel search parish options provider reads configured names", ParcelSearchServiceTests.ParishOptionsProviderReadsDistinctConfiguredNames),
+    ("parcel search feature server query uses wildcard out fields for service compatibility", ParcelSearchServiceTests.FeatureServerQueryUsesWildcardOutFieldsForServiceCompatibility),
+    ("parcel search missing parish geometry stops unfiltered source queries", ParcelSearchServiceTests.MissingParishGeometryStopsUnfilteredSourceQueries),
     ("source input profile detects scenario a", SourceInputProfileDetectorTests.DetectsScenarioAFromComputationAndPlanRoles),
     ("source input profile detects scenario b", SourceInputProfileDetectorTests.DetectsScenarioBFromPointsDwgAndPlanRoles),
     ("source input profile detects pxa survey plan pdf", SourceInputProfileDetectorTests.DetectsPxaSurveyPlanPdfFromSurveyPlanRole),

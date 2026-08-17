@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-                          desktopVersion="3.6" version="1.1.134">
+                          desktopVersion="3.6" version="1.1.186">
     <Name>Cadastre Tool by Sidwell</Name>
     <Image>Images\Branding\CadastreTool32.png</Image>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
@@ -20,6 +20,7 @@
       <groups>
         <group id="ParcelWorkflow_Group" caption="Cadastre tools" appearsOnAddInTab="true">
           <button refID="ParcelWorkflow_LoginButton" />
+          <button refID="ParcelWorkflow_SearchDockpaneButton" />
           <button refID="ParcelWorkflow_ConfigurationButton" />
           <button refID="ParcelWorkflow_AboutButton" />
         </group>
@@ -40,6 +41,14 @@
                 smallImage="Install\Images\Ribbon\Tasks16.png"
                 largeImage="Install\Images\Ribbon\Tasks32.png">
           <tooltip heading="Transaction Panel">Open available Innola transactions<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_SearchDockpaneButton"
+                caption="Search"
+                className="ShowParcelSearchDockpaneButton"
+                loadOnClick="true"
+                smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
+                largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
+          <tooltip heading="Search">Open parcel search for Legal, Cadastral, and Survey sources<disabledText /></tooltip>
         </button>
         <button id="ParcelWorkflow_ConfigurationButton"
                 caption="Settings"
@@ -89,6 +98,13 @@
                   dock="group"
                   condition="esri_mapping_mapPane">
           <content className="ParcelWorkflowDockpane" />
+        </dockPane>
+        <dockPane id="ParcelWorkflow_ParcelSearchDockpane"
+                  caption="Search"
+                  className="ParcelSearchDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="ParcelSearchDockpane" />
         </dockPane>
       </dockPanes>
     </insertModule>

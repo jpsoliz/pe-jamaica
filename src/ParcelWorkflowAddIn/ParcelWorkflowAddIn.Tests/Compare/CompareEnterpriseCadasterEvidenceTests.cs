@@ -28,6 +28,7 @@ internal static class CompareEnterpriseCadasterEvidenceTests
                   "volume_field": "vol",
                   "folio_field": "fol",
                   "land_valuation_number_field": "landval",
+                  "pe_number_field": "pe_number",
                   "owner_field": "registered_owner",
                   "parish_field": "parish_name",
                   "suid_field": "suid",
@@ -74,6 +75,7 @@ internal static class CompareEnterpriseCadasterEvidenceTests
         TestAssert.True(settings.CompareEnterpriseCadaster.Legal.Enabled, "Legal source should be enabled.");
         TestAssert.Equal("https://example.test/legal/FeatureServer/0", settings.CompareEnterpriseCadaster.Legal.LayerUrl, "Legal layer URL mismatch.");
         TestAssert.Equal("registered_owner", settings.CompareEnterpriseCadaster.Legal.OwnerField, "Legal owner field mismatch.");
+        TestAssert.Equal("pe_number", settings.CompareEnterpriseCadaster.Legal.PeNumberField, "Legal PE field mismatch.");
         TestAssert.True(settings.CompareEnterpriseCadaster.Fiscal.Enabled, "Fiscal source should be enabled.");
         TestAssert.Equal("taxpayer", settings.CompareEnterpriseCadaster.Fiscal.TaxpayerField, "Fiscal taxpayer field mismatch.");
         TestAssert.True(settings.CompareEnterpriseCadaster.Survey.Enabled, "Survey source should be enabled.");
