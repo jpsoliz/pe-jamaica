@@ -6,6 +6,7 @@ using System.Windows.Input;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 
 namespace ParcelWorkflowAddIn.Compare;
 
@@ -27,6 +28,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly ICompareTaskLifecycleService? taskLifecycleService;
     private readonly ICompareReportAttachmentService? reportAttachmentService;
     private readonly ICompareMapIntegrationService? mapIntegrationService;
+    private readonly ISpatialOverlapReviewService spatialOverlapReviewService;
+    private readonly SpatialOverlapReviewPersistenceService spatialOverlapReviewPersistence;
+    private readonly SpatialOverlapOwnerEnrichmentService spatialOverlapOwnerEnrichmentService;
     private readonly ICompareWorkspacePromptService promptService;
     private readonly Func<string?, CancellationToken, Task> mapGeoreferenceOverlayCleanup;
     private readonly string pdfViewerMode;
@@ -67,6 +71,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private bool fiscalEvidenceReviewed;
     private bool hasSavedCompareReport;
     private string? statusText;
+    private SpatialOverlapReviewDocument? currentOverlapReview;
+    private string overlapReviewStatus = "Overlap review not run yet.";
 
     public CompareWorkspaceViewModel(
         SelectedInnolaTransaction transaction,
@@ -85,6 +91,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         ICompareTaskLifecycleService? taskLifecycleService = null,
         ICompareReportAttachmentService? reportAttachmentService = null,
         ICompareMapIntegrationService? mapIntegrationService = null,
+        ISpatialOverlapReviewService? spatialOverlapReviewService = null,
+        SpatialOverlapReviewPersistenceService? spatialOverlapReviewPersistence = null,
+        SpatialOverlapOwnerEnrichmentService? spatialOverlapOwnerEnrichmentService = null,
         ICompareWorkspacePromptService? promptService = null,
         Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null,
         string? pdfViewerMode = null,
@@ -108,6 +117,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.taskLifecycleService = taskLifecycleService;
         this.reportAttachmentService = reportAttachmentService;
         this.mapIntegrationService = mapIntegrationService;
+        this.spatialOverlapReviewService = spatialOverlapReviewService ?? new ArcGisSpatialOverlapReviewService();
+        this.spatialOverlapReviewPersistence = spatialOverlapReviewPersistence ?? new SpatialOverlapReviewPersistenceService();
+        this.spatialOverlapOwnerEnrichmentService = spatialOverlapOwnerEnrichmentService
+            ?? new SpatialOverlapOwnerEnrichmentService(this.legalCadasterQueryService);
         this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
         this.mapGeoreferenceOverlayCleanup = mapGeoreferenceOverlayCleanup
             ?? ((transactionNumber, token) => new ParcelWorkflowAddIn.MapGeoreferenceOverlayService().RemoveOverlayAsync(transactionNumber, token));
@@ -119,6 +132,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.reviewerDisplayName = reviewerDisplayName;
 
         ReloadGeometryCommand = new RelayCommand(() => _ = ReloadGeometryAsync(), () => CanReloadGeometry);
+        RunOverlapReviewCommand = new RelayCommand(() => _ = RunOverlapReviewAsync(), () => CanRunOverlapReview);
+        OpenOverlapReviewCommand = new RelayCommand(OpenOverlapReview, () => CanOpenOverlapReview);
         QueryParcelIdCommand = new RelayCommand(() => _ = QueryParcelIdAsync(), () => CanQueryLegalEvidence);
         QueryVolumeFolioCommand = new RelayCommand(() => _ = QueryVolumeFolioAsync(), () => CanQueryLegalEvidence);
         FindNeighborsCommand = new RelayCommand(() => _ = QueryFiscalNeighborsAsync(), () => CanQueryFiscalEvidence);
@@ -214,6 +229,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     };
 
     public ICommand ReloadGeometryCommand { get; }
+
+    public ICommand RunOverlapReviewCommand { get; }
+
+    public ICommand OpenOverlapReviewCommand { get; }
 
     public ICommand QueryParcelIdCommand { get; }
 
@@ -404,6 +423,12 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         private set => SetField(ref statusText, value, nameof(StatusText));
     }
 
+    public string OverlapReviewStatus
+    {
+        get => overlapReviewStatus;
+        private set => SetField(ref overlapReviewStatus, value, nameof(OverlapReviewStatus));
+    }
+
     public string SelectedEvidenceSearchMode
     {
         get => selectedEvidenceSearchMode;
@@ -531,6 +556,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public bool CanReloadGeometry => !IsLoading && (geometryRetryable || GeometryAvailable);
 
+    public bool CanRunOverlapReview => layout is not null && GeometryAvailable && !IsLoading;
+
+    public bool CanOpenOverlapReview => currentOverlapReview is not null && !IsLoading;
+
     public bool CanQueryEvidence => CanQueryLegalEvidence || CanQueryFiscalEvidence;
 
     public bool CanQueryLegalEvidence => layout is not null && DocumentsAvailable && !IsLoading;
@@ -647,6 +676,145 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task RunOverlapReviewAsync(CancellationToken cancellationToken = default)
+    {
+        if (layout is null)
+        {
+            OverlapReviewStatus = "Run Overlap Review requires an open Compare case folder.";
+            StatusText = OverlapReviewStatus;
+            RaiseStateProperties();
+            return;
+        }
+
+        var request = BuildOverlapReviewRequest();
+        if (request is null)
+        {
+            OverlapReviewStatus = "Run Overlap Review requires configured overlap-review layers in settings.";
+            StatusText = OverlapReviewStatus;
+            RaiseStateProperties();
+            return;
+        }
+
+        IsLoading = true;
+        OverlapReviewStatus = "Running overlap review against configured map layers.";
+        StatusText = OverlapReviewStatus;
+        RecordOverlapReviewAudit(
+            "compare_overlap_review_started",
+            "started",
+            "Compare overlap review started against configured map layers.");
+        try
+        {
+            var result = await spatialOverlapReviewService.RunAsync(request, cancellationToken).ConfigureAwait(true);
+            if (!result.Success || result.Document is null)
+            {
+                OverlapReviewStatus = result.Message;
+                StatusText = result.Message;
+                RecordOverlapReviewAudit(
+                    "compare_overlap_review_failed",
+                    "failed",
+                    result.Message,
+                    "service_result");
+                return;
+            }
+
+            SpatialOverlapReviewDocument documentToPersist;
+            var enrichmentSummary = "Owner enrichment applied.";
+            try
+            {
+                documentToPersist = await spatialOverlapOwnerEnrichmentService
+                    .EnrichAsync(result.Document, cancellationToken)
+                    .ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                documentToPersist = result.Document;
+                enrichmentSummary = $"Owner enrichment failed: {exception.Message}";
+                RecordOverlapReviewAudit(
+                    "compare_overlap_review_owner_enrichment_failed",
+                    "warning",
+                    enrichmentSummary,
+                    exception.GetType().Name);
+            }
+
+            var artifactPath = spatialOverlapReviewPersistence.Save(layout, documentToPersist);
+            currentOverlapReview = documentToPersist;
+            SpatialOverlapReviewWindow.ShowOrActivate(documentToPersist, $"Compare {transaction.TransactionNumber}");
+            OverlapReviewStatus = $"{documentToPersist.Summary.Message} {enrichmentSummary} Saved to {artifactPath}.";
+            StatusText = OverlapReviewStatus;
+            RecordOverlapReviewAudit(
+                "compare_overlap_review_saved",
+                "completed",
+                $"Compare overlap review saved to {artifactPath}. {enrichmentSummary}");
+        }
+        catch (OperationCanceledException)
+        {
+            OverlapReviewStatus = "Overlap review was cancelled before completion.";
+            StatusText = OverlapReviewStatus;
+            RecordOverlapReviewAudit(
+                "compare_overlap_review_cancelled",
+                "cancelled",
+                OverlapReviewStatus);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            OverlapReviewStatus = $"Overlap review failed: {exception.Message}";
+            StatusText = OverlapReviewStatus;
+            RecordOverlapReviewAudit(
+                "compare_overlap_review_failed",
+                "failed",
+                OverlapReviewStatus,
+                exception.GetType().Name);
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
+    }
+
+    private void RecordOverlapReviewAudit(string action, string status, string message, string? errorCategory = null)
+    {
+        if (layout is null)
+        {
+            return;
+        }
+
+        ShellState.LifecycleAudit.Record(
+            layout,
+            transaction.TransactionId,
+            action,
+            status,
+            reviewerId ?? reviewerDisplayName,
+            message,
+            transaction.TaskId,
+            transaction.TransactionNumber,
+            errorCategory);
+    }
+
+    private SpatialOverlapReviewRequest? BuildOverlapReviewRequest()
+    {
+        var settings = InnolaTransactionSettings.Load().CompareEnterpriseCadaster;
+        var targets = BuildSpatialOverlapTargets(settings);
+        if (targets.Count == 0)
+        {
+            return null;
+        }
+
+        return new SpatialOverlapReviewRequest(
+            SpatialOverlapReviewScopes.Compare,
+            transaction.TransactionId,
+            transaction.TransactionNumber,
+            currentCompareGroupLayerName,
+            new[] { "working_review polygons" },
+            targets,
+            settings.RelationshipToleranceMeters);
+    }
+
     public void ApplyLoadState(CompareWorkspaceLoadState state, CaseFolderReopenResult? reopenedCaseFolder)
     {
         DocumentsAvailable = state.Documents.Success;
@@ -674,6 +842,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             ApplySurveyPlanEvidence();
             RestoreDraft(reopenedCaseFolder.Layout);
             RestoreDecision(reopenedCaseFolder.Layout);
+            RestoreOverlapReview(reopenedCaseFolder.Layout);
             HasSavedCompareReport = ComparePdfReportExists();
         }
 
@@ -689,6 +858,22 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         currentGeometryPlan = geometry.Success ? geometry.Plan : currentGeometryPlan;
         currentCompareGroupLayerName = geometry.MapResult?.GroupLayerName ?? currentCompareGroupLayerName;
         GeometryStatus = geometry.Message;
+    }
+
+    private void RestoreOverlapReview(CaseFolderLayout caseLayout)
+    {
+        currentOverlapReview = spatialOverlapReviewPersistence.Load(caseLayout, SpatialOverlapReviewScopes.Compare);
+        OverlapReviewStatus = currentOverlapReview?.Summary.Message ?? "Overlap review not run yet.";
+    }
+
+    private void OpenOverlapReview()
+    {
+        if (currentOverlapReview is null)
+        {
+            return;
+        }
+
+        SpatialOverlapReviewWindow.ShowOrActivate(currentOverlapReview, $"Compare {transaction.TransactionNumber}");
     }
 
     public void AddDiscrepancy(string title, string source, bool isResolved = false)
@@ -1991,6 +2176,35 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    private static IReadOnlyList<SpatialOverlapReviewTargetLayer> BuildSpatialOverlapTargets(CompareEnterpriseCadasterSettings settings)
+    {
+        var targets = new List<SpatialOverlapReviewTargetLayer>();
+        AddSpatialOverlapTarget(targets, "legal", settings.Legal);
+        AddSpatialOverlapTarget(targets, "fiscal", settings.Fiscal);
+        AddSpatialOverlapTarget(targets, "survey", settings.Survey);
+        AddSpatialOverlapTarget(targets, "roads", settings.Roads);
+        return targets;
+    }
+
+    private static void AddSpatialOverlapTarget(
+        ICollection<SpatialOverlapReviewTargetLayer> targets,
+        string role,
+        CompareEnterpriseCadasterSourceSettings source)
+    {
+        if (!source.Enabled)
+        {
+            return;
+        }
+
+        targets.Add(new SpatialOverlapReviewTargetLayer(
+            role,
+            source.SourceName,
+            source.DisplayName,
+            source.SublayerName,
+            source.LayerUrl,
+            source));
+    }
+
     private void RefreshEvidenceItems()
     {
         EvidenceItems.Clear();
@@ -2018,6 +2232,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private void RaiseStateProperties()
     {
         NotifyPropertyChanged(nameof(CanReloadGeometry));
+        NotifyPropertyChanged(nameof(CanRunOverlapReview));
+        NotifyPropertyChanged(nameof(CanOpenOverlapReview));
         NotifyPropertyChanged(nameof(CanQueryEvidence));
         NotifyPropertyChanged(nameof(CanQueryLegalEvidence));
         NotifyPropertyChanged(nameof(CanQueryFiscalEvidence));
@@ -2039,6 +2255,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         foreach (var command in new[]
         {
             ReloadGeometryCommand,
+            RunOverlapReviewCommand,
+            OpenOverlapReviewCommand,
             QueryParcelIdCommand,
             QueryVolumeFolioCommand,
             FindNeighborsCommand,

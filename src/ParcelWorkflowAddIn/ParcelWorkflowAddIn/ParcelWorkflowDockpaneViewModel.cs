@@ -9,6 +9,7 @@ using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Contracts;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -53,6 +54,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand runValidationCommand;
     private readonly RelayCommand runOutputsCommand;
     private readonly RelayCommand loadSpatialReviewLayersCommand;
+    private readonly RelayCommand runSpatialOverlapReviewCommand;
+    private readonly RelayCommand openSpatialOverlapReviewCommand;
     private readonly RelayCommand openCogoReaderCommand;
     private readonly RelayCommand approveSpatialReviewCommand;
     private readonly RelayCommand addManualPointCommand;
@@ -85,8 +88,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand cancelProcessCommand;
     private readonly RelayCommand completeTransactionCommand;
     private readonly IOutputMapIntegrationService outputMapIntegrationService = new ArcGisOutputMapIntegrationService();
+    private readonly ISpatialOverlapReviewService spatialOverlapReviewService = new ArcGisSpatialOverlapReviewService();
+    private readonly SpatialOverlapReviewPersistenceService spatialOverlapReviewPersistence = new();
     private string? outputLocation;
     private string? transactionId;
+    private SpatialOverlapReviewDocument? currentComputeOverlapReview;
     private ExtractionReviewDocument? loadedReviewDocument;
     private ExtractionReviewRowViewModel? selectedReviewRow;
     private bool preflightDetailsExpanded;
@@ -144,6 +150,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         runValidationCommand = new RelayCommand(async () => await RunValidationAsync(), () => CanRunValidation);
         runOutputsCommand = new RelayCommand(async () => await RunOutputsAsync(), () => CanRunOutputs);
         loadSpatialReviewLayersCommand = new RelayCommand(async () => await LoadSpatialReviewLayersAsync(), () => CanLoadSpatialReviewLayers);
+        runSpatialOverlapReviewCommand = new RelayCommand(async () => await RunSpatialOverlapReviewAsync(), () => CanRunSpatialOverlapReview);
+        openSpatialOverlapReviewCommand = new RelayCommand(OpenSpatialOverlapReview, () => CanOpenSpatialOverlapReview);
         openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode && !pointEditorOpen);
@@ -435,6 +443,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanApproveSpatialReview => CanUseWorkflowActions && workflowSession.CanApproveSpatialReview;
 
+    public bool CanRunSpatialOverlapReview =>
+        CanLoadSpatialReviewLayers
+        && workflowSession.CurrentOutputSummary is not null;
+
+    public bool CanOpenSpatialOverlapReview => HasSpatialOverlapReview && CanUseWorkflowActions;
+
     public bool CanCompleteTransaction => CanUseWorkflowActions && ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
 
     public ICommand CreateCaseCommand => createCaseCommand;
@@ -469,7 +483,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ICommand RunOutputsCommand => runOutputsCommand;
 
+    public ICommand RunSpatialOverlapReviewCommand => runSpatialOverlapReviewCommand;
+
     public ICommand LoadSpatialReviewLayersCommand => loadSpatialReviewLayersCommand;
+
+    public ICommand OpenSpatialOverlapReviewCommand => openSpatialOverlapReviewCommand;
 
     public ICommand OpenCogoReaderCommand => openCogoReaderCommand;
 
@@ -1349,6 +1367,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public bool HasSpatialReviewDiagnostics =>
         workflowSession.CurrentOutputSummary is not null
         && workflowSession.CurrentState is WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved;
+
+    public bool HasSpatialOverlapReview =>
+        currentComputeOverlapReview is not null
+        && currentComputeOverlapReview.Summary.Status.Equals(SpatialOverlapReviewStatuses.Ready, StringComparison.OrdinalIgnoreCase);
+
+    public string SpatialOverlapReviewSummaryText =>
+        currentComputeOverlapReview?.Summary.Message
+        ?? "Run Overlap Review after the parcel layers are loaded to check configured map layers already present in ArcGIS Pro.";
 
     public string SpatialReviewDiagnosticsText
     {
@@ -2741,6 +2767,110 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var mapResult = await outputMapIntegrationService.AddOutputsToActiveMapAsync(workflowSession.CurrentOutputSummary).ConfigureAwait(true);
         workflowSession.SetValidationFailure(mapResult.Message);
         RefreshWorkflowProperties();
+    }
+
+    private async Task RunSpatialOverlapReviewAsync()
+    {
+        if (string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
+        {
+            workflowSession.SetValidationFailure("Run Overlap Review needs an active case folder.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var request = BuildComputeSpatialOverlapReviewRequest();
+        if (request is null)
+        {
+            workflowSession.SetValidationFailure("Run Overlap Review needs configured overlap-review layers in settings.");
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var result = await spatialOverlapReviewService.RunAsync(request).ConfigureAwait(true);
+        if (!result.Success || result.Document is null)
+        {
+            workflowSession.SetValidationFailure(result.Message);
+            RefreshWorkflowProperties();
+            return;
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
+        spatialOverlapReviewPersistence.Save(layout, result.Document);
+        currentComputeOverlapReview = result.Document;
+        var transactionNumberForReview = ShellState.Session.LoadedTransactionNumber
+            ?? transactionId
+            ?? workflowSession.TransactionId
+            ?? string.Empty;
+        SpatialOverlapReviewWindow.RefreshIfOpen(result.Document, $"Compute {transactionNumberForReview}");
+        workflowSession.SetValidationFailure(result.Message);
+        RefreshWorkflowProperties();
+    }
+
+    private void OpenSpatialOverlapReview()
+    {
+        if (currentComputeOverlapReview is null)
+        {
+            return;
+        }
+
+        var transactionNumberForReview = ShellState.Session.LoadedTransactionNumber
+            ?? transactionId
+            ?? workflowSession.TransactionId
+            ?? "Compute";
+        SpatialOverlapReviewWindow.ShowOrActivate(currentComputeOverlapReview, $"Compute {transactionNumberForReview}");
+    }
+
+    private SpatialOverlapReviewRequest? BuildComputeSpatialOverlapReviewRequest()
+    {
+        var settings = InnolaTransactionSettings.Load().CompareEnterpriseCadaster;
+        var targets = BuildSpatialOverlapTargets(settings);
+        if (targets.Count == 0)
+        {
+            return null;
+        }
+
+        var transactionNumberForReview = ShellState.Session.LoadedTransactionNumber
+            ?? transactionId
+            ?? workflowSession.TransactionId
+            ?? string.Empty;
+
+        return new SpatialOverlapReviewRequest(
+            SpatialOverlapReviewScopes.Compute,
+            workflowSession.TransactionId ?? string.Empty,
+            transactionNumberForReview,
+            OutputMapReviewStyling.BuildTransactionGroupLayerName(transactionNumberForReview),
+            new[] { "parcel_polygons", "compute_review", "review polygons" },
+            targets,
+            settings.RelationshipToleranceMeters);
+    }
+
+    private static IReadOnlyList<SpatialOverlapReviewTargetLayer> BuildSpatialOverlapTargets(CompareEnterpriseCadasterSettings settings)
+    {
+        var targets = new List<SpatialOverlapReviewTargetLayer>();
+        AddTarget(targets, "legal", settings.Legal);
+        AddTarget(targets, "fiscal", settings.Fiscal);
+        AddTarget(targets, "survey", settings.Survey);
+        AddTarget(targets, "roads", settings.Roads);
+        return targets;
+    }
+
+    private static void AddTarget(
+        ICollection<SpatialOverlapReviewTargetLayer> targets,
+        string layerRole,
+        CompareEnterpriseCadasterSourceSettings source)
+    {
+        if (!source.Enabled)
+        {
+            return;
+        }
+
+        targets.Add(new SpatialOverlapReviewTargetLayer(
+            layerRole,
+            source.SourceName,
+            source.DisplayName,
+            source.SublayerName,
+            source.LayerUrl,
+            source));
     }
 
     private async Task OpenCogoReaderAsync()
@@ -4199,6 +4329,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(SpatialReviewHelpText));
         NotifyPropertyChanged(nameof(HasSpatialReviewDiagnostics));
         NotifyPropertyChanged(nameof(SpatialReviewDiagnosticsText));
+        NotifyPropertyChanged(nameof(HasSpatialOverlapReview));
+        NotifyPropertyChanged(nameof(CanOpenSpatialOverlapReview));
+        NotifyPropertyChanged(nameof(SpatialOverlapReviewSummaryText));
         NotifyPropertyChanged(nameof(ReadyToCompleteBadge));
         NotifyPropertyChanged(nameof(ReadyToCompleteSummaryText));
         NotifyPropertyChanged(nameof(ReadyToCompleteHelpText));
@@ -4219,6 +4352,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         runValidationCommand.RaiseCanExecuteChanged();
         runOutputsCommand.RaiseCanExecuteChanged();
         loadSpatialReviewLayersCommand.RaiseCanExecuteChanged();
+        runSpatialOverlapReviewCommand.RaiseCanExecuteChanged();
+        openSpatialOverlapReviewCommand.RaiseCanExecuteChanged();
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
         editReviewPointCommand.RaiseCanExecuteChanged();
@@ -4564,6 +4699,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         if (workflowSession.CaseFolderPath?.Equals(loadedCaseFolderPath, StringComparison.OrdinalIgnoreCase) == true)
         {
+            TryLoadComputeOverlapReview();
             RefreshWorkflowProperties();
             SupportingDocumentsDockpaneViewModel.RefreshIfOpen();
             return;
@@ -4572,8 +4708,28 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         workflowSession.ReopenCaseFolder(loadedCaseFolderPath);
         transactionId = workflowSession.TransactionId;
         outputLocation = System.IO.Path.GetDirectoryName(loadedCaseFolderPath);
+        TryLoadComputeOverlapReview();
         RefreshWorkflowProperties();
         SupportingDocumentsDockpaneViewModel.RefreshIfOpen();
+    }
+
+    private void TryLoadComputeOverlapReview()
+    {
+        currentComputeOverlapReview = null;
+        if (string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
+            currentComputeOverlapReview = spatialOverlapReviewPersistence.Load(layout, SpatialOverlapReviewScopes.Compute);
+        }
+        catch
+        {
+            currentComputeOverlapReview = null;
+        }
     }
 
     private string ResolveActiveReviewParcelGroupId()
@@ -4645,6 +4801,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         transactionId = null;
         outputLocation = null;
         loadedReviewDocument = null;
+        currentComputeOverlapReview = null;
         selectedReviewRow = null;
         preflightDetailsExpanded = false;
         outputPreviewExpanded = false;

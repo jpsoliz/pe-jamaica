@@ -116,13 +116,31 @@
                       Content="Load Compare Layers"
                       Command="{Binding ReloadGeometryCommand}"
                       ToolTip="Loads or refreshes the Compare working layers and adjacent cadastre context in the ArcGIS Pro map." />
+                <Button Grid.Column="1"
+                      Width="146"
+                      Height="26"
+                      Margin="10,0,0,0"
+                      HorizontalAlignment="Left"
+                      Content="Run Overlap Review"
+                      Command="{Binding RunOverlapReviewCommand}" />
+              <Button Grid.Column="1"
+                      Width="146"
+                      Height="26"
+                      Margin="166,0,0,0"
+                      HorizontalAlignment="Left"
+                      Content="View Overlap Review"
+                      Command="{Binding OpenOverlapReviewCommand}" />
               <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Width="86" Height="26" Content="{Binding PdfPanelToggleText}" Command="{Binding TogglePdfPanelCommand}" />
               </StackPanel>
             </Grid>
           </Border>
 
-          <Border Grid.Row="1" Margin="0,10,0,0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+          <Border Grid.Row="1" Margin="0,10,0,0" Background="#F5F7FA" BorderBrush="#D9E2EC" BorderThickness="1" Padding="8">
+            <TextBlock Text="{Binding OverlapReviewStatus}" Foreground="#334E68" TextWrapping="Wrap" />
+          </Border>
+
+          <Border Grid.Row="2" Margin="0,10,0,0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
             <Grid>
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -187,7 +205,7 @@
             </Grid>
           </Border>
 
-          <StackPanel Grid.Row="2"
+          <StackPanel Grid.Row="3"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasQueryResults, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Search Results" />
@@ -224,7 +242,7 @@
             </ListView>
           </StackPanel>
 
-          <StackPanel Grid.Row="3"
+          <StackPanel Grid.Row="4"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasRelatedPartyMatches, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Related Party Matches" />
@@ -259,7 +277,7 @@
             </ListView>
           </StackPanel>
 
-          <StackPanel Grid.Row="4"
+          <StackPanel Grid.Row="5"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasValuableEvidenceItems, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Valuable Evidence" />
@@ -297,7 +315,7 @@
             </ListView>
           </StackPanel>
 
-          <Grid Grid.Row="7" Margin="0,10,0,0">
+          <Grid Grid.Row="6" Margin="0,10,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
@@ -306,7 +324,7 @@
             <TextBox Grid.Row="1" Height="54" Margin="0,6,0,0" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
           </Grid>
 
-          <StackPanel Grid.Row="8" Margin="0,10,0,0">
+          <StackPanel Grid.Row="7" Margin="0,10,0,0">
             <UniformGrid Columns="3">
               <Button Margin="0,0,4,0"
                       Height="28"

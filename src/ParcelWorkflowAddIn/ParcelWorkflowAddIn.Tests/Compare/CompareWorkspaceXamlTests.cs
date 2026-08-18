@@ -191,6 +191,23 @@ internal static class CompareWorkspaceXamlTests
             "Valuable evidence should keep source metadata in the model but hide the Source column from the compact Compare grid.");
     }
 
+    public static void CompareWorkspaceExposesOverlapReviewControls()
+    {
+        var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
+
+        TestAssert.True(
+            xaml.Contains("Content=\"Run Overlap Review\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding RunOverlapReviewCommand}\"", StringComparison.Ordinal),
+            "Compare should expose a Run Overlap Review command in the review shell.");
+        TestAssert.True(
+            xaml.Contains("Content=\"View Overlap Review\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding OpenOverlapReviewCommand}\"", StringComparison.Ordinal),
+            "Compare should expose a View Overlap Review command for the dedicated evidence surface.");
+        TestAssert.True(
+            xaml.Contains("Text=\"{Binding OverlapReviewStatus}\"", StringComparison.Ordinal),
+            "Compare should surface overlap review status text after the button runs.");
+    }
+
     private static string FindCompareWorkspaceXaml()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

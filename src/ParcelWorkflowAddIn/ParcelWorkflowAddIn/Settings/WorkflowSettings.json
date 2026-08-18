@@ -4,7 +4,7 @@
   "visual_studio": "2022 17.13+",
   "target_framework": "net8.0-windows",
   "arcgis_python_executable": "C:\\JPFiles\\Dropbox\\Sidwell\\Development\\AI-Survey\\python-envs\\arcgispro-survey-ai\\python.exe",
-  "innola_server_url": "https://eltrs-dev.innola-solutions.com/",
+  "innola_server_url": "https://eltrs-test.innola-solutions.com/",
   "innola_transaction_mode": "live",
   "innola_process_step": "parcel_workflow",
   "review_workspace_mode": "enterprise_working_layers",

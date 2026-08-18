@@ -1,11 +1,11 @@
 ---
 project_name: 'Sid-jamaica'
 user_name: 'JotaPe'
-date: '2026-08-16'
+date: '2026-08-17'
 sections_completed: ['technology_stack', 'language_specific_rules', 'framework_specific_rules', 'testing_rules', 'code_quality_style_rules', 'development_workflow_rules', 'critical_dont_miss_rules']
 existing_patterns_found: 18
 status: 'complete'
-rule_count: 67
+rule_count: 73
 optimized_for_llm: true
 ---
 
@@ -28,6 +28,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Deployment Python environment is cloned from ArcGIS Pro `arcgispro-py3`; conda requirements are intentionally empty unless a package is proven compatible with ArcGIS Pro pins.
 - Pip dependencies include OpenAI/PDF tooling such as `openai==1.109.1`, `pdfplumber==0.11.9`, `pypdfium2==5.8.0`, and `pytest==8.2.1`.
 - Runtime configuration is JSON-backed in `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/WorkflowSettings.json`.
+- Parcel Search source configuration is stored under `compare_enterprise_cadaster`; the Settings UI summary is read-only and the Advanced JSON remains the source of truth for URLs, sublayers, field mappings, display names, popup fields, and parish lookup.
 - Test project is a lightweight executable harness at `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests`, not xUnit/NUnit.
 
 ## Critical Implementation Rules
@@ -54,8 +55,10 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Do not put processing, HTTP, or ArcGIS map manipulation directly in WPF event handlers; route through services/ViewModels.
 - The active ArcGIS Pro map is the companion surface. Do not embed a custom map preview in the dockpane unless a story explicitly requires it.
 - Settings belong in the existing Settings workspace and `SettingsWorkspaceService` / `SettingsWorkspaceDocument` flow.
+- Parcel Search settings belong in the dedicated Settings > Parcel Search tab. Keep Settings > Map Layers focused on basemap/reference layer planning.
 - Working map/reference-layer behavior belongs near `Workflow/Maps` and existing map preparation services.
 - Compare/cadaster query behavior should reuse existing `Compare` settings and query seams before creating new service families.
+- Compare Neighbor Search controls may share `compare_enterprise_cadaster` settings, but keep their UX clearly separated from Parcel Search source mappings because the spatial mode/buffer are not map-layer reference settings.
 - Enterprise working-layer behavior must stay distinct from final authoritative promotion; do not imply external CADINDEX or authoritative sync unless a story explicitly implements it.
 
 ### Testing Rules
@@ -67,6 +70,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - For code that requires ArcGIS Pro runtime, document manual smoke coverage and keep automated tests around the pure planning/mapping logic.
 - Settings changes need round-trip tests that prove unrelated JSON settings are preserved and existing loaders still understand saved values.
 - Query/service work needs tests for success, no-record, timeout/failure diagnostics, redaction, and disabled/incomplete configuration.
+- Parcel Search tests should cover per-source criteria mapping. A selected source should only query a criterion when that source has an explicit field mapping or a documented migration/default for that criterion.
 - Workflow/state-changing stories must test restart/reopen, stale artifacts, duplicate IDs, missing/corrupt artifacts, and explicit failure messages when practical.
 - Python adapter changes should include Python tests where pure Python logic changes, and must keep emitted JSON artifacts contract-compatible.
 - Do not mark a story complete only because the happy path passes; include at least one negative or edge case for each new service boundary.
@@ -82,6 +86,8 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Do not add broad refactors while implementing a story; extend the nearest existing service/pattern unless the story explicitly calls for restructuring.
 - Preserve settings fallback behavior: invalid/missing optional settings should generally produce warnings and safe defaults, not crashes.
 - Keep source-specific labels precise. For example, `Fiscal_Cadastre` may be shown as `Cadastral`, but the internal mapping must remain explicit.
+- Parcel Search result display uses one reusable feature class with filtered child layers under `Parcel Search Results`; do not create separate stored result feature classes per source unless a story explicitly changes that design.
+- Parcel Search labels and popup/display fields must be source-safe and field-map-safe: resolve configured field names to actual returned service fields, stamp normalized result fields, and log diagnostics for configured field, actual field, and produced label values.
 - Any persisted or logged value that may contain tokens, passwords, raw authorization responses, API keys, or connection strings must be redacted.
 
 ### Development Workflow Rules
@@ -104,6 +110,9 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Do not hardcode Case Folder paths, settings paths, source layer URLs, field names, or Python executable paths when existing settings services can resolve them.
 - Do not create hidden state that is required for recovery. Case Folder artifacts and configured Enterprise working layers must be enough to resume or diagnose work.
 - Do not duplicate cadaster source configuration. Reuse or extend `compare_enterprise_cadaster` and working map reference-layer settings where appropriate.
+- Do not treat the Parcel Search summary grid as a separate editable settings store. Changes must persist through `compare_enterprise_cadaster` JSON and then refresh the summary from that JSON.
+- Do not query Survey for DP/R/LandVal/volume/folio/name criteria unless the Survey source explicitly maps those criteria. Survey is primarily PE-based unless configuration proves otherwise.
+- Do not hide per-source query failures completely. Show concise safe diagnostics in the Search pane and write fuller safe query details to the parcel-search log so bad FeatureServer URLs, bad layers, or missing mappings can be diagnosed.
 - Do not create duplicate ArcGIS maps, reference layers, or result layers when existing map preparation/reuse patterns apply.
 - Do not run ArcGIS Pro SDK map/layer operations off the required ArcGIS Pro thread.
 - Do not let broad searches, service paging, or Python/geoprocessing runs freeze the dockpane.
@@ -133,4 +142,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-08-16
+Last Updated: 2026-08-17

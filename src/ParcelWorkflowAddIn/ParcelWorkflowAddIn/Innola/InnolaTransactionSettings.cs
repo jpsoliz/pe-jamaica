@@ -1287,6 +1287,7 @@ public sealed record CompareEnterpriseCadasterSettings(
     public double BufferDistanceMeters { get; init; } = 25.0;
     public ParcelSearchParishSourceSettings ParishSource { get; init; } = ParcelSearchParishSourceSettings.Default;
     public IReadOnlyList<ParcelSearchPopupFieldSettings> PopupFields { get; init; } = ParcelSearchPopupFieldSettings.Defaults;
+    public CompareEnterpriseCadasterSourceSettings Roads { get; init; } = CompareEnterpriseCadasterSourceSettings.Disabled("Roads");
 
     public static CompareEnterpriseCadasterSettings Default { get; } = new(
         false,
@@ -1296,7 +1297,10 @@ public sealed record CompareEnterpriseCadasterSettings(
         CompareEnterpriseCadasterSourceSettings.Disabled("Legal Cadastre"),
         CompareEnterpriseCadasterSourceSettings.Disabled("Fiscal Cadastre"),
         CompareEnterpriseCadasterSourceSettings.Disabled("Survey Cadastre"),
-        null);
+        null)
+    {
+        Roads = CompareEnterpriseCadasterSourceSettings.Disabled("Roads")
+    };
 
     public static CompareEnterpriseCadasterSettings FromJson(JsonElement root)
     {
@@ -1314,15 +1318,16 @@ public sealed record CompareEnterpriseCadasterSettings(
         var legal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "legal", Default.Legal);
         var fiscal = CompareEnterpriseCadasterSourceSettings.FromJson(value, "fiscal", Default.Fiscal);
         var survey = CompareEnterpriseCadasterSourceSettings.FromJson(value, "survey", Default.Survey);
+        var roads = CompareEnterpriseCadasterSourceSettings.FromJson(value, "roads", Default.Roads);
         var warnings = new List<string>();
         if (enabled)
         {
-            if (!legal.Enabled && !fiscal.Enabled && !survey.Enabled)
+            if (!legal.Enabled && !fiscal.Enabled && !survey.Enabled && !roads.Enabled)
             {
-                warnings.Add("compare_enterprise_cadaster is enabled but Legal, Fiscal, and Survey sources are disabled.");
+                warnings.Add("compare_enterprise_cadaster is enabled but Legal, Fiscal, Survey, and Roads sources are disabled.");
             }
 
-            foreach (var source in new[] { legal, fiscal, survey })
+            foreach (var source in new[] { legal, fiscal, survey, roads })
             {
                 if (source.Enabled && string.IsNullOrWhiteSpace(source.LayerUrl))
                 {
@@ -1346,6 +1351,11 @@ public sealed record CompareEnterpriseCadasterSettings(
             warnings.Add(survey.Warning);
         }
 
+        if (!string.IsNullOrWhiteSpace(roads.Warning))
+        {
+            warnings.Add(roads.Warning);
+        }
+
         return new CompareEnterpriseCadasterSettings(
             enabled,
             tolerance,
@@ -1359,7 +1369,8 @@ public sealed record CompareEnterpriseCadasterSettings(
             SpatialSearchMode = spatialSearchMode,
             BufferDistanceMeters = bufferDistanceMeters,
             ParishSource = ParcelSearchParishSourceSettings.FromJson(value),
-            PopupFields = ParcelSearchPopupFieldSettings.FromJson(value)
+            PopupFields = ParcelSearchPopupFieldSettings.FromJson(value),
+            Roads = roads
         };
     }
 
