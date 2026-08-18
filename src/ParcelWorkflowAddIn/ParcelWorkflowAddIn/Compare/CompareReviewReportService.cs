@@ -2,8 +2,10 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows.Media.Imaging;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 
 namespace ParcelWorkflowAddIn.Compare;
 
@@ -33,6 +35,8 @@ public sealed class CompareReviewReportService
         try
         {
             Directory.CreateDirectory(layout.ReportsDirectory);
+            var overlapReview = LoadOverlapReview(layout);
+            var artifactRefs = BuildArtifactReferences(layout, overlapReview);
             var report = new CompareReviewReportDocument(
                 "1.0.0",
                 transaction.TransactionId,
@@ -53,15 +57,15 @@ public sealed class CompareReviewReportService
                 draft.ValuableEvidence ?? Array.Empty<CompareValuableEvidenceDraft>(),
                 draft.EnterpriseCadasterEvidence ?? Array.Empty<CompareEnterpriseCadasterEvidenceDraft>(),
                 draft.Discrepancies,
-                new[]
-                {
-                    MakeReference(layout, Path.Combine(layout.WorkingDirectory, "compare_review_draft.json"))
-                });
+                overlapReview,
+                artifactRefs);
 
             var path = Path.Combine(layout.ReportsDirectory, ReportFileName);
             File.WriteAllText(path, JsonSerializer.Serialize(Redact(report), JsonOptions));
+
             var pdfPath = Path.Combine(layout.ReportsDirectory, PdfReportFileName);
-            SimplePdfReportWriter.Write(pdfPath, report);
+            SimplePdfReportWriter.Write(pdfPath, report, layout.RootDirectory);
+
             return CompareReviewReportResult.Succeeded(
                 path,
                 Path.GetRelativePath(layout.RootDirectory, path),
@@ -72,6 +76,70 @@ public sealed class CompareReviewReportService
         {
             return CompareReviewReportResult.Failed($"Compare report could not be generated: {exception.Message}");
         }
+    }
+
+    private static CompareReviewOverlapReviewSummary? LoadOverlapReview(CaseFolderLayout layout)
+    {
+        var path = Path.Combine(layout.WorkingDirectory, SpatialOverlapReviewPersistenceService.CompareArtifactFileName);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var document = JsonSerializer.Deserialize<SpatialOverlapReviewDocument>(File.ReadAllText(path), JsonOptions);
+        if (document is null)
+        {
+            return null;
+        }
+
+        return new CompareReviewOverlapReviewSummary(
+            document.Scope,
+            document.Summary.Status,
+            document.Summary.Message,
+            document.Records.Count,
+            document.Layers.Count,
+            (document.Snapshots ?? Array.Empty<SpatialOverlapReviewSnapshotRef>())
+                .Select(snapshot => new CompareReviewOverlapSnapshotRef(
+                    snapshot.OverlapGroupId,
+                    snapshot.OverlapId,
+                    snapshot.Caption,
+                    snapshot.RelativePath,
+                    snapshot.Status))
+                .ToArray(),
+            document.Warnings,
+            document.Errors);
+    }
+
+    private static IReadOnlyList<CompareReviewArtifactReference> BuildArtifactReferences(
+        CaseFolderLayout layout,
+        CompareReviewOverlapReviewSummary? overlapReview)
+    {
+        var refs = new List<CompareReviewArtifactReference>
+        {
+            MakeReference(layout, Path.Combine(layout.WorkingDirectory, "compare_review_draft.json"))
+        };
+
+        var overlapPath = Path.Combine(layout.WorkingDirectory, SpatialOverlapReviewPersistenceService.CompareArtifactFileName);
+        if (File.Exists(overlapPath))
+        {
+            refs.Add(MakeReference(layout, overlapPath));
+        }
+
+        if (overlapReview is not null)
+        {
+            foreach (var snapshot in overlapReview.Snapshots.Where(snapshot => !string.IsNullOrWhiteSpace(snapshot.RelativePath)))
+            {
+                var relativePath = snapshot.RelativePath!.Replace('\\', '/');
+                if (refs.Any(existing => string.Equals(existing.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                refs.Add(new CompareReviewArtifactReference("compare_overlap_snapshot", relativePath));
+            }
+        }
+
+        return refs;
     }
 
     private static CompareReviewArtifactReference MakeReference(CaseFolderLayout layout, string path)
@@ -100,7 +168,6 @@ public sealed class CompareReviewReportService
     private static class SimplePdfReportWriter
     {
         private const double PageWidth = 612;
-        private const double PageHeight = 792;
         private const double MarginX = 42;
         private const double TopY = 748;
         private const double BottomY = 56;
@@ -119,36 +186,64 @@ public sealed class CompareReviewReportService
         private const double MutedG = 0.380;
         private const double MutedB = 0.420;
 
-        public static void Write(string path, CompareReviewReportDocument report)
+        public static void Write(string path, CompareReviewReportDocument report, string rootDirectory)
         {
-            var pages = new PdfReportRenderer(report).Render();
-            var objects = new List<string>();
+            var pages = new PdfReportRenderer(report, rootDirectory).Render();
+            var objects = new List<byte[]>();
             var pageObjectNumbers = new List<int>();
 
-            objects.Add("<< /Type /Catalog /Pages 2 0 R >>");
-            objects.Add(string.Empty);
-            objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-            objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+            objects.Add(Ascii("<< /Type /Catalog /Pages 2 0 R >>"));
+            objects.Add(Array.Empty<byte>());
+            objects.Add(Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"));
+            objects.Add(Ascii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"));
 
             foreach (var pageContent in pages)
             {
-                var contentObjectNumber = objects.Count + 2;
                 var pageObjectNumber = objects.Count + 1;
+                var contentObjectNumber = objects.Count + 2;
+                var imageObjectNumbers = pageContent.Images
+                    .Select((_, index) => objects.Count + 3 + index)
+                    .ToArray();
                 pageObjectNumbers.Add(pageObjectNumber);
-                objects.Add($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {contentObjectNumber} 0 R >>");
+
+                objects.Add(Ascii(BuildPageObject(contentObjectNumber, pageContent.Images, imageObjectNumbers)));
                 objects.Add(BuildContentObject(pageContent.Content));
+                foreach (var image in pageContent.Images)
+                {
+                    objects.Add(BuildImageObject(image));
+                }
             }
 
-            objects[1] = $"<< /Type /Pages /Count {pageObjectNumbers.Count} /Kids [{string.Join(" ", pageObjectNumbers.Select(number => $"{number} 0 R"))}] >>";
+            objects[1] = Ascii($"<< /Type /Pages /Count {pageObjectNumbers.Count} /Kids [{string.Join(" ", pageObjectNumbers.Select(number => $"{number} 0 R"))}] >>");
             File.WriteAllBytes(path, BuildPdfBytes(objects));
         }
 
-        private static string BuildContentObject(string content)
+        private static string BuildPageObject(int contentObjectNumber, IReadOnlyList<PdfImageContent> images, IReadOnlyList<int> imageObjectNumbers)
         {
-            return $"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}endstream";
+            var xObjectSection = images.Count == 0
+                ? string.Empty
+                : $" /XObject << {string.Join(" ", images.Select((image, index) => $"/{image.Name} {imageObjectNumbers[index]} 0 R"))} >>";
+            return $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>{xObjectSection} >> /Contents {contentObjectNumber} 0 R >>";
         }
 
-        private static byte[] BuildPdfBytes(IReadOnlyList<string> objects)
+        private static byte[] BuildContentObject(string content)
+        {
+            return Ascii($"<< /Length {Encoding.ASCII.GetByteCount(content)} >>\nstream\n{content}endstream");
+        }
+
+        private static byte[] BuildImageObject(PdfImageContent image)
+        {
+            using var stream = new MemoryStream();
+            var prefix = $"<< /Type /XObject /Subtype /Image /Width {image.PixelWidth} /Height {image.PixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {image.JpegBytes.Length} >>\nstream\n";
+            var prefixBytes = Ascii(prefix);
+            stream.Write(prefixBytes, 0, prefixBytes.Length);
+            stream.Write(image.JpegBytes, 0, image.JpegBytes.Length);
+            var suffixBytes = Ascii("\nendstream");
+            stream.Write(suffixBytes, 0, suffixBytes.Length);
+            return stream.ToArray();
+        }
+
+        private static byte[] BuildPdfBytes(IReadOnlyList<byte[]> objects)
         {
             using var stream = new MemoryStream();
             using var writer = new StreamWriter(stream, Encoding.ASCII, leaveOpen: true);
@@ -159,7 +254,9 @@ public sealed class CompareReviewReportService
                 writer.Flush();
                 offsets.Add(stream.Position);
                 writer.WriteLine($"{i + 1} 0 obj");
-                writer.WriteLine(objects[i]);
+                writer.Flush();
+                stream.Write(objects[i], 0, objects[i].Length);
+                writer.WriteLine();
                 writer.WriteLine("endobj");
             }
 
@@ -182,6 +279,11 @@ public sealed class CompareReviewReportService
             return stream.ToArray();
         }
 
+        private static byte[] Ascii(string value)
+        {
+            return Encoding.ASCII.GetBytes(value);
+        }
+
         private static string EscapePdfText(string text)
         {
             return text
@@ -195,20 +297,25 @@ public sealed class CompareReviewReportService
             return value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private sealed record PdfPageContent(string Content);
+        private sealed record PdfPageContent(string Content, IReadOnlyList<PdfImageContent> Images);
+
+        private sealed record PdfImageContent(string Name, byte[] JpegBytes, int PixelWidth, int PixelHeight);
 
         private sealed record PdfColumn(string Header, double Width);
 
         private sealed class PdfReportRenderer
         {
-            private readonly CompareReviewReportDocument _report;
-            private readonly List<PdfPageContent> _pages = new();
-            private StringBuilder _stream = new();
-            private double _y;
+            private readonly CompareReviewReportDocument report;
+            private readonly string rootDirectory;
+            private readonly List<PdfPageContent> pages = new();
+            private StringBuilder stream = new();
+            private List<PdfImageContent> images = new();
+            private double y;
 
-            public PdfReportRenderer(CompareReviewReportDocument report)
+            public PdfReportRenderer(CompareReviewReportDocument report, string rootDirectory)
             {
-                _report = report;
+                this.report = report;
+                this.rootDirectory = rootDirectory;
             }
 
             public IReadOnlyList<PdfPageContent> Render()
@@ -220,29 +327,29 @@ public sealed class CompareReviewReportService
                 DrawSection("Executive Summary");
                 DrawKeyValueTable(new[]
                 {
-                    ("Decision", _report.DecisionState),
-                    ("Transaction", _report.TransactionNumber),
-                    ("Generated At UTC", _report.GeneratedAtUtc),
-                    ("Reviewer", _report.ReviewerDisplayName ?? _report.ReviewerId ?? "Not provided"),
-                    ("Legal Evidence Reviewed", _report.LegalEvidenceReviewed ? "Yes" : "No"),
-                    ("Fiscal Evidence Reviewed", _report.FiscalEvidenceReviewed ? "Yes" : "No")
+                    ("Decision", report.DecisionState),
+                    ("Transaction", report.TransactionNumber),
+                    ("Generated At UTC", report.GeneratedAtUtc),
+                    ("Reviewer", report.ReviewerDisplayName ?? report.ReviewerId ?? "Not provided"),
+                    ("Legal Evidence Reviewed", report.LegalEvidenceReviewed ? "Yes" : "No"),
+                    ("Fiscal Evidence Reviewed", report.FiscalEvidenceReviewed ? "Yes" : "No")
                 });
 
                 DrawSection("Transaction Info");
                 DrawKeyValueTable(new[]
                 {
-                    ("Transaction Number", _report.TransactionNumber),
-                    ("Transaction Id", _report.TransactionId),
-                    ("Task Id", _report.TaskId),
-                    ("Task Name", _report.TaskName)
+                    ("Transaction Number", report.TransactionNumber),
+                    ("Transaction Id", report.TransactionId),
+                    ("Task Id", report.TaskId),
+                    ("Task Name", report.TaskName)
                 });
 
                 DrawSection("Compare Evidence Summary");
                 DrawKeyValueTable(new[]
                 {
-                    ("Survey Plan", EmptyToNone(_report.SurveyPlanSummary)),
-                    ("Legal Cadaster", EmptyToNone(_report.LegalCadasterSummary)),
-                    ("Fiscal / Neighbor", EmptyToNone(_report.FiscalNeighborSummary))
+                    ("Survey Plan", EmptyToNone(report.SurveyPlanSummary)),
+                    ("Legal Cadaster", EmptyToNone(report.LegalCadasterSummary)),
+                    ("Fiscal / Neighbor", EmptyToNone(report.FiscalNeighborSummary))
                 });
 
                 DrawSection("Valuable Evidence");
@@ -254,9 +361,9 @@ public sealed class CompareReviewReportService
                         new PdfColumn("Summary", 252),
                         new PdfColumn("Captured", 80)
                     },
-                    _report.ValuableEvidence.Count == 0
+                    report.ValuableEvidence.Count == 0
                         ? new[] { new[] { "None retained.", string.Empty, string.Empty, string.Empty } }
-                        : _report.ValuableEvidence.Select((evidence, index) => new[]
+                        : report.ValuableEvidence.Select((evidence, index) => new[]
                         {
                             $"{index + 1}. {evidence.RoleTag}",
                             evidence.SourceLabel,
@@ -275,9 +382,9 @@ public sealed class CompareReviewReportService
                         new PdfColumn("Relationship", 82),
                         new PdfColumn("Status", 66)
                     },
-                    _report.EnterpriseCadasterEvidence.Count == 0
+                    report.EnterpriseCadasterEvidence.Count == 0
                         ? new[] { new[] { "No enterprise cadaster evidence retained.", string.Empty, string.Empty, string.Empty, string.Empty, string.Empty } }
-                        : _report.EnterpriseCadasterEvidence.Select(evidence => new[]
+                        : report.EnterpriseCadasterEvidence.Select(evidence => new[]
                         {
                             evidence.SourceLabel,
                             FirstNonEmpty(evidence.OwnerName, evidence.OccupantName, evidence.TaxpayerName),
@@ -298,9 +405,9 @@ public sealed class CompareReviewReportService
                         new PdfColumn("Status", 82),
                         new PdfColumn("Diagnostic", 70)
                     },
-                    _report.ManualQueryHistory.Count == 0
+                    report.ManualQueryHistory.Count == 0
                         ? new[] { new[] { "No manual query history recorded.", string.Empty, string.Empty, string.Empty, string.Empty, string.Empty } }
-                        : _report.ManualQueryHistory.Select(query => new[]
+                        : report.ManualQueryHistory.Select(query => new[]
                         {
                             query.SourceLabel,
                             FirstNonEmpty(query.DisplayName, query.ParcelId, query.LandValuationNumber),
@@ -319,9 +426,9 @@ public sealed class CompareReviewReportService
                         new PdfColumn("Status", 100),
                         new PdfColumn("Resolved", 100)
                     },
-                    _report.Discrepancies.Count == 0
+                    report.Discrepancies.Count == 0
                         ? new[] { new[] { "No discrepancies recorded.", string.Empty, string.Empty, string.Empty } }
-                        : _report.Discrepancies.Select(discrepancy => new[]
+                        : report.Discrepancies.Select(discrepancy => new[]
                         {
                             discrepancy.Title,
                             discrepancy.Source,
@@ -329,8 +436,37 @@ public sealed class CompareReviewReportService
                             discrepancy.IsResolved ? "Yes" : "No"
                         }));
 
+                DrawSection("Overlap Review");
+                DrawKeyValueTable(new[]
+                {
+                    ("Status", report.OverlapReview?.Status ?? "(not run)"),
+                    ("Summary", EmptyToNone(report.OverlapReview?.Message)),
+                    ("Overlap Records", (report.OverlapReview?.RecordCount ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    ("Configured Layers", (report.OverlapReview?.LayerCount ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    ("Snapshots", (report.OverlapReview?.Snapshots.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture))
+                });
+
+                if (report.OverlapReview is not null)
+                {
+                    DrawSection("Overlap Review Snapshots");
+                    if (report.OverlapReview.Snapshots.Count == 0)
+                    {
+                        DrawKeyValueTable(new[]
+                        {
+                            ("Snapshot", "No overlap snapshot was saved.")
+                        });
+                    }
+                    else
+                    {
+                        foreach (var snapshot in report.OverlapReview.Snapshots)
+                        {
+                            DrawSnapshot(snapshot);
+                        }
+                    }
+                }
+
                 DrawSection("Notes");
-                DrawKeyValueTable(new[] { ("Reviewer Notes", EmptyToNone(_report.Notes)) });
+                DrawKeyValueTable(new[] { ("Reviewer Notes", EmptyToNone(report.Notes)) });
 
                 DrawSection("Artifact References");
                 DrawTable(
@@ -339,29 +475,30 @@ public sealed class CompareReviewReportService
                         new PdfColumn("Artifact", 160),
                         new PdfColumn("Relative Path", UsableWidth - 160)
                     },
-                    _report.ArtifactRefs.Count == 0
+                    report.ArtifactRefs.Count == 0
                         ? new[] { new[] { "No artifact references recorded.", string.Empty } }
-                        : _report.ArtifactRefs.Select(reference => new[] { reference.ArtifactType, reference.RelativePath }));
+                        : report.ArtifactRefs.Select(reference => new[] { reference.ArtifactType, reference.RelativePath }));
 
                 FinishPage();
-                return _pages;
+                return pages;
             }
 
             private void BeginPage(bool includeRunningHeader)
             {
-                _stream = new StringBuilder();
-                _y = TopY;
+                stream = new StringBuilder();
+                images = new List<PdfImageContent>();
+                y = TopY;
                 if (includeRunningHeader)
                 {
-                    DrawText("Compare Review Report", MarginX, _y, 8, bold: true, PrimaryR, PrimaryG, PrimaryB);
-                    _y -= 18;
+                    DrawText("Compare Review Report", MarginX, y, 8, bold: true, PrimaryR, PrimaryG, PrimaryB);
+                    y -= 18;
                 }
             }
 
             private void FinishPage()
             {
                 DrawFooter();
-                _pages.Add(new PdfPageContent(_stream.ToString()));
+                pages.Add(new PdfPageContent(stream.ToString(), images.ToArray()));
             }
 
             private void NewPage()
@@ -372,7 +509,7 @@ public sealed class CompareReviewReportService
 
             private void EnsureSpace(double requiredHeight)
             {
-                if (_y - requiredHeight < BottomY)
+                if (y - requiredHeight < BottomY)
                 {
                     NewPage();
                 }
@@ -381,14 +518,14 @@ public sealed class CompareReviewReportService
             private void DrawReportHeader()
             {
                 EnsureSpace(76);
-                DrawText("Compare Review Report", MarginX, _y, 22, bold: true, PrimaryR, PrimaryG, PrimaryB);
-                _y -= 22;
-                DrawText($"NLA Transaction {_report.TransactionNumber} - {_report.TaskName}", MarginX, _y, 10, bold: true, MutedR, MutedG, MutedB);
-                _y -= 14;
-                DrawText($"Generated {_report.GeneratedAtUtc} by {_report.ReviewerDisplayName ?? _report.ReviewerId ?? "Not provided"}", MarginX, _y, 8, bold: false, MutedR, MutedG, MutedB);
-                _y -= 18;
+                DrawText("Compare Review Report", MarginX, y, 22, bold: true, PrimaryR, PrimaryG, PrimaryB);
+                y -= 22;
+                DrawText($"NLA Transaction {report.TransactionNumber} - {report.TaskName}", MarginX, y, 10, bold: true, MutedR, MutedG, MutedB);
+                y -= 14;
+                DrawText($"Generated {report.GeneratedAtUtc} by {report.ReviewerDisplayName ?? report.ReviewerId ?? "Not provided"}", MarginX, y, 8, bold: false, MutedR, MutedG, MutedB);
+                y -= 18;
                 DrawRule();
-                _y -= 12;
+                y -= 12;
             }
 
             private void DrawSummaryStrip()
@@ -396,32 +533,32 @@ public sealed class CompareReviewReportService
                 EnsureSpace(54);
                 var values = new[]
                 {
-                    ("Transaction", _report.TransactionNumber),
-                    ("Task", _report.TaskName),
-                    ("Decision", _report.DecisionState),
-                    ("Evidence", $"{_report.ValuableEvidence.Count} retained")
+                    ("Transaction", report.TransactionNumber),
+                    ("Task", report.TaskName),
+                    ("Decision", report.DecisionState),
+                    ("Evidence", $"{report.ValuableEvidence.Count} retained")
                 };
                 var boxWidth = UsableWidth / values.Length;
                 for (var i = 0; i < values.Length; i++)
                 {
                     var x = MarginX + (i * boxWidth);
-                    DrawRect(x, _y - 42, boxWidth - 4, 38, fill: true, r: AlternateR, g: AlternateG, b: AlternateB);
-                    DrawRect(x, _y - 42, boxWidth - 4, 38, stroke: true, r: BorderR, g: BorderG, b: BorderB);
-                    DrawText(values[i].Item1, x + 6, _y - 16, 7, bold: true, MutedR, MutedG, MutedB);
-                    DrawText(values[i].Item2, x + 6, _y - 31, 9, bold: true);
+                    DrawRect(x, y - 42, boxWidth - 4, 38, fill: true, r: AlternateR, g: AlternateG, b: AlternateB);
+                    DrawRect(x, y - 42, boxWidth - 4, 38, stroke: true, r: BorderR, g: BorderG, b: BorderB);
+                    DrawText(values[i].Item1, x + 6, y - 16, 7, bold: true, MutedR, MutedG, MutedB);
+                    DrawText(values[i].Item2, x + 6, y - 31, 9, bold: true);
                 }
 
-                _y -= 54;
+                y -= 54;
             }
 
             private void DrawSection(string title)
             {
                 EnsureSpace(32);
-                _y -= 4;
-                DrawText(title, MarginX, _y, 12, bold: true, PrimaryR, PrimaryG, PrimaryB);
-                _y -= 8;
+                y -= 4;
+                DrawText(title, MarginX, y, 12, bold: true, PrimaryR, PrimaryG, PrimaryB);
+                y -= 8;
                 DrawRule();
-                _y -= 12;
+                y -= 12;
             }
 
             private void DrawKeyValueTable(IEnumerable<(string Field, string Value)> rows)
@@ -439,15 +576,15 @@ public sealed class CompareReviewReportService
             {
                 var rows = rowValues.ToArray();
                 EnsureSpace(24);
-                DrawRect(MarginX, _y - 18, columns.Sum(column => column.Width), 18, fill: true, r: PrimaryR, g: PrimaryG, b: PrimaryB);
+                DrawRect(MarginX, y - 18, columns.Sum(column => column.Width), 18, fill: true, r: PrimaryR, g: PrimaryG, b: PrimaryB);
                 var x = MarginX;
                 foreach (var column in columns)
                 {
-                    DrawText(column.Header, x + 4, _y - 12, 7.5, bold: true, 1, 1, 1);
+                    DrawText(column.Header, x + 4, y - 12, 7.5, bold: true, 1, 1, 1);
                     x += column.Width;
                 }
 
-                _y -= 18;
+                y -= 18;
 
                 for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
                 {
@@ -464,14 +601,14 @@ public sealed class CompareReviewReportService
                     EnsureSpace(rowHeight + 2);
                     if (rowIndex % 2 == 0)
                     {
-                        DrawRect(MarginX, _y - rowHeight, columns.Sum(column => column.Width), rowHeight, fill: true, r: AlternateR, g: AlternateG, b: AlternateB);
+                        DrawRect(MarginX, y - rowHeight, columns.Sum(column => column.Width), rowHeight, fill: true, r: AlternateR, g: AlternateG, b: AlternateB);
                     }
 
-                    DrawRect(MarginX, _y - rowHeight, columns.Sum(column => column.Width), rowHeight, stroke: true, r: BorderR, g: BorderG, b: BorderB);
+                    DrawRect(MarginX, y - rowHeight, columns.Sum(column => column.Width), rowHeight, stroke: true, r: BorderR, g: BorderG, b: BorderB);
                     x = MarginX;
                     for (var columnIndex = 0; columnIndex < columns.Count; columnIndex++)
                     {
-                        var textY = _y - 11;
+                        var textY = y - 11;
                         foreach (var line in wrappedCells[columnIndex])
                         {
                             DrawText(line, x + 4, textY, 8);
@@ -481,75 +618,125 @@ public sealed class CompareReviewReportService
                         x += columns[columnIndex].Width;
                     }
 
-                    _y -= rowHeight;
+                    y -= rowHeight;
                 }
 
-                _y -= 10;
+                y -= 10;
+            }
+
+            private void DrawSnapshot(CompareReviewOverlapSnapshotRef snapshot)
+            {
+                DrawKeyValueTable(new[]
+                {
+                    ("Caption", snapshot.Caption),
+                    ("Status", snapshot.Status),
+                    ("Path", string.IsNullOrWhiteSpace(snapshot.RelativePath) ? "(not saved)" : snapshot.RelativePath!)
+                });
+
+                if (string.IsNullOrWhiteSpace(snapshot.RelativePath))
+                {
+                    return;
+                }
+
+                var absolutePath = Path.Combine(rootDirectory, snapshot.RelativePath!.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(absolutePath))
+                {
+                    DrawKeyValueTable(new[]
+                    {
+                        ("Snapshot file", "Missing on disk at report generation time.")
+                    });
+                    return;
+                }
+
+                var image = LoadImage(absolutePath, $"Im{images.Count + 1}");
+                var maxWidth = UsableWidth;
+                var maxHeight = 360d;
+                var scale = Math.Min(maxWidth / image.PixelWidth, maxHeight / image.PixelHeight);
+                var drawWidth = image.PixelWidth * scale;
+                var drawHeight = image.PixelHeight * scale;
+                EnsureSpace(drawHeight + 18);
+                var imageX = MarginX + ((UsableWidth - drawWidth) / 2);
+                var imageY = y - drawHeight;
+                DrawImage(image, imageX, imageY, drawWidth, drawHeight);
+                y -= drawHeight + 12;
+            }
+
+            private void DrawImage(PdfImageContent image, double imageX, double imageY, double width, double height)
+            {
+                images.Add(image);
+                stream
+                    .Append("q ")
+                    .Append(PdfNumber(width)).Append(" 0 0 ")
+                    .Append(PdfNumber(height)).Append(' ')
+                    .Append(PdfNumber(imageX)).Append(' ')
+                    .Append(PdfNumber(imageY)).Append(" cm /")
+                    .Append(image.Name)
+                    .AppendLine(" Do Q");
             }
 
             private void DrawRule()
             {
-                DrawRuleAt(_y);
+                DrawRuleAt(y);
             }
 
             private void DrawFooter()
             {
-                var pageNumber = _pages.Count + 1;
+                var pageNumber = pages.Count + 1;
                 DrawRuleAt(BottomY - 12);
-                DrawText($"Compare Review Report - Transaction {_report.TransactionNumber}", MarginX, BottomY - 28, 7, bold: false, MutedR, MutedG, MutedB);
+                DrawText($"Compare Review Report - Transaction {report.TransactionNumber}", MarginX, BottomY - 28, 7, bold: false, MutedR, MutedG, MutedB);
                 DrawText($"Page {pageNumber}", PageWidth - MarginX - 38, BottomY - 28, 7, bold: false, MutedR, MutedG, MutedB);
             }
 
-            private void DrawRuleAt(double y)
+            private void DrawRuleAt(double ruleY)
             {
-                _stream
+                stream
                     .Append(PdfNumber(BorderR)).Append(' ')
                     .Append(PdfNumber(BorderG)).Append(' ')
                     .Append(PdfNumber(BorderB)).Append(" RG ")
                     .Append(PdfNumber(MarginX)).Append(' ')
-                    .Append(PdfNumber(y)).Append(" m ")
+                    .Append(PdfNumber(ruleY)).Append(" m ")
                     .Append(PdfNumber(PageWidth - MarginX)).Append(' ')
-                    .Append(PdfNumber(y)).AppendLine(" l S");
+                    .Append(PdfNumber(ruleY)).AppendLine(" l S");
             }
 
-            private void DrawRect(double x, double y, double width, double height, bool fill = false, bool stroke = false, double r = 0, double g = 0, double b = 0)
+            private void DrawRect(double x, double rectY, double width, double height, bool fill = false, bool stroke = false, double r = 0, double g = 0, double b = 0)
             {
                 if (fill)
                 {
-                    _stream
+                    stream
                         .Append(PdfNumber(r)).Append(' ')
                         .Append(PdfNumber(g)).Append(' ')
                         .Append(PdfNumber(b)).Append(" rg ")
                         .Append(PdfNumber(x)).Append(' ')
-                        .Append(PdfNumber(y)).Append(' ')
+                        .Append(PdfNumber(rectY)).Append(' ')
                         .Append(PdfNumber(width)).Append(' ')
                         .Append(PdfNumber(height)).AppendLine(" re f");
                 }
 
                 if (stroke)
                 {
-                    _stream
+                    stream
                         .Append(PdfNumber(r)).Append(' ')
                         .Append(PdfNumber(g)).Append(' ')
                         .Append(PdfNumber(b)).Append(" RG ")
                         .Append(PdfNumber(x)).Append(' ')
-                        .Append(PdfNumber(y)).Append(' ')
+                        .Append(PdfNumber(rectY)).Append(' ')
                         .Append(PdfNumber(width)).Append(' ')
                         .Append(PdfNumber(height)).AppendLine(" re S");
                 }
             }
 
-            private void DrawText(string text, double x, double y, double fontSize, bool bold = false, double r = 0, double g = 0, double b = 0)
+            private void DrawText(string text, double x, double textY, double fontSize, bool bold = false, double r = 0, double g = 0, double b = 0)
             {
                 var safe = EscapePdfText(SanitizeText(text));
-                _stream
+                stream
                     .Append("BT /").Append(bold ? "F2" : "F1").Append(' ')
                     .Append(PdfNumber(fontSize)).Append(" Tf ")
                     .Append(PdfNumber(r)).Append(' ')
                     .Append(PdfNumber(g)).Append(' ')
                     .Append(PdfNumber(b)).Append(" rg ")
                     .Append(PdfNumber(x)).Append(' ')
-                    .Append(PdfNumber(y)).Append(" Td (")
+                    .Append(PdfNumber(textY)).Append(" Td (")
                     .Append(safe)
                     .AppendLine(") Tj ET");
             }
@@ -583,6 +770,21 @@ public sealed class CompareReviewReportService
                 }
 
                 return lines;
+            }
+
+            private static PdfImageContent LoadImage(string path, string name)
+            {
+                using var file = File.OpenRead(path);
+                var decoder = BitmapDecoder.Create(file, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames[0];
+                var encoder = new JpegBitmapEncoder
+                {
+                    QualityLevel = 90
+                };
+                encoder.Frames.Add(frame);
+                using var output = new MemoryStream();
+                encoder.Save(output);
+                return new PdfImageContent(name, output.ToArray(), frame.PixelWidth, frame.PixelHeight);
             }
 
             private static string EmptyToNone(string? value)
@@ -673,7 +875,25 @@ public sealed record CompareReviewReportDocument(
     [property: JsonPropertyName("valuable_evidence")] IReadOnlyList<CompareValuableEvidenceDraft> ValuableEvidence,
     [property: JsonPropertyName("enterprise_cadaster_evidence")] IReadOnlyList<CompareEnterpriseCadasterEvidenceDraft> EnterpriseCadasterEvidence,
     [property: JsonPropertyName("discrepancies")] IReadOnlyList<CompareDiscrepancyDraft> Discrepancies,
+    [property: JsonPropertyName("overlap_review")] CompareReviewOverlapReviewSummary? OverlapReview,
     [property: JsonPropertyName("artifact_refs")] IReadOnlyList<CompareReviewArtifactReference> ArtifactRefs);
+
+public sealed record CompareReviewOverlapReviewSummary(
+    [property: JsonPropertyName("scope")] string Scope,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("record_count")] int RecordCount,
+    [property: JsonPropertyName("layer_count")] int LayerCount,
+    [property: JsonPropertyName("snapshots")] IReadOnlyList<CompareReviewOverlapSnapshotRef> Snapshots,
+    [property: JsonPropertyName("warnings")] IReadOnlyList<string> Warnings,
+    [property: JsonPropertyName("errors")] IReadOnlyList<string> Errors);
+
+public sealed record CompareReviewOverlapSnapshotRef(
+    [property: JsonPropertyName("overlap_group_id")] string? OverlapGroupId,
+    [property: JsonPropertyName("overlap_id")] string? OverlapId,
+    [property: JsonPropertyName("caption")] string Caption,
+    [property: JsonPropertyName("relative_path")] string? RelativePath,
+    [property: JsonPropertyName("status")] string Status);
 
 public sealed record CompareReviewArtifactReference(
     [property: JsonPropertyName("artifact_type")] string ArtifactType,

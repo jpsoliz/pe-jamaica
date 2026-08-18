@@ -31,6 +31,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly ISpatialOverlapReviewService spatialOverlapReviewService;
     private readonly SpatialOverlapReviewPersistenceService spatialOverlapReviewPersistence;
     private readonly SpatialOverlapOwnerEnrichmentService spatialOverlapOwnerEnrichmentService;
+    private readonly SpatialOverlapReviewSnapshotService spatialOverlapReviewSnapshotService;
     private readonly ICompareWorkspacePromptService promptService;
     private readonly Func<string?, CancellationToken, Task> mapGeoreferenceOverlayCleanup;
     private readonly string pdfViewerMode;
@@ -94,6 +95,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         ISpatialOverlapReviewService? spatialOverlapReviewService = null,
         SpatialOverlapReviewPersistenceService? spatialOverlapReviewPersistence = null,
         SpatialOverlapOwnerEnrichmentService? spatialOverlapOwnerEnrichmentService = null,
+        SpatialOverlapReviewSnapshotService? spatialOverlapReviewSnapshotService = null,
         ICompareWorkspacePromptService? promptService = null,
         Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null,
         string? pdfViewerMode = null,
@@ -121,6 +123,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         this.spatialOverlapReviewPersistence = spatialOverlapReviewPersistence ?? new SpatialOverlapReviewPersistenceService();
         this.spatialOverlapOwnerEnrichmentService = spatialOverlapOwnerEnrichmentService
             ?? new SpatialOverlapOwnerEnrichmentService(this.legalCadasterQueryService);
+        this.spatialOverlapReviewSnapshotService = spatialOverlapReviewSnapshotService ?? new SpatialOverlapReviewSnapshotService();
         this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
         this.mapGeoreferenceOverlayCleanup = mapGeoreferenceOverlayCleanup
             ?? ((transactionNumber, token) => new ParcelWorkflowAddIn.MapGeoreferenceOverlayService().RemoveOverlayAsync(transactionNumber, token));
@@ -740,6 +743,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                     exception.GetType().Name);
             }
 
+            documentToPersist = await spatialOverlapReviewSnapshotService
+                .CaptureAndAttachAsync(layout, documentToPersist, cancellationToken)
+                .ConfigureAwait(true);
             var artifactPath = spatialOverlapReviewPersistence.Save(layout, documentToPersist);
             currentOverlapReview = documentToPersist;
             SpatialOverlapReviewWindow.ShowOrActivate(documentToPersist, $"Compare {transaction.TransactionNumber}");
