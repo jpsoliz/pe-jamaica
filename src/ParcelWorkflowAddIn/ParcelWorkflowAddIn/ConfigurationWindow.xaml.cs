@@ -456,6 +456,11 @@ public partial class ConfigurationWindow : ProWindow
         SpatialOutputAddCogoAttributesCheckBox.IsChecked = document.SpatialOutputAddCogoAttributes;
         SpatialOutputAddCogoLabelsCheckBox.IsChecked = document.SpatialOutputAddCogoLabels;
         SetSelectedTag(SpatialOutputCogoSourceModeComboBox, document.SpatialOutputCogoSourceMode);
+        SetSelectedTag(OrientationNormalizationModeComboBox, document.OrientationNormalizationMode);
+        SetSelectedTag(PreferredOutputOrientationComboBox, document.PreferredOutputOrientation);
+        BearingConsistencyToleranceTextBox.Text = document.BearingConsistencyToleranceDeg;
+        BearingConsistencyWarningToleranceTextBox.Text = document.BearingConsistencyWarningToleranceDeg;
+        OrientationValidationProfileOverridesTextBox.Text = document.OrientationValidationProfileOverridesJson;
         ClosureDefaultMaxClosureDistanceTextBox.Text = document.ClosureDefaultMaxClosureDistanceM;
         ClosureDefaultWarningClosureDistanceTextBox.Text = document.ClosureDefaultWarningClosureDistanceM;
         ClosureDefaultMinMiscloseRatioTextBox.Text = document.ClosureDefaultMinMiscloseRatioDenominator;
@@ -576,6 +581,11 @@ public partial class ConfigurationWindow : ProWindow
         document.SpatialOutputAddCogoAttributes = SpatialOutputAddCogoAttributesCheckBox.IsChecked == true;
         document.SpatialOutputAddCogoLabels = SpatialOutputAddCogoLabelsCheckBox.IsChecked == true;
         document.SpatialOutputCogoSourceMode = GetSelectedTag(SpatialOutputCogoSourceModeComboBox, SettingsWorkspaceService.SpatialOutputCogoSourceModeSourceThenComputed);
+        document.OrientationNormalizationMode = GetSelectedTag(OrientationNormalizationModeComboBox, SettingsWorkspaceService.OrientationNormalizationModeDisabled);
+        document.PreferredOutputOrientation = GetSelectedTag(PreferredOutputOrientationComboBox, SettingsWorkspaceService.OrientationExpectedAny);
+        document.BearingConsistencyToleranceDeg = BearingConsistencyToleranceTextBox.Text.Trim();
+        document.BearingConsistencyWarningToleranceDeg = BearingConsistencyWarningToleranceTextBox.Text.Trim();
+        document.OrientationValidationProfileOverridesJson = OrientationValidationProfileOverridesTextBox.Text.Trim();
         document.ClosureDefaultMaxClosureDistanceM = ClosureDefaultMaxClosureDistanceTextBox.Text.Trim();
         document.ClosureDefaultWarningClosureDistanceM = ClosureDefaultWarningClosureDistanceTextBox.Text.Trim();
         document.ClosureDefaultMinMiscloseRatioDenominator = ClosureDefaultMinMiscloseRatioTextBox.Text.Trim();
@@ -662,6 +672,9 @@ public partial class ConfigurationWindow : ProWindow
             if (!rule.Locked && editor.EnabledCheckBox is not null)
             {
                 rule.Enabled = editor.EnabledCheckBox.IsChecked == true;
+                rule.StageId = GetSelectedTag(editor.StageComboBox, rule.StageId);
+                rule.WorkflowEffect = GetSelectedTag(editor.WorkflowEffectComboBox, rule.WorkflowEffect);
+                rule.ReportVisible = editor.ReportVisibleCheckBox.IsChecked == true;
             }
 
             rule.Severity = GetSelectedTag(editor.SeverityComboBox, rule.Severity);
@@ -774,20 +787,85 @@ public partial class ConfigurationWindow : ProWindow
             Grid.SetColumn(severityComboBox, 2);
             grid.Children.Add(severityComboBox);
 
-            var descriptionBlock = new TextBlock
+            var stageComboBox = new ComboBox
+            {
+                Margin = new Thickness(0, 0, 8, 4),
+                IsEnabled = !rule.Locked,
+                MinWidth = 180
+            };
+            foreach (var stageId in PreflightRuleDefinition.SupportedStageIds)
+            {
+                stageComboBox.Items.Add(new ComboBoxItem { Tag = stageId, Content = EditablePreflightRule.ResolveStageName(stageId) });
+            }
+
+            SetSelectedTag(stageComboBox, rule.StageId);
+
+            var workflowEffectComboBox = new ComboBox
+            {
+                Margin = new Thickness(0, 0, 8, 4),
+                IsEnabled = !rule.Locked,
+                MinWidth = 150
+            };
+            foreach (var workflowEffect in PreflightRuleDefinition.SupportedWorkflowEffects)
+            {
+                workflowEffectComboBox.Items.Add(new ComboBoxItem { Tag = workflowEffect, Content = EditablePreflightRule.ResolveWorkflowEffectName(workflowEffect) });
+            }
+
+            SetSelectedTag(workflowEffectComboBox, rule.WorkflowEffect);
+
+            var reportVisibleCheckBox = new CheckBox
+            {
+                Content = "Report",
+                IsChecked = rule.ReportVisible,
+                IsEnabled = !rule.Locked,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 4)
+            };
+
+            var metadataPanel = new StackPanel();
+            metadataPanel.Children.Add(new TextBlock
             {
                 Text = string.IsNullOrWhiteSpace(rule.RequiredCadLayerSummary)
                     ? rule.Description
                     : $"{rule.Description}{Environment.NewLine}CAD aliases: {rule.RequiredCadLayerSummary}",
                 TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Center
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            var ruleFieldsPanel = new WrapPanel
+            {
+                Margin = new Thickness(0, 0, 0, 4)
             };
-            Grid.SetColumn(descriptionBlock, 3);
-            grid.Children.Add(descriptionBlock);
+            ruleFieldsPanel.Children.Add(new TextBlock
+            {
+                Text = $"ID: {rule.RuleId}",
+                Margin = new Thickness(0, 0, 12, 4)
+            });
+            ruleFieldsPanel.Children.Add(new TextBlock
+            {
+                Text = $"Evaluator: {rule.EvaluatorKey}",
+                Margin = new Thickness(0, 0, 12, 4)
+            });
+            ruleFieldsPanel.Children.Add(new TextBlock
+            {
+                Text = $"Scope: {rule.ScopeSummary}",
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 12, 4)
+            });
+            metadataPanel.Children.Add(ruleFieldsPanel);
+
+            var controlsPanel = new WrapPanel();
+            controlsPanel.Children.Add(stageComboBox);
+            controlsPanel.Children.Add(workflowEffectComboBox);
+            controlsPanel.Children.Add(reportVisibleCheckBox);
+            metadataPanel.Children.Add(controlsPanel);
+
+            Grid.SetColumn(metadataPanel, 3);
+            grid.Children.Add(metadataPanel);
 
             border.Child = grid;
             PreflightRulesEditorPanel.Children.Add(border);
-            preflightRuleEditors[rule.RuleId] = new PreflightRuleEditorControls(enabledCheckBox, severityComboBox);
+            preflightRuleEditors[rule.RuleId] = new PreflightRuleEditorControls(enabledCheckBox, severityComboBox, stageComboBox, workflowEffectComboBox, reportVisibleCheckBox);
         }
     }
 
@@ -1196,7 +1274,10 @@ public partial class ConfigurationWindow : ProWindow
 
     private sealed record PreflightRuleEditorControls(
         CheckBox? EnabledCheckBox,
-        ComboBox SeverityComboBox);
+        ComboBox SeverityComboBox,
+        ComboBox StageComboBox,
+        ComboBox WorkflowEffectComboBox,
+        CheckBox ReportVisibleCheckBox);
 
     private sealed record ReadinessRuleEditorControls(
         CheckBox EnabledCheckBox,

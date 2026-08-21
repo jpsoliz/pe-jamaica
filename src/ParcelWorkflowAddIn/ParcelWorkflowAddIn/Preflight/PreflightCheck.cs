@@ -17,6 +17,12 @@ public sealed record PreflightCheck(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WorkflowEffect = null,
     [property: JsonPropertyName("display_name")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DisplayName = null,
+    [property: JsonPropertyName("stage_id")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? StageId = null,
+    [property: JsonPropertyName("evaluator_key")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EvaluatorKey = null,
+    [property: JsonPropertyName("report_visible")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? ReportVisible = null,
     [property: JsonPropertyName("evidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, IReadOnlyList<string>>? Evidence = null)
 {
@@ -63,5 +69,17 @@ public sealed record PreflightCheck(
     public PreflightCheck WithDisplayName(string displayName)
     {
         return this with { DisplayName = displayName };
+    }
+
+    public PreflightCheck WithRuleMetadata(PreflightRuleDefinition rule)
+    {
+        return this with
+        {
+            DisplayName = string.IsNullOrWhiteSpace(DisplayName) ? rule.DisplayName : DisplayName,
+            StageId = rule.StageId,
+            EvaluatorKey = rule.EvaluatorKey,
+            WorkflowEffect = string.IsNullOrWhiteSpace(WorkflowEffect) ? rule.WorkflowEffect : WorkflowEffect,
+            ReportVisible = rule.ReportVisible
+        };
     }
 }

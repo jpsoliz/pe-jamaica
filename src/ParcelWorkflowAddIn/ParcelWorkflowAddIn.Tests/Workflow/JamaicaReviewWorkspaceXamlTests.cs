@@ -30,6 +30,25 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "Points tab should own its point action strip instead of relying on the global PE toolbar.");
     }
 
+    public static void PxaReviewExposesMemorandumRuleGroups()
+    {
+        var xaml = File.ReadAllText(FindWorkspaceXaml());
+        var workspaceViewModelCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceViewModel.cs"));
+
+        TestAssert.True(
+            xaml.Contains("<TabItem Header=\"Memorandum\">", StringComparison.Ordinal)
+            && xaml.Contains("ItemsSource=\"{Binding VisibleMemorandumGroups}\"", StringComparison.Ordinal)
+            && xaml.Contains("Binding=\"{Binding EvidenceValue}\"", StringComparison.Ordinal)
+            && xaml.Contains("Binding=\"{Binding ReviewerStatus}\"", StringComparison.Ordinal)
+            && xaml.Contains("Binding=\"{Binding WorkflowEffect}\"", StringComparison.Ordinal),
+            "PXA review workspace should expose a dedicated Memorandum tab with rule evidence, status, and workflow effect rows.");
+        TestAssert.True(
+            workspaceViewModelCode.Contains("VisibleMemorandumGroups", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("PxaMemorandumSummary", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("ReviewMemorandumGroups.CollectionChanged", StringComparison.Ordinal),
+            "PXA review view-model should project memorandum groups and refresh them with the loaded review document.");
+    }
+
     public static void DockpaneExposesSupportingDocumentsWorkspace()
     {
         var workflowXaml = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpane.xaml"));

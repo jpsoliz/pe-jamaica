@@ -616,6 +616,90 @@
                       IsExpanded="False">
               <StackPanel Margin="0,8,0,0">
                 <TextBlock Foreground="#53636A"
+                           Text="Use these controls to tune parcel orientation normalization and bearing-coordinate consistency checks before Create Spatial Units runs."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Orientation normalization mode"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="OrientationNormalizationModeComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="disabled" Content="Disabled" />
+                    <ComboBoxItem Tag="prefer_clockwise" Content="Prefer clockwise" />
+                    <ComboBoxItem Tag="prefer_counterclockwise" Content="Prefer counterclockwise" />
+                  </ComboBox>
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Preferred output orientation"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <ComboBox Grid.Column="1"
+                            x:Name="PreferredOutputOrientationComboBox"
+                            Margin="0,0,0,6">
+                    <ComboBoxItem Tag="any" Content="Any" />
+                    <ComboBoxItem Tag="clockwise" Content="Clockwise" />
+                    <ComboBoxItem Tag="counterclockwise" Content="Counterclockwise" />
+                  </ComboBox>
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Bearing blocker tolerance (deg)"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="BearingConsistencyToleranceTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Bearing warning tolerance (deg)"
+                             FontWeight="SemiBold"
+                             Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="BearingConsistencyWarningToleranceTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <TextBlock Foreground="#53636A"
+                           Text="Advanced JSON overrides"
+                           FontWeight="SemiBold"
+                           Margin="0,2,0,6" />
+                <TextBox x:Name="OrientationValidationProfileOverridesTextBox"
+                         AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         MinHeight="120" />
+              </StackPanel>
+            </Expander>
+
+            <Expander Header="Closure tolerance validation"
+                      Margin="0,4,0,8"
+                      IsExpanded="False">
+              <StackPanel Margin="0,8,0,0">
+                <TextBlock Foreground="#53636A"
                            Text="These values define the standard closed-parcel closure thresholds used by Validate Points and Final Review. Advanced JSON overrides remain available below for profile-specific cases."
                            TextWrapping="Wrap"
                            Margin="0,0,0,8" />

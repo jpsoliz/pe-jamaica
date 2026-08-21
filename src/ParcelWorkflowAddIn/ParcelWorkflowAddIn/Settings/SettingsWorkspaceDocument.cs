@@ -66,6 +66,11 @@ public sealed class SettingsWorkspaceDocument
     public bool SpatialOutputAddCogoAttributes { get; set; }
     public bool SpatialOutputAddCogoLabels { get; set; }
     public string SpatialOutputCogoSourceMode { get; set; } = string.Empty;
+    public string OrientationNormalizationMode { get; set; } = string.Empty;
+    public string PreferredOutputOrientation { get; set; } = string.Empty;
+    public string BearingConsistencyToleranceDeg { get; set; } = string.Empty;
+    public string BearingConsistencyWarningToleranceDeg { get; set; } = string.Empty;
+    public string OrientationValidationProfileOverridesJson { get; set; } = string.Empty;
     public string ClosureDefaultMaxClosureDistanceM { get; set; } = string.Empty;
     public string ClosureDefaultMinMiscloseRatioDenominator { get; set; } = string.Empty;
     public string ClosureDefaultWarningClosureDistanceM { get; set; } = string.Empty;
@@ -171,12 +176,39 @@ public sealed class EditableWorkingMapLayer
 
 public sealed class EditablePreflightRule
 {
+    public static IReadOnlyDictionary<string, string> StageLabels { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["supporting_document_check"] = "Supporting Document Check",
+        ["structure_check"] = "Structure Check",
+        ["data_extraction"] = "Data Extraction",
+        ["georeference_check"] = "Georeference Check",
+        ["dimension_check"] = "Dimension Check",
+        ["validate_points_and_lines"] = "Validate Points and Lines",
+        ["create_spatial_units"] = "Create Spatial Units",
+        ["final_review"] = "Final Review",
+        ["finalize"] = "Finalize"
+    };
+
+    public static IReadOnlyDictionary<string, string> WorkflowEffectLabels { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["blocker"] = "Blocker",
+        ["requires_disposition"] = "Requires disposition",
+        ["report_only"] = "Report only",
+        ["info"] = "Info"
+    };
+
     public string RuleId { get; init; } = string.Empty;
     public string Group { get; init; } = string.Empty;
     public string Category { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string SectionName { get; init; } = string.Empty;
+    public string StageId { get; set; } = "structure_check";
+    public string StageName => ResolveStageName(StageId);
+    public string EvaluatorKey { get; init; } = "manual_review";
+    public string WorkflowEffect { get; set; } = "requires_disposition";
+    public bool ReportVisible { get; set; } = true;
+    public string ScopeSummary { get; init; } = string.Empty;
     public string RequiredCadLayerSummary { get; init; } = string.Empty;
     public IReadOnlyDictionary<string, IReadOnlyList<string>>? RequiredCadLayers { get; init; }
     public bool Enabled { get; set; }
@@ -192,7 +224,12 @@ public sealed class EditablePreflightRule
             Category = definition.Category,
             DisplayName = definition.DisplayName,
             Description = definition.Description,
-            SectionName = ResolveSectionName(definition.Group),
+            SectionName = ResolveSectionName(definition.StageId),
+            StageId = definition.StageId,
+            EvaluatorKey = definition.EvaluatorKey,
+            WorkflowEffect = definition.WorkflowEffect,
+            ReportVisible = definition.ReportVisible,
+            ScopeSummary = FormatScopeSummary(definition),
             RequiredCadLayerSummary = FormatRequiredCadLayerSummary(definition.RequiredCadLayers),
             RequiredCadLayers = definition.RequiredCadLayers,
             Enabled = definition.Enabled,
@@ -201,17 +238,51 @@ public sealed class EditablePreflightRule
         };
     }
 
-    private static string ResolveSectionName(string group)
+    private static string ResolveSectionName(string stageId)
     {
-        return group.Trim().ToLowerInvariant() switch
+        return stageId.Trim().ToLowerInvariant() switch
         {
-            "supporting_document" => "Supporting Document Rules",
-            "structure" => "Structure Check Rules",
-            "georeference" => "Georeference Check Rules",
-            "dimension" => "Dimension Check Rules",
-            "system" => "System Checks",
+            "supporting_document_check" => "Supporting Document Check Rules",
+            "structure_check" => "Structure Check Rules",
+            "data_extraction" => "Data Extraction Rules",
+            "georeference_check" => "Georeference Check Rules",
+            "dimension_check" => "Dimension Check Rules",
+            "validate_points_and_lines" => "Validate Points and Lines Rules",
+            "create_spatial_units" => "Create Spatial Units Rules",
+            "final_review" => "Final Review Rules",
+            "finalize" => "Finalize Rules",
             _ => "Structure Check Rules"
         };
+    }
+
+    public static string ResolveStageName(string stageId)
+    {
+        return StageLabels.TryGetValue(stageId, out var label) ? label : "Structure Check";
+    }
+
+    public static string ResolveWorkflowEffectName(string workflowEffect)
+    {
+        return WorkflowEffectLabels.TryGetValue(workflowEffect, out var label) ? label : "Requires disposition";
+    }
+
+    private static string FormatScopeSummary(PreflightRuleDefinition definition)
+    {
+        var parts = new List<string>();
+        AddScope(parts, "Transactions", definition.TransactionTypes);
+        AddScope(parts, "Workflow stages", definition.WorkflowStages);
+        AddScope(parts, "Profiles", definition.TransactionTypeProfiles);
+        AddScope(parts, "Documents", definition.DocumentProfiles);
+        AddScope(parts, "Sources", definition.SourceRoles);
+        AddScope(parts, "Files", definition.FileTypes);
+        return parts.Count == 0 ? "All matching transactions" : string.Join("; ", parts);
+    }
+
+    private static void AddScope(List<string> parts, string label, IReadOnlyList<string>? values)
+    {
+        if (values is { Count: > 0 })
+        {
+            parts.Add($"{label}: {string.Join(", ", values)}");
+        }
     }
 
     private static string FormatRequiredCadLayerSummary(IReadOnlyDictionary<string, IReadOnlyList<string>>? requiredCadLayers)

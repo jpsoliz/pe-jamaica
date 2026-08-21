@@ -200,13 +200,15 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
         TestAssert.True(document.WorkingMapLayers.Any(layer => layer.Name == "Open Basemap Streets"), "Working map layers should load configurable public basemap entries.");
-        TestAssert.Equal(19, document.PreflightRules.Count, "Structure rules count mismatch.");
+        TestAssert.Equal(29, document.PreflightRules.Count, "Structure rules count mismatch.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Check Rules"), "Required DWG CAD layer rule should appear under Structure Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_source_presence" && rule.SectionName == "Georeference Check Rules"), "Georeference rule should appear under Georeference Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_spatial_validation_readiness" && rule.SectionName == "Georeference Check Rules"), "Concrete georeference validation readiness rule should appear under Georeference Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dimension_source_presence" && rule.SectionName == "Dimension Check Rules"), "Dimension rule should appear under Dimension Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dimension_geometry_construction_readiness" && rule.SectionName == "Dimension Check Rules"), "Dimension geometry readiness rule should appear under Dimension Check Rules.");
-        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "python_package_probe" && rule.SectionName == "System Checks"), "Python package probe should appear under System Checks.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "python_package_probe" && rule.SectionName == "Structure Check Rules" && rule.Group == "system"), "Python package probe should keep system metadata while grouping by configured stage.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "pxa_memorandum_detected" && rule.SectionName == "Data Extraction Rules" && rule.Group == "memorandum"), "Memorandum detection rule should appear under Data Extraction Rules.");
+        TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "pxa_memorandum_scale_bar_present" && rule.SectionName == "Validate Points and Lines Rules" && rule.WorkflowEffect == "report_only"), "Memorandum scale bar rule should appear as report-only under Validate Points and Lines Rules.");
     }
 
     public static void SettingsWorkspaceSaveRoundTripPersistsWorkflowAndRuleEdits()
@@ -447,8 +449,12 @@ internal static class SettingsWorkspaceServiceTests
             Group = "Administrative Reference",
             Visible = false
         });
-        document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe").Enabled = false;
-        document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe").Severity = "warning";
+        var editedRule = document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
+        editedRule.Enabled = false;
+        editedRule.Severity = "warning";
+        editedRule.StageId = "georeference_check";
+        editedRule.WorkflowEffect = "report_only";
+        editedRule.ReportVisible = false;
 
         service.Save(document);
 
@@ -501,6 +507,9 @@ internal static class SettingsWorkspaceServiceTests
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
         TestAssert.True(!savedRule.Enabled, "Preflight rule enabled state save mismatch.");
         TestAssert.Equal("warning", savedRule.Severity, "Preflight rule severity save mismatch.");
+        TestAssert.Equal("georeference_check", savedRule.StageId, "Preflight rule stage save mismatch.");
+        TestAssert.Equal("report_only", savedRule.WorkflowEffect, "Preflight rule workflow effect save mismatch.");
+        TestAssert.True(!savedRule.ReportVisible, "Preflight rule report visibility save mismatch.");
     }
 
     public static void SettingsWorkspaceValidationRejectsInvalidEnterpriseAndSecretConfiguration()

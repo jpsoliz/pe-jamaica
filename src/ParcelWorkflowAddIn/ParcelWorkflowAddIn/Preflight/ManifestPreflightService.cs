@@ -142,25 +142,28 @@ public sealed class ManifestPreflightService
         }
         else
         {
-            if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
+            if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck
+                || StageHasAnyRule(stage.ToStageId(), "detected_profile_presence", "detected_profile_complete", "required_source_roles", "source_file_integrity", "dwg_signature_check", "dwg_readiness_probe", "dwg_required_cad_layers"))
             {
-                await EvaluateProfile(manifest, layout, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+                await EvaluateProfile(manifest, layout, blockers, warnings, passed, stage.ToStageId(), cancellationToken).ConfigureAwait(false);
             }
         }
 
-        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.GeoreferenceCheck)
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.GeoreferenceCheck
+            || StageHasAnyRule(stage.ToStageId(), "georeference_source_presence", "tabular_coordinate_columns", "jamaica_coordinate_bounds", "georeference_spatial_validation_readiness"))
         {
-            EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed, stage == PreflightCheckStage.GeoreferenceCheck);
+            EvaluateGeoreferenceReadiness(manifest, layout, blockers, warnings, passed, stage.ToStageId(), stage == PreflightCheckStage.GeoreferenceCheck);
         }
 
-        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck)
+        if (stage is PreflightCheckStage.Combined or PreflightCheckStage.DimensionCheck
+            || StageHasAnyRule(stage.ToStageId(), "dimension_source_presence", "dimension_geometry_construction_readiness"))
         {
-            EvaluateDimensionReadiness(manifest, layout, blockers, warnings, passed);
+            EvaluateDimensionReadiness(manifest, layout, blockers, warnings, passed, stage.ToStageId());
         }
 
         if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
         {
-            EvaluateScriptPlan(manifest, layout, blockers, passed);
+            EvaluateScriptPlan(manifest, layout, blockers, passed, stage.ToStageId());
         }
 
         if (stage is PreflightCheckStage.Combined or PreflightCheckStage.StructureCheck)
@@ -170,6 +173,10 @@ public sealed class ManifestPreflightService
             warnings.AddRange(environmentResult.Warnings);
             passed.AddRange(environmentResult.PassedChecks);
         }
+
+        AnnotateRuleMetadata(blockers);
+        AnnotateRuleMetadata(warnings);
+        AnnotateRuleMetadata(passed);
 
         var status = blockers.Count > 0 ? "blocked" : "passed";
         var summary = new PreflightSummaryDocument(
@@ -197,12 +204,38 @@ public sealed class ManifestPreflightService
             _ => layout.PreflightSummaryPath
         };
 
+    private void AnnotateRuleMetadata(List<PreflightCheck> checks)
+    {
+        for (var index = 0; index < checks.Count; index++)
+        {
+            var check = checks[index];
+            var ruleId = ResolveRuleId(check.CheckId);
+            var rule = ruleCatalog.TryGetRule(ruleId);
+            if (rule is not null)
+            {
+                checks[index] = check.WithRuleMetadata(rule);
+            }
+        }
+    }
+
+    private static string ResolveRuleId(string checkId)
+    {
+        return checkId.Trim().ToLowerInvariant() switch
+        {
+            "detected_profile_present" or "detected_profile_supported" => "detected_profile_presence",
+            "workflow_rule_resolved" => "workflow_rule_resolution",
+            "dwg_signature_valid" => "dwg_signature_check",
+            _ => checkId
+        };
+    }
+
     private async Task EvaluateProfile(
         ManifestDocument manifest,
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         CancellationToken cancellationToken)
     {
         var profile = manifest.Payload.DetectedProfile!;
@@ -231,21 +264,23 @@ public sealed class ManifestPreflightService
         var sourceFiles = manifest.Payload.SourceFiles
             .Where(source => !IsInternalGeneratedSource(source))
             .ToArray();
-        EvaluateSupportingDocumentInventory(manifest, sourceFiles, requiredRoles, blockers, warnings, passed);
+        EvaluateSupportingDocumentInventory(manifest, sourceFiles, requiredRoles, blockers, warnings, passed, stageId);
         foreach (var role in requiredRoles)
         {
-            await EvaluateRequiredRole(sourceFiles, layout, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            await EvaluateRequiredRole(sourceFiles, layout, role, blockers, warnings, passed, stageId, cancellationToken).ConfigureAwait(false);
         }
 
-        await EvaluateOptionalDwgSources(sourceFiles, layout, requiredRoles, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+        await EvaluateOptionalDwgSources(sourceFiles, layout, requiredRoles, blockers, warnings, passed, stageId, cancellationToken).ConfigureAwait(false);
     }
 
     private static void EvaluateScriptPlan(
         ManifestDocument manifest,
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        string stageId)
     {
+        _ = stageId;
         if (manifest.Payload.InnolaTransaction is null)
         {
             return;
@@ -295,6 +330,7 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         bool requireConcreteValidation)
     {
         var sources = manifest.Payload.SourceFiles
@@ -302,7 +338,7 @@ public sealed class ManifestPreflightService
             .ToArray();
         var hasConcreteGeoreferenceValidation = false;
         var georeferenceSourceRule = ruleCatalog.TryGetRule("georeference_source_presence");
-        if (georeferenceSourceRule is { Enabled: true })
+        if (georeferenceSourceRule is { Enabled: true } && RuleAppliesToStage(georeferenceSourceRule, stageId))
         {
             var georeferenceSource = sources.FirstOrDefault(source => RuleAppliesToSource(georeferenceSourceRule, source));
             if (georeferenceSource is null)
@@ -328,7 +364,7 @@ public sealed class ManifestPreflightService
         }
 
         var tabularRule = ruleCatalog.TryGetRule("tabular_coordinate_columns");
-        if (tabularRule is { Enabled: true })
+        if (tabularRule is { Enabled: true } && RuleAppliesToStage(tabularRule, stageId))
         {
             foreach (var source in sources.Where(source => RuleAppliesToSource(tabularRule, source)))
             {
@@ -369,7 +405,7 @@ public sealed class ManifestPreflightService
                     source.SourceRole).WithDisplayName(tabularRule.DisplayName));
 
                 var boundsRule = ruleCatalog.TryGetRule("jamaica_coordinate_bounds");
-                if (boundsRule is not { Enabled: true } || !RuleAppliesToSource(boundsRule, source))
+                if (boundsRule is not { Enabled: true } || !RuleAppliesToStage(boundsRule, stageId) || !RuleAppliesToSource(boundsRule, source))
                 {
                     continue;
                 }
@@ -433,7 +469,7 @@ public sealed class ManifestPreflightService
                         surveyPlanEvidence.SummaryPath,
                         SourceRole.SurveyPlanPdf).WithDisplayName(readinessRule?.DisplayName ?? "Concrete georeference validation").WithOutcome("passed", evidence));
                 }
-                else if (readinessRule is { Enabled: true })
+                else if (readinessRule is { Enabled: true } && RuleAppliesToStage(readinessRule, stageId))
                 {
                     if (requireConcreteValidation)
                     {
@@ -465,7 +501,7 @@ public sealed class ManifestPreflightService
         if (!hasConcreteGeoreferenceValidation)
         {
             var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
-            if (readinessRule is { Enabled: true })
+            if (readinessRule is { Enabled: true } && RuleAppliesToStage(readinessRule, stageId))
             {
                 if (requireConcreteValidation)
                 {
@@ -490,7 +526,7 @@ public sealed class ManifestPreflightService
                         "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
                 }
             }
-            else if (readinessRule is not null)
+            else if (readinessRule is not null && RuleAppliesToStage(readinessRule, stageId))
             {
                 warnings.Add(PreflightCheck.DisabledForCategory(
                     readinessRule.Category,
@@ -507,7 +543,8 @@ public sealed class ManifestPreflightService
         CaseFolderLayout layout,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        string stageId)
     {
         _ = warnings;
         var rule = ruleCatalog.TryGetRule("dimension_source_presence");
@@ -523,6 +560,11 @@ public sealed class ManifestPreflightService
                     null).WithOutcome("disabled").WithDisplayName(rule.DisplayName));
             }
 
+            return;
+        }
+
+        if (!RuleAppliesToStage(rule, stageId))
+        {
             return;
         }
 
@@ -562,6 +604,11 @@ public sealed class ManifestPreflightService
                     null).WithOutcome("disabled").WithDisplayName(readinessRule.DisplayName));
             }
 
+            return;
+        }
+
+        if (!RuleAppliesToStage(readinessRule, stageId))
+        {
             return;
         }
 
@@ -702,8 +749,14 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         CancellationToken cancellationToken)
     {
+        if (!RuleAppliesToConfiguredStage("required_source_roles", stageId))
+        {
+            return;
+        }
+
         var source = sources.FirstOrDefault(item => SourceRole.Matches(item.SourceRole, role));
         if (source is null)
         {
@@ -722,7 +775,7 @@ public sealed class ManifestPreflightService
             source.CopiedPath,
             role));
 
-        await ValidateCopiedSource(layout, source, role, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+        await ValidateCopiedSource(layout, source, role, blockers, warnings, passed, stageId, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ValidateCopiedSource(
@@ -732,8 +785,14 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         CancellationToken cancellationToken)
     {
+        if (!RuleAppliesToConfiguredStage("source_file_integrity", stageId))
+        {
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(source.CopiedPath))
         {
             blockers.Add(PreflightCheck.Blocker(
@@ -836,7 +895,7 @@ public sealed class ManifestPreflightService
 
         if (SourceRole.Matches(role, SourceRole.DwgSource))
         {
-            await ValidateDwgReadiness(source, copiedPath, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            await ValidateDwgReadiness(source, copiedPath, blockers, warnings, passed, stageId, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -847,6 +906,7 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         CancellationToken cancellationToken)
     {
         if (SourceRole.MatchesAny(SourceRole.DwgSource, requiredRoles))
@@ -856,7 +916,7 @@ public sealed class ManifestPreflightService
 
         foreach (var source in sources.Where(source => SourceRole.Matches(source.SourceRole, SourceRole.DwgSource)))
         {
-            await ValidateCopiedSource(layout, source, SourceRole.DwgSource, blockers, warnings, passed, cancellationToken).ConfigureAwait(false);
+            await ValidateCopiedSource(layout, source, SourceRole.DwgSource, blockers, warnings, passed, stageId, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -866,8 +926,14 @@ public sealed class ManifestPreflightService
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
         List<PreflightCheck> passed,
+        string stageId,
         CancellationToken cancellationToken)
     {
+        if (!RuleAppliesToConfiguredStage("dwg_signature_check", stageId))
+        {
+            return;
+        }
+
         passed.Add(PreflightCheck.PassedForCategory(
             "dwg",
             "dwg_source_present",
@@ -1178,14 +1244,21 @@ public sealed class ManifestPreflightService
         return SourceRole.DisplayName(role);
     }
 
-    private static void EvaluateSupportingDocumentInventory(
+    private void EvaluateSupportingDocumentInventory(
         ManifestDocument manifest,
         IReadOnlyList<ManifestSourceFile> sourceFiles,
         IReadOnlyList<string> requiredRoles,
         List<PreflightCheck> blockers,
         List<PreflightCheck> warnings,
-        List<PreflightCheck> passed)
+        List<PreflightCheck> passed,
+        string stageId)
     {
+        if (!RuleAppliesToConfiguredStage("detected_profile_presence", stageId)
+            && !RuleAppliesToConfiguredStage("detected_profile_complete", stageId))
+        {
+            return;
+        }
+
         var optionalRoles = manifest.Payload.TransactionTypeProfile?.OptionalSourceRoles
             ?? ComputeAttachmentSourceTypeCatalog.SafeDefaults
                 .Where(item => !item.InternalOnly && !item.Required)
@@ -1330,6 +1403,24 @@ public sealed class ManifestPreflightService
     private static bool RuleAppliesToSource(PreflightRuleDefinition rule, ManifestSourceFile source)
     {
         return rule.AppliesToSource(source.SourceRole, source.FileType);
+    }
+
+    private bool RuleAppliesToConfiguredStage(string ruleId, string stageId)
+    {
+        var rule = ruleCatalog.TryGetRule(ruleId);
+        return rule is null || RuleAppliesToStage(rule, stageId);
+    }
+
+    private static bool RuleAppliesToStage(PreflightRuleDefinition rule, string stageId)
+    {
+        return rule.AppliesToStage(stageId);
+    }
+
+    private bool StageHasAnyRule(string stageId, params string[] ruleIds)
+    {
+        return ruleIds
+            .Select(ruleId => ruleCatalog.TryGetRule(ruleId))
+            .Any(rule => rule is { Enabled: true } && RuleAppliesToStage(rule, stageId));
     }
 
     private static void AddRuleIssue(

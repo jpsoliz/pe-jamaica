@@ -423,3 +423,55 @@ public sealed class ExtractionReviewVolumeFolioViewModel : INotifyPropertyChange
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
+
+public sealed class ExtractionReviewMemorandumGroupViewModel
+{
+    public ExtractionReviewMemorandumGroupViewModel(ExtractionReviewMemorandumGroup model)
+    {
+        Model = model;
+        Rules = model.Rules
+            .Select(rule => new ExtractionReviewMemorandumRuleResultViewModel(rule))
+            .ToArray();
+    }
+
+    public ExtractionReviewMemorandumGroup Model { get; }
+
+    public string DisplayName => Model.DisplayName;
+
+    public string Summary => Model.Summary;
+
+    public IReadOnlyList<ExtractionReviewMemorandumRuleResultViewModel> Rules { get; }
+}
+
+public sealed class ExtractionReviewMemorandumRuleResultViewModel
+{
+    public ExtractionReviewMemorandumRuleResultViewModel(ExtractionReviewMemorandumRuleResult model)
+    {
+        Model = model;
+    }
+
+    public ExtractionReviewMemorandumRuleResult Model { get; }
+
+    public string Label => Model.Label;
+
+    public string ReviewerStatus => Model.ReviewerStatus;
+
+    public string WorkflowEffect => Model.WorkflowEffect;
+
+    public string EvidenceValue => Model.EvidenceValue;
+
+    public string Message => Model.Message;
+
+    public string SourceLabel
+    {
+        get
+        {
+            var parts = new[]
+            {
+                string.IsNullOrWhiteSpace(Model.SourcePage) ? null : $"page {Model.SourcePage}",
+                string.IsNullOrWhiteSpace(Model.SourceZone) ? null : Model.SourceZone
+            }.Where(part => !string.IsNullOrWhiteSpace(part));
+            return string.Join(" - ", parts);
+        }
+    }
+}

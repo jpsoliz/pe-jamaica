@@ -220,6 +220,136 @@ internal static class PreflightRuleCatalogLoaderTests
                   "enabled": true,
                   "severity": "warning",
                   "locked": false
+                },
+                {
+                  "rule_id": "pxa_memorandum_detected",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Memorandum text detected",
+                  "description": "Custom memorandum detection text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "data_extraction",
+                  "workflow_effect": "info",
+                  "evaluator_key": "pxa_memorandum_detected"
+                },
+                {
+                  "rule_id": "pxa_memorandum_surveyed_for_names_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Surveyed For",
+                  "description": "Custom surveyed-for text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_surveyed_for_names_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_surveyed_property_name_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Surveyed Property",
+                  "description": "Custom surveyed property text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_surveyed_property_name_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_property_name_near_diagram",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Property Near Diagram",
+                  "description": "Custom diagram proximity text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "report_only",
+                  "evaluator_key": "pxa_memorandum_property_name_near_diagram"
+                },
+                {
+                  "rule_id": "pxa_memorandum_instrument_group_complete",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Instrument Group",
+                  "description": "Custom instrument group text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_instrument_group_complete"
+                },
+                {
+                  "rule_id": "pxa_memorandum_parish_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Memorandum Parish",
+                  "description": "Custom memorandum parish text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_parish_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_north_arrow_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Memorandum North Arrow",
+                  "description": "Custom north arrow text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "report_only",
+                  "evaluator_key": "pxa_memorandum_north_arrow_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_scale_bar_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Memorandum Scale Bar",
+                  "description": "Custom scale bar text.",
+                  "enabled": true,
+                  "severity": "warning",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "report_only",
+                  "evaluator_key": "pxa_memorandum_scale_bar_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_notice_served_on_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Notice Served On",
+                  "description": "Custom notice text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_notice_served_on_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_appearance_parties_present",
+                  "group": "memorandum",
+                  "category": "pxa_memorandum",
+                  "display_name": "Appeared Parties",
+                  "description": "Custom appearance text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_appearance_parties_present"
                 }
               ]
             }
@@ -232,8 +362,44 @@ internal static class PreflightRuleCatalogLoaderTests
         TestAssert.Equal("Package Probe", packageProbe.DisplayName, "Display metadata should come from the external catalog.");
         TestAssert.Equal("Custom package probe text.", packageProbe.Description, "Description should come from the external catalog.");
         TestAssert.True(!packageProbe.Enabled, "Enabled state should come from the external catalog.");
+        TestAssert.Equal("structure_check", packageProbe.StageId, "Legacy catalog entries should infer a stage_id.");
+        TestAssert.Equal("python_package_probe", packageProbe.EvaluatorKey, "Legacy catalog entries should infer the evaluator key from rule_id.");
+        TestAssert.Equal("requires_disposition", packageProbe.WorkflowEffect, "Configured severity should infer a workflow effect.");
+        TestAssert.True(packageProbe.ReportVisible, "Legacy catalog entries should default to report-visible.");
         var cadLayersRule = catalog.GetRule("dwg_required_cad_layers");
         TestAssert.True(cadLayersRule.RequiredCadLayers?.ContainsKey("points") == true, "Configured required CAD layer aliases should load.");
+    }
+
+    public static void UnsupportedEvaluatorKeyFallsBackToSafeDefaults()
+    {
+        using var tempRoot = new TempDirectory();
+        var catalogPath = Path.Combine(tempRoot.Path, "PreflightRules.json");
+        File.WriteAllText(catalogPath,
+            """
+            {
+              "schema_version": "1.0.0",
+              "rules": [
+                {
+                  "rule_id": "detected_profile_presence",
+                  "group": "supporting_document",
+                  "category": "manifest",
+                  "display_name": "Profile Present",
+                  "description": "Custom profile presence text.",
+                  "enabled": true,
+                  "severity": "blocker",
+                  "locked": true,
+                  "stage_id": "supporting_document_check",
+                  "workflow_effect": "blocker",
+                  "evaluator_key": "not_supported"
+                }
+              ]
+            }
+            """);
+
+        var catalog = new PreflightRuleCatalogLoader(catalogPath).Load();
+
+        TestAssert.True(catalog.UsingSafeDefaults, "Unsupported evaluator keys should trigger safe defaults.");
+        TestAssert.True(catalog.LoadWarning?.Contains("unsupported evaluator_key", StringComparison.OrdinalIgnoreCase) == true, "Warning should name the unsupported evaluator.");
     }
 
     public static void PreferredStructureRulesPathWinsWhenPresent()

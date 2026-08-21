@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-16
+# last_updated: 2026-08-20
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-16
+last_updated: 2026-08-20
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -98,6 +98,8 @@ development_status:
   4-7-rename-preflight-rules-to-structure-rules-and-add-configurable-dwg-cad-layer-validation: in-progress
   4-8-split-structure-check-and-dimension-check-into-separate-actions-and-result-summaries: in-progress
   4-9-add-georeference-check-stage-and-reportable-stage-findings-model: in-progress
+  4-10-add-configurable-compute-rule-catalog-by-stage: review
+  4-11-add-pxa-memorandum-detection-and-review-rules: review
   epic-4-retrospective: optional
 
   epic-5: in-progress
@@ -117,6 +119,7 @@ development_status:
   5-19-define-cogo-ready-non-fabric-output-layer-schema: review
   5-20-configure-cogo-style-map-symbology-labeling-and-editing-experience-for-non-fabric-spatial-outputs: review
   5-21-add-optional-cogo-attributes-and-labels-to-non-fabric-spatial-output-layers: review
+  5-23a-add-orientation-detection-bearing-consistency-and-optional-orientation-normalization: ready-for-dev
   5-25b-polish-points-validation-tool-visual-hierarchy-and-preview-readability: review
   5-25c-refine-points-validation-preview-modes-and-rule-status-readability: review
   5-26-configure-default-working-map-and-reference-layers: in-progress

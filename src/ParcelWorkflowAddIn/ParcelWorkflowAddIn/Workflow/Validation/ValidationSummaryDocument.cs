@@ -22,6 +22,8 @@ public sealed record ValidationSummaryPayload(
     [property: JsonPropertyName("closure_results")] IReadOnlyList<ValidationClosureResult>? ClosureResults,
     [property: JsonPropertyName("readiness_summary")] ValidationReadinessSummary? ReadinessSummary,
     [property: JsonPropertyName("readiness_results")] IReadOnlyList<ValidationReadinessResult>? ReadinessResults,
+    [property: JsonPropertyName("orientation_summary")] ValidationOrientationSummary? OrientationSummary,
+    [property: JsonPropertyName("orientation_results")] IReadOnlyList<ValidationOrientationResult>? OrientationResults,
     [property: JsonPropertyName("findings")] IReadOnlyList<ValidationFinding> Findings);
 
 public sealed record ValidationFindingCounts(
@@ -85,6 +87,35 @@ public sealed record ValidationReadinessResult(
     [property: JsonPropertyName("boundary_gap_count")] int BoundaryGapCount,
     [property: JsonPropertyName("shared_edge_conflict_count")] int SharedEdgeConflictCount,
     [property: JsonPropertyName("orphan_line_count")] int OrphanLineCount,
+    [property: JsonPropertyName("rule_disabled")] bool RuleDisabled,
+    [property: JsonPropertyName("rule_skip_reason")] string? RuleSkipReason);
+
+public sealed record ValidationOrientationSummary(
+    [property: JsonPropertyName("blocker")] int Blocker,
+    [property: JsonPropertyName("warning")] int Warning,
+    [property: JsonPropertyName("passed")] int Passed,
+    [property: JsonPropertyName("skipped")] int Skipped);
+
+public sealed record ValidationOrientationResult(
+    [property: JsonPropertyName("parcel_group_id")] string ParcelGroupId,
+    [property: JsonPropertyName("parcel_name")] string ParcelName,
+    [property: JsonPropertyName("parcel_type")] string ParcelType,
+    [property: JsonPropertyName("rule_id")] string RuleId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("evaluation_status")] string EvaluationStatus,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("detected_orientation")] string DetectedOrientation,
+    [property: JsonPropertyName("expected_orientation")] string ExpectedOrientation,
+    [property: JsonPropertyName("checked_segment_count")] int CheckedSegmentCount,
+    [property: JsonPropertyName("consistent_segment_count")] int ConsistentSegmentCount,
+    [property: JsonPropertyName("bearing_inconsistent_count")] int BearingInconsistentCount,
+    [property: JsonPropertyName("max_bearing_delta_degrees")] double? MaxBearingDeltaDegrees,
+    [property: JsonPropertyName("max_bearing_delta_observed_degrees")] double? MaxBearingDeltaObservedDegrees,
+    [property: JsonPropertyName("average_bearing_delta_degrees")] double? AverageBearingDeltaDegrees,
+    [property: JsonPropertyName("affected_segment_ids")] IReadOnlyList<string>? AffectedSegmentIds,
+    [property: JsonPropertyName("affected_point_ids")] IReadOnlyList<string>? AffectedPointIds,
     [property: JsonPropertyName("rule_disabled")] bool RuleDisabled,
     [property: JsonPropertyName("rule_skip_reason")] string? RuleSkipReason);
 

@@ -49,8 +49,26 @@ public sealed class PreflightRuleCatalogLoader
         new PreflightRuleDefinition("jamaica_coordinate_bounds", "georeference", "georeference", "Jamaica coordinate bounds", "When tabular coordinates are available, the sample coordinate pairs should fall within Jamaica working bounds.", true, "warning", false, SourceRoles: new[] { "coordinate_text_source" }, FileTypes: new[] { ".txt", ".csv" }, MinimumCoordinatePairs: 1, RequireJamaicaBounds: true, AllowTabularGeoreference: true),
         new PreflightRuleDefinition("georeference_spatial_validation_readiness", "georeference", "georeference", "Concrete georeference validation", "Georeference Check should run a concrete coordinate, JAD2001, parish, or location validation; warning by default until parish/JAD2001 validators are configured.", true, "warning", false, SourceRoles: new[] { "computation_sheet", "coordinate_text_source", "plan_map_reference", "survey_plan_pdf" }),
         new PreflightRuleDefinition("dimension_source_presence", "dimension", "dimension", "Dimension source presence", "A computation sheet, survey plan PDF, or configured spatial line source must be available before Validate Points and Lines can begin.", true, "blocker", true, SourceRoles: new[] { "computation_sheet", "coordinate_text_source", "survey_plan_pdf" }),
-        new PreflightRuleDefinition("dimension_geometry_construction_readiness", "dimension", "dimension", "Dimension geometry construction readiness", "Dimension Check should verify bearings, distances, point references, closure, or an equivalent geometry-construction readiness artifact; warning by default until the validator is configured.", true, "warning", false, SourceRoles: new[] { "computation_sheet", "coordinate_text_source", "survey_plan_pdf" })
-    };
+        new PreflightRuleDefinition("dimension_geometry_construction_readiness", "dimension", "dimension", "Dimension geometry construction readiness", "Dimension Check should verify bearings, distances, point references, closure, or an equivalent geometry-construction readiness artifact; warning by default until the validator is configured.", true, "warning", false, SourceRoles: new[] { "computation_sheet", "coordinate_text_source", "survey_plan_pdf" }),
+        new PreflightRuleDefinition("pxa_memorandum_detected", "memorandum", "pxa_memorandum", "Memorandum text detected", "PXA memorandum rules apply only when the source document contains MEMORANDUM text.", true, "configured", false, StageId: "data_extraction", WorkflowEffect: "info", EvaluatorKey: "pxa_memorandum_detected", TransactionTypeProfiles: new[] { "pxa" }, DocumentProfiles: new[] { "scanned_single_parcel_survey_plan_pdf", "survey_plan_pdf" }),
+        new PreflightRuleDefinition("pxa_memorandum_surveyed_for_names_present", "memorandum", "pxa_memorandum", "Survey made at the instance of", "Detected memorandum should list the party at whose instance the survey was made or surveyed for.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_surveyed_for_names_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_surveyed_property_name_present", "memorandum", "pxa_memorandum", "Surveyed property name", "Detected memorandum should list the name of the surveyed property.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_surveyed_property_name_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_property_name_near_diagram", "memorandum", "pxa_memorandum", "Property name near parcel diagram", "Review whether the surveyed property name is printed near the parcel diagram when visual evidence is available.", true, "warning", false, StageId: "validate_points_and_lines", WorkflowEffect: "report_only", EvaluatorKey: "pxa_memorandum_property_name_near_diagram", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_instrument_group_complete", "memorandum", "pxa_memorandum", "Instrument check evidence", "Instrument name/type, instrument check date, and instrument check result should be reviewed as one grouped memorandum finding.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_instrument_group_complete", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_parish_present", "memorandum", "pxa_memorandum", "Parish", "Detected memorandum should provide or confirm the parish.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_parish_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_north_arrow_present", "memorandum", "pxa_memorandum", "North arrow", "Map evidence should record whether a north arrow is present.", true, "warning", false, StageId: "validate_points_and_lines", WorkflowEffect: "report_only", EvaluatorKey: "pxa_memorandum_north_arrow_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_scale_bar_present", "memorandum", "pxa_memorandum", "Scale bar", "Map evidence should record whether a scale bar is present.", true, "warning", false, StageId: "validate_points_and_lines", WorkflowEffect: "report_only", EvaluatorKey: "pxa_memorandum_scale_bar_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_notice_served_on_present", "memorandum", "pxa_memorandum", "Notices served on", "Detected memorandum should list parties on whom notice was served.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_notice_served_on_present", TransactionTypeProfiles: new[] { "pxa" }),
+        new PreflightRuleDefinition("pxa_memorandum_appearance_parties_present", "memorandum", "pxa_memorandum", "Appeared parties", "Detected memorandum should list parties who appeared personally or by representative.", true, "configured", false, StageId: "validate_points_and_lines", WorkflowEffect: "requires_disposition", EvaluatorKey: "pxa_memorandum_appearance_parties_present", TransactionTypeProfiles: new[] { "pxa" })
+    }
+    .Select(rule => rule with
+    {
+        StageId = InferStageId(rule.RuleId, rule.Group),
+        WorkflowEffect = InferWorkflowEffect(rule.RuleId, rule.Severity),
+        EvaluatorKey = PreflightRuleDefinition.NormalizeEvaluatorKey(rule.RuleId, "manual_review"),
+        ReportVisible = true
+    })
+    .ToArray();
 
     public PreflightRuleCatalogLoader()
     {
@@ -186,6 +204,16 @@ public sealed class PreflightRuleCatalogLoader
                 {
                     validationIssues.Add($"Locked rule '{defaultRule.RuleId}' must keep severity '{defaultRule.Severity}'.");
                 }
+
+                if (!string.Equals(configuredRule.StageId, defaultRule.StageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    validationIssues.Add($"Locked rule '{defaultRule.RuleId}' must keep stage_id '{defaultRule.StageId}'.");
+                }
+
+                if (!string.Equals(configuredRule.EvaluatorKey, defaultRule.EvaluatorKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    validationIssues.Add($"Locked rule '{defaultRule.RuleId}' must keep evaluator_key '{defaultRule.EvaluatorKey}'.");
+                }
             }
         }
 
@@ -232,6 +260,36 @@ public sealed class PreflightRuleCatalogLoader
                 continue;
             }
 
+            var stageFallback = InferStageId(ruleId, group);
+            var configuredStageId = ReadString(item, "stage_id");
+            var stageId = PreflightRuleDefinition.NormalizeStageId(configuredStageId, stageFallback);
+            if (!string.IsNullOrWhiteSpace(configuredStageId)
+                && string.IsNullOrWhiteSpace(PreflightRuleDefinition.NormalizeStageId(configuredStageId, string.Empty)))
+            {
+                validationIssues.Add($"Rule entry {index} has unsupported stage_id '{configuredStageId}'.");
+                continue;
+            }
+
+            var workflowEffectFallback = InferWorkflowEffect(ruleId, severity);
+            var configuredWorkflowEffect = ReadString(item, "workflow_effect");
+            var workflowEffect = PreflightRuleDefinition.NormalizeWorkflowEffect(configuredWorkflowEffect, workflowEffectFallback);
+            if (!string.IsNullOrWhiteSpace(configuredWorkflowEffect)
+                && string.IsNullOrWhiteSpace(PreflightRuleDefinition.NormalizeWorkflowEffect(configuredWorkflowEffect, string.Empty)))
+            {
+                validationIssues.Add($"Rule entry {index} has unsupported workflow_effect '{configuredWorkflowEffect}'.");
+                continue;
+            }
+
+            var evaluatorFallback = PreflightRuleDefinition.NormalizeEvaluatorKey(ruleId, "manual_review");
+            var configuredEvaluatorKey = ReadString(item, "evaluator_key");
+            var evaluatorKey = PreflightRuleDefinition.NormalizeEvaluatorKey(configuredEvaluatorKey, evaluatorFallback);
+            if (!string.IsNullOrWhiteSpace(configuredEvaluatorKey)
+                && string.IsNullOrWhiteSpace(PreflightRuleDefinition.NormalizeEvaluatorKey(configuredEvaluatorKey, string.Empty)))
+            {
+                validationIssues.Add($"Rule entry {index} has unsupported evaluator_key '{configuredEvaluatorKey}'.");
+                continue;
+            }
+
             parsed.Add(new PreflightRuleDefinition(
                 ruleId,
                 group,
@@ -241,6 +299,10 @@ public sealed class PreflightRuleCatalogLoader
                 enabled.Value,
                 severity,
                 locked.Value,
+                stageId,
+                workflowEffect,
+                evaluatorKey,
+                ReadOptionalBool(item, "report_visible") ?? true,
                 ReadStringArray(item, "transaction_types"),
                 ReadStringArray(item, "workflow_stages"),
                 ReadStringArray(item, "transaction_type_profiles"),
@@ -422,5 +484,60 @@ public sealed class PreflightRuleCatalogLoader
     private static string BuildFallbackWarning(IReadOnlyList<string> validationIssues)
     {
         return $"Structure rules file is partially invalid. Safe defaults are active. {string.Join(" ", validationIssues)}";
+    }
+
+    private static string InferStageId(string ruleId, string group)
+    {
+        if (string.Equals(group, "supporting_document", StringComparison.OrdinalIgnoreCase))
+        {
+            return "supporting_document_check";
+        }
+
+        if (string.Equals(group, "georeference", StringComparison.OrdinalIgnoreCase))
+        {
+            return "georeference_check";
+        }
+
+        if (string.Equals(group, "dimension", StringComparison.OrdinalIgnoreCase))
+        {
+            return "dimension_check";
+        }
+
+        if (string.Equals(group, "memorandum", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(ruleId, "pxa_memorandum_detected", StringComparison.OrdinalIgnoreCase)
+                ? "data_extraction"
+                : "validate_points_and_lines";
+        }
+
+        return ruleId.Trim().ToLowerInvariant() switch
+        {
+            "detected_profile_presence" or "detected_profile_complete" or "required_source_roles" => "supporting_document_check",
+            "georeference_source_presence" or "tabular_coordinate_columns" or "jamaica_coordinate_bounds" or "georeference_spatial_validation_readiness" => "georeference_check",
+            "dimension_source_presence" or "dimension_geometry_construction_readiness" => "dimension_check",
+            _ => "structure_check"
+        };
+    }
+
+    private static string InferWorkflowEffect(string ruleId, string severity)
+    {
+        if (string.Equals(ruleId, "pxa_memorandum_detected", StringComparison.OrdinalIgnoreCase))
+        {
+            return "info";
+        }
+
+        if (string.Equals(ruleId, "pxa_memorandum_property_name_near_diagram", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ruleId, "pxa_memorandum_north_arrow_present", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ruleId, "pxa_memorandum_scale_bar_present", StringComparison.OrdinalIgnoreCase))
+        {
+            return "report_only";
+        }
+
+        return PreflightRuleDefinition.NormalizeSeverity(severity, "warning") switch
+        {
+            "blocker" => "blocker",
+            "configured" => "requires_disposition",
+            _ => "report_only"
+        };
     }
 }

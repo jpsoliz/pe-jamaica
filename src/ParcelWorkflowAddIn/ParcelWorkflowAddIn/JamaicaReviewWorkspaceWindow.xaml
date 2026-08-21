@@ -688,6 +688,75 @@
                 </DataGrid>
               </Grid>
             </TabItem>
+            <TabItem Header="Memorandum">
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0"
+                           Text="{Binding PxaMemorandumSummary}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding VisibleMemorandumGroups}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Expander Header="{Binding DisplayName}"
+                                  IsExpanded="True"
+                                  Margin="0,0,0,8">
+                          <Grid Margin="0,6,0,0">
+                            <Grid.RowDefinitions>
+                              <RowDefinition Height="Auto" />
+                              <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="{Binding Summary}"
+                                       FontSize="11"
+                                       Foreground="#52616B"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,4" />
+                            <DataGrid Grid.Row="1"
+                                      ItemsSource="{Binding Rules}"
+                                      IsReadOnly="True"
+                                      AutoGenerateColumns="False"
+                                      HeadersVisibility="Column"
+                                      CanUserAddRows="False"
+                                      CanUserDeleteRows="False"
+                                      RowHeaderWidth="0"
+                                      GridLinesVisibility="Horizontal"
+                                      FontSize="11">
+                              <DataGrid.Columns>
+                                <DataGridTextColumn Header="Rule"
+                                                    Binding="{Binding Label}"
+                                                    Width="190" />
+                                <DataGridTextColumn Header="Value"
+                                                    Binding="{Binding EvidenceValue}"
+                                                    Width="150" />
+                                <DataGridTextColumn Header="Status"
+                                                    Binding="{Binding ReviewerStatus}"
+                                                    Width="105" />
+                                <DataGridTextColumn Header="Effect"
+                                                    Binding="{Binding WorkflowEffect}"
+                                                    Width="125" />
+                                <DataGridTextColumn Header="Source"
+                                                    Binding="{Binding SourceLabel}"
+                                                    Width="120" />
+                                <DataGridTextColumn Header="Finding"
+                                                    Binding="{Binding Message}"
+                                                    Width="*" />
+                              </DataGrid.Columns>
+                            </DataGrid>
+                          </Grid>
+                        </Expander>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Grid>
+            </TabItem>
             <TabItem Header="Owners / Neighbors">
               <Grid Margin="10">
                 <Grid.RowDefinitions>

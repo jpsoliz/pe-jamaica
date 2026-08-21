@@ -2420,6 +2420,8 @@ internal static class WorkflowSessionTests
                     Array.Empty<ValidationClosureResult>(),
                     null,
                     Array.Empty<ValidationReadinessResult>(),
+                    null,
+                    Array.Empty<ValidationOrientationResult>(),
                     new[]
                     {
                         new ValidationFinding(

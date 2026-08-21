@@ -465,6 +465,246 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("derived_from_parcel_name", document.Rows[0].GroupConfidence, "Derived grouping should carry an explicit confidence label.");
     }
 
+    public static void LoadEditAndSaveReviewArtifactPersistsMemorandumFieldsAndHash()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "extraction_source": "survey_plan_ocr_vision",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_sections": {
+                "memorandum": {
+                  "detected": true,
+                  "matched_text": "MEMORANDUM",
+                  "source_page": 1,
+                  "source_zone": "memorandum",
+                  "confidence": 0.91
+                }
+              },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon", "confidence": 0.87 },
+                "instrument": { "value": "TOPCON GM-52", "source_zone": "instrument_block" },
+                "instrument_check_date": { "value": "2024-09-04", "source_zone": "instrument_block" },
+                "instrument_check_result": { "value": "Checked", "source_zone": "instrument_block" },
+                "gps_instrument_number": { "value": "GPS-7", "source_zone": "instrument_block" },
+                "gps_serial_number": { "value": "SN-12345", "source_zone": "instrument_block" }
+              },
+              "property_name_near_parcel_diagram": {
+                "present": true,
+                "value": "Lot 12 Bellevue",
+                "source_zone": "parcel_diagram",
+                "confidence": 0.72
+              },
+              "scale_bar": { "present": false, "confidence": 0.2, "source_zone": "not visible" },
+              "surveyed_for_names": [
+                { "name": "Roxine Campbell", "role": "surveyed_for", "source_zone": "memorandum" }
+              ],
+              "surveyed_property_names": [
+                { "value": "Lot 12 Bellevue", "source_zone": "memorandum" }
+              ],
+              "notice_served_on": [
+                { "name": "Austin Singh", "source_zone": "memorandum" }
+              ],
+              "appeared_parties": [
+                { "name": "Maria Brown", "appearance_mode": "representative", "representative": "Kevon Jarrett" }
+              ],
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var originalHash = service.ComputeReviewHash(document);
+
+        TestAssert.True(document.MemorandumDetected, "Memorandum detection should load.");
+        TestAssert.Equal(5, document.MemorandumGroups.Count, "Memorandum rule groups should be available.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_detected" && rule.Outcome == "passed"), "Memorandum detection rule should pass.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_scale_bar_present" && rule.Outcome == "not_available"), "Missing scale bar should be not available.");
+        TestAssert.Equal("Roxine Campbell", document.MemorandumParties.First(party => party.Role == "surveyed_for").Name, "Surveyed-for party should load.");
+        TestAssert.Equal("representative", document.MemorandumParties.First(party => party.Role == "appeared").AppearanceMode, "Appearance mode should load.");
+
+        var scaleField = document.SurveyMetadataFields.First(field => field.Key == "scale_bar");
+        scaleField.Present = true;
+        scaleField.ReviewStatus = "accepted";
+        scaleField.ReviewNotes = "Confirmed on lower left of memorandum.";
+
+        service.Save(layout, document, "tester");
+        var reloaded = service.Load(layout)!;
+        var editedHash = service.ComputeReviewHash(reloaded);
+
+        TestAssert.True(reloaded.SurveyMetadataFields.First(field => field.Key == "scale_bar").Present == true, "Scale bar review edit should persist.");
+        TestAssert.True(!string.Equals(originalHash, editedHash, StringComparison.OrdinalIgnoreCase), "Memorandum review edits should affect review hash.");
+    }
+
+    public static void MemorandumRulesAreNotApplicableWhenMemorandumIsNotDetected()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_sections": {
+                "memorandum": { "detected": false, "status": "not_applicable" }
+              },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon" }
+              },
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+
+        TestAssert.True(!document.MemorandumDetected, "Memorandum should not be detected.");
+        TestAssert.True(document.MemorandumRuleResults.Count > 0, "Memorandum rules should still be auditable.");
+        TestAssert.True(document.MemorandumRuleResults.All(rule => rule.Outcome == "not_applicable"), "All memorandum rules should be not applicable.");
+    }
+
+    public static void MemorandumNoOneAppearedIsExplicitAttendanceEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_sections": {
+                "memorandum": { "detected": true, "matched_text": "MEMORANDUM" }
+              },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon" },
+                "instrument": { "value": "FOIF RTS 102R8" },
+                "instrument_check_date": { "value": "2024-10-04" },
+                "instrument_check_result": { "value": "Satisfactory" }
+              },
+              "surveyed_for_names": [{ "name": "Mario Smith", "review_status": "accepted" }],
+              "surveyed_property_names": [{ "value": "Part of SYMS RUN", "review_status": "accepted" }],
+              "notice_served_on": [{ "name": "The C.E.O of St. Ann Municipal Corporation", "review_status": "accepted" }],
+              "appeared_parties": [
+                { "name": "No one appeared", "appearance_mode": "none", "review_status": "accepted" }
+              ],
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var appearanceRule = document.MemorandumRuleResults.First(rule => rule.RuleId == "pxa_memorandum_appearance_parties_present");
+
+        TestAssert.Equal("passed", appearanceRule.Outcome, "Explicit no-appearance evidence should pass when accepted.");
+        TestAssert.Equal("No one appeared", appearanceRule.EvidenceValue, "Appearance rule should expose the reviewed attendance value.");
+        TestAssert.True(appearanceRule.Message.Contains("No one appeared", StringComparison.OrdinalIgnoreCase), "Rule message should make the negative attendance evidence clear.");
+    }
+
+    public static void MemorandumMatchedTextOverridesFalseDetectionFlagAndUsesScaleEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_sections": {
+                "memorandum": {
+                  "detected": false,
+                  "matched_text": "MEMORANDUM",
+                  "source_zone": "memorandum"
+                }
+              },
+              "scale_bar": {
+                "present": true,
+                "value": "SCALE : 1cm To 10m R.F 1/1000",
+                "source_zone": "scale_bar_text",
+                "confidence": 0.75
+              },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon" },
+                "instrument": { "value": "FOIF RTS 102R8" },
+                "instrument_check_date": { "value": "2024-10-04" },
+                "instrument_check_result": { "value": "Satisfactory" }
+              },
+              "surveyed_for_names": [{ "name": "Mario Smith", "review_status": "accepted" }],
+              "surveyed_property_names": [{ "value": "Part of Retreat", "review_status": "accepted" }],
+              "notice_served_on": [{ "name": "The Commissioner of Lands", "review_status": "accepted" }],
+              "appeared_parties": [{ "name": "No one appeared", "appearance_mode": "none", "review_status": "accepted" }],
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var detectionRule = document.MemorandumRuleResults.First(rule => rule.RuleId == "pxa_memorandum_detected");
+        var scaleRule = document.MemorandumRuleResults.First(rule => rule.RuleId == "pxa_memorandum_scale_bar_present");
+
+        TestAssert.True(document.MemorandumDetected, "Matched MEMORANDUM text should override a stale false detection flag.");
+        TestAssert.Equal("passed", detectionRule.Outcome, "Memorandum detection rule should pass when matched text is present.");
+        TestAssert.Equal("MEMORANDUM", detectionRule.EvidenceValue, "Detection rule should expose the matched memorandum text.");
+        TestAssert.Equal("needs_review", scaleRule.Outcome, "Scale bar text evidence should be available for examiner review until accepted.");
+        TestAssert.Equal("SCALE : 1cm To 10m R.F 1/1000", scaleRule.EvidenceValue, "Scale rule should expose the visible scale text.");
+    }
+
+    public static void MemorandumRootOcrTextEnablesRulesWhenSectionIsMissing()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_text": "SCALE : 1cm To 10m R.F 1/1000 MEMORANDUM",
+              "scale_bar": {
+                "present": true,
+                "Value": "SCALE : 1cm To 10m R.F 1/1000",
+                "ApproximatePageLocation": "scale_bar_text",
+                "Confidence": 0.75
+              },
+              "survey_metadata": {
+                "parish": { "value": "Clarendon", "source_zone": "memorandum" }
+              },
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+        var detectionRule = document.MemorandumRuleResults.First(rule => rule.RuleId == "pxa_memorandum_detected");
+        var scaleRule = document.MemorandumRuleResults.First(rule => rule.RuleId == "pxa_memorandum_scale_bar_present");
+
+        TestAssert.True(document.MemorandumDetected, "Root OCR text containing MEMORANDUM should enable memorandum rules.");
+        TestAssert.Equal("passed", detectionRule.Outcome, "Detection should pass when root OCR text contains MEMORANDUM.");
+        TestAssert.Equal("needs_review", scaleRule.Outcome, "Scale bar evidence should remain reviewable.");
+        TestAssert.Equal("SCALE : 1cm To 10m R.F 1/1000", scaleRule.EvidenceValue, "Scale bar text should remain visible in the rule value.");
+    }
+
     private static CaseFolderLayout CreateLayout(string root, string transactionNumber)
     {
         var layout = CaseFolderLayout.For(root, transactionNumber);

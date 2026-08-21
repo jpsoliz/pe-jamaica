@@ -33,12 +33,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.ReviewAdjacentOwners.CollectionChanged += OnReviewMetadataCollectionChanged;
         parent.ReviewNamedParties.CollectionChanged += OnReviewMetadataCollectionChanged;
         parent.ReviewVolumeFolios.CollectionChanged += OnReviewMetadataCollectionChanged;
+        parent.ReviewMemorandumGroups.CollectionChanged += OnReviewMetadataCollectionChanged;
         VisibleRows = [];
         VisibleSegments = [];
         VisibleMetadataFields = [];
         VisibleAdjacentOwners = [];
         VisibleNamedParties = [];
         VisibleVolumeFolios = [];
+        VisibleMemorandumGroups = [];
         ParcelGroups = [];
         RefreshProjection();
     }
@@ -58,6 +60,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<ExtractionReviewNamedPartyViewModel> VisibleNamedParties { get; }
 
     public ObservableCollection<ExtractionReviewVolumeFolioViewModel> VisibleVolumeFolios { get; }
+
+    public ObservableCollection<ExtractionReviewMemorandumGroupViewModel> VisibleMemorandumGroups { get; }
 
     public string WindowTitle => "Points Validation Tool";
 
@@ -192,6 +196,12 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public string PxaAdjacentOwnerSummary => VisibleAdjacentOwners.Count > 0
         ? $"{VisibleAdjacentOwners.Count} adjacent owner / party reference(s). Link owners to reviewed boundary segments when visible on the plan."
         : "No adjacent owner / party references were extracted yet.";
+
+    public bool HasPxaMemorandumReview => VisibleMemorandumGroups.Count > 0;
+
+    public string PxaMemorandumSummary => VisibleMemorandumGroups.Count > 0
+        ? string.Join(" | ", VisibleMemorandumGroups.Select(group => $"{group.DisplayName}: {group.Summary}"))
+        : "No memorandum-specific rules are available for this review artifact.";
 
     public string ViewerFileTitle => parent.ReviewViewerFileTitle;
 
@@ -460,11 +470,26 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             var closure = parent.ReviewValidationResult.ClosureResults
                 .FirstOrDefault(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase));
+            var orientationResults = parent.ReviewValidationResult.OrientationResults
+                .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             var readinessResults = parent.ReviewValidationResult.ReadinessResults
                 .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+            var orientationBlocker = orientationResults.FirstOrDefault(result => result.Status == OrientationValidationStatus.Blocker);
+            var orientationWarning = orientationResults.FirstOrDefault(result => result.Status == OrientationValidationStatus.Warning);
             var readinessBlocker = readinessResults.FirstOrDefault(result => result.Status == ReadinessValidationStatus.Blocker);
             var readinessWarning = readinessResults.FirstOrDefault(result => result.Status == ReadinessValidationStatus.Warning);
+
+            if (orientationBlocker is not null)
+            {
+                return $"This parcel is not ready for Create Spatial Units. {orientationBlocker.Title}.";
+            }
+
+            if (orientationWarning is not null)
+            {
+                return $"This parcel can be reviewed further. {orientationWarning.Title}.";
+            }
 
             if (readinessBlocker is not null)
             {
@@ -573,6 +598,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.ReviewAdjacentOwners.CollectionChanged -= OnReviewMetadataCollectionChanged;
         parent.ReviewNamedParties.CollectionChanged -= OnReviewMetadataCollectionChanged;
         parent.ReviewVolumeFolios.CollectionChanged -= OnReviewMetadataCollectionChanged;
+        parent.ReviewMemorandumGroups.CollectionChanged -= OnReviewMetadataCollectionChanged;
     }
 
     public bool SaveReviewChanges()
@@ -653,6 +679,26 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             }
         }
 
+        foreach (var orientationResult in parent.ReviewValidationResult.OrientationResults
+                     .Where(result => string.Equals(result.ParcelGroupId, SelectedParcelGroup.GroupId, StringComparison.OrdinalIgnoreCase)))
+        {
+            var orientationBucket = orientationResult.Status switch
+            {
+                OrientationValidationStatus.Blocker => DiagnosticBucket.Blocked,
+                OrientationValidationStatus.Warning => DiagnosticBucket.Warning,
+                OrientationValidationStatus.Passed => DiagnosticBucket.Passed,
+                _ => DiagnosticBucket.None
+            };
+
+            if (orientationBucket == bucket && !string.IsNullOrWhiteSpace(orientationResult.Message))
+            {
+                var prefix = string.IsNullOrWhiteSpace(orientationResult.RuleId)
+                    ? BlankIfEmpty(orientationResult.Title)
+                    : FormatRuleLabel(orientationResult.RuleId, orientationResult.Title);
+                details.Add($"{prefix}: {orientationResult.Message}");
+            }
+        }
+
         if (bucket == DiagnosticBucket.Blocked
             && parent.ReviewValidationResult.ParcelIssues.TryGetValue(SelectedParcelGroup.GroupId, out var parcelIssue)
             && !string.IsNullOrWhiteSpace(parcelIssue))
@@ -687,6 +733,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PxaGeneralInfoSummary));
         OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
         OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+        OnPropertyChanged(nameof(HasPxaMemorandumReview));
+        OnPropertyChanged(nameof(PxaMemorandumSummary));
     }
 
     private void OnParentPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -733,6 +781,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewAdjacentOwners):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewNamedParties):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewVolumeFolios):
+            case nameof(ParcelWorkflowDockpaneViewModel.ReviewMemorandumGroups):
             case nameof(ParcelWorkflowDockpaneViewModel.IsPxaSurveyPlanReview):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
             case nameof(ParcelWorkflowDockpaneViewModel.HasSingleReviewParcelGroup):
@@ -909,6 +958,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PxaGeneralInfoSummary));
             OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
             OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+            OnPropertyChanged(nameof(HasPxaMemorandumReview));
+            OnPropertyChanged(nameof(PxaMemorandumSummary));
             OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
             OnPropertyChanged(nameof(IsStandardPointReview));
             OnPropertyChanged(nameof(CenterReviewTitle));
@@ -1032,6 +1083,12 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                      .ThenBy(item => item.Folio, StringComparer.OrdinalIgnoreCase))
         {
             VisibleVolumeFolios.Add(volumeFolio);
+        }
+
+        VisibleMemorandumGroups.Clear();
+        foreach (var group in parent.ReviewMemorandumGroups)
+        {
+            VisibleMemorandumGroups.Add(group);
         }
     }
 

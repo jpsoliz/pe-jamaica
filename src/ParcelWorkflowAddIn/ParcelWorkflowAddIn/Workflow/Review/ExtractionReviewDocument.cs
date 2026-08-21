@@ -38,6 +38,16 @@ public sealed class ExtractionReviewDocument
 
     public List<ExtractionReviewVolumeFolio> VolumeFolios { get; } = [];
 
+    public List<ExtractionReviewMemorandumParty> MemorandumParties { get; } = [];
+
+    public List<ExtractionReviewMemorandumRuleResult> MemorandumRuleResults { get; } = [];
+
+    public List<ExtractionReviewMemorandumGroup> MemorandumGroups { get; } = [];
+
+    public bool MemorandumDetected { get; set; }
+
+    public string MemorandumDetectionStatus { get; set; } = string.Empty;
+
     public JsonObject RootMetadata { get; set; } = [];
 }
 
@@ -138,6 +148,73 @@ public sealed class ExtractionReviewVolumeFolio
     public string ReviewNotes { get; set; } = string.Empty;
 
     public JsonObject RawVolumeFolio { get; set; } = [];
+}
+
+public sealed class ExtractionReviewMemorandumParty
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Role { get; set; } = string.Empty;
+
+    public string AppearanceMode { get; set; } = string.Empty;
+
+    public string Representative { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public string ReviewStatus { get; set; } = string.Empty;
+
+    public string ReviewNotes { get; set; } = string.Empty;
+
+    public JsonObject RawParty { get; set; } = [];
+}
+
+public sealed class ExtractionReviewMemorandumRuleResult
+{
+    public string RuleId { get; set; } = string.Empty;
+
+    public string Group { get; set; } = string.Empty;
+
+    public string Label { get; set; } = string.Empty;
+
+    public string Outcome { get; set; } = string.Empty;
+
+    public string ReviewerStatus { get; set; } = string.Empty;
+
+    public string WorkflowEffect { get; set; } = string.Empty;
+
+    public string Message { get; set; } = string.Empty;
+
+    public string EvidenceValue { get; set; } = string.Empty;
+
+    public string SourcePage { get; set; } = string.Empty;
+
+    public string SourceZone { get; set; } = string.Empty;
+
+    public bool ReportVisible { get; set; } = true;
+}
+
+public sealed class ExtractionReviewMemorandumGroup
+{
+    public string GroupId { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public int PassedCount { get; set; }
+
+    public int NeedsReviewCount { get; set; }
+
+    public int FailedCount { get; set; }
+
+    public int NotAvailableCount { get; set; }
+
+    public int NotApplicableCount { get; set; }
+
+    public string Summary { get; set; } = string.Empty;
+
+    public List<ExtractionReviewMemorandumRuleResult> Rules { get; } = [];
 }
 
 public sealed class ExtractionReviewSegment

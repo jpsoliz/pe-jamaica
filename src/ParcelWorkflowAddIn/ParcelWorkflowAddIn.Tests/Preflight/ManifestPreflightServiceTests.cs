@@ -207,6 +207,40 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Warnings).Concat(summary.Payload.Blockers).All(check => !string.IsNullOrWhiteSpace(check.WorkflowEffect)), "Reportable findings should include workflow_effect.");
     }
 
+    public static void MovedDimensionRuleRunsOnlyInConfiguredGeoreferenceStage()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "scenario_b",
+            new[]
+            {
+                Source("computation.pdf", ".pdf", "computation_source"),
+                Source("points.csv", ".csv", "points_computation"),
+                Source("reference.dwg", ".dwg", "dwg_reference"),
+                Source("plan.pdf", ".pdf", "plan_map_reference")
+            });
+        var defaultCatalog = new PreflightRuleCatalogLoader(Path.Combine(tempRoot.Path, "missing-structure-rules.json")).Load();
+        var movedRules = defaultCatalog.Rules
+            .Select(rule => string.Equals(rule.RuleId, "dimension_source_presence", StringComparison.OrdinalIgnoreCase)
+                ? rule with { StageId = "georeference_check" }
+                : rule)
+            .ToArray();
+        var catalog = new PreflightRuleCatalog(defaultCatalog.SourcePath, false, null, movedRules);
+        var service = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 20, 4, 0, 0, TimeSpan.Zero),
+            () => "moved-rule-run",
+            new NoOpProcessingEnvironmentPreflightService(),
+            new FakeDwgReferenceReadinessInspector(new DwgReferenceReadinessProbeResult(true, true, "probe-ok", null, new[] { "Point", "Polyline", "Annotation" })),
+            catalog);
+
+        var dimensionSummary = service.RunDimensionCheck(layout, "tester");
+        var georeferenceSummary = service.RunGeoreferenceCheck(layout, "tester");
+
+        TestAssert.True(!dimensionSummary.Payload.PassedChecks.Concat(dimensionSummary.Payload.Warnings).Concat(dimensionSummary.Payload.Blockers).Any(check => check.CheckId == "dimension_source_presence"), "Moved rule should not run in its old Dimension Check stage.");
+        TestAssert.True(georeferenceSummary.Payload.PassedChecks.Concat(georeferenceSummary.Payload.Warnings).Concat(georeferenceSummary.Payload.Blockers).Any(check => check.CheckId == "dimension_source_presence" && check.StageId == "georeference_check"), "Moved rule should run in its configured Georeference Check stage.");
+    }
+
     public static void GeoreferenceCheckConsumesSurveyPlanExtractionEvidence()
     {
         using var tempRoot = new TempDirectory();

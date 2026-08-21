@@ -112,6 +112,45 @@ closure_tolerance_profiles:
     warning_misclose_ratio_denominator: 4000
     evaluation_basis: distance_and_ratio
 
+orientation_validation_defaults:
+  rule_id: orientation_default_standard
+  title: Parcel orientation and bearing consistency
+  description: Detect parcel ring orientation and compare source bearings against coordinate geometry before Create Spatial Units.
+  enabled: true
+  severity: warning
+  parcel_type: standard_closed
+  expected_orientation: any
+  enforce_bearing_consistency: true
+  max_bearing_delta_degrees: 5.0
+
+orientation_validation_profiles:
+  - rule_id: orientation_standard_plan_exam
+    title: Orientation and bearing consistency for compute review
+    parcel_type: standard_closed
+    enabled: true
+    severity: warning
+    expected_orientation: any
+    enforce_bearing_consistency: true
+    max_bearing_delta_degrees: 5.0
+
+  - rule_id: orientation_open_boundary_review
+    title: Orientation and bearing consistency for open-boundary review
+    parcel_type: open_boundary
+    enabled: true
+    severity: warning
+    expected_orientation: any
+    enforce_bearing_consistency: true
+    max_bearing_delta_degrees: 7.5
+
+  - rule_id: orientation_tabular_coordinate_import
+    title: Orientation and bearing consistency for imported coordinates
+    parcel_type: imported_coordinates
+    enabled: true
+    severity: info
+    expected_orientation: any
+    enforce_bearing_consistency: false
+    max_bearing_delta_degrees: 10.0
+
 rules:
   - id: approved_review_snapshot_current
     severity: critical

@@ -20,6 +20,12 @@ public sealed class SettingsWorkspaceService
     public const string SpatialOutputCogoSourceModeSourceThenComputed = "source_then_computed";
     public const string SpatialOutputCogoSourceModePreferSource = "prefer_source";
     public const string SpatialOutputCogoSourceModePreferComputed = "prefer_computed";
+    public const string OrientationNormalizationModeDisabled = "disabled";
+    public const string OrientationNormalizationModePreferClockwise = "prefer_clockwise";
+    public const string OrientationNormalizationModePreferCounterclockwise = "prefer_counterclockwise";
+    public const string OrientationExpectedAny = "any";
+    public const string OrientationExpectedClockwise = "clockwise";
+    public const string OrientationExpectedCounterclockwise = "counterclockwise";
     public const string CompareSpatialSearchModeIntersects = CompareEnterpriseCadasterSettings.SpatialSearchModeIntersects;
     public const string CompareSpatialSearchModeBuffer = CompareEnterpriseCadasterSettings.SpatialSearchModeBuffer;
     public const string EnterpriseWorkingAdminCleanupModeDeactivate = "deactivate";
@@ -99,6 +105,11 @@ public sealed class SettingsWorkspaceService
             SpatialOutputAddCogoAttributes = executionSettings.SpatialOutputAddCogoAttributes,
             SpatialOutputAddCogoLabels = executionSettings.SpatialOutputAddCogoLabels,
             SpatialOutputCogoSourceMode = NormalizeSpatialOutputCogoSourceMode(ReadString(settingsRoot, "spatial_output_cogo_source_mode") ?? executionSettings.SpatialOutputCogoSourceMode),
+            OrientationNormalizationMode = NormalizeOrientationNormalizationMode(ReadString(settingsRoot, "orientation_normalization_mode") ?? executionSettings.OrientationNormalizationMode),
+            PreferredOutputOrientation = NormalizeExpectedOrientation(ReadString(settingsRoot, "preferred_output_orientation")),
+            BearingConsistencyToleranceDeg = FormatNullableDouble(ReadDouble(settingsRoot, "bearing_consistency_tolerance_deg") ?? 5d),
+            BearingConsistencyWarningToleranceDeg = FormatNullableDouble(ReadDouble(settingsRoot, "bearing_consistency_warning_tolerance_deg") ?? 2.5d),
+            OrientationValidationProfileOverridesJson = ReadJson(settingsRoot, "orientation_validation_profile_overrides"),
             ClosureDefaultMaxClosureDistanceM = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).MaxClosureDistanceM),
             ClosureDefaultMinMiscloseRatioDenominator = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).MinMiscloseRatioDenominator),
             ClosureDefaultWarningClosureDistanceM = FormatNullableDouble(closureCatalog.Resolve(closureCatalog.DefaultProfile.ParcelType).WarningClosureDistanceM),
@@ -267,6 +278,47 @@ public sealed class SettingsWorkspaceService
         if (!IsSupportedSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode))
         {
             messages.Add(new("Spatial Workspace", "COGO Source Mode", $"COGO source mode '{document.SpatialOutputCogoSourceMode}' is not supported."));
+        }
+
+        if (!IsSupportedOrientationNormalizationMode(document.OrientationNormalizationMode))
+        {
+            messages.Add(new("Spatial Workspace", "Orientation Normalization Mode", $"Orientation normalization mode '{document.OrientationNormalizationMode}' is not supported."));
+        }
+
+        if (!IsSupportedExpectedOrientation(document.PreferredOutputOrientation))
+        {
+            messages.Add(new("Spatial Workspace", "Preferred Output Orientation", $"Preferred output orientation '{document.PreferredOutputOrientation}' is not supported."));
+        }
+
+        var bearingConsistencyTolerance = ParsePositiveDouble(document.BearingConsistencyToleranceDeg);
+        if (bearingConsistencyTolerance is null)
+        {
+            messages.Add(new("Spatial Workspace", "Bearing consistency tolerance", "Bearing consistency tolerance must be a positive number of degrees."));
+        }
+
+        var bearingConsistencyWarningTolerance = ParsePositiveDouble(document.BearingConsistencyWarningToleranceDeg);
+        if (bearingConsistencyWarningTolerance is null)
+        {
+            messages.Add(new("Spatial Workspace", "Bearing consistency warning tolerance", "Bearing consistency warning tolerance must be a positive number of degrees."));
+        }
+
+        if (bearingConsistencyTolerance is not null
+            && bearingConsistencyWarningTolerance is not null
+            && bearingConsistencyWarningTolerance > bearingConsistencyTolerance)
+        {
+            messages.Add(new("Spatial Workspace", "Bearing consistency warning tolerance", "Warning tolerance should be less than or equal to the blocker tolerance."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(document.OrientationValidationProfileOverridesJson))
+        {
+            try
+            {
+                JsonNode.Parse(document.OrientationValidationProfileOverridesJson);
+            }
+            catch (JsonException exception)
+            {
+                messages.Add(new("Spatial Workspace", "Orientation Validation Overrides", $"Orientation validation overrides must be valid JSON. {exception.Message}"));
+            }
         }
 
         if (!CompareEnterpriseCadasterSettings.IsSupportedSpatialSearchMode(document.CompareEnterpriseCadasterSpatialSearchMode))
@@ -461,6 +513,24 @@ public sealed class SettingsWorkspaceService
             {
                 messages.Add(new("Structure Rules", rule.DisplayName, $"Rule severity '{rule.Severity}' is not supported."));
             }
+
+            var normalizedStageId = PreflightRuleDefinition.NormalizeStageId(rule.StageId, string.Empty);
+            if (string.IsNullOrWhiteSpace(normalizedStageId))
+            {
+                messages.Add(new("Structure Rules", rule.DisplayName, $"Rule stage '{rule.StageId}' is not supported."));
+            }
+
+            var normalizedWorkflowEffect = PreflightRuleDefinition.NormalizeWorkflowEffect(rule.WorkflowEffect, string.Empty);
+            if (string.IsNullOrWhiteSpace(normalizedWorkflowEffect))
+            {
+                messages.Add(new("Structure Rules", rule.DisplayName, $"Rule workflow effect '{rule.WorkflowEffect}' is not supported."));
+            }
+
+            var normalizedEvaluatorKey = PreflightRuleDefinition.NormalizeEvaluatorKey(rule.EvaluatorKey, string.Empty);
+            if (string.IsNullOrWhiteSpace(normalizedEvaluatorKey))
+            {
+                messages.Add(new("Structure Rules", rule.DisplayName, $"Rule evaluator '{rule.EvaluatorKey}' is not supported."));
+            }
         }
 
         return messages;
@@ -518,6 +588,11 @@ public sealed class SettingsWorkspaceService
         root["spatial_output_add_cogo_attributes"] = document.SpatialOutputAddCogoAttributes;
         root["spatial_output_add_cogo_labels"] = document.SpatialOutputAddCogoLabels;
         SetString(root, "spatial_output_cogo_source_mode", NormalizeSpatialOutputCogoSourceMode(document.SpatialOutputCogoSourceMode));
+        SetString(root, "orientation_normalization_mode", NormalizeOrientationNormalizationMode(document.OrientationNormalizationMode));
+        SetString(root, "preferred_output_orientation", NormalizeExpectedOrientation(document.PreferredOutputOrientation));
+        root["bearing_consistency_tolerance_deg"] = ParsePositiveDouble(document.BearingConsistencyToleranceDeg) ?? 5d;
+        root["bearing_consistency_warning_tolerance_deg"] = ParsePositiveDouble(document.BearingConsistencyWarningToleranceDeg) ?? 2.5d;
+        SetJson(root, "orientation_validation_profile_overrides", document.OrientationValidationProfileOverridesJson);
         SetJson(root, "closure_tolerance_profile_overrides", BuildClosureToleranceOverridesJson(document));
         SetJson(root, "parcel_construction_readiness_profile_overrides", BuildReadinessOverridesJson(document));
         root["enterprise_working_review"] = CreateEnterpriseWorkingReviewNode(document);
@@ -624,6 +699,18 @@ public sealed class SettingsWorkspaceService
             writableRule["severity"] = editableRule.Locked
                 ? existingRule["severity"]?.GetValue<string>() ?? "blocker"
                 : PreflightRuleDefinition.NormalizeSeverity(editableRule.Severity, "warning");
+            writableRule["stage_id"] = editableRule.Locked
+                ? existingRule["stage_id"]?.GetValue<string>() ?? editableRule.StageId
+                : PreflightRuleDefinition.NormalizeStageId(editableRule.StageId, "structure_check");
+            writableRule["workflow_effect"] = editableRule.Locked
+                ? existingRule["workflow_effect"]?.GetValue<string>() ?? editableRule.WorkflowEffect
+                : PreflightRuleDefinition.NormalizeWorkflowEffect(editableRule.WorkflowEffect, "requires_disposition");
+            writableRule["evaluator_key"] = editableRule.Locked
+                ? existingRule["evaluator_key"]?.GetValue<string>() ?? editableRule.EvaluatorKey
+                : PreflightRuleDefinition.NormalizeEvaluatorKey(editableRule.EvaluatorKey, "manual_review");
+            writableRule["report_visible"] = editableRule.Locked
+                ? existingRule["report_visible"]?.GetValue<bool>() ?? editableRule.ReportVisible
+                : editableRule.ReportVisible;
             updatedRules.Add(writableRule);
         }
 
@@ -646,7 +733,11 @@ public sealed class SettingsWorkspaceService
                 ["description"] = rule.Description,
                 ["enabled"] = rule.Enabled,
                 ["severity"] = PreflightRuleDefinition.NormalizeSeverity(rule.Severity, "warning"),
-                ["locked"] = rule.Locked
+                ["locked"] = rule.Locked,
+                ["stage_id"] = PreflightRuleDefinition.NormalizeStageId(rule.StageId, "structure_check"),
+                ["workflow_effect"] = PreflightRuleDefinition.NormalizeWorkflowEffect(rule.WorkflowEffect, "requires_disposition"),
+                ["evaluator_key"] = PreflightRuleDefinition.NormalizeEvaluatorKey(rule.EvaluatorKey, "manual_review"),
+                ["report_visible"] = rule.ReportVisible
             };
 
             if (rule.RequiredCadLayers is { Count: > 0 } requiredCadLayers)
@@ -1405,6 +1496,40 @@ public sealed class SettingsWorkspaceService
             || string.Equals(value, SpatialOutputCogoSourceModePreferComputed, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string NormalizeOrientationNormalizationMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            OrientationNormalizationModePreferClockwise => OrientationNormalizationModePreferClockwise,
+            OrientationNormalizationModePreferCounterclockwise => OrientationNormalizationModePreferCounterclockwise,
+            _ => OrientationNormalizationModeDisabled
+        };
+    }
+
+    private static bool IsSupportedOrientationNormalizationMode(string? value)
+    {
+        return string.Equals(value, OrientationNormalizationModeDisabled, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OrientationNormalizationModePreferClockwise, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OrientationNormalizationModePreferCounterclockwise, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeExpectedOrientation(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            OrientationExpectedClockwise => OrientationExpectedClockwise,
+            OrientationExpectedCounterclockwise => OrientationExpectedCounterclockwise,
+            _ => OrientationExpectedAny
+        };
+    }
+
+    private static bool IsSupportedExpectedOrientation(string? value)
+    {
+        return string.Equals(value, OrientationExpectedAny, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OrientationExpectedClockwise, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, OrientationExpectedCounterclockwise, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsSupportedReadinessSeverity(string? value)
     {
         return string.Equals(value, "blocker", StringComparison.OrdinalIgnoreCase)
@@ -1482,6 +1607,23 @@ public sealed class SettingsWorkspaceService
     private static bool? ReadBool(JsonObject? root, string name)
     {
         return root?[name]?.GetValue<bool>();
+    }
+
+    private static double? ReadDouble(JsonObject? root, string name)
+    {
+        if (root?[name] is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return root[name]!.GetValue<double>();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool? ReadBool(JsonElement root, string name)

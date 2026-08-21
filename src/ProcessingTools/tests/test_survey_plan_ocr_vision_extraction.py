@@ -105,6 +105,101 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
             self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
 
+    def test_memorandum_response_writes_document_section_and_memorandum_fields(self):
+        raw = {
+            "document_text": "MEMORANDUM\nSurveyed for Roxine Campbell",
+            "survey_metadata": {
+                "parish": "Clarendon",
+                "instrument": "TOPCON GM-52",
+                "instrument_check_date": "2024-09-04",
+                "instrument_check_result": "Checked and found in order",
+                "gps_instrument_number": "GPS-7",
+                "gps_serial_number": "SN-12345",
+            },
+            "north_arrow": {"detected": True, "approximate_page_location": "upper right", "confidence": 0.9},
+            "scale_bar": {"detected": False, "approximate_page_location": "not visible", "confidence": 0.2},
+            "surveyed_for_names": [{"name": "Roxine Campbell", "source_zone": "memorandum"}],
+            "surveyed_property_names": [{"value": "Lot 12 Bellevue", "source_zone": "memorandum"}],
+            "property_name_near_parcel_diagram": {
+                "present": True,
+                "value": "Lot 12 Bellevue",
+                "source_zone": "parcel_diagram",
+                "confidence": 0.72,
+            },
+            "notice_served_on": ["Austin Singh", "Maria Brown"],
+            "appeared_parties": [
+                {"name": "Austin Singh", "appearance_mode": "personal"},
+                {"name": "Maria Brown", "appearance_mode": "representative", "representative": "Kevon Jarrett"},
+            ],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        memorandum = payload["document_sections"]["memorandum"]
+        self.assertTrue(memorandum["detected"])
+        self.assertEqual("MEMORANDUM", memorandum["matched_text"])
+        self.assertEqual("Roxine Campbell", payload["surveyed_for_names"][0]["name"])
+        self.assertEqual("Lot 12 Bellevue", payload["surveyed_property_names"][0]["value"])
+        self.assertTrue(payload["property_name_near_parcel_diagram"]["present"])
+        self.assertEqual("TOPCON GM-52", payload["survey_metadata"]["instrument"]["value"])
+        self.assertEqual("2024-09-04", payload["survey_metadata"]["instrument_check_date"]["value"])
+        self.assertEqual("Checked and found in order", payload["survey_metadata"]["instrument_check_result"]["value"])
+        self.assertEqual("GPS-7", payload["survey_metadata"]["gps_instrument_number"]["value"])
+        self.assertEqual("SN-12345", payload["survey_metadata"]["gps_serial_number"]["value"])
+        self.assertFalse(payload["scale_bar"]["present"])
+        self.assertEqual("Austin Singh", payload["notice_served_on"][0]["name"])
+        self.assertEqual("representative", payload["appeared_parties"][1]["appearance_mode"])
+
+    def test_memorandum_table_layout_parses_combined_instrument_and_no_appearance(self):
+        raw = {
+            "document_text": (
+                "MEMORANDUM PARISH OF ST. ANN The name of the party at whose instance the survey was made "
+                "The names of those who appeared either personally or by their representatives No one appeared "
+                "SCALE One Millimetre = 0.5 Metre or 1:500"
+            ),
+            "survey_metadata": {
+                "instrument": "FOIF RTS 102R8 S/N: A13183",
+                "instrument_check": "04/10/2024 - Satisfactory",
+            },
+            "appeared_parties": ["No one appeared"],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        memorandum = payload["document_sections"]["memorandum"]
+        self.assertTrue(memorandum["detected"])
+        self.assertEqual("table", memorandum["section_type"])
+        self.assertTrue(payload["scale_bar"]["present"])
+        self.assertEqual("04/10/2024", payload["survey_metadata"]["instrument_check_date"]["value"])
+        self.assertEqual("Satisfactory", payload["survey_metadata"]["instrument_check_result"]["value"])
+        self.assertEqual("No one appeared", payload["appeared_parties"][0]["name"])
+        self.assertEqual("none", payload["appeared_parties"][0]["appearance_mode"])
+
+    def test_visible_memorandum_and_rf_scale_text_override_false_detection_flag(self):
+        raw = {
+            "document_text": "metres 20 10 0 10 20 30 40 50 60 70 80 90 100 metres SCALE : 1cm To 10m R.F 1/1000 MEMORANDUM",
+            "memorandum": {"detected": False},
+            "scale_bar": {"detected": False},
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        self.assertTrue(payload["document_sections"]["memorandum"]["detected"])
+        self.assertEqual("MEMORANDUM", payload["document_sections"]["memorandum"]["matched_text"])
+        self.assertTrue(payload["scale_bar"]["present"])
+        self.assertIn("R.F 1/1000", payload["scale_bar"]["value"])
+        self.assertEqual("scale_bar_text", payload["scale_bar"]["ApproximatePageLocation"])
+
+    def test_non_memorandum_response_marks_memorandum_not_detected(self):
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(
+            {"document_text": "SURVEY PLAN", "survey_metadata": {"parish": "Clarendon"}},
+            "100000562",
+            "DOC_PLAN_492321.pdf",
+        )
+
+        self.assertFalse(payload["document_sections"]["memorandum"]["detected"])
+        self.assertEqual("not_applicable", payload["document_sections"]["memorandum"]["status"])
+
     def test_provider_unavailable_writes_manual_review_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

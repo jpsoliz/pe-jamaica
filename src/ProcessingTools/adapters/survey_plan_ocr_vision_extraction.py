@@ -65,6 +65,7 @@ def _field(
         "source_page": page,
         "source_zone": zone,
         "status": field_status,
+        "review_status": field_status,
         "review_note": note
         or ("Field was extracted from survey-plan OCR/vision." if text else "Field was not confidently extracted."),
     }
@@ -72,8 +73,19 @@ def _field(
 
 def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_file: str) -> dict[str, Any]:
     metadata = raw.get("survey_metadata") if isinstance(raw.get("survey_metadata"), dict) else {}
+    memorandum = _normalize_memorandum_section(raw)
     coordinate_system = raw.get("coordinate_system") or metadata.get("coordinate_system")
     north_arrow_raw = raw.get("north_arrow") if isinstance(raw.get("north_arrow"), dict) else {}
+    scale_bar_raw = raw.get("scale_bar") if isinstance(raw.get("scale_bar"), dict) else {}
+    scale_bar_text_detected = _has_scale_bar_text(raw)
+    scale_bar_text = _extract_scale_bar_text(raw) if scale_bar_text_detected else None
+    scale_bar_detected = bool(scale_bar_raw.get("detected") or scale_bar_raw.get("Detected") or scale_bar_raw.get("present"))
+    instrument_check_parts = _split_instrument_check(
+        metadata.get("instrument_check")
+        or raw.get("instrument_check")
+        or metadata.get("date_of_last_instr_check_result")
+        or raw.get("date_of_last_instr_check_result")
+    )
     raw_points = _as_list(raw.get("points")) + _as_list(raw.get("derived_points"))
     points = [_normalize_point(point, index + 1) for index, point in enumerate(_dedupe_points(raw_points))]
     segments = [_normalize_segment(segment, index + 1) for index, segment in enumerate(_as_list(raw.get("segments")))]
@@ -104,6 +116,34 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         ),
         "survey_date": _field("survey_date", metadata.get("survey_date") or raw.get("survey_date"), metadata.get("survey_date_confidence"), "signature_block"),
         "instrument": _field("instrument", metadata.get("instrument") or raw.get("instrument"), metadata.get("instrument_confidence"), "instrument_block"),
+        "instrument_check_date": _field(
+            "instrument_check_date",
+            metadata.get("instrument_check_date")
+            or raw.get("instrument_check_date")
+            or instrument_check_parts.get("date")
+            or metadata.get("plan_check_date")
+            or raw.get("plan_check_date"),
+            metadata.get("instrument_check_date_confidence") or metadata.get("plan_check_date_confidence"),
+            "instrument_block",
+        ),
+        "instrument_check_result": _field(
+            "instrument_check_result",
+            metadata.get("instrument_check_result") or raw.get("instrument_check_result") or instrument_check_parts.get("result"),
+            metadata.get("instrument_check_result_confidence"),
+            "instrument_block",
+        ),
+        "gps_instrument_number": _field(
+            "gps_instrument_number",
+            metadata.get("gps_instrument_number") or raw.get("gps_instrument_number"),
+            metadata.get("gps_instrument_number_confidence"),
+            "instrument_block",
+        ),
+        "gps_serial_number": _field(
+            "gps_serial_number",
+            metadata.get("gps_serial_number") or raw.get("gps_serial_number") or metadata.get("gps_serial") or raw.get("gps_serial"),
+            metadata.get("gps_serial_number_confidence") or metadata.get("gps_serial_confidence"),
+            "instrument_block",
+        ),
         "surveyed_by": _field("surveyed_by", metadata.get("surveyed_by") or raw.get("surveyed_by"), metadata.get("surveyed_by_confidence"), "signature_block"),
         "plan_check_date": _field("plan_check_date", metadata.get("plan_check_date") or raw.get("plan_check_date"), metadata.get("plan_check_date_confidence"), "stamp"),
         "file_reference": _field("file_reference", metadata.get("file_reference") or raw.get("file_reference"), metadata.get("file_reference_confidence"), "plan_header"),
@@ -134,14 +174,35 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "status": status,
         "fallback_reason": None if status == "review_required" else "low_confidence_or_no_vision_rows",
         "coordinate_system": _field("coordinate_system", coordinate_system, raw.get("coordinate_system_confidence"), "plan_header"),
+        "document_sections": {
+            "memorandum": memorandum,
+        },
         "north_arrow": {
             "Feature": "north_arrow",
             "Detected": bool(north_arrow_raw.get("detected") or north_arrow_raw.get("Detected")),
+            "present": bool(north_arrow_raw.get("detected") or north_arrow_raw.get("Detected")),
             "ApproximatePageLocation": north_arrow_raw.get("approximate_page_location") or north_arrow_raw.get("ApproximatePageLocation"),
             "Confidence": _coerce_float(north_arrow_raw.get("confidence") or north_arrow_raw.get("Confidence")) or 0.0,
             "ReviewNote": north_arrow_raw.get("review_note") or north_arrow_raw.get("ReviewNote") or "North arrow OCR/vision result.",
         },
+        "scale_bar": {
+            "Feature": "scale_bar",
+            "Detected": scale_bar_detected or scale_bar_text_detected,
+            "present": scale_bar_detected or scale_bar_text_detected,
+            "value": scale_bar_raw.get("value") or scale_bar_raw.get("text") or scale_bar_text,
+            "raw_text": scale_bar_raw.get("raw_text") or scale_bar_text,
+            "ApproximatePageLocation": scale_bar_raw.get("approximate_page_location") or scale_bar_raw.get("ApproximatePageLocation") or ("scale_bar_text" if scale_bar_text_detected else None),
+            "Confidence": _coerce_float(scale_bar_raw.get("confidence") or scale_bar_raw.get("Confidence")) or (0.7 if scale_bar_text_detected else 0.0),
+            "ReviewNote": scale_bar_raw.get("review_note")
+            or scale_bar_raw.get("ReviewNote")
+            or ("Scale bar text detected from memorandum/plan text." if scale_bar_text_detected else "Scale bar OCR/vision result."),
+        },
         "survey_metadata": survey_metadata,
+        "surveyed_for_names": [_normalize_memorandum_name(item, "surveyed_for") for item in _as_list(raw.get("surveyed_for_names") or raw.get("surveyed_for") or raw.get("party_surveyed_for"))],
+        "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name"))],
+        "property_name_near_parcel_diagram": _normalize_presence_evidence(raw.get("property_name_near_parcel_diagram"), "property_name_near_parcel_diagram", "parcel_diagram"),
+        "notice_served_on": [_normalize_memorandum_name(item, "notice_served_on") for item in _as_list(raw.get("notice_served_on") or raw.get("notices_served_on"))],
+        "appeared_parties": [_normalize_appeared_party(item) for item in _as_list(raw.get("appeared_parties") or raw.get("parties_who_appeared"))],
         "parties": parties,
         "representatives": representatives,
         "adjacent_owners": adjacent_owners,
@@ -225,6 +286,230 @@ def _normalize_named_item(item: Any) -> dict[str, Any]:
         "source_page": 1,
         "source_zone": "memorandum",
     }
+
+
+def _normalize_memorandum_section(raw: dict[str, Any]) -> dict[str, Any]:
+    explicit = raw.get("memorandum")
+    source_text = _collect_document_text(raw)
+    if isinstance(explicit, dict):
+        explicit_detected = bool(explicit.get("detected") or explicit.get("present"))
+        matched_text = _string_or_none(explicit.get("matched_text") or explicit.get("text") or ("MEMORANDUM" if explicit_detected else None))
+        detected = explicit_detected or "memorandum" in " ".join([source_text, matched_text or ""]).lower()
+        if detected and not matched_text:
+            matched_text = "MEMORANDUM"
+        source_page = _coerce_int(explicit.get("source_page")) or 1
+        source_zone = explicit.get("source_zone") or "memorandum"
+        confidence = _coerce_float(explicit.get("confidence")) or (0.9 if detected else 0.0)
+        section_type = _string_or_none(explicit.get("section_type") or explicit.get("layout_type")) or _infer_memorandum_section_type(" ".join([source_text, matched_text or ""]))
+    else:
+        detected = "memorandum" in source_text.lower()
+        matched_text = "MEMORANDUM" if detected else None
+        source_page = 1
+        source_zone = "memorandum" if detected else ""
+        confidence = 0.9 if detected else 0.0
+        section_type = _infer_memorandum_section_type(source_text) if detected else "unknown"
+
+    return {
+        "detected": detected,
+        "present": detected,
+        "matched_text": matched_text,
+        "section_type": section_type,
+        "source_page": source_page,
+        "source_zone": source_zone,
+        "confidence": confidence,
+        "status": "detected" if detected else "not_applicable",
+        "review_status": "extracted" if detected else "not_applicable",
+    }
+
+
+def _collect_document_text(raw: dict[str, Any]) -> str:
+    return " ".join(
+        str(value)
+        for value in (
+            raw.get("document_text"),
+            raw.get("raw_text"),
+            raw.get("title"),
+            raw.get("heading"),
+        )
+        if value is not None
+    )
+
+
+def _infer_memorandum_section_type(source_text: str) -> str:
+    lowered = source_text.lower()
+    table_markers = [
+        "the name of the party at whose instance",
+        "surveyed for",
+        "the name of the property surveyed",
+        "notices were served on",
+        "served with notices",
+        "those who appeared",
+        "make and no. of instrument",
+        "date of last instr",
+        "result of instruments check",
+    ]
+    narrative_markers = [
+        "represents",
+        "registered at",
+        "notice was served",
+        "notices were served",
+        "present at the survey",
+    ]
+    if any(marker in lowered for marker in table_markers):
+        return "table"
+    if any(marker in lowered for marker in narrative_markers):
+        return "narrative"
+    return "unknown"
+
+
+def _split_instrument_check(value: Any) -> dict[str, str]:
+    text = _string_or_none(value)
+    if not text:
+        return {}
+    date_pattern = (
+        r"(?P<date>"
+        r"\d{1,2}/\d{1,2}/\d{2,4}"
+        r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}"
+        r")"
+    )
+    match = re.search(date_pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return {"result": text}
+    date_value = match.group("date").strip()
+    result_text = (text[: match.start()] + " " + text[match.end() :]).strip(" -()")
+    return {
+        "date": date_value,
+        "result": result_text.strip() if result_text else "",
+    }
+
+
+def _has_scale_bar_text(raw: dict[str, Any]) -> bool:
+    text = _collect_document_text(raw)
+    if not text:
+        return False
+    lowered = text.lower()
+    return bool(
+        re.search(r"\bscale\b", lowered)
+        and (
+            re.search(r"\b1\s*:\s*\d{3,6}\b", lowered)
+            or re.search(r"\b1\s*/\s*\d{3,6}\b", lowered)
+            or re.search(r"\b1\s*cm\s*(?:=|to)\s*\d+(?:\.\d+)?\s*m", lowered)
+            or re.search(r"\bone\s+millimetre\s*=\s*", lowered)
+            or re.search(r"\bmetres?\b", lowered)
+        )
+    )
+
+
+def _extract_scale_bar_text(raw: dict[str, Any]) -> str | None:
+    text = _collect_document_text(raw)
+    if not text:
+        return None
+    match = re.search(
+        r"(?P<scale>\bscale\b.{0,80}(?:\b1\s*:\s*\d{3,6}\b|\b1\s*/\s*\d{3,6}\b|\b1\s*cm\s*(?:=|to)\s*\d+(?:\.\d+)?\s*m).{0,40})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return re.sub(r"\s+", " ", match.group("scale")).strip()
+    match = re.search(r"(?P<scale>.{0,40}\bscale\b.{0,80})", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", match.group("scale")).strip() if match else None
+
+
+def _normalize_memorandum_name(item: Any, role: str) -> dict[str, Any]:
+    if isinstance(item, dict):
+        name = _string_or_none(item.get("name") or item.get("value") or item.get("party"))
+        return {
+            "name": name,
+            "role": item.get("role") or role,
+            "confidence": _coerce_float(item.get("confidence")) or (0.75 if name else 0.0),
+            "source_page": _coerce_int(item.get("source_page")) or 1,
+            "source_zone": item.get("source_zone") or "memorandum",
+            "review_status": item.get("review_status") or ("extracted" if name else "not_available"),
+            "review_notes": item.get("review_notes") or item.get("review_note"),
+        }
+
+    name = _string_or_none(item)
+    return {
+        "name": name,
+        "role": role,
+        "confidence": 0.75 if name else 0.0,
+        "source_page": 1,
+        "source_zone": "memorandum",
+        "review_status": "extracted" if name else "not_available",
+        "review_notes": None,
+    }
+
+
+def _normalize_memorandum_value(item: Any, field: str) -> dict[str, Any]:
+    if isinstance(item, dict):
+        value = _string_or_none(item.get("value") or item.get("name") or item.get("text"))
+        return {
+            "field": field,
+            "value": value,
+            "confidence": _coerce_float(item.get("confidence")) or (0.75 if value else 0.0),
+            "source_page": _coerce_int(item.get("source_page")) or 1,
+            "source_zone": item.get("source_zone") or "memorandum",
+            "review_status": item.get("review_status") or ("extracted" if value else "not_available"),
+            "review_notes": item.get("review_notes") or item.get("review_note"),
+        }
+
+    value = _string_or_none(item)
+    return {
+        "field": field,
+        "value": value,
+        "confidence": 0.75 if value else 0.0,
+        "source_page": 1,
+        "source_zone": "memorandum",
+        "review_status": "extracted" if value else "not_available",
+        "review_notes": None,
+    }
+
+
+def _normalize_presence_evidence(item: Any, field: str, fallback_zone: str) -> dict[str, Any]:
+    node = item if isinstance(item, dict) else {"present": item} if item is not None else {}
+    present_value = node.get("present")
+    if present_value is None:
+        present_value = node.get("detected") or node.get("Detected")
+    value = _string_or_none(node.get("value") or node.get("text"))
+    present = bool(present_value)
+    return {
+        "field": field,
+        "value": value,
+        "present": present,
+        "confidence": _coerce_float(node.get("confidence")) or (0.75 if present or value else 0.0),
+        "source_page": _coerce_int(node.get("source_page")) or 1,
+        "source_zone": node.get("source_zone") or fallback_zone,
+        "review_status": node.get("review_status") or ("extracted" if present or value else "not_available"),
+        "review_notes": node.get("review_notes") or node.get("review_note"),
+    }
+
+
+def _normalize_appeared_party(item: Any) -> dict[str, Any]:
+    node = item if isinstance(item, dict) else {"name": item}
+    name = _string_or_none(node.get("name") or node.get("party") or node.get("value"))
+    explicit_no_appearance = _is_no_appearance_text(name)
+    mode = _string_or_none(node.get("appearance_mode") or node.get("mode") or node.get("appearance"))
+    if explicit_no_appearance:
+        mode = "none"
+    mode = mode or "unknown"
+    return {
+        "name": name,
+        "appearance_mode": mode.strip().lower(),
+        "representative": _string_or_none(node.get("representative") or node.get("representative_name")),
+        "confidence": _coerce_float(node.get("confidence")) or (0.8 if explicit_no_appearance else 0.75 if name else 0.0),
+        "source_page": _coerce_int(node.get("source_page")) or 1,
+        "source_zone": node.get("source_zone") or "memorandum",
+        "review_status": node.get("review_status") or ("extracted" if name else "not_available"),
+        "review_notes": node.get("review_notes") or node.get("review_note"),
+    }
+
+
+def _is_no_appearance_text(value: Any) -> bool:
+    text = _string_or_none(value)
+    if not text:
+        return False
+    normalized = re.sub(r"[^a-z]+", " ", text.lower()).strip()
+    return normalized in {"no one appeared", "none appeared", "no one", "none"} or normalized.startswith("no one appeared ")
 
 
 def _normalize_volume_folio_item(item: Any) -> dict[str, Any] | None:

@@ -14,6 +14,7 @@ public sealed record WorkflowExecutionSettings(
     bool SpatialOutputAddCogoAttributes,
     bool SpatialOutputAddCogoLabels,
     string SpatialOutputCogoSourceMode,
+    string OrientationNormalizationMode,
     string SpatialOutputDwgAllowedLayers,
     string? OutputTemplateProjectPath,
     string? OutputTemplateGdbPath,
@@ -36,6 +37,7 @@ public sealed record WorkflowExecutionSettings(
         false,
         false,
         "source_then_computed",
+        "disabled",
         string.Empty,
         null,
         null,
@@ -71,6 +73,8 @@ public sealed record WorkflowExecutionSettings(
                 ?? Default.SpatialOutputAddCogoLabels;
             var spatialOutputCogoSourceMode = NormalizeCogoSourceMode(ReadString(root, "spatial_output_cogo_source_mode"))
                 ?? Default.SpatialOutputCogoSourceMode;
+            var orientationNormalizationMode = NormalizeOrientationNormalizationMode(ReadString(root, "orientation_normalization_mode"))
+                ?? Default.OrientationNormalizationMode;
             var spatialOutputDwgAllowedLayers = ReadString(root, "spatial_output_dwg_allowed_layers")
                 ?? Default.SpatialOutputDwgAllowedLayers;
             var outputTemplateProjectPath = ExpandPath(ReadString(root, "output_template_project_path"));
@@ -89,6 +93,7 @@ public sealed record WorkflowExecutionSettings(
                 spatialOutputAddCogoAttributes,
                 spatialOutputAddCogoLabels,
                 spatialOutputCogoSourceMode,
+                orientationNormalizationMode,
                 spatialOutputDwgAllowedLayers,
                 outputTemplateProjectPath,
                 outputTemplateGdbPath,
@@ -249,6 +254,23 @@ public sealed record WorkflowExecutionSettings(
             "prefer_source" => "prefer_source",
             "prefer_computed" => "prefer_computed",
             "source_then_computed" => "source_then_computed",
+            _ => null
+        };
+    }
+
+    private static string? NormalizeOrientationNormalizationMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().Replace("-", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal).ToLowerInvariant();
+        return normalized switch
+        {
+            "disabled" => "disabled",
+            "prefer_clockwise" => "prefer_clockwise",
+            "prefer_counterclockwise" => "prefer_counterclockwise",
             _ => null
         };
     }

@@ -124,6 +124,7 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 BuildVolumeFolios(reviewedData, approvedReview, extractionReviewData),
                 BuildParticipants(reviewedData, approvedReview, extractionReviewData),
                 BuildAdjacentOwners(reviewedData),
+                BuildMemorandumFindings(reviewedData),
                 BuildBoundarySegments(reviewedData, approvedReview, extractionReviewData),
                 BuildPoints(reviewedData, approvedReview, extractionReviewData));
 
@@ -230,6 +231,13 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             BuildMetadataField(reviewedData, "File reference", "file_reference", "Not provided"),
             BuildMetadataField(reviewedData, "North arrow", "north_arrow", "Not provided"),
             BuildMetadataField(reviewedData, "Parish", "parish", "Not provided"),
+            BuildMetadataField(reviewedData, "Scale bar", "scale_bar", "Not provided"),
+            BuildMetadataField(reviewedData, "Surveyed property name", "surveyed_property_name", "Not provided"),
+            BuildMetadataField(reviewedData, "Property name near parcel diagram", "property_name_near_parcel_diagram", "Not provided"),
+            BuildMetadataField(reviewedData, "Instrument check date", "instrument_check_date", "Not provided"),
+            BuildMetadataField(reviewedData, "Instrument check result", "instrument_check_result", "Not provided"),
+            BuildMetadataField(reviewedData, "GPS instrument number", "gps_instrument_number", "Not provided"),
+            BuildMetadataField(reviewedData, "GPS serial number", "gps_serial_number", "Not provided"),
             BuildMetadataField(reviewedData, "Plan check date", "plan_check_date", "Not provided"),
             BuildMetadataField(reviewedData, "Survey date", "survey_date", "Not provided"),
             BuildMetadataField(reviewedData, "Survey instrument", "survey_instrument", "Not provided"),
@@ -294,6 +302,17 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             {
                 AddParticipant(participants, "Representative", representative.Name, representative.Role, BuildSourceText(representative.SourcePage, representative.SourceZone), BuildStatusText(representative.ReviewStatus, representative.ReviewNotes));
             }
+
+            foreach (var party in reviewedData.MemorandumParties)
+            {
+                AddParticipant(
+                    participants,
+                    "Memorandum",
+                    party.Name,
+                    BuildMemorandumPartyRole(party),
+                    BuildSourceText(party.SourcePage, party.SourceZone),
+                    BuildStatusText(party.ReviewStatus, party.ReviewNotes));
+            }
         }
 
         foreach (var root in ExistingRoots(approvedReview, extractionReviewData))
@@ -332,6 +351,26 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 NonEmpty(owner.Volume),
                 NonEmpty(owner.Folio),
                 BuildStatusText(owner.ReviewStatus, owner.ReviewNotes)))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ComputeExaminationReportMemorandumFinding> BuildMemorandumFindings(ExtractionReviewDocument? reviewedData)
+    {
+        if (reviewedData is null || reviewedData.MemorandumRuleResults.Count == 0)
+        {
+            return Array.Empty<ComputeExaminationReportMemorandumFinding>();
+        }
+
+        return reviewedData.MemorandumRuleResults
+            .Where(rule => rule.ReportVisible)
+            .Select(rule => new ComputeExaminationReportMemorandumFinding(
+                rule.Group,
+                rule.Label,
+                rule.Outcome,
+                rule.ReviewerStatus,
+                rule.WorkflowEffect,
+                BuildSourceText(rule.SourcePage, rule.SourceZone),
+                NonEmpty(rule.Message)))
             .ToArray();
     }
 
@@ -681,6 +720,27 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         }
     }
 
+    private static string BuildMemorandumPartyRole(ExtractionReviewMemorandumParty party)
+    {
+        var role = party.Role switch
+        {
+            "surveyed_for" => "Surveyed For",
+            "notice_served_on" => "Notice Served On",
+            "appeared" => "Appeared",
+            _ => party.Role
+        };
+
+        if (!string.Equals(party.Role, "appeared", StringComparison.OrdinalIgnoreCase))
+        {
+            return role;
+        }
+
+        var mode = string.IsNullOrWhiteSpace(party.AppearanceMode) ? "unknown" : party.AppearanceMode;
+        return string.IsNullOrWhiteSpace(party.Representative)
+            ? $"{role} ({mode})"
+            : $"{role} ({mode}: {party.Representative})";
+    }
+
     private static string NormalizeParticipantRole(string? role)
     {
         if (string.IsNullOrWhiteSpace(role))
@@ -1024,6 +1084,20 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                     _report.AdjacentOwners.Count == 0
                         ? new[] { new[] { "No adjacent owner or neighbor evidence recorded.", string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty } }
                         : _report.AdjacentOwners.Select(item => new[] { item.Name, item.Role, item.From, item.To, item.Volume, item.Folio, item.Status }));
+
+                DrawSection("Memorandum Findings");
+                DrawTable(
+                    new[]
+                    {
+                        new PdfColumn("Group", 100),
+                        new PdfColumn("Rule", 132),
+                        new PdfColumn("Status", 82),
+                        new PdfColumn("Effect", 92),
+                        new PdfColumn("Source", 122)
+                    },
+                    _report.MemorandumFindings.Count == 0
+                        ? new[] { new[] { "No memorandum findings recorded.", string.Empty, string.Empty, string.Empty, string.Empty } }
+                        : _report.MemorandumFindings.Select(item => new[] { item.Group, item.Rule, item.ReviewerStatus, item.WorkflowEffect, item.Source }));
 
                 DrawSection("Boundary Segments");
                 DrawTable(
@@ -1400,6 +1474,7 @@ public sealed record ComputeExaminationReportDocument(
     [property: JsonPropertyName("volume_folios")] IReadOnlyList<ComputeExaminationReportVolumeFolio> VolumeFolios,
     [property: JsonPropertyName("participants")] IReadOnlyList<ComputeExaminationReportParticipant> Participants,
     [property: JsonPropertyName("adjacent_owners")] IReadOnlyList<ComputeExaminationReportAdjacentOwner> AdjacentOwners,
+    [property: JsonPropertyName("memorandum_findings")] IReadOnlyList<ComputeExaminationReportMemorandumFinding> MemorandumFindings,
     [property: JsonPropertyName("boundary_segments")] IReadOnlyList<ComputeExaminationReportBoundarySegment> BoundarySegments,
     [property: JsonPropertyName("points")] IReadOnlyList<ComputeExaminationReportPoint> Points);
 
@@ -1432,6 +1507,15 @@ public sealed record ComputeExaminationReportAdjacentOwner(
     [property: JsonPropertyName("volume")] string Volume,
     [property: JsonPropertyName("folio")] string Folio,
     [property: JsonPropertyName("status")] string Status);
+
+public sealed record ComputeExaminationReportMemorandumFinding(
+    [property: JsonPropertyName("group")] string Group,
+    [property: JsonPropertyName("rule")] string Rule,
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("reviewer_status")] string ReviewerStatus,
+    [property: JsonPropertyName("workflow_effect")] string WorkflowEffect,
+    [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("message")] string Message);
 
 public sealed record ComputeExaminationReportBoundarySegment(
     [property: JsonPropertyName("seq")] string Sequence,

@@ -52,6 +52,20 @@ internal static class ComputeExaminationReportServiceTests
                 "confidence": "0.9",
                 "review_status": "reviewed"
               },
+              "scale_bar": {
+                "present": false,
+                "confidence": "0.2",
+                "review_status": "needs_review"
+              },
+              "document_sections": {
+                "memorandum": {
+                  "detected": true,
+                  "matched_text": "MEMORANDUM",
+                  "source_page": "1",
+                  "source_zone": "memorandum heading",
+                  "confidence": "0.92"
+                }
+              },
               "survey_metadata": {
                 "document_area": {
                   "value": "569.896 sq. metres",
@@ -83,6 +97,21 @@ internal static class ComputeExaminationReportServiceTests
                   "confidence": "0.85",
                   "review_status": "reviewed"
                 },
+                "instrument_check_date": {
+                  "value": "2025/08/10",
+                  "confidence": "0.85",
+                  "review_status": "accepted"
+                },
+                "instrument_check_result": {
+                  "value": "Checked",
+                  "confidence": "0.85",
+                  "review_status": "accepted"
+                },
+                "gps_instrument_number": {
+                  "value": "GPS-77",
+                  "confidence": "0.85",
+                  "review_status": "reviewed"
+                },
                 "surveyed_by": {
                   "value": "Kevon L. Jarrett",
                   "confidence": "0.85",
@@ -104,6 +133,47 @@ internal static class ComputeExaminationReportServiceTests
                   }
                 ]
               },
+              "property_name_near_parcel_diagram": {
+                "present": true,
+                "value": "Lot 12 Bellevue",
+                "source_zone": "parcel diagram",
+                "confidence": "0.72"
+              },
+              "surveyed_property_names": [
+                {
+                  "value": "Lot 12 Bellevue",
+                  "source_page": "page 1",
+                  "source_zone": "memorandum",
+                  "review_status": "accepted"
+                }
+              ],
+              "surveyed_for_names": [
+                {
+                  "name": "Roxine Campbell",
+                  "role": "surveyed_for",
+                  "source_page": "page 1",
+                  "source_zone": "memorandum",
+                  "review_status": "accepted"
+                }
+              ],
+              "notice_served_on": [
+                {
+                  "name": "Austin S. Singh",
+                  "source_page": "page 1",
+                  "source_zone": "notice paragraph",
+                  "review_status": "accepted"
+                }
+              ],
+              "appeared_parties": [
+                {
+                  "name": "Maria Brown",
+                  "appearance_mode": "representative",
+                  "representative": "Kevon L. Jarrett",
+                  "source_page": "page 1",
+                  "source_zone": "attendance paragraph",
+                  "review_status": "accepted"
+                }
+              ],
               "parties": [
                 {
                   "name": "Roxine Campbell",
@@ -221,6 +291,7 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(pdfText.Contains("Volume / Folio", StringComparison.OrdinalIgnoreCase), "PDF report should include Volume/Folio section.");
         TestAssert.True(pdfText.Contains("Owners / Neighbors / Participants", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
         TestAssert.True(pdfText.Contains("Adjacent Owners / Neighbors", StringComparison.OrdinalIgnoreCase), "PDF report should include adjacent owner section.");
+        TestAssert.True(pdfText.Contains("Memorandum Findings", StringComparison.OrdinalIgnoreCase), "PDF report should include memorandum findings section.");
         TestAssert.True(pdfText.Contains("Boundary Segments", StringComparison.OrdinalIgnoreCase), "PDF report should include boundary segments.");
         TestAssert.True(pdfText.Contains("Survey Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
         TestAssert.True(pdfText.Contains("Executive Summary", StringComparison.OrdinalIgnoreCase), "PDF report should include a professional executive summary section.");
@@ -253,6 +324,12 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(generalInfo.Any(field =>
             field.GetProperty("field").GetString() == "Source document"
             && field.GetProperty("value").GetString() == "DOC_PLAN_490957_D.pdf"), "Report should include source document.");
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Surveyed property name"
+            && field.GetProperty("value").GetString() == "Lot 12 Bellevue"), "Report should include memorandum surveyed property name.");
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Scale bar"
+            && field.GetProperty("value").GetString() == "Not present"), "Report should include memorandum scale-bar presence.");
 
         var volumeFolio = root.GetProperty("volume_folios").EnumerateArray().Single();
         TestAssert.Equal("1298", volumeFolio.GetProperty("volume").GetString(), "Report should include reviewed Volume.");
@@ -265,6 +342,18 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(participants.Any(participant =>
             participant.GetProperty("name").GetString() == "Kevon L. Jarrett"
             && participant.GetProperty("group").GetString() == "Representative"), "Report should include reviewed representatives.");
+        TestAssert.True(participants.Any(participant =>
+            participant.GetProperty("name").GetString() == "Maria Brown"
+            && participant.GetProperty("role").GetString() == "Appeared (representative: Kevon L. Jarrett)"), "Report should include memorandum attendance rows.");
+
+        var memorandumFindings = root.GetProperty("memorandum_findings").EnumerateArray().ToArray();
+        TestAssert.True(memorandumFindings.Any(finding =>
+            finding.GetProperty("rule").GetString() == "Memorandum text detected"
+            && finding.GetProperty("outcome").GetString() == "passed"), "Report should include passed memorandum detection finding.");
+        TestAssert.True(memorandumFindings.Any(finding =>
+            finding.GetProperty("rule").GetString() == "Scale bar"
+            && finding.GetProperty("outcome").GetString() == "not_available"
+            && finding.GetProperty("workflow_effect").GetString() == "report_only"), "Report should include report-only unresolved scale-bar finding.");
 
         var adjacentOwner = root.GetProperty("adjacent_owners").EnumerateArray().Single();
         TestAssert.Equal("Austin S. Singh", adjacentOwner.GetProperty("name").GetString(), "Report should include reviewed adjacent owners.");

@@ -96,6 +96,7 @@ public sealed class OutputAdapterExecutionService : IOutputExecutionService
             "--add-cogo-attributes", Quote(executionSettings.SpatialOutputAddCogoAttributes ? "true" : "false"),
             "--add-cogo-labels", Quote(executionSettings.SpatialOutputAddCogoLabels ? "true" : "false"),
             "--cogo-source-mode", Quote(executionSettings.SpatialOutputCogoSourceMode),
+            "--normalize-orientation-mode", Quote(executionSettings.OrientationNormalizationMode),
             ImportStructuredPointsArgument, Quote(supportingDocumentOptions.ImportStructuredSurveyPoints ? "true" : "false"),
             ImportDwgReferenceArgument, Quote(supportingDocumentOptions.ImportAutoCadSurveySource ? "true" : "false"),
             NormalizedPointsArgument, Quote(normalizedPointsPath),

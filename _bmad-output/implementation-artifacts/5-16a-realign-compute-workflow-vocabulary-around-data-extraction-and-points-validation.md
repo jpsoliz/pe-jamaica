@@ -31,7 +31,7 @@ so that the shell describes extraction, validation, spatial creation, and final 
 4. Given the shell describes the purpose of each step, when longer guidance text is shown, then the operational meaning is clear:
    - `Attachments` = load transaction source files from Innola
    - `Data Extraction` = derive candidate point/parcel data from source documents
-   - `Validate Points and Lines` = review and correct extracted parcel points, parcel lines, and proposed parcel construction data in the dedicated validation tool
+   - `Validate Points and Lines` = review and correct extracted parcel points, parcel lines, and proposed parcel construction data in the dedicated validation tool, including closure, readiness, orientation, and bearing-direction validation
    - `Create Spatial Units` = create parcel fabric or configured spatial geometry from validated points and lines
    - `Final Review` = examiner map review that marks the case ready for `Finalize`; rejection and postponement belong to the general workflow process, not this Compute closeout path
    - `Finalize` = commit or close out the workflow result back to Innola
@@ -76,6 +76,21 @@ The latest compute workflow notes in `docs/project/compute-steps.docx` expand th
 
 Historical code identifiers may remain point-oriented until a dev story changes them safely, but new user-facing copy should avoid implying that only points are reviewed.
 
+### Validate Stage Clarification - 2026-08-19
+
+The operator meaning of `Validate Points and Lines` now includes:
+
+- parcel closure tolerance review
+- parcel construction readiness review
+- parcel orientation detection
+- bearing-vs-coordinate consistency review
+
+This keeps the workflow boundary clear:
+
+- `Data Extraction` answers: what did the source produce?
+- `Validate Points and Lines` answers: does the parcel sequence make geometric and survey sense?
+- `Create Spatial Units` answers: build standardized geometry from reviewed truth.
+
 ### Process Recommendation
 
 - Keep `Save` in the validation tool separate from spatial generation.
@@ -100,6 +115,7 @@ Historical code identifiers may remain point-oriented until a dev story changes 
 
 - `_bmad-output/implementation-artifacts/5-16-align-compute-workflow-stage-copy-and-jamaica-cogo-handoff.md`
 - `_bmad-output/implementation-artifacts/5-15-parcel-scoped-manual-point-editing-and-live-parcel-preview-controls-in-jamaica-cogo-tool.md`
+- `_bmad-output/implementation-artifacts/5-23a-add-orientation-detection-bearing-consistency-and-optional-orientation-normalization.md`
 - `_bmad-output/implementation-artifacts/5-18-route-manual-review-branch-into-configured-gdb-map-editing-path.md`
 
 ## Change Log
@@ -110,6 +126,7 @@ Historical code identifiers may remain point-oriented until a dev story changes 
 | 2026-06-17 | 1.0 | Implemented compute-workflow vocabulary realignment, renamed the review tool to Points Validation Tool, and updated related tests and helper copy. | Codex |
 | 2026-07-26 | 1.2 | Shortened the main action caption for returning to the point/line review workspace to `Continue Validation`. | Codex |
 | 2026-07-03 | 1.1 | Patched vocabulary target to expand Validate Points into Validate Points and Lines based on compute workflow notes. | Mary / Codex |
+| 2026-08-19 | 1.3 | Clarified that Validate Points and Lines includes closure, readiness, orientation, and bearing-direction validation before Create Spatial Units. | Codex |
 
 ## Dev Agent Record
 

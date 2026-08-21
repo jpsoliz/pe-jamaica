@@ -1,11 +1,11 @@
 ---
 project_name: 'Sid-jamaica'
 user_name: 'JotaPe'
-date: '2026-08-17'
+date: '2026-08-20'
 sections_completed: ['technology_stack', 'language_specific_rules', 'framework_specific_rules', 'testing_rules', 'code_quality_style_rules', 'development_workflow_rules', 'critical_dont_miss_rules']
 existing_patterns_found: 18
 status: 'complete'
-rule_count: 73
+rule_count: 80
 optimized_for_llm: true
 ---
 
@@ -24,6 +24,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - ArcGIS Pro SDK assemblies are referenced from `C:\Program Files\ArcGIS\Pro\bin`; do not replace them with NuGet packages.
 - ArcGIS Pro SDK packaging target is `C:\Program Files\ArcGIS\Pro\bin\Esri.ProApp.SDK.Desktop.targets`; build fails intentionally if it is missing.
 - Python/ArcPy processing lives under `src/ProcessingTools`; C# should call adapter/tool seams instead of rewriting ArcPy processing in the add-in.
+- Validate Points orientation and bearing checks are shared contract concepts: Python validation emits deterministic diagnostics, C# surfaces them, and output generation consumes the same truth.
 - ArcGIS Python executable is configured in `WorkflowSettings.json`; current path points to `C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\python-envs\arcgispro-survey-ai\python.exe`.
 - Deployment Python environment is cloned from ArcGIS Pro `arcgispro-py3`; conda requirements are intentionally empty unless a package is proven compatible with ArcGIS Pro pins.
 - Pip dependencies include OpenAI/PDF tooling such as `openai==1.109.1`, `pdfplumber==0.11.9`, `pypdfium2==5.8.0`, and `pytest==8.2.1`.
@@ -71,8 +72,14 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Settings changes need round-trip tests that prove unrelated JSON settings are preserved and existing loaders still understand saved values.
 - Query/service work needs tests for success, no-record, timeout/failure diagnostics, redaction, and disabled/incomplete configuration.
 - Parcel Search tests should cover per-source criteria mapping. A selected source should only query a criterion when that source has an explicit field mapping or a documented migration/default for that criterion.
+- PXA memorandum review rules are compute rule catalog entries. Tests should cover extraction normalization, not-applicable behavior, Settings/catalog visibility, persistence, UI labels, disposition gating, and report inclusion when these rules change.
+- PXA memorandum evidence values are first-class review data: table/narrative section type, scale-bar text evidence, split instrument-check date/result values, and explicit negative attendance text such as `No one appeared` must remain visible in the Memorandum tab, saved rule JSON, review hash, and report path.
+- PXA memorandum detection must prefer visible/extracted text evidence over stale boolean flags: if OCR or embedded text contains `MEMORANDUM`, the memorandum rules should evaluate, and scale labels such as `SCALE : 1cm To 10m R.F 1/1000` should remain visible evidence instead of collapsing to only `Present`.
+- PXA review loading must recover memorandum applicability from root-level OCR/text fields and memorandum-sourced metadata, not only from `document_sections.memorandum`; real case artifacts may put visible text evidence outside the normalized section object.
 - Workflow/state-changing stories must test restart/reopen, stale artifacts, duplicate IDs, missing/corrupt artifacts, and explicit failure messages when practical.
 - Python adapter changes should include Python tests where pure Python logic changes, and must keep emitted JSON artifacts contract-compatible.
+- Orientation and bearing-consistency changes need tests for clockwise detection, counterclockwise detection, indeterminate geometry, missing/unparsable bearing text, and tolerance-driven mismatch outcomes.
+- Output-orientation normalization tests must prove saved reviewer point order remains unchanged while generated downstream geometry can be reversed by policy.
 - Do not mark a story complete only because the happy path passes; include at least one negative or edge case for each new service boundary.
 
 ### Code Quality & Style Rules
@@ -102,6 +109,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - When changing ArcGIS Pro SDK behavior, verify build locally and document any manual ArcGIS Pro smoke test that cannot be automated.
 - Never persist Innola access tokens or passwords. Innola credentials stay session-only unless a story explicitly introduces secure credential storage.
 - Keep `project-context.md` current when a story establishes a new durable rule or changes a core architecture boundary.
+- Latest tracked implementation context: Story 4.11 added PXA memorandum detection, catalog-driven memorandum review rules, grouped review UX, disposition gating, reportable memorandum findings, and review patches for table layouts, combined instrument checks, scale-bar text, explicit no-appearance evidence, visible-text detection override, and root-level OCR recovery.
 
 ### Critical Don't-Miss Rules
 
@@ -121,6 +129,9 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Do not assume source layers share identical schemas. Field mappings are per source and missing fields must produce clear warnings.
 - Do not remove local transaction GDB behavior when adding per-user or Enterprise working functionality; these solve different workflow needs.
 - Do not mark workflow completion, Innola completion, or sync readiness unless the configured gate actually passed.
+- Do not infer parcel orientation from the first bearing. Orientation is computed from the full ordered closed ring and may be `clockwise`, `counterclockwise`, or `indeterminate`.
+- Do not fabricate bearing-consistency passes when bearing text is absent or unparsable. Record skipped/not-applicable diagnostics and keep the examiner-facing result explicit.
+- Do not mutate saved reviewer-entered point order to satisfy downstream orientation preference. Optional normalization belongs only in output geometry generation and diagnostics.
 - Do not rewrite deployment/package copies as the source of truth; modify source files and regenerate packages when needed.
 - Do not use decorative or marketing-style UI for operational dockpanes. Users need dense, predictable, technical controls.
 
@@ -142,4 +153,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-08-17
+Last Updated: 2026-08-20

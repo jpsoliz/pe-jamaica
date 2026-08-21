@@ -286,7 +286,31 @@ public sealed class ExtractionReviewPersistenceService
                 source_zone = volumeFolio.SourceZone,
                 review_status = volumeFolio.ReviewStatus,
                 review_notes = volumeFolio.ReviewNotes
-            })
+            }),
+            memorandum = new
+            {
+                detected = document.MemorandumDetected,
+                detection_status = document.MemorandumDetectionStatus,
+                parties = document.MemorandumParties.Select(party => new
+                {
+                    name = party.Name,
+                    role = party.Role,
+                    appearance_mode = party.AppearanceMode,
+                    representative = party.Representative,
+                    source_page = party.SourcePage,
+                    source_zone = party.SourceZone,
+                    review_status = party.ReviewStatus,
+                    review_notes = party.ReviewNotes
+                }),
+                rules = document.MemorandumRuleResults.Select(rule => new
+                {
+                    rule_id = rule.RuleId,
+                    outcome = rule.Outcome,
+                    workflow_effect = rule.WorkflowEffect,
+                    message = rule.Message,
+                    evidence_value = rule.EvidenceValue
+                })
+            }
         });
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
         return Convert.ToHexString(bytes).ToLowerInvariant();
@@ -532,18 +556,28 @@ public sealed class ExtractionReviewPersistenceService
         document.Parties.Clear();
         document.Representatives.Clear();
         document.VolumeFolios.Clear();
+        document.MemorandumParties.Clear();
+        document.MemorandumRuleResults.Clear();
+        document.MemorandumGroups.Clear();
 
         AddMetadataField(document, "coordinate_system", "Coordinate system", rootNode["coordinate_system"]);
         AddMetadataField(document, "north_arrow", "North arrow", rootNode["north_arrow"], isPresenceField: true);
+        AddMetadataField(document, "scale_bar", "Scale bar", rootNode["scale_bar"], isPresenceField: true);
+        AddMetadataField(document, "property_name_near_parcel_diagram", "Property name near parcel diagram", rootNode["property_name_near_parcel_diagram"], isPresenceField: true);
 
         var surveyMetadata = rootNode["survey_metadata"] as JsonObject;
         AddMetadataField(document, "parish", "Parish", surveyMetadata?["parish"]);
         AddMetadataField(document, "document_area", "Document area", surveyMetadata?["document_area"]);
         AddMetadataField(document, "survey_date", "Survey date", surveyMetadata?["survey_date"]);
         AddMetadataField(document, "survey_instrument", "Survey instrument", surveyMetadata?["survey_instrument"] ?? surveyMetadata?["instrument"]);
+        AddMetadataField(document, "instrument_check_date", "Instrument check date", surveyMetadata?["instrument_check_date"]);
+        AddMetadataField(document, "instrument_check_result", "Instrument check result", surveyMetadata?["instrument_check_result"]);
+        AddMetadataField(document, "gps_instrument_number", "GPS instrument number", surveyMetadata?["gps_instrument_number"]);
+        AddMetadataField(document, "gps_serial_number", "GPS serial number", surveyMetadata?["gps_serial_number"]);
         AddMetadataField(document, "surveyed_by", "Surveyed by / Surveyor", surveyMetadata?["surveyed_by"] ?? surveyMetadata?["surveyor"]);
         AddMetadataField(document, "plan_check_date", "Plan check date", surveyMetadata?["plan_check_date"]);
         AddMetadataField(document, "file_reference", "File reference", surveyMetadata?["file_reference"]);
+        AddSurveyedPropertyNameMetadata(rootNode, document);
 
         if (surveyMetadata?["volume_folio"] is JsonArray volumeFolioArray)
         {
@@ -580,6 +614,8 @@ public sealed class ExtractionReviewPersistenceService
                 document.AdjacentOwners.Add(MapAdjacentOwner(item));
             }
         }
+
+        LoadMemorandumReview(rootNode, document);
     }
 
     private static void AddMetadataField(
@@ -629,8 +665,15 @@ public sealed class ExtractionReviewPersistenceService
             or "document_area"
             or "survey_date"
             or "survey_instrument"
+            or "instrument_check_date"
+            or "instrument_check_result"
+            or "gps_instrument_number"
+            or "gps_serial_number"
             or "surveyed_by"
-            or "volume_folio";
+            or "volume_folio"
+            or "scale_bar"
+            or "property_name_near_parcel_diagram"
+            or "surveyed_property_name";
 
     private static ExtractionReviewNamedParty MapNamedParty(JsonObject item, string defaultRole = "")
     {
@@ -644,6 +687,120 @@ public sealed class ExtractionReviewPersistenceService
             ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
             RawParty = CloneObject(item)
         };
+    }
+
+    private static ExtractionReviewMemorandumParty MapMemorandumParty(JsonObject item, string defaultRole)
+    {
+        return new ExtractionReviewMemorandumParty
+        {
+            Name = ReadFirstString(item, "name", "value", "party", "owner", "occupant") ?? string.Empty,
+            Role = ReadFirstString(item, "role", "type") ?? defaultRole,
+            AppearanceMode = ReadFirstString(item, "appearance_mode", "mode") ?? string.Empty,
+            Representative = ReadFirstString(item, "representative", "representative_name", "by") ?? string.Empty,
+            SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
+            SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
+            ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
+            ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            RawParty = CloneObject(item)
+        };
+    }
+
+    private static void AddSurveyedPropertyNameMetadata(JsonObject rootNode, ExtractionReviewDocument document)
+    {
+        if (rootNode["surveyed_property_names"] is not JsonArray propertyNames)
+        {
+            return;
+        }
+
+        var first = propertyNames.OfType<JsonObject>().FirstOrDefault();
+        if (first is not null)
+        {
+            AddMetadataField(document, "surveyed_property_name", "Surveyed property name", first);
+        }
+    }
+
+    private static void LoadMemorandumReview(JsonObject rootNode, ExtractionReviewDocument document)
+    {
+        var memorandum = rootNode["document_sections"]?["memorandum"] as JsonObject;
+        document.MemorandumDetected = ReadNullableBool(memorandum, "detected", "present") == true
+            || HasMemorandumEvidence(rootNode, memorandum);
+        document.MemorandumDetectionStatus = ReadFirstString(memorandum, "status", "review_status") ?? string.Empty;
+
+        AddMemorandumParties(rootNode, document, "surveyed_for_names", "surveyed_for");
+        AddMemorandumParties(rootNode, document, "notice_served_on", "notice_served_on");
+        AddMemorandumParties(rootNode, document, "appeared_parties", "appeared");
+
+        var ruleService = new PxaMemorandumReviewRuleService();
+        foreach (var result in ruleService.Evaluate(document))
+        {
+            document.MemorandumRuleResults.Add(result);
+        }
+
+        foreach (var group in ruleService.BuildGroups(document.MemorandumRuleResults))
+        {
+            document.MemorandumGroups.Add(group);
+        }
+    }
+
+    private static bool HasMemorandumEvidence(JsonObject rootNode, JsonObject? memorandum)
+    {
+        if (ContainsMemorandumText(ReadFirstString(memorandum, "matched_text", "text", "raw_text")))
+        {
+            return true;
+        }
+
+        if (ContainsMemorandumText(ReadFirstString(rootNode, "document_text", "raw_text", "ocr_text", "source_text", "text_content")))
+        {
+            return true;
+        }
+
+        return HasAnyObjectItems(rootNode["surveyed_for_names"])
+            || HasAnyObjectItems(rootNode["surveyed_property_names"])
+            || HasAnyObjectItems(rootNode["notice_served_on"])
+            || HasAnyObjectItems(rootNode["appeared_parties"])
+            || HasSurveyMetadataFromMemorandum(rootNode);
+    }
+
+    private static bool ContainsMemorandumText(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && value.Contains("MEMORANDUM", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasAnyObjectItems(JsonNode? node)
+    {
+        return node is JsonArray array && array.OfType<JsonObject>().Any();
+    }
+
+    private static bool HasSurveyMetadataFromMemorandum(JsonObject rootNode)
+    {
+        if (rootNode["survey_metadata"] is not JsonObject surveyMetadata)
+        {
+            return false;
+        }
+
+        return surveyMetadata
+            .Select(item => item.Value as JsonObject)
+            .Where(item => item is not null)
+            .Any(item =>
+            {
+                var sourceZone = ReadFirstString(item, "source_zone", "zone");
+                return string.Equals(sourceZone, "memorandum", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(ReadFieldValue(item));
+            });
+    }
+
+    private static void AddMemorandumParties(JsonObject rootNode, ExtractionReviewDocument document, string propertyName, string role)
+    {
+        if (rootNode[propertyName] is not JsonArray parties)
+        {
+            return;
+        }
+
+        foreach (var item in parties.OfType<JsonObject>())
+        {
+            document.MemorandumParties.Add(MapMemorandumParty(item, role));
+        }
     }
 
     private static ExtractionReviewAdjacentOwner MapAdjacentOwner(JsonObject item)
@@ -726,6 +883,15 @@ public sealed class ExtractionReviewPersistenceService
                 case "north_arrow":
                     root["north_arrow"] = fieldObject;
                     break;
+                case "scale_bar":
+                    root["scale_bar"] = fieldObject;
+                    break;
+                case "property_name_near_parcel_diagram":
+                    root["property_name_near_parcel_diagram"] = fieldObject;
+                    break;
+                case "surveyed_property_name":
+                    root["surveyed_property_names"] = new JsonArray(fieldObject);
+                    break;
                 case "survey_instrument":
                     metadata["instrument"] = fieldObject;
                     metadata["survey_instrument"] = fieldObject.DeepClone();
@@ -794,6 +960,51 @@ public sealed class ExtractionReviewPersistenceService
             node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
             return node;
         }).ToArray());
+
+        var documentSections = root["document_sections"] as JsonObject ?? [];
+        var memorandum = documentSections["memorandum"] as JsonObject ?? [];
+        memorandum["detected"] = document.MemorandumDetected;
+        memorandum["status"] = string.IsNullOrWhiteSpace(document.MemorandumDetectionStatus) ? null : document.MemorandumDetectionStatus;
+        documentSections["memorandum"] = memorandum;
+        root["document_sections"] = documentSections;
+        root["surveyed_for_names"] = WriteMemorandumParties(document.MemorandumParties, "surveyed_for");
+        root["notice_served_on"] = WriteMemorandumParties(document.MemorandumParties, "notice_served_on");
+        root["appeared_parties"] = WriteMemorandumParties(document.MemorandumParties, "appeared");
+        root["memorandum_rule_results"] = new JsonArray(document.MemorandumRuleResults.Select(rule =>
+            JsonSerializer.SerializeToNode(new
+            {
+                rule_id = rule.RuleId,
+                group = rule.Group,
+                label = rule.Label,
+                outcome = rule.Outcome,
+                reviewer_status = rule.ReviewerStatus,
+                workflow_effect = rule.WorkflowEffect,
+                message = rule.Message,
+                evidence_value = rule.EvidenceValue,
+                source_page = rule.SourcePage,
+                source_zone = rule.SourceZone,
+                report_visible = rule.ReportVisible
+            })).ToArray());
+    }
+
+    private static JsonArray WriteMemorandumParties(IEnumerable<ExtractionReviewMemorandumParty> parties, string role)
+    {
+        return new JsonArray(parties
+            .Where(item => string.Equals(item.Role, role, StringComparison.OrdinalIgnoreCase))
+            .Select(item =>
+            {
+                var node = CloneObject(item.RawParty);
+                node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
+                node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+                node["appearance_mode"] = string.IsNullOrWhiteSpace(item.AppearanceMode) ? null : item.AppearanceMode;
+                node["representative"] = string.IsNullOrWhiteSpace(item.Representative) ? null : item.Representative;
+                node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
+                node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
+                node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
+                node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+                return node;
+            })
+            .ToArray());
     }
 
     private static string ReadFieldValue(JsonNode? sourceNode)
@@ -808,13 +1019,19 @@ public sealed class ExtractionReviewPersistenceService
 
     private static string ReadPresenceText(JsonNode? sourceNode)
     {
+        var value = ReadFieldValue(sourceNode);
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
         var present = ReadPresence(sourceNode);
         if (present.HasValue)
         {
             return present.Value ? "Present" : "Not present";
         }
 
-        return ReadFieldValue(sourceNode);
+        return string.Empty;
     }
 
     private static bool? ReadPresence(JsonNode? sourceNode)

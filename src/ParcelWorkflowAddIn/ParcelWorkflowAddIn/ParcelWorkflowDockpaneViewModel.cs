@@ -204,6 +204,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public ObservableCollection<ExtractionReviewVolumeFolioViewModel> ReviewVolumeFolios { get; } = [];
 
+    public ObservableCollection<ExtractionReviewMemorandumGroupViewModel> ReviewMemorandumGroups { get; } = [];
+
     public string? TransactionId
     {
         get => transactionId ?? workflowSession.TransactionId;
@@ -1123,7 +1125,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         string.Equals(ReadBoundarySolverStatus(), "blocked", StringComparison.OrdinalIgnoreCase)
         && !IsPxaReviewedBoundarySegmentChainClosed();
 
-    public bool ReviewHasBlockers => HasLoadedReviewData && (ReviewValidationResult.HasBlockers || ReviewHasSegmentSolverBlockers);
+    public bool ReviewHasBlockers => HasLoadedReviewData && (ReviewValidationResult.HasBlockers || ReviewHasSegmentSolverBlockers || ReviewHasMemorandumDispositionBlockers);
+
+    private bool ReviewHasMemorandumDispositionBlockers => loadedReviewDocument?.MemorandumRuleResults.Any(rule =>
+        string.Equals(rule.WorkflowEffect, "requires_disposition", StringComparison.OrdinalIgnoreCase)
+        && (string.Equals(rule.Outcome, "needs_review", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(rule.Outcome, "not_available", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(rule.Outcome, "failed", StringComparison.OrdinalIgnoreCase))
+        && !MemorandumRuleHasDisposition(rule)) == true;
 
     public ExtractionReviewSummary ReviewSummary =>
         loadedReviewDocument is null
@@ -1147,6 +1156,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 new[] { "Review data not loaded." },
                 new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                 Array.Empty<ParcelClosureReviewResult>(),
+                Array.Empty<ParcelOrientationReviewResult>(),
                 Array.Empty<ParcelReadinessReviewResult>())
             : NormalizeReviewValidationResultForActiveReview(
                 reviewValidationService.Validate(loadedReviewDocument.Rows, pendingManualRowId));
@@ -1185,6 +1195,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
                 }
                 : item)
             .ToArray();
+        var orientationResults = result.OrientationResults;
         var parcelIssues = result.ParcelIssues
             .Where(pair => !IsSupersededPxaPointRowIssue(pair.Value))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
@@ -1196,6 +1207,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             Issues = issues,
             ParcelIssues = parcelIssues,
             ClosureResults = closureResults,
+            OrientationResults = orientationResults,
             ReadinessResults = readinessResults
         };
     }
@@ -1479,13 +1491,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             var counts = summary.Payload.FindingCounts;
             var closure = summary.Payload.ClosureSummary;
             var readiness = summary.Payload.ReadinessSummary;
+            var orientation = summary.Payload.OrientationSummary;
             var closureText = closure is null
                 ? string.Empty
                 : $" Closure - blocker {closure.Blocker}, warning {closure.Warning}, passed {closure.Passed}.";
             var readinessText = readiness is null
                 ? string.Empty
                 : $" Construction readiness - blocker {readiness.Blocker}, warning {readiness.Warning}, passed {readiness.Passed}, skipped {readiness.Skipped}.";
-            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}{readinessText}";
+            var orientationText = orientation is null
+                ? string.Empty
+                : $" Orientation - blocker {orientation.Blocker}, warning {orientation.Warning}, passed {orientation.Passed}, skipped {orientation.Skipped}.";
+            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}{readinessText}{orientationText}";
         }
     }
 
@@ -1700,6 +1716,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         ReviewAdjacentOwners.Clear();
         ReviewNamedParties.Clear();
         ReviewVolumeFolios.Clear();
+        ReviewMemorandumGroups.Clear();
         foreach (var row in document.Rows)
         {
             ReviewRows.Add(new ExtractionReviewRowViewModel(row, OnReviewRowChanged));
@@ -1733,6 +1750,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         foreach (var volumeFolio in document.VolumeFolios)
         {
             ReviewVolumeFolios.Add(new ExtractionReviewVolumeFolioViewModel(volumeFolio, OnReviewMetadataChanged));
+        }
+
+        foreach (var group in document.MemorandumGroups)
+        {
+            ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group));
         }
 
         IsPxaSurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(document);
@@ -1935,6 +1957,37 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             volumeFolio.SyncBackToModel();
         }
+
+        if (loadedReviewDocument.MemorandumRuleResults.Count > 0)
+        {
+            loadedReviewDocument.MemorandumRuleResults.Clear();
+            var ruleService = new PxaMemorandumReviewRuleService();
+            foreach (var result in ruleService.Evaluate(loadedReviewDocument))
+            {
+                loadedReviewDocument.MemorandumRuleResults.Add(result);
+            }
+
+            loadedReviewDocument.MemorandumGroups.Clear();
+            foreach (var group in ruleService.BuildGroups(loadedReviewDocument.MemorandumRuleResults))
+            {
+                loadedReviewDocument.MemorandumGroups.Add(group);
+            }
+
+            ReviewMemorandumGroups.Clear();
+            foreach (var group in loadedReviewDocument.MemorandumGroups)
+            {
+                ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group));
+            }
+        }
+    }
+
+    private static bool MemorandumRuleHasDisposition(ExtractionReviewMemorandumRuleResult rule)
+    {
+        var text = string.Join(" ", rule.Message, rule.ReviewerStatus).Trim();
+        return text.Contains("accepted", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("override", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("corrected", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("disposition", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryReadAreaValue(JsonObject? node, string propertyName, out double area)
@@ -4211,6 +4264,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewAdjacentOwners));
         NotifyPropertyChanged(nameof(ReviewNamedParties));
         NotifyPropertyChanged(nameof(ReviewVolumeFolios));
+        NotifyPropertyChanged(nameof(ReviewMemorandumGroups));
         NotifyPropertyChanged(nameof(IsPxaSurveyPlanReview));
         NotifyPropertyChanged(nameof(ReviewHasSegmentSolverBlockers));
         NotifyPropertyChanged(nameof(ReviewHasBlockers));

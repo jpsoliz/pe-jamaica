@@ -383,6 +383,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         SurveyPlanSourceProbe probe)
     {
         var text = probe.TextContent ?? string.Empty;
+        var memorandumDetected = ContainsToken(text, "MEMORANDUM");
         var metadata = new Dictionary<string, SurveyPlanField>(StringComparer.OrdinalIgnoreCase)
         {
             ["coordinate_system"] = Field("coordinate_system", ContainsToken(text, "JAD 2001") ? "JAD 2001" : FindFirst(text, @"\bJAD\s*2001\b"), ContainsToken(text, "JAD 2001") ? 0.95 : 0.0, "plan_header", "Coordinate system was inferred from visible plan text."),
@@ -399,9 +400,19 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         var northArrow = new SurveyPlanDetectedFeature(
             "north_arrow",
             northArrowDetected,
+            null,
             northArrowDetected ? "map_sketch" : null,
             northArrowDetected ? 0.8 : 0.0,
             northArrowDetected ? "North arrow/grid north evidence detected." : "North arrow was not confidently detected.");
+        var scaleBarDetected = HasScaleBarText(text);
+        var scaleBarText = ExtractScaleBarText(text);
+        var scaleBar = new SurveyPlanDetectedFeature(
+            "scale_bar",
+            scaleBarDetected,
+            scaleBarText,
+            scaleBarDetected ? "scale_bar_text" : null,
+            scaleBarDetected ? 0.75 : 0.0,
+            scaleBarDetected ? "Scale bar text detected from visible plan text." : "Scale bar was not confidently detected.");
 
         var points = ExtractSurveyPlanPoints(text);
         var segments = ExtractSurveyPlanSegments(text);
@@ -443,8 +454,10 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             status,
             fallbackReason,
             1,
+            memorandumDetected,
             metadata,
             northArrow,
+            scaleBar,
             points,
             segments,
             parties,
@@ -703,7 +716,12 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ["status"] = extraction.Status,
             ["fallback_reason"] = extraction.FallbackReason,
             ["coordinate_system"] = BuildFieldNode(extraction.Metadata["coordinate_system"]),
+            ["document_sections"] = new JsonObject
+            {
+                ["memorandum"] = BuildMemorandumSection(extraction)
+            },
             ["north_arrow"] = JsonSerializer.SerializeToNode(extraction.NorthArrow)!.AsObject(),
+            ["scale_bar"] = JsonSerializer.SerializeToNode(extraction.ScaleBar)!.AsObject(),
             ["survey_metadata"] = new JsonObject
             {
                 ["parish"] = BuildFieldNode(extraction.Metadata["parish"]),
@@ -717,6 +735,25 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ["adjacent_owners"] = new JsonArray(extraction.AdjacentOwners.Select(item => JsonSerializer.SerializeToNode(item)).ToArray()),
             ["field_confidence"] = JsonSerializer.SerializeToNode(extraction.Metadata.ToDictionary(item => item.Key, item => item.Value.Confidence, StringComparer.OrdinalIgnoreCase))!,
             ["review_notes"] = new JsonArray(extraction.Warnings.Select(warning => JsonValue.Create(warning)).ToArray())
+        };
+    }
+
+    private static JsonObject BuildMemorandumSection(SurveyPlanExtractionCandidate extraction)
+    {
+        var detected = extraction.MemorandumDetected || extraction.Metadata.Values.Any(field =>
+            string.Equals(field.SourceZone, "memorandum", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(field.Value));
+        return new JsonObject
+        {
+            ["detected"] = detected,
+            ["present"] = detected,
+            ["matched_text"] = detected ? "MEMORANDUM" : null,
+            ["section_type"] = "unknown",
+            ["source_page"] = 1,
+            ["source_zone"] = detected ? "memorandum" : null,
+            ["confidence"] = detected ? 0.8 : 0.0,
+            ["status"] = detected ? "detected" : "not_applicable",
+            ["review_status"] = detected ? "extracted" : "not_applicable"
         };
     }
 
@@ -791,6 +828,37 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     {
         return !string.IsNullOrWhiteSpace(text)
                && text.Contains(token, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasScaleBarText(string text)
+    {
+        return !string.IsNullOrWhiteSpace(text)
+               && Regex.IsMatch(text, @"\bscale\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               && (Regex.IsMatch(text, @"\b1\s*:\s*\d{3,6}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                   || Regex.IsMatch(text, @"\b1\s*/\s*\d{3,6}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                   || Regex.IsMatch(text, @"\b1\s*cm\s*(?:=|to)\s*\d+(?:\.\d+)?\s*m", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                   || Regex.IsMatch(text, @"\bmetres?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    private static string? ExtractScaleBarText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(
+            text,
+            @"(?<scale>\bscale\b.{0,80}(?:\b1\s*:\s*\d{3,6}\b|\b1\s*/\s*\d{3,6}\b|\b1\s*cm\s*(?:=|to)\s*\d+(?:\.\d+)?\s*m).{0,40})",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            match = Regex.Match(text, @"(?<scale>.{0,40}\bscale\b.{0,80})", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        return match.Success
+            ? Regex.Replace(match.Groups["scale"].Value, @"\s+", " ", RegexOptions.CultureInvariant).Trim()
+            : null;
     }
 
     private static string NormalizeBearingText(string value)
@@ -1979,8 +2047,10 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         string Status,
         string FallbackReason,
         int ParcelCountHint,
+        bool MemorandumDetected,
         IReadOnlyDictionary<string, SurveyPlanField> Metadata,
         SurveyPlanDetectedFeature NorthArrow,
+        SurveyPlanDetectedFeature ScaleBar,
         IReadOnlyList<SurveyPlanPointCandidate> Points,
         IReadOnlyList<SurveyPlanSegmentCandidate> Segments,
         IReadOnlyList<SurveyPlanPartyCandidate> Parties,
@@ -1998,6 +2068,7 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private sealed record SurveyPlanDetectedFeature(
         string Feature,
         bool Detected,
+        string? Value,
         string? ApproximatePageLocation,
         double Confidence,
         string ReviewNote);

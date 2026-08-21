@@ -25,6 +25,7 @@ so that point/line validation and spatial creation are clearly separated and I d
 9. Given spatial creation is complete, when the workflow advances, then the next stage becomes `Final Review`, where the examiner can `Approve`, `Reject`, or `Postpone`.
 10. Given the examiner approves in `Final Review`, when the workflow proceeds, then `Finalize` becomes the last step that commits the case result back into the Innola transaction process.
 11. Given validation-tool save/close flows encounter errors, when save fails or transition state is inconsistent, then the user receives a clear non-destructive message and no downstream spatial creation is implied until saved validated data exists.
+12. Given parcel geometry review includes more than raw point editing, when `Validate Points and Lines` is active, then parcel orientation detection and bearing-vs-coordinate consistency validation are treated as part of this stage's validation truth and not deferred to `Create Spatial Units`.
 
 ## Tasks / Subtasks
 
@@ -73,6 +74,17 @@ The latest compute workflow notes in `docs/project/compute-steps.docx` rename/ex
 
 Existing `extraction_review_data.json` compatibility must be preserved. If current contracts only have point rows, the implementation should extend them backward-compatibly rather than replacing the artifact or breaking older cases.
 
+### Validate Stage Boundary Update - 2026-08-19
+
+`Validate Points and Lines` now explicitly owns:
+
+- closure tolerance validation
+- parcel construction readiness validation
+- parcel orientation detection from the reviewed point ring
+- bearing-vs-coordinate consistency checks against the reviewed parcel sequence
+
+`Create Spatial Units` may still normalize geometry for downstream output if configured, but it must not become the first place where clockwise/counterclockwise truth or bearing-direction problems are discovered.
+
 ### Process Rule
 
 - `Save` in the validation tool persists validated point and line data.
@@ -85,6 +97,7 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 - This story does not rename the stages; that belongs to the alignment story.
 - This story does not redesign the detailed point-editing controls themselves beyond what is needed for save/close behavior.
 - This story does not redefine enterprise/manual branch architecture.
+- This story is now explicitly upstream of Story `5.23A`, which extends the same stage with orientation and bearing-consistency validation behavior.
 
 ### Suggested Files To Review
 
@@ -100,6 +113,7 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 
 - `_bmad-output/implementation-artifacts/5-15-parcel-scoped-manual-point-editing-and-live-parcel-preview-controls-in-jamaica-cogo-tool.md`
 - `_bmad-output/implementation-artifacts/5-16-align-compute-workflow-stage-copy-and-jamaica-cogo-handoff.md`
+- `_bmad-output/implementation-artifacts/5-23a-add-orientation-detection-bearing-consistency-and-optional-orientation-normalization.md`
 - `_bmad-output/implementation-artifacts/5-18-route-manual-review-branch-into-configured-gdb-map-editing-path.md`
 - `_bmad-output/implementation-artifacts/5-8-implement-true-local-parcel-fabric-output-mode.md`
 
@@ -111,6 +125,7 @@ Existing `extraction_review_data.json` compatibility must be preserved. If curre
 | 2026-06-17 | 0.2 | Implemented dirty-only save, close/discard prompts, save-and-continue workflow handoff, and close-state messaging with focused tests. | Codex |
 | 2026-07-03 | 0.3 | Patched story scope to expand validation/save/handoff from points-only to points-and-lines review data. | Mary / Codex |
 | 2026-07-21 | 0.4 | Hardened Points Validation Tool footer actions and close/save messaging so disabled actions are hidden, Close remains pressable, and save availability is explained when closing with unsaved changes. | Codex |
+| 2026-08-19 | 0.5 | Aligned the stage contract so orientation detection and bearing-consistency validation are explicitly part of Validate Points and Lines, with downstream normalization remaining an output concern. | Codex |
 
 ## Dev Agent Record
 
