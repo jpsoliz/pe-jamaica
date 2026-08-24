@@ -14,6 +14,11 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
         self.assertIn("Do not invent sequential labels from printed reference labels", prompt)
         self.assertIn("if the plan has reference points A and B but an unlabeled boundary vertex follows A", prompt)
         self.assertIn("use a temporary generated label in the opposite style", prompt)
+        self.assertIn("region-first MEMORANDUM table extraction", prompt)
+        self.assertIn("semantic_state", prompt)
+        self.assertIn("grounds_of_objection", prompt)
+        self.assertIn("document_type", prompt)
+        self.assertIn("scale_bar", prompt)
 
     def test_mock_vision_response_writes_review_rows_segments_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -104,6 +109,186 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual("Occupant", payload["adjacent_owners"][0]["role"])
             self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
             self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
+
+    def test_memorandum_response_writes_document_section_and_memorandum_fields(self):
+        raw = {
+            "document_text": "MEMORANDUM\nSurveyed for Roxine Campbell",
+            "survey_metadata": {
+                "parish": "Clarendon",
+                "instrument": "TOPCON GM-52",
+                "instrument_check_date": "2024-09-04",
+                "instrument_check_result": "Checked and found in order",
+                "gps_instrument_number": "GPS-7",
+                "gps_serial_number": "SN-12345",
+            },
+            "north_arrow": {"detected": True, "approximate_page_location": "upper right", "confidence": 0.9},
+            "scale_bar": {"detected": False, "approximate_page_location": "not visible", "confidence": 0.2},
+            "surveyed_for_names": [{"name": "Roxine Campbell", "source_zone": "memorandum"}],
+            "surveyed_property_names": [{"value": "Lot 12 Bellevue", "source_zone": "memorandum"}],
+            "property_name_near_parcel_diagram": {
+                "present": True,
+                "value": "Lot 12 Bellevue",
+                "source_zone": "parcel_diagram",
+                "confidence": 0.72,
+            },
+            "notice_served_on": ["Austin Singh", "Maria Brown"],
+            "appeared_parties": [
+                {"name": "Austin Singh", "appearance_mode": "personal"},
+                {"name": "Maria Brown", "appearance_mode": "representative", "representative": "Kevon Jarrett"},
+            ],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        memorandum = payload["document_sections"]["memorandum"]
+        self.assertTrue(memorandum["detected"])
+        self.assertEqual("MEMORANDUM", memorandum["matched_text"])
+        self.assertEqual("Roxine Campbell", payload["surveyed_for_names"][0]["name"])
+        self.assertEqual("Lot 12 Bellevue", payload["surveyed_property_names"][0]["value"])
+        self.assertTrue(payload["property_name_near_parcel_diagram"]["present"])
+        self.assertEqual("TOPCON GM-52", payload["survey_metadata"]["instrument"]["value"])
+        self.assertEqual("2024-09-04", payload["survey_metadata"]["instrument_check_date"]["value"])
+        self.assertEqual("Checked and found in order", payload["survey_metadata"]["instrument_check_result"]["value"])
+        self.assertEqual("GPS-7", payload["survey_metadata"]["gps_instrument_number"]["value"])
+        self.assertEqual("SN-12345", payload["survey_metadata"]["gps_serial_number"]["value"])
+        self.assertFalse(payload["scale_bar"]["present"])
+        self.assertEqual("Austin Singh", payload["notice_served_on"][0]["name"])
+        self.assertEqual("representative", payload["appeared_parties"][1]["appearance_mode"])
+
+    def test_memorandum_table_layout_parses_combined_instrument_and_no_appearance(self):
+        raw = {
+            "document_text": (
+                "MEMORANDUM PARISH OF ST. ANN The name of the party at whose instance the survey was made "
+                "The names of those who appeared either personally or by their representatives No one appeared "
+                "SCALE One Millimetre = 0.5 Metre or 1:500"
+            ),
+            "survey_metadata": {
+                "instrument": "FOIF RTS 102R8 S/N: A13183",
+                "instrument_check": "04/10/2024 - Satisfactory",
+            },
+            "appeared_parties": ["No one appeared"],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        memorandum = payload["document_sections"]["memorandum"]
+        self.assertTrue(memorandum["detected"])
+        self.assertEqual("table", memorandum["section_type"])
+        self.assertTrue(payload["scale_bar"]["present"])
+        self.assertEqual("04/10/2024", payload["survey_metadata"]["instrument_check_date"]["value"])
+        self.assertEqual("Satisfactory", payload["survey_metadata"]["instrument_check_result"]["value"])
+        self.assertEqual("No one appeared", payload["appeared_parties"][0]["name"])
+        self.assertEqual("none", payload["appeared_parties"][0]["appearance_mode"])
+        self.assertEqual("NO_ONE_APPEARED", payload["appeared_parties"][0]["semantic_state"])
+
+    def test_memorandum_semantic_states_and_deterministic_field_parsing(self):
+        raw = {
+            "document_text": "MEMORANDUM",
+            "survey_metadata": {
+                "parish": "St. Ann",
+                "area": "3203.710 Sq. Metres",
+                "survey_date": "June 5, 2024",
+                "grounds_of_objection": "None",
+                "surveyor_decision_grounds": "Instructions and marks on ground",
+                "instrument": "FOIF RTS 102R8 S/N: A13183",
+                "instrument_check": "04/10/2024 - Satisfactory",
+                "surveyed_by": {
+                    "name": "Craig A. Francis",
+                    "title": "Commissioned Land Surveyor",
+                    "organization": "Precision Surveying Services Ltd.",
+                },
+            },
+            "surveyed_for_names": [{"name": "Mario Smith"}],
+            "surveyed_property_names": [{"value": "Part of SYMS RUN"}],
+            "notice_served_on": [{"name": "The C.E.O of St. Ann Municipal Corporation"}],
+            "appeared_parties": ["No one appeared"],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_490449_s.pdf")
+        fixture_dir = Path(__file__).parent / "fixtures" / "jamaica" / "plan_examination"
+        expected = json.loads((fixture_dir / "DOC_PLAN_490449_s.expected.json").read_text())
+
+        metadata = payload["survey_metadata"]
+        self.assertTrue((fixture_dir / "DOC_PLAN_490449_s.pdf").exists())
+        self.assertEqual(expected["source"]["file_name"], payload["primary_source_file"])
+        self.assertEqual(expected["source"]["document_type"], payload["document_sections"]["memorandum"]["matched_text"])
+        self.assertEqual("VALUE", metadata["parish"]["semantic_state"])
+        self.assertEqual("3203.710 Sq. Metres", metadata["document_area"]["raw_value"])
+        self.assertEqual(3203.71, metadata["document_area"]["numeric_value"])
+        self.assertEqual("SQUARE_METRES", metadata["document_area"]["unit"])
+        self.assertEqual(expected["survey_metadata"]["document_area"]["unit"], metadata["document_area"]["unit"])
+        self.assertEqual("NONE", metadata["grounds_of_objection"]["semantic_state"])
+        self.assertEqual("VALUE", metadata["surveyor_decision_grounds"]["semantic_state"])
+        self.assertEqual("04/10/2024", metadata["instrument_check_date"]["value"])
+        self.assertEqual("Satisfactory", metadata["instrument_check_result"]["value"])
+        self.assertEqual("Craig A. Francis", metadata["surveyed_by"]["value"])
+        self.assertEqual("Commissioned Land Surveyor", metadata["surveyed_by"]["title"])
+        self.assertEqual("Precision Surveying Services Ltd.", metadata["surveyed_by"]["organization"])
+        self.assertEqual("VALUE", payload["surveyed_for_names"][0]["semantic_state"])
+        self.assertEqual("VALUE", payload["surveyed_property_names"][0]["semantic_state"])
+        self.assertEqual("NO_ONE_APPEARED", payload["appeared_parties"][0]["semantic_state"])
+        self.assertNotIn("jad2001_point_coordinates", payload)
+
+    def test_semantic_state_distinguishes_blank_missing_na_and_illegible(self):
+        raw = {
+            "document_text": "MEMORANDUM",
+            "survey_metadata": {
+                "parish": {"value": "", "source_zone": "memorandum"},
+                "document_area": {"raw_value": "about three thousand square metres", "source_zone": "memorandum"},
+                "grounds_of_objection": "N/A",
+                "instrument_check_result": {"raw_text": "####", "semantic_state": "ILLEGIBLE"},
+                "surveyed_by": {"raw_value": "Craig A. Francis", "confidence": 0.0},
+            },
+            "appeared_parties": [],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_490449_s.pdf")
+
+        self.assertEqual("NOT_STATED", payload["survey_metadata"]["parish"]["semantic_state"])
+        self.assertEqual("needs_review", payload["survey_metadata"]["document_area"]["review_status"])
+        self.assertNotIn("unit", payload["survey_metadata"]["document_area"])
+        self.assertEqual("N_A", payload["survey_metadata"]["grounds_of_objection"]["semantic_state"])
+        self.assertEqual("ILLEGIBLE", payload["survey_metadata"]["instrument_check_result"]["semantic_state"])
+        self.assertEqual("Craig A. Francis", payload["survey_metadata"]["surveyed_by"]["value"])
+        self.assertEqual(0.0, payload["survey_metadata"]["surveyed_by"]["confidence"])
+
+    def test_instrument_check_date_does_not_fall_back_to_plan_check_date(self):
+        raw = {
+            "document_text": "MEMORANDUM",
+            "survey_metadata": {
+                "instrument": "FOIF RTS 102R8 S/N: A13183",
+                "plan_check_date": "June 5, 2024",
+            },
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_490449_s.pdf")
+
+        self.assertEqual("NOT_FOUND", payload["survey_metadata"]["instrument_check_date"]["semantic_state"])
+
+    def test_visible_memorandum_and_rf_scale_text_override_false_detection_flag(self):
+        raw = {
+            "document_text": "metres 20 10 0 10 20 30 40 50 60 70 80 90 100 metres SCALE : 1cm To 10m R.F 1/1000 MEMORANDUM",
+            "memorandum": {"detected": False},
+            "scale_bar": {"detected": False},
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000562", "DOC_PLAN_492321.pdf")
+
+        self.assertTrue(payload["document_sections"]["memorandum"]["detected"])
+        self.assertEqual("MEMORANDUM", payload["document_sections"]["memorandum"]["matched_text"])
+        self.assertTrue(payload["scale_bar"]["present"])
+        self.assertIn("R.F 1/1000", payload["scale_bar"]["value"])
+        self.assertEqual("scale_bar_text", payload["scale_bar"]["ApproximatePageLocation"])
+
+    def test_non_memorandum_response_marks_memorandum_not_detected(self):
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(
+            {"document_text": "SURVEY PLAN", "survey_metadata": {"parish": "Clarendon"}},
+            "100000562",
+            "DOC_PLAN_492321.pdf",
+        )
+
+        self.assertFalse(payload["document_sections"]["memorandum"]["detected"])
+        self.assertEqual("not_applicable", payload["document_sections"]["memorandum"]["status"])
 
     def test_provider_unavailable_writes_manual_review_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

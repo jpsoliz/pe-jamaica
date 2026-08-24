@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import uuid
 from collections import Counter
@@ -292,8 +293,129 @@ def _apply_readiness_profile_overrides(rule_config: dict[str, Any], settings: di
     return merged
 
 
+def _read_orientation_profiles(path: Path | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "default": {
+            "rule_id": "orientation_default_standard",
+            "title": "Parcel orientation and bearing consistency",
+            "enabled": True,
+            "severity": "warning",
+            "parcel_type": "standard_closed",
+            "expected_orientation": "any",
+            "enforce_bearing_consistency": True,
+            "max_bearing_delta_degrees": 5.0,
+        },
+        "profiles": {},
+    }
+    if path is None or not path.exists():
+        return result
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_default = False
+    in_profiles = False
+    current_profile: dict[str, Any] | None = None
+    skip_nested_indent: int | None = None
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent == 0:
+            in_default = stripped.startswith("orientation_validation_defaults:")
+            in_profiles = stripped.startswith("orientation_validation_profiles:")
+            current_profile = None
+            skip_nested_indent = None
+            continue
+
+        if skip_nested_indent is not None and indent > skip_nested_indent:
+            continue
+        if skip_nested_indent is not None and indent <= skip_nested_indent:
+            skip_nested_indent = None
+
+        if in_default:
+            if ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            result["default"][key] = _parse_scalar(raw_value)
+            continue
+
+        if in_profiles:
+            if stripped.startswith("- "):
+                current_profile = {}
+                result["profiles"][f"profile_{len(result['profiles']) + 1}"] = current_profile
+                stripped = stripped[2:].strip()
+                if not stripped:
+                    continue
+            if current_profile is None or ":" not in stripped:
+                continue
+            key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+            if not raw_value:
+                skip_nested_indent = indent
+                continue
+            current_profile[key] = _parse_scalar(raw_value)
+            parcel_type = str(current_profile.get("parcel_type") or "").strip()
+            if parcel_type:
+                result["profiles"][parcel_type] = current_profile
+
+    unnamed = [key for key in list(result["profiles"].keys()) if key.startswith("profile_")]
+    for key in unnamed:
+        profile = result["profiles"].pop(key)
+        parcel_type = str(profile.get("parcel_type") or key).strip()
+        result["profiles"][parcel_type] = profile
+
+    return result
+
+
+def _apply_orientation_profile_overrides(rule_config: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    overrides = settings.get("orientation_validation_profile_overrides")
+    if not isinstance(overrides, dict):
+        return rule_config
+
+    merged = {
+        "default": dict(rule_config.get("default") or {}),
+        "profiles": {key: dict(value) for key, value in (rule_config.get("profiles") or {}).items()},
+    }
+
+    default_parcel_type = overrides.get("default_parcel_type")
+    if isinstance(default_parcel_type, str) and default_parcel_type.strip():
+        merged["default"]["parcel_type"] = default_parcel_type.strip()
+
+    default_profile = overrides.get("default_profile")
+    if isinstance(default_profile, dict):
+        for key, value in default_profile.items():
+            merged["default"][key] = value
+
+    profile_overrides = overrides.get("profiles")
+    if not isinstance(profile_overrides, dict):
+        return merged
+
+    for parcel_type, override_values in profile_overrides.items():
+        if not isinstance(override_values, dict):
+            continue
+        target = merged["profiles"].setdefault(parcel_type, {"parcel_type": parcel_type})
+        for key, value in override_values.items():
+            target[key] = value
+
+    return merged
+
+
 def _normalize_point_id(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _parse_coordinate_value(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text.replace(",", ""))
+    except ValueError:
+        return None
 
 
 def _extract_segment_ref(row: dict[str, Any], *names: str) -> str:
@@ -303,6 +425,82 @@ def _extract_segment_ref(row: dict[str, Any], *names: str) -> str:
         if text:
             return text
     return ""
+
+
+def _resolve_segment_identifier(row: dict[str, Any], fallback_index: int) -> str:
+    for key in ("segment_id", "segment_no", "segment_index", "seq", "sequence_in_group", "row_id"):
+        text = str(row.get(key) or "").strip()
+        if text:
+            return text
+    return str(fallback_index + 1)
+
+
+def _ring_orientation_name(coords: list[tuple[float, float]]) -> str:
+    if len(coords) < 3:
+        return "unknown"
+    closed = list(coords)
+    if closed[0] != closed[-1]:
+        closed.append(closed[0])
+    signed_area = 0.0
+    for index in range(len(closed) - 1):
+        x1, y1 = closed[index]
+        x2, y2 = closed[index + 1]
+        signed_area += (x1 * y2) - (x2 * y1)
+    if math.isclose(signed_area, 0.0, abs_tol=1e-9):
+        return "degenerate"
+    return "counterclockwise" if signed_area > 0 else "clockwise"
+
+
+def _parse_bearing_azimuth_deg(value: Any) -> float | None:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+
+    text = (
+        text.replace("°", " ")
+        .replace("º", " ")
+        .replace("'", " ")
+        .replace("′", " ")
+        .replace("’", " ")
+        .replace('"', " ")
+        .replace("″", " ")
+        .replace("”", " ")
+    )
+    text = re.sub(r"\s+", " ", text).strip()
+    match = re.match(r"^([NS])\s*([0-9]+(?:\.[0-9]+)?)(?:\s+([0-9]+(?:\.[0-9]+)?))?(?:\s+([0-9]+(?:\.[0-9]+)?))?\s*([EW])$", text)
+    if not match:
+        return None
+
+    ns, degrees_text, minutes_text, seconds_text, ew = match.groups()
+    degrees = float(degrees_text)
+    minutes = float(minutes_text or 0.0)
+    seconds = float(seconds_text or 0.0)
+    angle = degrees + (minutes / 60.0) + (seconds / 3600.0)
+    if angle < 0.0 or angle > 90.0:
+        return None
+    if ns == "N" and ew == "E":
+        return angle
+    if ns == "S" and ew == "E":
+        return 180.0 - angle
+    if ns == "S" and ew == "W":
+        return 180.0 + angle
+    return 360.0 - angle
+
+
+def _compute_azimuth_deg(start: tuple[float, float], end: tuple[float, float]) -> float | None:
+    dx = float(end[0]) - float(start[0])
+    dy = float(end[1]) - float(start[1])
+    if math.isclose(dx, 0.0, abs_tol=1e-9) and math.isclose(dy, 0.0, abs_tol=1e-9):
+        return None
+    azimuth = math.degrees(math.atan2(dx, dy))
+    if azimuth < 0.0:
+        azimuth += 360.0
+    return azimuth
+
+
+def _normalize_angle_delta_deg(value: float) -> float:
+    delta = abs(value) % 360.0
+    return delta if delta <= 180.0 else 360.0 - delta
 
 
 def _readiness_status(enabled: bool, severity: str, has_issue: bool) -> str:
@@ -816,6 +1014,153 @@ def _compute_closure_results(
     return results
 
 
+def _compute_orientation_results(
+    review_data: dict[str, Any],
+    source_files: list[dict[str, Any]],
+    rule_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows = review_data.get("rows") or []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        grouped.setdefault(_normalize_parcel_group(row, index), []).append(row)
+
+    default_profile = dict(rule_config.get("default") or {})
+    profiles = rule_config.get("profiles") or {}
+    results: list[dict[str, Any]] = []
+
+    for group_id, group_rows in grouped.items():
+        ordered_rows = sorted(group_rows, key=lambda row: _sequence_value(row, group_rows.index(row)))
+        parcel_type = _infer_parcel_type(ordered_rows, source_files, str(default_profile.get("parcel_type") or "standard_closed"))
+        profile = dict(default_profile)
+        profile.update(profiles.get(parcel_type) or {})
+        enabled = bool(profile.get("enabled", True))
+        severity = str(profile.get("severity") or "warning")
+        expected_orientation = str(profile.get("expected_orientation") or "any").strip().lower()
+        enforce_bearing_consistency = bool(profile.get("enforce_bearing_consistency", True))
+        max_bearing_delta = float(profile.get("max_bearing_delta_degrees") or 5.0)
+        parcel_name = next(
+            (
+                str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+                for row in ordered_rows
+                if str(row.get("review_parcel_name") or row.get("parcel_name") or "").strip()
+            ),
+            group_id,
+        )
+
+        coordinate_rows = []
+        point_lookup: dict[str, tuple[float, float]] = {}
+        for row in ordered_rows:
+            easting = _parse_coordinate_value(row.get("easting"))
+            northing = _parse_coordinate_value(row.get("northing"))
+            point_id = _extract_point_identifier(row)
+            if easting is None or northing is None:
+                continue
+            coord = (easting, northing)
+            coordinate_rows.append(coord)
+            if point_id:
+                point_lookup[point_id.lower()] = coord
+
+        detected_orientation = _ring_orientation_name(coordinate_rows)
+        inconsistent_segment_ids: list[str] = []
+        inconsistent_point_ids: list[str] = []
+        consistent_segment_count = 0
+        checked_segment_count = 0
+        max_delta_observed = 0.0
+        total_delta = 0.0
+
+        if enabled and enforce_bearing_consistency:
+            for index, row in enumerate(ordered_rows):
+                bearing_text = str(
+                    row.get("bearing_txt")
+                    or row.get("bearing")
+                    or row.get("course")
+                    or row.get("review_bearing_txt")
+                    or ""
+                ).strip()
+                source_azimuth = _parse_bearing_azimuth_deg(bearing_text)
+                from_point = _extract_segment_ref(row, "from_point", "from_pt", "start_pt")
+                to_point = _extract_segment_ref(row, "to_point", "to_pt", "end_pt") or _extract_point_identifier(row)
+                if source_azimuth is None or not from_point or not to_point:
+                    continue
+                start_coord = point_lookup.get(from_point.lower())
+                end_coord = point_lookup.get(to_point.lower())
+                if start_coord is None or end_coord is None:
+                    continue
+                computed_azimuth = _compute_azimuth_deg(start_coord, end_coord)
+                if computed_azimuth is None:
+                    continue
+                checked_segment_count += 1
+                delta = _normalize_angle_delta_deg(computed_azimuth - source_azimuth)
+                total_delta += delta
+                max_delta_observed = max(max_delta_observed, delta)
+                if delta > max_bearing_delta:
+                    inconsistent_segment_ids.append(_resolve_segment_identifier(row, index))
+                    if to_point:
+                        inconsistent_point_ids.append(to_point)
+                else:
+                    consistent_segment_count += 1
+
+        orientation_mismatch = expected_orientation in {"clockwise", "counterclockwise"} and detected_orientation not in {"unknown", "degenerate"} and detected_orientation != expected_orientation
+        bearing_inconsistent_count = len(inconsistent_segment_ids)
+        has_issue = orientation_mismatch or bearing_inconsistent_count > 0
+
+        if not enabled:
+            status = "skipped"
+            evaluation_status = "skipped"
+            message = f"Orientation validation is disabled for parcel type {parcel_type}."
+        elif orientation_mismatch:
+            status = "blocker" if severity in {"critical", "high", "blocker"} else "warning"
+            evaluation_status = "failed"
+            message = f"Parcel {group_id} ring orientation is {detected_orientation} but {expected_orientation} was expected."
+        elif bearing_inconsistent_count > 0:
+            status = "blocker" if severity in {"critical", "high", "blocker"} else "warning"
+            evaluation_status = "failed"
+            message = (
+                f"Parcel {group_id} has {bearing_inconsistent_count} segment(s) whose source bearing does not match "
+                f"the coordinate geometry within {max_bearing_delta:.2f}°."
+            )
+        else:
+            status = "pass"
+            evaluation_status = "passed"
+            if checked_segment_count > 0:
+                message = (
+                    f"Parcel {group_id} orientation is {detected_orientation} and {checked_segment_count} checked segment(s) "
+                    f"matched source bearings within {max_bearing_delta:.2f}°."
+                )
+            else:
+                message = f"Parcel {group_id} orientation is {detected_orientation}. No bearing consistency mismatches were detected."
+
+        results.append(
+            {
+                "parcel_group_id": group_id,
+                "parcel_name": parcel_name,
+                "parcel_type": parcel_type,
+                "rule_id": str(profile.get("rule_id") or default_profile.get("rule_id") or "orientation_default_standard"),
+                "title": str(profile.get("title") or default_profile.get("title") or "Parcel orientation and bearing consistency"),
+                "severity": severity,
+                "status": status,
+                "evaluation_status": evaluation_status,
+                "message": message,
+                "detected_orientation": detected_orientation,
+                "expected_orientation": expected_orientation,
+                "checked_segment_count": checked_segment_count,
+                "consistent_segment_count": consistent_segment_count,
+                "bearing_inconsistent_count": bearing_inconsistent_count,
+                "max_bearing_delta_degrees": max_bearing_delta,
+                "max_bearing_delta_observed_degrees": max_delta_observed if checked_segment_count > 0 else None,
+                "average_bearing_delta_degrees": (total_delta / checked_segment_count) if checked_segment_count > 0 else None,
+                "affected_segment_ids": sorted(set(inconsistent_segment_ids)),
+                "affected_point_ids": sorted(set(inconsistent_point_ids)),
+                "rule_disabled": not enabled,
+                "rule_skip_reason": None if enabled else "Rule disabled in orientation profile.",
+            }
+        )
+
+    return results
+
+
 def _review_hash(document: dict[str, Any]) -> str | None:
     return document.get("review_hash") or document.get("review_data_hash")
 
@@ -862,6 +1207,7 @@ def build_summary(
     settings = _load_settings(settings_path)
     closure_rule_config = _apply_profile_overrides(_read_closure_profiles(rules_path), settings)
     readiness_rule_config = _apply_readiness_profile_overrides(_read_readiness_profiles(rules_path), settings)
+    orientation_rule_config = _apply_orientation_profile_overrides(_read_orientation_profiles(rules_path), settings)
     transaction_id = manifest.get("transaction_id") or review_data.get("transaction_number") or ""
     findings: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -1099,6 +1445,7 @@ def build_summary(
 
     closure_results = _compute_closure_results(review_data, source_files, closure_rule_config)
     readiness_results = _compute_readiness_results(review_data, source_files, readiness_rule_config)
+    orientation_results = _compute_orientation_results(review_data, source_files, orientation_rule_config)
     closure_blockers = 0
     closure_warnings = 0
     closure_passed = 0
@@ -1106,6 +1453,10 @@ def build_summary(
     readiness_warnings = 0
     readiness_passed = 0
     readiness_skipped = 0
+    orientation_blockers = 0
+    orientation_warnings = 0
+    orientation_passed = 0
+    orientation_skipped = 0
     for closure_result in closure_results:
         status = closure_result["status"]
         if status == "blocker":
@@ -1224,6 +1575,73 @@ def build_summary(
                 )
             )
 
+    for orientation_result in orientation_results:
+        status = orientation_result["status"]
+        if status == "blocker":
+            orientation_blockers += 1
+            findings.append(
+                _finding(
+                    str(orientation_result["rule_id"]),
+                    f"{orientation_result['parcel_name']}: {orientation_result['title']}",
+                    "high",
+                    "failed",
+                    (
+                        f"parcel_group={orientation_result['parcel_group_id']}; "
+                        f"detected_orientation={orientation_result['detected_orientation']}; "
+                        f"expected_orientation={orientation_result['expected_orientation']}; "
+                        f"bearing_inconsistent_count={orientation_result['bearing_inconsistent_count']}; "
+                        f"max_bearing_delta_observed_degrees={orientation_result['max_bearing_delta_observed_degrees']}"
+                    ),
+                    "Review the parcel point order or source bearing values before Create Spatial Units proceeds.",
+                )
+            )
+        elif status == "warning":
+            orientation_warnings += 1
+            findings.append(
+                _finding(
+                    str(orientation_result["rule_id"]),
+                    f"{orientation_result['parcel_name']}: {orientation_result['title']}",
+                    "warning",
+                    "failed",
+                    (
+                        f"parcel_group={orientation_result['parcel_group_id']}; "
+                        f"detected_orientation={orientation_result['detected_orientation']}; "
+                        f"expected_orientation={orientation_result['expected_orientation']}; "
+                        f"bearing_inconsistent_count={orientation_result['bearing_inconsistent_count']}; "
+                        f"max_bearing_delta_observed_degrees={orientation_result['max_bearing_delta_observed_degrees']}"
+                    ),
+                    "Review parcel orientation or bearing consistency before final approval.",
+                )
+            )
+        elif status == "skipped":
+            orientation_skipped += 1
+            findings.append(
+                _finding(
+                    str(orientation_result["rule_id"]),
+                    f"{orientation_result['parcel_name']}: {orientation_result['title']}",
+                    "info",
+                    "passed",
+                    orientation_result["rule_skip_reason"] or "Rule skipped.",
+                    None,
+                )
+            )
+        else:
+            orientation_passed += 1
+            findings.append(
+                _finding(
+                    str(orientation_result["rule_id"]),
+                    f"{orientation_result['parcel_name']}: {orientation_result['title']}",
+                    "passed",
+                    "passed",
+                    (
+                        f"parcel_group={orientation_result['parcel_group_id']}; "
+                        f"detected_orientation={orientation_result['detected_orientation']}; "
+                        f"checked_segment_count={orientation_result['checked_segment_count']}"
+                    ),
+                    None,
+                )
+            )
+
     blocked = any(
         finding["severity"] in {"critical", "high"} and finding["status"] == "failed"
         for finding in findings
@@ -1264,6 +1682,13 @@ def build_summary(
                 "skipped": readiness_skipped,
             },
             "readiness_results": readiness_results,
+            "orientation_summary": {
+                "blocker": orientation_blockers,
+                "warning": orientation_warnings,
+                "passed": orientation_passed,
+                "skipped": orientation_skipped,
+            },
+            "orientation_results": orientation_results,
             "findings": findings,
         },
         "warnings": warnings,

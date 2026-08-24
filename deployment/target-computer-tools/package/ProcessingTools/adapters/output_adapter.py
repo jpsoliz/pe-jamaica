@@ -18,6 +18,9 @@ REVIEW_RESULT_OWNER_MANUAL = "manual_spatial_review"
 COGO_SOURCE_MODE_PREFER_SOURCE = "prefer_source"
 COGO_SOURCE_MODE_PREFER_COMPUTED = "prefer_computed"
 COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED = "source_then_computed"
+ORIENTATION_NORMALIZE_MODE_PRESERVE = "preserve"
+ORIENTATION_NORMALIZE_MODE_CLOCKWISE = "clockwise"
+ORIENTATION_NORMALIZE_MODE_COUNTERCLOCKWISE = "counterclockwise"
 PARCEL_FABRIC_MODE_PILOT = "pilot"
 PARCEL_FABRIC_MODE_TRUE = "true"
 PARCEL_FABRIC_DATASET_NAME = "parcel_fabric_dataset"
@@ -131,6 +134,15 @@ def _normalize_cogo_source_mode(value: Any) -> str:
     if text == COGO_SOURCE_MODE_PREFER_COMPUTED:
         return COGO_SOURCE_MODE_PREFER_COMPUTED
     return COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED
+
+
+def _normalize_orientation_mode(value: Any) -> str:
+    text = "" if value is None else str(value).strip().replace("-", "_").replace(" ", "_").lower()
+    if text == ORIENTATION_NORMALIZE_MODE_CLOCKWISE:
+        return ORIENTATION_NORMALIZE_MODE_CLOCKWISE
+    if text == ORIENTATION_NORMALIZE_MODE_COUNTERCLOCKWISE:
+        return ORIENTATION_NORMALIZE_MODE_COUNTERCLOCKWISE
+    return ORIENTATION_NORMALIZE_MODE_PRESERVE
 
 
 def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -824,7 +836,37 @@ def _polygon_ring_from_coords(coords: list[tuple[float, float]]) -> list[tuple[f
     return cleaned
 
 
-def _polygon_rings_from_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _ring_orientation_name(coords: list[tuple[float, float]]) -> str:
+    if len(coords) < 4:
+        return "unknown"
+    signed_area = _ring_area(coords)
+    if math.isclose(signed_area, 0.0, abs_tol=1e-9):
+        return "degenerate"
+    return "counterclockwise" if signed_area > 0 else "clockwise"
+
+
+def _normalize_ring_orientation(
+    ring: list[tuple[float, float]],
+    normalize_orientation_mode: str,
+) -> list[tuple[float, float]]:
+    mode = _normalize_orientation_mode(normalize_orientation_mode)
+    if mode == ORIENTATION_NORMALIZE_MODE_PRESERVE or len(ring) < 4:
+        return ring
+
+    orientation = _ring_orientation_name(ring)
+    if orientation in {"unknown", "degenerate"} or orientation == mode:
+        return ring
+
+    reversed_ring = list(reversed(ring[:-1]))
+    if reversed_ring and reversed_ring[0] != reversed_ring[-1]:
+        reversed_ring.append(reversed_ring[0])
+    return reversed_ring
+
+
+def _polygon_rings_from_segments(
+    segments: list[dict[str, Any]],
+    normalize_orientation_mode: str = ORIENTATION_NORMALIZE_MODE_PRESERVE,
+) -> list[dict[str, Any]]:
     if not segments:
         return []
 
@@ -855,6 +897,7 @@ def _polygon_rings_from_segments(segments: list[dict[str, Any]]) -> list[dict[st
         ring = _polygon_ring_from_coords(coords)
         if not ring:
             continue
+        ring = _normalize_ring_orientation(ring, normalize_orientation_mode)
 
         first_segment = ordered[0]
         parcel_id = first_segment.get("parcel_id") or group_key or f"parcel-{index:03d}"
@@ -886,13 +929,17 @@ def _polygon_rings_from_segments(segments: list[dict[str, Any]]) -> list[dict[st
     return polygons
 
 
-def _polygon_rings(point_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _polygon_rings(
+    point_groups: list[dict[str, Any]],
+    normalize_orientation_mode: str = ORIENTATION_NORMALIZE_MODE_PRESERVE,
+) -> list[dict[str, Any]]:
     polygons: list[dict[str, Any]] = []
     for index, group in enumerate(point_groups, start=1):
         group_points = group.get("points") or []
         coords = _polygon_points(group_points)
         if not coords:
             continue
+        coords = _normalize_ring_orientation(coords, normalize_orientation_mode)
         first_point = group_points[0] if group_points else {}
         polygons.append(
             {
@@ -2416,6 +2463,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--add-cogo-attributes", default="false")
     parser.add_argument("--add-cogo-labels", default="false")
     parser.add_argument("--cogo-source-mode", default=COGO_SOURCE_MODE_SOURCE_THEN_COMPUTED)
+    parser.add_argument("--normalize-orientation-mode", default=ORIENTATION_NORMALIZE_MODE_PRESERVE)
     parser.add_argument("--import-structured-points", default="false")
     parser.add_argument("--import-dwg-reference", default="false")
     parser.add_argument("--normalized-points", default="")
@@ -2436,6 +2484,7 @@ def main(argv: list[str] | None = None) -> int:
     add_cogo_attributes = _normalize_bool_flag(args.add_cogo_attributes, False)
     add_cogo_labels = _normalize_bool_flag(args.add_cogo_labels, False)
     cogo_source_mode = _normalize_cogo_source_mode(args.cogo_source_mode)
+    normalize_orientation_mode = _normalize_orientation_mode(args.normalize_orientation_mode)
     import_structured_points = _normalize_bool_flag(args.import_structured_points, False)
     import_dwg_reference = _normalize_bool_flag(args.import_dwg_reference, False)
     normalized_points_path = Path(args.normalized_points) if args.normalized_points else None
@@ -2475,7 +2524,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             reviewed_segments = _reviewed_boundary_segments(review_data, point_groups)
     segments = reviewed_segments or _polyline_segments(point_groups)
-    polygons = _polygon_rings_from_segments(reviewed_segments) if reviewed_segments else _polygon_rings(point_groups)
+    polygons = _polygon_rings_from_segments(reviewed_segments, normalize_orientation_mode) if reviewed_segments else _polygon_rings(point_groups, normalize_orientation_mode)
     points, segments, polygons = _prepare_optional_output_cogo(
         points,
         segments,
