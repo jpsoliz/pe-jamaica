@@ -1117,6 +1117,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string SelectedReviewRowValidationIssueText => SelectedReviewRow is null
         ? "Select a row to review blocker details."
+        : ReviewHasMemorandumDispositionBlockers
+            ? BuildMemorandumDispositionBlockerText()
         : string.IsNullOrWhiteSpace(SelectedReviewRow.ValidationIssueSummary)
             ? "Selected row has no active validation blocker."
             : SelectedReviewRow.ValidationIssueSummary;
@@ -1754,7 +1756,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         foreach (var group in document.MemorandumGroups)
         {
-            ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group));
+            ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group, OnReviewMetadataChanged));
         }
 
         IsPxaSurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(document);
@@ -1960,10 +1962,34 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         if (loadedReviewDocument.MemorandumRuleResults.Count > 0)
         {
+            var reviewerEdits = loadedReviewDocument.MemorandumRuleResults
+                .Where(rule => !string.IsNullOrWhiteSpace(rule.RuleId))
+                .GroupBy(rule => rule.RuleId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => new
+                    {
+                        group.First().ReviewerStatus,
+                        group.First().Message
+                    },
+                    StringComparer.OrdinalIgnoreCase);
             loadedReviewDocument.MemorandumRuleResults.Clear();
             var ruleService = new PxaMemorandumReviewRuleService();
             foreach (var result in ruleService.Evaluate(loadedReviewDocument))
             {
+                if (reviewerEdits.TryGetValue(result.RuleId, out var reviewerEdit))
+                {
+                    if (!string.IsNullOrWhiteSpace(reviewerEdit.ReviewerStatus))
+                    {
+                        result.ReviewerStatus = reviewerEdit.ReviewerStatus;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(reviewerEdit.Message))
+                    {
+                        result.Message = reviewerEdit.Message;
+                    }
+                }
+
                 loadedReviewDocument.MemorandumRuleResults.Add(result);
             }
 
@@ -1976,7 +2002,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ReviewMemorandumGroups.Clear();
             foreach (var group in loadedReviewDocument.MemorandumGroups)
             {
-                ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group));
+                ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group, OnReviewMetadataChanged));
             }
         }
     }
@@ -1988,6 +2014,40 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             || text.Contains("override", StringComparison.OrdinalIgnoreCase)
             || text.Contains("corrected", StringComparison.OrdinalIgnoreCase)
             || text.Contains("disposition", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string BuildMemorandumDispositionBlockerText()
+    {
+        if (loadedReviewDocument is null)
+        {
+            return "Memorandum review has unresolved disposition items.";
+        }
+
+        var blockers = loadedReviewDocument.MemorandumRuleResults
+            .Where(rule => string.Equals(rule.WorkflowEffect, "requires_disposition", StringComparison.OrdinalIgnoreCase)
+                           && (string.Equals(rule.Outcome, "needs_review", StringComparison.OrdinalIgnoreCase)
+                               || string.Equals(rule.Outcome, "not_available", StringComparison.OrdinalIgnoreCase)
+                               || string.Equals(rule.Outcome, "failed", StringComparison.OrdinalIgnoreCase))
+                           && !MemorandumRuleHasDisposition(rule))
+            .Select(rule => string.IsNullOrWhiteSpace(rule.Label) ? rule.RuleId : rule.Label)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+        if (blockers.Length == 0)
+        {
+            return "Memorandum review has unresolved disposition items.";
+        }
+
+        var suffix = loadedReviewDocument.MemorandumRuleResults.Count(rule =>
+            string.Equals(rule.WorkflowEffect, "requires_disposition", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(rule.Outcome, "needs_review", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Outcome, "not_available", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Outcome, "failed", StringComparison.OrdinalIgnoreCase))
+            && !MemorandumRuleHasDisposition(rule)) > blockers.Length
+                ? " ..."
+                : string.Empty;
+        return $"Memorandum review needs disposition for: {string.Join(", ", blockers)}{suffix}. In the Memorandum tab, set Status to Accepted, Corrected, Override, or another disposition note, then Save.";
     }
 
     private static bool TryReadAreaValue(JsonObject? node, string propertyName, out double area)
@@ -2492,14 +2552,61 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewRows));
         NotifyPropertyChanged(nameof(ReviewSegments));
         NotifyPropertyChanged(nameof(ReviewContentVersion));
+        var activeBoundaryPointCount = CountActiveReviewedBoundaryPointIds(loadedReviewDocument);
+        var activeBoundaryPointText = activeBoundaryPointCount > 0
+            ? $"{activeBoundaryPointCount} active boundary point row(s), "
+            : string.Empty;
         var action = string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase)
             ? "Rebuild points found blockers"
             : solverResult.DerivedPointCount == 0
-                ? "Rebuild points completed; existing reviewed point coordinates were preserved"
-                : $"Rebuild points completed; {solverResult.DerivedPointCount} point coordinate(s) were updated from reviewed segments";
+                ? $"Rebuild points completed; {activeBoundaryPointText}existing reviewed point coordinates were preserved"
+                : $"Rebuild points completed; {activeBoundaryPointText}{solverResult.DerivedPointCount} point coordinate(s) were updated from reviewed segments";
         workflowSession.SetValidationFailure($"{action}. Save review to persist the change. {BuildBoundarySolverSummaryText()}");
         RefreshWorkflowProperties();
     }
+
+    private static int CountActiveReviewedBoundaryPointIds(ExtractionReviewDocument document)
+    {
+        var segments = document.Segments
+            .Where(segment => segment.EffectiveIncludeInBoundary)
+            .OrderBy(segment => segment.EffectiveSequence)
+            .ToArray();
+        if (segments.Length == 0)
+        {
+            return 0;
+        }
+
+        var pointIds = new List<string>();
+        AddPoint(segments[0].EffectiveFromPoint);
+        foreach (var segment in segments)
+        {
+            var toPoint = NormalizeReviewPointId(segment.EffectiveToPoint);
+            if (pointIds.Count > 0
+                && string.Equals(pointIds[0], toPoint, StringComparison.OrdinalIgnoreCase)
+                && ReferenceEquals(segment, segments[^1]))
+            {
+                continue;
+            }
+
+            AddPoint(toPoint);
+        }
+
+        return pointIds
+            .Where(pointId => !string.IsNullOrWhiteSpace(pointId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        void AddPoint(string? pointId)
+        {
+            var normalized = NormalizeReviewPointId(pointId);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                pointIds.Add(normalized);
+            }
+        }
+    }
+
+    private static string NormalizeReviewPointId(string? pointId) => (pointId ?? string.Empty).Trim();
 
     private void ApplyReviewDialogOwner(Window dialog)
     {

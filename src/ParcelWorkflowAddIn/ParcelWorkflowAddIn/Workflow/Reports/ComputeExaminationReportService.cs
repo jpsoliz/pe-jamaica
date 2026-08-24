@@ -229,9 +229,11 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             BuildMetadataField(reviewedData, "Coordinate system", "coordinate_system", "JAD2001 / EPSG:3448 metres"),
             BuildMetadataField(reviewedData, "Document area", "document_area", "Not provided"),
             BuildMetadataField(reviewedData, "File reference", "file_reference", "Not provided"),
+            BuildMetadataField(reviewedData, "Grounds of objection", "grounds_of_objection", "Not provided"),
             BuildMetadataField(reviewedData, "North arrow", "north_arrow", "Not provided"),
             BuildMetadataField(reviewedData, "Parish", "parish", "Not provided"),
             BuildMetadataField(reviewedData, "Scale bar", "scale_bar", "Not provided"),
+            BuildMetadataField(reviewedData, "Surveyor decision grounds", "surveyor_decision_grounds", "Not provided"),
             BuildMetadataField(reviewedData, "Surveyed property name", "surveyed_property_name", "Not provided"),
             BuildMetadataField(reviewedData, "Property name near parcel diagram", "property_name_near_parcel_diagram", "Not provided"),
             BuildMetadataField(reviewedData, "Instrument check date", "instrument_check_date", "Not provided"),
@@ -732,6 +734,7 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         var role = party.Role switch
         {
             "surveyed_for" => "Surveyed For",
+            "interested_party" => "Interested Party",
             "notice_served_on" => "Notice Served On",
             "appeared" => "Appeared",
             _ => party.Role

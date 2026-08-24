@@ -633,6 +633,7 @@ internal static class ExtractionReviewPersistenceServiceTests
               "survey_metadata": {
                 "parish": { "value": "", "semantic_state": "NOT_STATED", "source_zone": "memorandum" },
                 "document_area": { "value": "3203.710 Sq. Metres", "numeric_value": 3203.710, "unit": "SQUARE_METRES", "semantic_state": "VALUE", "source_zone": "memorandum" },
+                "survey_method": { "value": "Traverse", "semantic_state": "BOGUS_STATE", "source_zone": "memorandum" },
                 "grounds_of_objection": { "value": "None", "semantic_state": "NONE", "source_zone": "memorandum" },
                 "instrument": { "value": "FOIF RTS 102R8 S/N: A13183", "semantic_state": "VALUE" },
                 "instrument_check_date": { "value": "04/10/2024", "semantic_state": "VALUE" },
@@ -640,6 +641,7 @@ internal static class ExtractionReviewPersistenceServiceTests
                 "surveyor": { "value": "Craig A. Francis", "title": "Commissioned Land Surveyor", "organization": "Precision Surveying Services Ltd.", "semantic_state": "VALUE" }
               },
               "surveyed_for_names": [{ "name": "Mario Smith", "semantic_state": "VALUE" }],
+              "interested_parties": [{ "name": "The C.E.O of St. Ann Municipal Corporation", "semantic_state": "VALUE", "source_zone": "memorandum" }],
               "surveyed_property_names": [{ "value": "Part of SYMS RUN", "semantic_state": "VALUE" }],
               "notice_served_on": [{ "name": "The C.E.O of St. Ann Municipal Corporation", "semantic_state": "VALUE" }],
               "appeared_parties": [{ "name": "No one appeared", "appearance_mode": "none", "semantic_state": "NO_ONE_APPEARED", "review_status": "accepted" }],
@@ -653,18 +655,32 @@ internal static class ExtractionReviewPersistenceServiceTests
 
         TestAssert.Equal("NOT_STATED", document.SurveyMetadataFields.First(field => field.Key == "parish").SemanticState, "Blank parish should load as NOT_STATED.");
         TestAssert.Equal("VALUE", document.SurveyMetadataFields.First(field => field.Key == "document_area").SemanticState, "Document area semantic state should load.");
+        TestAssert.Equal("UNKNOWN", document.SurveyMetadataFields.First(field => field.Key == "survey_method").SemanticState, "Unsupported semantic states should normalize to UNKNOWN.");
         TestAssert.Equal("NONE", document.SurveyMetadataFields.First(field => field.Key == "grounds_of_objection").SemanticState, "Explicit None should load distinctly.");
         TestAssert.Equal("ILLEGIBLE", document.SurveyMetadataFields.First(field => field.Key == "instrument_check_result").SemanticState, "Illegible instrument result should load distinctly.");
+        TestAssert.True(document.MemorandumParties.Any(party => party.Role == "interested_party" && party.Name.Contains("Municipal Corporation", StringComparison.Ordinal)), "Interested parties should load into memorandum review parties.");
         TestAssert.Equal("NO_ONE_APPEARED", document.MemorandumParties.First(party => party.Role == "appeared").SemanticState, "No-appearance attendance should load distinctly.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_document_area_present" && rule.Outcome == "needs_review"), "Document area should be captured and reviewable until accepted.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_objections_captured" && rule.Outcome == "passed"), "Explicit None objections should satisfy the objections rule.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_parish_present" && rule.Outcome == "not_available"), "Blank parish should be not available.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_instrument_group_complete" && rule.Outcome == "needs_review"), "Illegible instrument result should need review.");
+        var originalHash = service.ComputeReviewHash(document);
+        document.SurveyMetadataFields.First(field => field.Key == "survey_method").SemanticState = "VALUE";
+        var changedHash = service.ComputeReviewHash(document);
+        TestAssert.True(!string.Equals(originalHash, changedHash, StringComparison.Ordinal), "Review hash should change when semantic metadata changes.");
+        var areaField = document.SurveyMetadataFields.First(field => field.Key == "document_area");
+        areaField.Unit = string.Empty;
+        areaField.ReviewStatus = "accepted";
+        var ambiguousAreaResult = new PxaMemorandumReviewRuleService().Evaluate(document).First(rule => rule.RuleId == "pxa_memorandum_document_area_present");
+        TestAssert.Equal("needs_review", ambiguousAreaResult.Outcome, "Accepted area text without deterministic unit parsing should still need review.");
+        areaField.Unit = "SQUARE_METRES";
+        areaField.ReviewStatus = string.Empty;
 
         service.Save(layout, document, "tester");
         var saved = File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
 
         TestAssert.True(saved.Contains("\"semantic_state\": \"NOT_STATED\"", StringComparison.Ordinal), "Metadata semantic state should persist.");
+        TestAssert.True(saved.Contains("\"interested_parties\"", StringComparison.Ordinal), "Interested parties should persist.");
         TestAssert.True(saved.Contains("\"semantic_state\": \"NO_ONE_APPEARED\"", StringComparison.Ordinal), "Party semantic state should persist.");
         TestAssert.True(saved.Contains("\"unit\": \"SQUARE_METRES\"", StringComparison.Ordinal), "Area unit should persist.");
     }

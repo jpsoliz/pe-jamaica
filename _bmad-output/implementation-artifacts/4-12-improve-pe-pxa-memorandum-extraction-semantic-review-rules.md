@@ -4,7 +4,7 @@ baseline_commit: handoff-2026-08-20
 
 # Story 4.12: Improve PE/PXA Memorandum Extraction Semantic Review Rules
 
-Status: review
+Status: done
 
 ## Story
 
@@ -78,17 +78,17 @@ so that I can validate what was captured, see what is missing or unclear, and fi
 
 ### Review Findings
 
-- [ ] [Review][Patch] Review hash omits new semantic memorandum fields [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:237]
-- [ ] [Review][Patch] Interested parties are emitted by Python but dropped by C# review persistence [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:741]
-- [ ] [Review][Patch] Raw-value-only memorandum evidence is treated as blank/missing [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:434]
-- [ ] [Review][Patch] Ambiguous document area can pass without parsed numeric value/unit [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:90]
-- [ ] [Review][Patch] Blank metadata values can collapse to NOT_FOUND instead of NOT_STATED [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:142]
-- [ ] [Review][Patch] Instrument check date falls back to plan check date [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:166]
-- [ ] [Review][Patch] Prompt omits required document type and scale/scale bar output keys [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:825]
-- [ ] [Review][Patch] Report output omits objection and surveyor-decision memorandum fields [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Reports/ComputeExaminationReportService.cs:467]
-- [ ] [Review][Patch] Expected JSON/PDF fixture is present but not asserted by tests [src/ProcessingTools/tests/test_survey_plan_ocr_vision_extraction.py:182]
-- [ ] [Review][Patch] Unknown explicit semantic states bypass the fixed enum instead of normalizing to UNKNOWN [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:1074]
-- [ ] [Review][Patch] Explicit zero confidence is upgraded to default confidence [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:70]
+- [x] [Review][Patch] Review hash omits new semantic memorandum fields [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:237]
+- [x] [Review][Patch] Interested parties are emitted by Python but dropped by C# review persistence [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:741]
+- [x] [Review][Patch] Raw-value-only memorandum evidence is treated as blank/missing [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:434]
+- [x] [Review][Patch] Ambiguous document area can pass without parsed numeric value/unit [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:90]
+- [x] [Review][Patch] Blank metadata values can collapse to NOT_FOUND instead of NOT_STATED [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:142]
+- [x] [Review][Patch] Instrument check date falls back to plan check date [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:166]
+- [x] [Review][Patch] Prompt omits required document type and scale/scale bar output keys [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:825]
+- [x] [Review][Patch] Report output omits objection and surveyor-decision memorandum fields [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Reports/ComputeExaminationReportService.cs:467]
+- [x] [Review][Patch] Expected JSON/PDF fixture is present but not asserted by tests [src/ProcessingTools/tests/test_survey_plan_ocr_vision_extraction.py:182]
+- [x] [Review][Patch] Unknown explicit semantic states bypass the fixed enum instead of normalizing to UNKNOWN [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewPersistenceService.cs:1074]
+- [x] [Review][Patch] Explicit zero confidence is upgraded to default confidence [src/ProcessingTools/adapters/survey_plan_ocr_vision_extraction.py:70]
 
 ## Dev Notes
 
@@ -198,6 +198,11 @@ GPT-5 Codex
 - Focused catalog/preflight C# harness slice covering rule catalog and valid manifest preflight - passed 6 tests.
 - Focused workflow C# harness slice for missing-role manifest preflight - passed 1 test.
 - Full `ParcelWorkflowAddIn.Tests.exe` was run from the alternate build output. It reaches an unrelated existing boundary-solver failure: `survey plan solver rebuild fits conflicting printed references` expects `warning` but receives `blocked`. The failure reproduces in isolation and no 4.12 memorandum files touch the solver.
+- Code review patch verification: `python -m unittest tests\test_survey_plan_ocr_vision_extraction.py` from `src/ProcessingTools` - 10 tests passed.
+- Code review patch verification: `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false /p:BaseIntermediateOutputPath=obj\review\ /p:BaseOutputPath=bin\review\` - passed with 1 existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- Code review patch verification: `ParcelWorkflowAddIn.Tests.exe "review persistence preserves memorandum semantic states" "report generation uses persisted stage findings"` - passed 2 tests.
+- Code review patch verification: broader 4.12 harness slice covering catalog, preflight, review persistence, memorandum, report generation, and XAML exposure - passed 27 tests.
+- Code review patch verification: full harness still reaches the same unrelated boundary-solver failure before completion; no new 4.12 failure appeared before that known blocker.
 
 ### Completion Notes List
 
@@ -207,6 +212,7 @@ GPT-5 Codex
 - Extended C# review persistence, memorandum rules, UI state display, document type catalog outputs, and report JSON so semantic states remain auditable from extraction through review/report output.
 - Added Python and C# coverage for semantic states, fixture expectations, rule outcomes, persistence, preflight/catalog scope, UI exposure, and report output.
 - Full regression harness is not clean because of the isolated boundary-solver blocker noted above; story-specific verification passed.
+- Code review patches resolved all 11 review findings: semantic fields now affect review hash, interested parties round-trip through C# review/report output, raw-value-only evidence is recognized, ambiguous area text stays needs-review until deterministic unit parsing exists, blank values preserve `NOT_STATED`, instrument check dates no longer fall back to plan check dates, prompt keys include document type and scale bar, reports include objection/decision grounds, the 490449 fixtures are asserted by tests, unknown semantic states normalize to `UNKNOWN`, and explicit zero confidence is preserved.
 
 ### File List
 
@@ -229,6 +235,7 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/PreflightRuleCatalogLoader.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ExtractionReviewPersistenceServiceTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ComputeExaminationReportServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/DocumentTypeCatalogLoaderTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Preflight/PreflightRuleCatalogLoaderTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
@@ -237,3 +244,4 @@ GPT-5 Codex
 
 - 2026-08-24: Initial story created from user acceptance scope and extraction specification context.
 - 2026-08-24: Implemented PE/PXA memorandum semantic extraction/review rules, fixtures, UI/report output, and focused verification coverage.
+- 2026-08-24: Addressed code-review findings and moved story to done.

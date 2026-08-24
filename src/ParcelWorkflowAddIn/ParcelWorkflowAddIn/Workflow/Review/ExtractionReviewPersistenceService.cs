@@ -239,6 +239,10 @@ public sealed class ExtractionReviewPersistenceService
                 key = field.Key,
                 value = field.Value,
                 raw_text = field.RawText,
+                semantic_state = field.SemanticState,
+                unit = field.Unit,
+                title = field.Title,
+                organization = field.Organization,
                 present = field.Present,
                 confidence = field.Confidence,
                 source_page = field.SourcePage,
@@ -297,6 +301,7 @@ public sealed class ExtractionReviewPersistenceService
                     role = party.Role,
                     appearance_mode = party.AppearanceMode,
                     representative = party.Representative,
+                    semantic_state = party.SemanticState,
                     source_page = party.SourcePage,
                     source_zone = party.SourceZone,
                     review_status = party.ReviewStatus,
@@ -308,7 +313,8 @@ public sealed class ExtractionReviewPersistenceService
                     outcome = rule.Outcome,
                     workflow_effect = rule.WorkflowEffect,
                     message = rule.Message,
-                    evidence_value = rule.EvidenceValue
+                    evidence_value = rule.EvidenceValue,
+                    evidence_state = rule.EvidenceState
                 })
             }
         });
@@ -739,6 +745,7 @@ public sealed class ExtractionReviewPersistenceService
         document.MemorandumDetectionStatus = ReadFirstString(memorandum, "status", "review_status") ?? string.Empty;
 
         AddMemorandumParties(rootNode, document, "surveyed_for_names", "surveyed_for");
+        AddMemorandumParties(rootNode, document, "interested_parties", "interested_party");
         AddMemorandumParties(rootNode, document, "notice_served_on", "notice_served_on");
         AddMemorandumParties(rootNode, document, "appeared_parties", "appeared");
 
@@ -767,6 +774,7 @@ public sealed class ExtractionReviewPersistenceService
         }
 
         return HasAnyObjectItems(rootNode["surveyed_for_names"])
+            || HasAnyObjectItems(rootNode["interested_parties"])
             || HasAnyObjectItems(rootNode["surveyed_property_names"])
             || HasAnyObjectItems(rootNode["notice_served_on"])
             || HasAnyObjectItems(rootNode["appeared_parties"])
@@ -984,6 +992,7 @@ public sealed class ExtractionReviewPersistenceService
         documentSections["memorandum"] = memorandum;
         root["document_sections"] = documentSections;
         root["surveyed_for_names"] = WriteMemorandumParties(document.MemorandumParties, "surveyed_for");
+        root["interested_parties"] = WriteMemorandumParties(document.MemorandumParties, "interested_party");
         root["notice_served_on"] = WriteMemorandumParties(document.MemorandumParties, "notice_served_on");
         root["appeared_parties"] = WriteMemorandumParties(document.MemorandumParties, "appeared");
         root["memorandum_rule_results"] = new JsonArray(document.MemorandumRuleResults.Select(rule =>
@@ -1029,7 +1038,7 @@ public sealed class ExtractionReviewPersistenceService
     {
         if (sourceNode is JsonObject source)
         {
-            return ReadFirstString(source, "review_value", "value", "Value", "text", "raw_text") ?? string.Empty;
+            return ReadFirstString(source, "review_value", "value", "Value", "text", "raw_value", "raw_text") ?? string.Empty;
         }
 
         return ReadScalarString(sourceNode) ?? string.Empty;
@@ -1075,7 +1084,8 @@ public sealed class ExtractionReviewPersistenceService
             return normalized switch
             {
                 "VALUE" or "NONE" or "N_A" or "NOT_STATED" or "NOT_FOUND" or "ILLEGIBLE" or "NO_ONE_APPEARED" or "UNKNOWN" => normalized,
-                _ => normalized
+                "NA" or "N/A" or "NOT APPLICABLE" or "NOT_APPLICABLE" => "N_A",
+                _ => "UNKNOWN"
             };
         }
 

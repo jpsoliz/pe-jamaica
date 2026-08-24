@@ -67,7 +67,10 @@ def _field(
     text = _extract_field_text(value)
     raw_value = _extract_raw_value(value, text)
     semantic_state = _resolve_semantic_state(value, text)
-    numeric_confidence = _coerce_float(confidence or node.get("confidence") or node.get("Confidence"))
+    confidence_source = confidence if confidence is not None else node.get("confidence")
+    if confidence_source is None:
+        confidence_source = node.get("Confidence")
+    numeric_confidence = _coerce_float(confidence_source)
     if numeric_confidence is None:
         numeric_confidence = 0.85 if text else 0.0
     field_status = status or ("extracted" if semantic_state in {"VALUE", "NONE", "N_A", "NO_ONE_APPEARED"} else "not_extracted")
@@ -92,6 +95,9 @@ def _field(
         if area:
             field["numeric_value"] = area["value"]
             field["unit"] = area["unit"]
+        elif semantic_state == "VALUE":
+            field["review_status"] = "needs_review"
+            field["review_note"] = "Area text was captured but numeric value/unit could not be parsed deterministically."
     if name == "surveyed_by" and isinstance(value, dict):
         field["title"] = _string_or_none(value.get("title") or value.get("surveyor_title"))
         field["organization"] = _string_or_none(value.get("organization") or value.get("company") or value.get("surveyor_organization"))
@@ -139,36 +145,32 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
     ]
 
     survey_metadata = {
-        "parish": _field("parish", metadata.get("parish") or raw.get("parish"), metadata.get("parish_confidence"), "memorandum"),
+        "parish": _field("parish", _first_present(metadata, raw, "parish"), metadata.get("parish_confidence"), "memorandum"),
         "document_area": _field(
             "document_area",
-            metadata.get("document_area") or metadata.get("area") or raw.get("document_area") or raw.get("area"),
-            metadata.get("area_confidence") or metadata.get("document_area_confidence"),
+            _first_present(metadata, raw, "document_area", "area"),
+            _first_present(metadata, {}, "area_confidence", "document_area_confidence"),
             "memorandum",
         ),
-        "survey_date": _field("survey_date", metadata.get("survey_date") or raw.get("survey_date"), metadata.get("survey_date_confidence"), "signature_block"),
-        "survey_method": _field("survey_method", metadata.get("survey_method") or raw.get("survey_method"), metadata.get("survey_method_confidence"), "memorandum"),
+        "survey_date": _field("survey_date", _first_present(metadata, raw, "survey_date"), metadata.get("survey_date_confidence"), "signature_block"),
+        "survey_method": _field("survey_method", _first_present(metadata, raw, "survey_method"), metadata.get("survey_method_confidence"), "memorandum"),
         "grounds_of_objection": _field(
             "grounds_of_objection",
-            metadata.get("grounds_of_objection") or metadata.get("grounds_of_objections") or raw.get("grounds_of_objection") or raw.get("grounds_of_objections"),
+            _first_present(metadata, raw, "grounds_of_objection", "grounds_of_objections"),
             metadata.get("grounds_of_objection_confidence"),
             "memorandum",
         ),
         "surveyor_decision_grounds": _field(
             "surveyor_decision_grounds",
-            metadata.get("surveyor_decision_grounds") or metadata.get("grounds_of_surveyor_decision") or raw.get("surveyor_decision_grounds") or raw.get("grounds_of_surveyor_decision"),
+            _first_present(metadata, raw, "surveyor_decision_grounds", "grounds_of_surveyor_decision"),
             metadata.get("surveyor_decision_grounds_confidence"),
             "memorandum",
         ),
-        "instrument": _field("instrument", metadata.get("instrument") or raw.get("instrument"), metadata.get("instrument_confidence"), "instrument_block"),
+        "instrument": _field("instrument", _first_present(metadata, raw, "instrument"), metadata.get("instrument_confidence"), "instrument_block"),
         "instrument_check_date": _field(
             "instrument_check_date",
-            metadata.get("instrument_check_date")
-            or raw.get("instrument_check_date")
-            or instrument_check_parts.get("date")
-            or metadata.get("plan_check_date")
-            or raw.get("plan_check_date"),
-            metadata.get("instrument_check_date_confidence") or metadata.get("plan_check_date_confidence"),
+            _first_present(metadata, raw, "instrument_check_date") if _first_present(metadata, raw, "instrument_check_date") is not None else instrument_check_parts.get("date"),
+            metadata.get("instrument_check_date_confidence"),
             "instrument_block",
         ),
         "instrument_check_result": _field(
@@ -189,9 +191,9 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
             metadata.get("gps_serial_number_confidence") or metadata.get("gps_serial_confidence"),
             "instrument_block",
         ),
-        "surveyed_by": _field("surveyed_by", metadata.get("surveyed_by") or raw.get("surveyed_by"), metadata.get("surveyed_by_confidence"), "signature_block"),
-        "plan_check_date": _field("plan_check_date", metadata.get("plan_check_date") or raw.get("plan_check_date"), metadata.get("plan_check_date_confidence"), "stamp"),
-        "file_reference": _field("file_reference", metadata.get("file_reference") or raw.get("file_reference"), metadata.get("file_reference_confidence"), "plan_header"),
+        "surveyed_by": _field("surveyed_by", _first_present(metadata, raw, "surveyed_by"), metadata.get("surveyed_by_confidence"), "signature_block"),
+        "plan_check_date": _field("plan_check_date", _first_present(metadata, raw, "plan_check_date"), metadata.get("plan_check_date_confidence"), "stamp"),
+        "file_reference": _field("file_reference", _first_present(metadata, raw, "file_reference"), metadata.get("file_reference_confidence"), "plan_header"),
         "volume_folio": volume_folios,
     }
 
@@ -431,7 +433,7 @@ def _split_instrument_check(value: Any) -> dict[str, str]:
 
 def _extract_field_text(value: Any) -> str:
     if isinstance(value, dict):
-        for key in ("review_value", "normalized_value", "value", "name", "text"):
+        for key in ("review_value", "normalized_value", "value", "name", "text", "raw_value"):
             text = _string_or_none(value.get(key))
             if text:
                 return text
@@ -446,6 +448,16 @@ def _extract_raw_value(value: Any, fallback: str) -> str | None:
             if text is not None:
                 return text
     return fallback or None
+
+
+def _first_present(primary: dict[str, Any], secondary: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in primary:
+            return primary.get(key)
+    for key in keys:
+        if key in secondary:
+            return secondary.get(key)
+    return None
 
 
 def _resolve_semantic_state(value: Any, text: str) -> str:
@@ -823,8 +835,9 @@ def _call_openai_vision(image_paths: list[Path], model: str, profile: str) -> di
 def _prompt(profile: str) -> str:
     return (
         "Extract structured cadastral survey plan data from this Jamaica survey plan image. "
-        "Return only JSON with keys: coordinate_system, coordinate_system_confidence, "
+        "Return only JSON with keys: document_type, coordinate_system, coordinate_system_confidence, "
         "north_arrow {detected, approximate_page_location, confidence, review_note}, "
+        "scale_bar {detected, text, approximate_page_location, confidence, review_note}, "
         "survey_metadata {parish, document_area, survey_date, survey_method, grounds_of_objection, "
         "surveyor_decision_grounds, instrument, instrument_check_date, instrument_check_result, surveyed_by, "
         "plan_check_date, file_reference, volume_folio [{volume,folio,raw_text,confidence,source_page,source_zone,review_note}]}, "

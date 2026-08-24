@@ -720,7 +720,7 @@
                                        Margin="0,0,0,4" />
                             <DataGrid Grid.Row="1"
                                       ItemsSource="{Binding Rules}"
-                                      IsReadOnly="True"
+                                      IsReadOnly="False"
                                       AutoGenerateColumns="False"
                                       HeadersVisibility="Column"
                                       CanUserAddRows="False"
@@ -731,24 +731,34 @@
                               <DataGrid.Columns>
                                 <DataGridTextColumn Header="Rule"
                                                     Binding="{Binding Label}"
-                                                    Width="190" />
+                                                    Width="190"
+                                                    IsReadOnly="True" />
                                 <DataGridTextColumn Header="Value"
                                                     Binding="{Binding EvidenceValue}"
-                                                    Width="150" />
+                                                    Width="150"
+                                                    IsReadOnly="True" />
                                 <DataGridTextColumn Header="State"
                                                     Binding="{Binding EvidenceState}"
-                                                    Width="105" />
-                                <DataGridTextColumn Header="Status"
-                                                    Binding="{Binding ReviewerStatus}"
-                                                    Width="105" />
-                                <DataGridTextColumn Header="Effect"
-                                                    Binding="{Binding WorkflowEffect}"
-                                                    Width="125" />
-                                <DataGridTextColumn Header="Source"
-                                                    Binding="{Binding SourceLabel}"
-                                                    Width="120" />
+                                                    Width="105"
+                                                    IsReadOnly="True" />
+                                <DataGridTemplateColumn Header="Status"
+                                                        Width="120">
+                                  <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding ReviewerStatus}"
+                                                 Padding="4,0" />
+                                    </DataTemplate>
+                                  </DataGridTemplateColumn.CellTemplate>
+                                  <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                      <ComboBox ItemsSource="{Binding ReviewerStatusOptions}"
+                                                SelectedItem="{Binding ReviewerStatus, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                IsEditable="False" />
+                                    </DataTemplate>
+                                  </DataGridTemplateColumn.CellEditingTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Finding"
-                                                    Binding="{Binding Message}"
+                                                    Binding="{Binding Message, UpdateSourceTrigger=PropertyChanged}"
                                                     Width="*" />
                               </DataGrid.Columns>
                             </DataGrid>

@@ -426,11 +426,11 @@ public sealed class ExtractionReviewVolumeFolioViewModel : INotifyPropertyChange
 
 public sealed class ExtractionReviewMemorandumGroupViewModel
 {
-    public ExtractionReviewMemorandumGroupViewModel(ExtractionReviewMemorandumGroup model)
+    public ExtractionReviewMemorandumGroupViewModel(ExtractionReviewMemorandumGroup model, Action onRuleChanged)
     {
         Model = model;
         Rules = model.Rules
-            .Select(rule => new ExtractionReviewMemorandumRuleResultViewModel(rule))
+            .Select(rule => new ExtractionReviewMemorandumRuleResultViewModel(rule, onRuleChanged))
             .ToArray();
     }
 
@@ -443,18 +443,51 @@ public sealed class ExtractionReviewMemorandumGroupViewModel
     public IReadOnlyList<ExtractionReviewMemorandumRuleResultViewModel> Rules { get; }
 }
 
-public sealed class ExtractionReviewMemorandumRuleResultViewModel
+public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPropertyChanged
 {
-    public ExtractionReviewMemorandumRuleResultViewModel(ExtractionReviewMemorandumRuleResult model)
+    private readonly Action onRuleChanged;
+    private string reviewerStatus;
+    private string message;
+
+    public ExtractionReviewMemorandumRuleResultViewModel(ExtractionReviewMemorandumRuleResult model, Action onRuleChanged)
     {
         Model = model;
+        this.onRuleChanged = onRuleChanged;
+        reviewerStatus = model.ReviewerStatus;
+        message = model.Message;
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public ExtractionReviewMemorandumRuleResult Model { get; }
 
     public string Label => Model.Label;
 
-    public string ReviewerStatus => Model.ReviewerStatus;
+    public IReadOnlyList<string> ReviewerStatusOptions { get; } =
+    [
+        "Accepted",
+        "Corrected",
+        "Override",
+        "Disposition"
+    ];
+
+    public string ReviewerStatus
+    {
+        get => reviewerStatus;
+        set
+        {
+            var next = value?.Trim() ?? string.Empty;
+            if (string.Equals(reviewerStatus, next, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            reviewerStatus = next;
+            Model.ReviewerStatus = next;
+            OnPropertyChanged();
+            onRuleChanged();
+        }
+    }
 
     public string WorkflowEffect => Model.WorkflowEffect;
 
@@ -462,7 +495,23 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel
 
     public string EvidenceState => Model.EvidenceState;
 
-    public string Message => Model.Message;
+    public string Message
+    {
+        get => message;
+        set
+        {
+            var next = value?.Trim() ?? string.Empty;
+            if (string.Equals(message, next, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            message = next;
+            Model.Message = next;
+            OnPropertyChanged();
+            onRuleChanged();
+        }
+    }
 
     public string SourceLabel
     {
@@ -475,5 +524,10 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel
             }.Where(part => !string.IsNullOrWhiteSpace(part));
             return string.Join(" - ", parts);
         }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }

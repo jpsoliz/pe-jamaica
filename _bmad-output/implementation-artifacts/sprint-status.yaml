@@ -100,7 +100,7 @@ development_status:
   4-9-add-georeference-check-stage-and-reportable-stage-findings-model: in-progress
   4-10-add-configurable-compute-rule-catalog-by-stage: review
   4-11-add-pxa-memorandum-detection-and-review-rules: review
-  4-12-improve-pe-pxa-memorandum-extraction-semantic-review-rules: review
+  4-12-improve-pe-pxa-memorandum-extraction-semantic-review-rules: done
   epic-4-retrospective: optional
 
   epic-5: in-progress

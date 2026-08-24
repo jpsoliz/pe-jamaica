@@ -77,6 +77,12 @@ internal static class ComputeExaminationReportServiceTests
                   "confidence": "0.85",
                   "review_status": "reviewed"
                 },
+                "grounds_of_objection": {
+                  "value": "None",
+                  "semantic_state": "NONE",
+                  "confidence": "0.85",
+                  "review_status": "accepted"
+                },
                 "parish": {
                   "value": "Saint Catherine",
                   "confidence": "0.85",
@@ -91,6 +97,12 @@ internal static class ComputeExaminationReportServiceTests
                   "value": "June 4, 2025",
                   "confidence": "0.85",
                   "review_status": "reviewed"
+                },
+                "surveyor_decision_grounds": {
+                  "value": "Instructions and marks on ground",
+                  "semantic_state": "VALUE",
+                  "confidence": "0.85",
+                  "review_status": "accepted"
                 },
                 "survey_instrument": {
                   "value": "Hi-Target ZTS 360R",
@@ -151,6 +163,14 @@ internal static class ComputeExaminationReportServiceTests
                 {
                   "name": "Roxine Campbell",
                   "role": "surveyed_for",
+                  "source_page": "page 1",
+                  "source_zone": "memorandum",
+                  "review_status": "accepted"
+                }
+              ],
+              "interested_parties": [
+                {
+                  "name": "The C.E.O of St. Ann Municipal Corporation",
                   "source_page": "page 1",
                   "source_zone": "memorandum",
                   "review_status": "accepted"
@@ -322,8 +342,15 @@ internal static class ComputeExaminationReportServiceTests
             field.GetProperty("field").GetString() == "Document area"
             && field.GetProperty("value").GetString() == "569.896 sq. metres"), "Report should include reviewed document area.");
         TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Grounds of objection"
+            && field.GetProperty("value").GetString() == "None"
+            && field.GetProperty("semantic_state").GetString() == "NONE"), "Report should include objection semantic state.");
+        TestAssert.True(generalInfo.Any(field =>
             field.GetProperty("field").GetString() == "Source document"
             && field.GetProperty("value").GetString() == "DOC_PLAN_490957_D.pdf"), "Report should include source document.");
+        TestAssert.True(generalInfo.Any(field =>
+            field.GetProperty("field").GetString() == "Surveyor decision grounds"
+            && field.GetProperty("value").GetString() == "Instructions and marks on ground"), "Report should include surveyor decision grounds.");
         TestAssert.True(generalInfo.Any(field =>
             field.GetProperty("field").GetString() == "Surveyed property name"
             && field.GetProperty("value").GetString() == "Lot 12 Bellevue"), "Report should include memorandum surveyed property name.");
@@ -345,6 +372,9 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(participants.Any(participant =>
             participant.GetProperty("name").GetString() == "Maria Brown"
             && participant.GetProperty("role").GetString() == "Appeared (representative: Kevon L. Jarrett)"), "Report should include memorandum attendance rows.");
+        TestAssert.True(participants.Any(participant =>
+            participant.GetProperty("name").GetString() == "The C.E.O of St. Ann Municipal Corporation"
+            && participant.GetProperty("role").GetString() == "Interested Party"), "Report should include memorandum interested parties.");
 
         var memorandumFindings = root.GetProperty("memorandum_findings").EnumerateArray().ToArray();
         TestAssert.True(memorandumFindings.Any(finding =>

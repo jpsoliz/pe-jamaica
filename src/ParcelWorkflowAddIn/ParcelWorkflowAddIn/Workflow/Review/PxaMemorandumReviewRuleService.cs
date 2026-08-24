@@ -52,7 +52,7 @@ public sealed class PxaMemorandumReviewRuleService
             EvaluateParty(document, rules[1], "surveyed_for", "Surveyed-for party is missing."),
             EvaluateField(document, rules[2], "surveyed_property_name", "Surveyed property name is missing."),
             EvaluatePresenceField(document, rules[3], "property_name_near_parcel_diagram", "Diagram proximity evidence is missing."),
-            EvaluateField(document, rules[4], "document_area", "Area value and unit are missing."),
+            EvaluateAreaField(document, rules[4]),
             EvaluateField(document, rules[5], "grounds_of_objection", "Objection grounds are missing.", allowNone: true, allowNotApplicable: true),
             EvaluateSurveyorCertification(document, rules[6]),
             EvaluateInstrumentGroup(document, rules[7]),
@@ -174,6 +174,29 @@ public sealed class PxaMemorandumReviewRuleService
         }
 
         return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence, semanticState), "Evidence value is available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
+    }
+
+    private static ExtractionReviewMemorandumRuleResult EvaluateAreaField(ExtractionReviewDocument document, RuleSpec rule)
+    {
+        if (!rule.Enabled)
+        {
+            return Create(rule, "disabled", "Rule is disabled in the compute rule catalog.");
+        }
+
+        var field = FindField(document, "document_area");
+        var semanticState = field?.SemanticState;
+        if (field is null || IsUnavailableSemanticState(semanticState) || string.IsNullOrWhiteSpace(FirstNonBlank(field.Value, field.RawText)))
+        {
+            return Create(rule, "not_available", "Area value and unit are missing.");
+        }
+
+        var evidenceValue = FirstNonBlank(field.Value, field.RawText) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(field.Unit))
+        {
+            return Create(rule, "needs_review", "Area text is available, but numeric value/unit was not parsed deterministically.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
+        }
+
+        return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence, semanticState), "Area value and unit are available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
     }
 
     private static ExtractionReviewMemorandumRuleResult EvaluatePresenceField(
