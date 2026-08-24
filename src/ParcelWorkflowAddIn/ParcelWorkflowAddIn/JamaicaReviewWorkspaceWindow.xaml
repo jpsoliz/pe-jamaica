@@ -735,6 +735,9 @@
                                 <DataGridTextColumn Header="Value"
                                                     Binding="{Binding EvidenceValue}"
                                                     Width="150" />
+                                <DataGridTextColumn Header="State"
+                                                    Binding="{Binding EvidenceState}"
+                                                    Width="105" />
                                 <DataGridTextColumn Header="Status"
                                                     Binding="{Binding ReviewerStatus}"
                                                     Width="105" />

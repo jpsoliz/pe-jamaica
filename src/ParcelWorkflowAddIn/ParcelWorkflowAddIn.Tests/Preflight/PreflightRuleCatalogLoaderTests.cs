@@ -274,6 +274,45 @@ internal static class PreflightRuleCatalogLoaderTests
                   "evaluator_key": "pxa_memorandum_property_name_near_diagram"
                 },
                 {
+                  "rule_id": "pxa_memorandum_document_area_present",
+                  "group": "memorandum",
+                  "category": "survey_plan_memorandum",
+                  "display_name": "Area Value And Unit",
+                  "description": "Custom area text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_document_area_present"
+                },
+                {
+                  "rule_id": "pxa_memorandum_objections_captured",
+                  "group": "memorandum",
+                  "category": "survey_plan_memorandum",
+                  "display_name": "Grounds Of Objections",
+                  "description": "Custom objections text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_objections_captured"
+                },
+                {
+                  "rule_id": "pxa_memorandum_surveyor_certification_present",
+                  "group": "memorandum",
+                  "category": "survey_plan_memorandum",
+                  "display_name": "Surveyor Certification",
+                  "description": "Custom surveyor certification text.",
+                  "enabled": true,
+                  "severity": "configured",
+                  "locked": false,
+                  "stage_id": "validate_points_and_lines",
+                  "workflow_effect": "requires_disposition",
+                  "evaluator_key": "pxa_memorandum_surveyor_certification_present"
+                },
+                {
                   "rule_id": "pxa_memorandum_instrument_group_complete",
                   "group": "memorandum",
                   "category": "pxa_memorandum",

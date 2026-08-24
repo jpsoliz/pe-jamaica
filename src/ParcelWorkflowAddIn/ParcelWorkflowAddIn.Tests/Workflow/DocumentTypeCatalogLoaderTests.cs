@@ -215,4 +215,18 @@ internal static class DocumentTypeCatalogLoaderTests
         TestAssert.True(catalog.LoadWarning!.Contains("partially invalid", StringComparison.OrdinalIgnoreCase), "Warning should explain the fallback reason.");
         TestAssert.Equal("UNKNOWN_GENERIC_SOURCE_V1", match.Definition.DocTypeId, "Fallback catalog should preserve safe default type.");
     }
+
+    public static void DefaultSurveyPlanCatalogAdvertisesMemorandumSemanticOutputs()
+    {
+        using var tempRoot = new TempDirectory();
+        var missingCatalogPath = Path.Combine(tempRoot.Path, "missing-doc-types.json");
+
+        var catalog = new DocumentTypeCatalogLoader(missingCatalogPath).Load();
+        var surveyPlan = catalog.DocumentTypes.First(definition => definition.DocTypeId == "SINGLE_PARCEL_SURVEY_PLAN_PDF_V1");
+
+        TestAssert.True(
+            surveyPlan.Extraction.ExpectedOutputs.Contains("memorandum", StringComparer.OrdinalIgnoreCase)
+            && surveyPlan.Extraction.ExpectedOutputs.Contains("memorandum_semantic_fields", StringComparer.OrdinalIgnoreCase),
+            "Survey-plan OCR/vision route should advertise memorandum semantic review outputs.");
+    }
 }

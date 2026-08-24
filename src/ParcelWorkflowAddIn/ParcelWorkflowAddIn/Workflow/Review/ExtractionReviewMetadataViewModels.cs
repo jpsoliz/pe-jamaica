@@ -460,6 +460,8 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel
 
     public string EvidenceValue => Model.EvidenceValue;
 
+    public string EvidenceState => Model.EvidenceState;
+
     public string Message => Model.Message;
 
     public string SourceLabel

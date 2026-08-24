@@ -524,7 +524,7 @@ internal static class ExtractionReviewPersistenceServiceTests
         var originalHash = service.ComputeReviewHash(document);
 
         TestAssert.True(document.MemorandumDetected, "Memorandum detection should load.");
-        TestAssert.Equal(5, document.MemorandumGroups.Count, "Memorandum rule groups should be available.");
+        TestAssert.Equal(6, document.MemorandumGroups.Count, "Memorandum rule groups should be available.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_detected" && rule.Outcome == "passed"), "Memorandum detection rule should pass.");
         TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_scale_bar_present" && rule.Outcome == "not_available"), "Missing scale bar should be not available.");
         TestAssert.Equal("Roxine Campbell", document.MemorandumParties.First(party => party.Role == "surveyed_for").Name, "Surveyed-for party should load.");
@@ -613,6 +613,60 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("passed", appearanceRule.Outcome, "Explicit no-appearance evidence should pass when accepted.");
         TestAssert.Equal("No one appeared", appearanceRule.EvidenceValue, "Appearance rule should expose the reviewed attendance value.");
         TestAssert.True(appearanceRule.Message.Contains("No one appeared", StringComparison.OrdinalIgnoreCase), "Rule message should make the negative attendance evidence clear.");
+    }
+
+    public static void MemorandumSemanticStatesDriveReviewOutcomesAndPersist()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000562");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.18.0",
+              "transaction_number": "100000562",
+              "source_profile": "scanned_single_parcel_survey_plan_pdf",
+              "document_sections": {
+                "memorandum": { "detected": true, "matched_text": "MEMORANDUM" }
+              },
+              "survey_metadata": {
+                "parish": { "value": "", "semantic_state": "NOT_STATED", "source_zone": "memorandum" },
+                "document_area": { "value": "3203.710 Sq. Metres", "numeric_value": 3203.710, "unit": "SQUARE_METRES", "semantic_state": "VALUE", "source_zone": "memorandum" },
+                "grounds_of_objection": { "value": "None", "semantic_state": "NONE", "source_zone": "memorandum" },
+                "instrument": { "value": "FOIF RTS 102R8 S/N: A13183", "semantic_state": "VALUE" },
+                "instrument_check_date": { "value": "04/10/2024", "semantic_state": "VALUE" },
+                "instrument_check_result": { "raw_text": "####", "semantic_state": "ILLEGIBLE", "source_zone": "instrument_block" },
+                "surveyor": { "value": "Craig A. Francis", "title": "Commissioned Land Surveyor", "organization": "Precision Surveying Services Ltd.", "semantic_state": "VALUE" }
+              },
+              "surveyed_for_names": [{ "name": "Mario Smith", "semantic_state": "VALUE" }],
+              "surveyed_property_names": [{ "value": "Part of SYMS RUN", "semantic_state": "VALUE" }],
+              "notice_served_on": [{ "name": "The C.E.O of St. Ann Municipal Corporation", "semantic_state": "VALUE" }],
+              "appeared_parties": [{ "name": "No one appeared", "appearance_mode": "none", "semantic_state": "NO_ONE_APPEARED", "review_status": "accepted" }],
+              "rows": [
+                { "point_id": "16", "easting": "712897.659", "northing": "670558.591" }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+
+        TestAssert.Equal("NOT_STATED", document.SurveyMetadataFields.First(field => field.Key == "parish").SemanticState, "Blank parish should load as NOT_STATED.");
+        TestAssert.Equal("VALUE", document.SurveyMetadataFields.First(field => field.Key == "document_area").SemanticState, "Document area semantic state should load.");
+        TestAssert.Equal("NONE", document.SurveyMetadataFields.First(field => field.Key == "grounds_of_objection").SemanticState, "Explicit None should load distinctly.");
+        TestAssert.Equal("ILLEGIBLE", document.SurveyMetadataFields.First(field => field.Key == "instrument_check_result").SemanticState, "Illegible instrument result should load distinctly.");
+        TestAssert.Equal("NO_ONE_APPEARED", document.MemorandumParties.First(party => party.Role == "appeared").SemanticState, "No-appearance attendance should load distinctly.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_document_area_present" && rule.Outcome == "needs_review"), "Document area should be captured and reviewable until accepted.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_objections_captured" && rule.Outcome == "passed"), "Explicit None objections should satisfy the objections rule.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_parish_present" && rule.Outcome == "not_available"), "Blank parish should be not available.");
+        TestAssert.True(document.MemorandumRuleResults.Any(rule => rule.RuleId == "pxa_memorandum_instrument_group_complete" && rule.Outcome == "needs_review"), "Illegible instrument result should need review.");
+
+        service.Save(layout, document, "tester");
+        var saved = File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"));
+
+        TestAssert.True(saved.Contains("\"semantic_state\": \"NOT_STATED\"", StringComparison.Ordinal), "Metadata semantic state should persist.");
+        TestAssert.True(saved.Contains("\"semantic_state\": \"NO_ONE_APPEARED\"", StringComparison.Ordinal), "Party semantic state should persist.");
+        TestAssert.True(saved.Contains("\"unit\": \"SQUARE_METRES\"", StringComparison.Ordinal), "Area unit should persist.");
     }
 
     public static void MemorandumMatchedTextOverridesFalseDetectionFlagAndUsesScaleEvidence()

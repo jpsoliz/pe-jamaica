@@ -569,6 +569,9 @@ public sealed class ExtractionReviewPersistenceService
         AddMetadataField(document, "parish", "Parish", surveyMetadata?["parish"]);
         AddMetadataField(document, "document_area", "Document area", surveyMetadata?["document_area"]);
         AddMetadataField(document, "survey_date", "Survey date", surveyMetadata?["survey_date"]);
+        AddMetadataField(document, "survey_method", "Survey method", surveyMetadata?["survey_method"]);
+        AddMetadataField(document, "grounds_of_objection", "Grounds of objection", surveyMetadata?["grounds_of_objection"] ?? surveyMetadata?["grounds_of_objections"]);
+        AddMetadataField(document, "surveyor_decision_grounds", "Surveyor decision grounds", surveyMetadata?["surveyor_decision_grounds"] ?? surveyMetadata?["grounds_of_surveyor_decision"]);
         AddMetadataField(document, "survey_instrument", "Survey instrument", surveyMetadata?["survey_instrument"] ?? surveyMetadata?["instrument"]);
         AddMetadataField(document, "instrument_check_date", "Instrument check date", surveyMetadata?["instrument_check_date"]);
         AddMetadataField(document, "instrument_check_result", "Instrument check result", surveyMetadata?["instrument_check_result"]);
@@ -642,6 +645,10 @@ public sealed class ExtractionReviewPersistenceService
             SourceZone = ReadFirstString(source, "source_zone", "ApproximatePageLocation", "approximate_page_location") ?? string.Empty,
             ReviewStatus = ReadFirstString(source, "review_status") ?? string.Empty,
             ReviewNotes = ReadFirstString(source, "review_notes", "review_note", "ReviewNote") ?? string.Empty,
+            SemanticState = NormalizeSemanticState(ReadFirstString(source, "semantic_state", "state"), value, sourceNode),
+            Unit = ReadFirstString(source, "unit", "canonical_unit") ?? string.Empty,
+            Title = ReadFirstString(source, "title", "surveyor_title") ?? string.Empty,
+            Organization = ReadFirstString(source, "organization", "company", "surveyor_organization") ?? string.Empty,
             Present = present,
             OriginalValue = value,
             OriginalRawText = rawText,
@@ -664,6 +671,9 @@ public sealed class ExtractionReviewPersistenceService
             or "parish"
             or "document_area"
             or "survey_date"
+            or "survey_method"
+            or "grounds_of_objection"
+            or "surveyor_decision_grounds"
             or "survey_instrument"
             or "instrument_check_date"
             or "instrument_check_result"
@@ -685,6 +695,7 @@ public sealed class ExtractionReviewPersistenceService
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
             ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            SemanticState = NormalizeSemanticState(ReadFirstString(item, "semantic_state", "state"), ReadFirstString(item, "name", "value", "party", "owner", "occupant") ?? string.Empty, item),
             RawParty = CloneObject(item)
         };
     }
@@ -701,6 +712,7 @@ public sealed class ExtractionReviewPersistenceService
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
             ReviewNotes = ReadFirstString(item, "review_notes", "notes") ?? string.Empty,
+            SemanticState = NormalizeSemanticState(ReadFirstString(item, "semantic_state", "state"), ReadFirstString(item, "name", "value", "party", "owner", "occupant") ?? string.Empty, item),
             RawParty = CloneObject(item)
         };
     }
@@ -874,6 +886,10 @@ public sealed class ExtractionReviewPersistenceService
             fieldObject["source_zone"] = string.IsNullOrWhiteSpace(field.SourceZone) ? null : field.SourceZone;
             fieldObject["review_status"] = string.IsNullOrWhiteSpace(field.ReviewStatus) ? null : field.ReviewStatus;
             fieldObject["review_notes"] = string.IsNullOrWhiteSpace(field.ReviewNotes) ? null : field.ReviewNotes;
+            fieldObject["semantic_state"] = string.IsNullOrWhiteSpace(field.SemanticState) ? null : field.SemanticState;
+            fieldObject["unit"] = string.IsNullOrWhiteSpace(field.Unit) ? fieldObject["unit"]?.DeepClone() : field.Unit;
+            fieldObject["title"] = string.IsNullOrWhiteSpace(field.Title) ? fieldObject["title"]?.DeepClone() : field.Title;
+            fieldObject["organization"] = string.IsNullOrWhiteSpace(field.Organization) ? fieldObject["organization"]?.DeepClone() : field.Organization;
 
             switch (field.Key)
             {
@@ -981,6 +997,7 @@ public sealed class ExtractionReviewPersistenceService
                 workflow_effect = rule.WorkflowEffect,
                 message = rule.Message,
                 evidence_value = rule.EvidenceValue,
+                evidence_state = rule.EvidenceState,
                 source_page = rule.SourcePage,
                 source_zone = rule.SourceZone,
                 report_visible = rule.ReportVisible
@@ -1002,6 +1019,7 @@ public sealed class ExtractionReviewPersistenceService
                 node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
                 node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
                 node["review_notes"] = string.IsNullOrWhiteSpace(item.ReviewNotes) ? null : item.ReviewNotes;
+                node["semantic_state"] = string.IsNullOrWhiteSpace(item.SemanticState) ? null : item.SemanticState;
                 return node;
             })
             .ToArray());
@@ -1047,6 +1065,53 @@ public sealed class ExtractionReviewPersistenceService
         }
 
         return null;
+    }
+
+    private static string NormalizeSemanticState(string? explicitState, string? value, JsonNode? sourceNode)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitState))
+        {
+            var normalized = explicitState.Trim().ToUpperInvariant();
+            return normalized switch
+            {
+                "VALUE" or "NONE" or "N_A" or "NOT_STATED" or "NOT_FOUND" or "ILLEGIBLE" or "NO_ONE_APPEARED" or "UNKNOWN" => normalized,
+                _ => normalized
+            };
+        }
+
+        var text = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return sourceNode is null ? "NOT_FOUND" : "NOT_STATED";
+        }
+
+        if (string.Equals(text, "none", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "nil", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "no objections", StringComparison.OrdinalIgnoreCase))
+        {
+            return "NONE";
+        }
+
+        if (string.Equals(text, "n/a", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "na", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "not applicable", StringComparison.OrdinalIgnoreCase))
+        {
+            return "N_A";
+        }
+
+        if (text.Contains("no one appeared", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "none appeared", StringComparison.OrdinalIgnoreCase))
+        {
+            return "NO_ONE_APPEARED";
+        }
+
+        if (string.Equals(text, "illegible", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(text, "unreadable", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ILLEGIBLE";
+        }
+
+        return "VALUE";
     }
 
     private static void InvalidateApprovedArtifact(CaseFolderLayout layout, string currentReviewHash)

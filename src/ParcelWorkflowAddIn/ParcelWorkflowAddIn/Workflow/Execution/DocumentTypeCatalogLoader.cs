@@ -36,7 +36,7 @@ public sealed class DocumentTypeCatalogLoader
                 Array.Empty<string>(),
                 20),
             new DocumentTypeClassifierDefinition("weighted_match", new DocumentTypeClassifierWeights(20, 15, 25, 30)),
-            new DocumentTypeExtractionDefinition("survey_plan_ocr_vision", "single_parcel_survey_plan", false, true, "single_parcel_survey_plan_vision_v1", new[] { "manual_survey_plan_review" }, new[] { "metadata", "points", "segments", "parties", "adjacent_owners", "volume_folios" }),
+            new DocumentTypeExtractionDefinition("survey_plan_ocr_vision", "single_parcel_survey_plan", false, true, "single_parcel_survey_plan_vision_v1", new[] { "manual_survey_plan_review" }, new[] { "metadata", "points", "segments", "parties", "adjacent_owners", "volume_folios", "memorandum", "memorandum_semantic_fields" }),
             new DocumentTypeSchemaDefinition(
                 new[] { "parish", "document_area", "survey_date", "instrument", "surveyed_by", "coordinate_system", "north_arrow" },
                 new[] { "parcel_name", "lot_number", "owner_names", "representatives", "adjacent_owners" },

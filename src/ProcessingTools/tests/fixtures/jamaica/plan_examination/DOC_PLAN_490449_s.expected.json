@@ -1,0 +1,73 @@
+{
+  "source": {
+    "file_name": "DOC_PLAN_490449_s.pdf",
+    "page": 1,
+    "document_type": "MEMORANDUM"
+  },
+  "survey_metadata": {
+    "parish": {
+      "raw_value": "St. Ann",
+      "normalized_value": "St. Ann",
+      "semantic_state": "VALUE"
+    },
+    "document_area": {
+      "raw_value": "3203.710 Sq. Metres",
+      "normalized_value": "3203.710 Sq. Metres",
+      "value": 3203.71,
+      "unit": "SQUARE_METRES",
+      "semantic_state": "VALUE"
+    },
+    "survey_date": {
+      "raw_value": "June 5, 2024",
+      "normalized_value": "June 5, 2024",
+      "semantic_state": "VALUE"
+    },
+    "grounds_of_objection": {
+      "raw_value": "None",
+      "semantic_state": "NONE"
+    },
+    "surveyor_decision_grounds": {
+      "raw_value": "Instructions and marks on ground",
+      "semantic_state": "VALUE"
+    },
+    "instrument": {
+      "raw_value": "FOIF RTS 102R8 S/N: A13183",
+      "semantic_state": "VALUE"
+    },
+    "instrument_check_date": {
+      "raw_value": "04/10/2024",
+      "semantic_state": "VALUE"
+    },
+    "instrument_check_result": {
+      "raw_value": "Satisfactory",
+      "semantic_state": "VALUE"
+    },
+    "surveyed_by": {
+      "raw_value": "Craig A. Francis",
+      "title": "Commissioned Land Surveyor",
+      "organization": "Precision Surveying Services Ltd.",
+      "semantic_state": "VALUE"
+    }
+  },
+  "surveyed_for_names": [
+    {
+      "name": "Mario Smith",
+      "semantic_state": "VALUE"
+    }
+  ],
+  "surveyed_property_names": [
+    {
+      "value": "Part of SYMS RUN",
+      "semantic_state": "VALUE"
+    }
+  ],
+  "appeared_parties": [
+    {
+      "raw_value": "No one appeared",
+      "semantic_state": "NO_ONE_APPEARED"
+    }
+  ],
+  "excluded_outputs": [
+    "jad2001_point_coordinates"
+  ]
+}

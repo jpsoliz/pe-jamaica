@@ -370,7 +370,8 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 rule.ReviewerStatus,
                 rule.WorkflowEffect,
                 BuildSourceText(rule.SourcePage, rule.SourceZone),
-                NonEmpty(rule.Message)))
+                NonEmpty(rule.Message),
+                string.IsNullOrWhiteSpace(rule.EvidenceState) ? null : rule.EvidenceState))
             .ToArray();
     }
 
@@ -484,7 +485,13 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
             value = field.Present.Value ? "Present" : "Not present";
         }
 
-        return new ComputeExaminationReportFieldValue(label, value ?? defaultValue);
+        return new ComputeExaminationReportFieldValue(
+            label,
+            value ?? defaultValue,
+            string.IsNullOrWhiteSpace(field.SemanticState) ? null : field.SemanticState,
+            string.IsNullOrWhiteSpace(field.Unit) ? null : field.Unit,
+            string.IsNullOrWhiteSpace(field.Title) ? null : field.Title,
+            string.IsNullOrWhiteSpace(field.Organization) ? null : field.Organization);
     }
 
     private static IEnumerable<JsonElement> ExistingRoots(params JsonDocument?[] documents)
@@ -1483,7 +1490,11 @@ public sealed record ComputeExaminationReportGeneralInfo(
 
 public sealed record ComputeExaminationReportFieldValue(
     [property: JsonPropertyName("field")] string Field,
-    [property: JsonPropertyName("value")] string Value);
+    [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("semantic_state")] string? SemanticState = null,
+    [property: JsonPropertyName("unit")] string? Unit = null,
+    [property: JsonPropertyName("title")] string? Title = null,
+    [property: JsonPropertyName("organization")] string? Organization = null);
 
 public sealed record ComputeExaminationReportVolumeFolio(
     [property: JsonPropertyName("volume")] string Volume,
@@ -1515,7 +1526,8 @@ public sealed record ComputeExaminationReportMemorandumFinding(
     [property: JsonPropertyName("reviewer_status")] string ReviewerStatus,
     [property: JsonPropertyName("workflow_effect")] string WorkflowEffect,
     [property: JsonPropertyName("source")] string Source,
-    [property: JsonPropertyName("message")] string Message);
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("evidence_state")] string? EvidenceState = null);
 
 public sealed record ComputeExaminationReportBoundarySegment(
     [property: JsonPropertyName("seq")] string Sequence,

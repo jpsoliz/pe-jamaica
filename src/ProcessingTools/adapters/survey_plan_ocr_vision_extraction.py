@@ -24,6 +24,16 @@ from typing import Any
 SCHEMA_VERSION = "2.18.0"
 SOURCE_PROFILE = "scanned_single_parcel_survey_plan_pdf"
 EXTRACTOR_ID = "survey_plan_ocr_vision"
+SEMANTIC_STATES = {
+    "VALUE",
+    "NONE",
+    "N_A",
+    "NOT_STATED",
+    "NOT_FOUND",
+    "ILLEGIBLE",
+    "NO_ONE_APPEARED",
+    "UNKNOWN",
+}
 VOLUME_FOLIO_ALIASES = "Vol., Volume, Folio, Fol., Vol/Fol, Volume/Folio, Vol./Fol."
 VOLUME_FOLIO_PATTERNS = [
     re.compile(
@@ -53,22 +63,44 @@ def _field(
     note: str | None = None,
     page: int = 1,
 ) -> dict[str, Any]:
-    text = "" if value is None else str(value).strip()
-    numeric_confidence = _coerce_float(confidence)
+    node = value if isinstance(value, dict) else {}
+    text = _extract_field_text(value)
+    raw_value = _extract_raw_value(value, text)
+    semantic_state = _resolve_semantic_state(value, text)
+    numeric_confidence = _coerce_float(confidence or node.get("confidence") or node.get("Confidence"))
     if numeric_confidence is None:
         numeric_confidence = 0.85 if text else 0.0
-    field_status = status or ("extracted" if text else "not_extracted")
-    return {
+    field_status = status or ("extracted" if semantic_state in {"VALUE", "NONE", "N_A", "NO_ONE_APPEARED"} else "not_extracted")
+    field = {
         "field": name,
         "value": text or None,
+        "raw_value": raw_value,
+        "normalized_value": text or None,
+        "semantic_state": semantic_state,
         "confidence": numeric_confidence,
-        "source_page": page,
-        "source_zone": zone,
+        "source_page": _coerce_int(node.get("source_page") or node.get("page")) or page,
+        "source_zone": node.get("source_zone") or node.get("zone") or zone,
         "status": field_status,
-        "review_status": field_status,
+        "review_status": node.get("review_status") or field_status,
         "review_note": note
+        or node.get("review_note")
+        or node.get("review_notes")
         or ("Field was extracted from survey-plan OCR/vision." if text else "Field was not confidently extracted."),
     }
+    if name == "document_area":
+        area = _parse_area_value(raw_value or text)
+        if area:
+            field["numeric_value"] = area["value"]
+            field["unit"] = area["unit"]
+    if name == "surveyed_by" and isinstance(value, dict):
+        field["title"] = _string_or_none(value.get("title") or value.get("surveyor_title"))
+        field["organization"] = _string_or_none(value.get("organization") or value.get("company") or value.get("surveyor_organization"))
+    candidates = node.get("candidates")
+    if isinstance(candidates, list):
+        field["candidates"] = candidates
+        if len(candidates) > 1 and not node.get("review_status"):
+            field["review_status"] = "needs_review"
+    return field
 
 
 def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_file: str) -> dict[str, Any]:
@@ -115,6 +147,19 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
             "memorandum",
         ),
         "survey_date": _field("survey_date", metadata.get("survey_date") or raw.get("survey_date"), metadata.get("survey_date_confidence"), "signature_block"),
+        "survey_method": _field("survey_method", metadata.get("survey_method") or raw.get("survey_method"), metadata.get("survey_method_confidence"), "memorandum"),
+        "grounds_of_objection": _field(
+            "grounds_of_objection",
+            metadata.get("grounds_of_objection") or metadata.get("grounds_of_objections") or raw.get("grounds_of_objection") or raw.get("grounds_of_objections"),
+            metadata.get("grounds_of_objection_confidence"),
+            "memorandum",
+        ),
+        "surveyor_decision_grounds": _field(
+            "surveyor_decision_grounds",
+            metadata.get("surveyor_decision_grounds") or metadata.get("grounds_of_surveyor_decision") or raw.get("surveyor_decision_grounds") or raw.get("grounds_of_surveyor_decision"),
+            metadata.get("surveyor_decision_grounds_confidence"),
+            "memorandum",
+        ),
         "instrument": _field("instrument", metadata.get("instrument") or raw.get("instrument"), metadata.get("instrument_confidence"), "instrument_block"),
         "instrument_check_date": _field(
             "instrument_check_date",
@@ -202,6 +247,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name"))],
         "property_name_near_parcel_diagram": _normalize_presence_evidence(raw.get("property_name_near_parcel_diagram"), "property_name_near_parcel_diagram", "parcel_diagram"),
         "notice_served_on": [_normalize_memorandum_name(item, "notice_served_on") for item in _as_list(raw.get("notice_served_on") or raw.get("notices_served_on"))],
+        "interested_parties": [_normalize_memorandum_name(item, "interested_party") for item in _as_list(raw.get("interested_parties") or raw.get("parties_interested") or raw.get("parties_served_with_notices"))],
         "appeared_parties": [_normalize_appeared_party(item) for item in _as_list(raw.get("appeared_parties") or raw.get("parties_who_appeared"))],
         "parties": parties,
         "representatives": representatives,
@@ -383,6 +429,76 @@ def _split_instrument_check(value: Any) -> dict[str, str]:
     }
 
 
+def _extract_field_text(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("review_value", "normalized_value", "value", "name", "text"):
+            text = _string_or_none(value.get(key))
+            if text:
+                return text
+        return ""
+    return "" if value is None else str(value).strip()
+
+
+def _extract_raw_value(value: Any, fallback: str) -> str | None:
+    if isinstance(value, dict):
+        for key in ("raw_value", "raw_text", "source_text", "evidence"):
+            text = _string_or_none(value.get(key))
+            if text is not None:
+                return text
+    return fallback or None
+
+
+def _resolve_semantic_state(value: Any, text: str) -> str:
+    if value is None:
+        return "NOT_FOUND"
+    if isinstance(value, dict):
+        explicit = _string_or_none(value.get("semantic_state") or value.get("state"))
+        if explicit:
+            normalized = explicit.strip().upper()
+            if normalized in SEMANTIC_STATES:
+                return normalized
+        if value.get("illegible") is True:
+            return "ILLEGIBLE"
+        if not text and any(key in value for key in ("value", "name", "text", "raw_text", "raw_value")):
+            return "NOT_STATED"
+    lowered = text.strip().lower()
+    if not lowered:
+        return "NOT_STATED"
+    if lowered in {"none", "nil", "no objections", "no objection"}:
+        return "NONE"
+    if _is_no_appearance_text(text):
+        return "NO_ONE_APPEARED"
+    if re.fullmatch(r"n\s*/?\s*a|not applicable", lowered, flags=re.IGNORECASE):
+        return "N_A"
+    if lowered in {"illegible", "unreadable"}:
+        return "ILLEGIBLE"
+    return "VALUE"
+
+
+def _parse_area_value(value: Any) -> dict[str, Any]:
+    text = _string_or_none(value)
+    if not text:
+        return {}
+    match = re.search(
+        r"(?P<value>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?P<unit>sq\.?\s*m(?:etres|eters)?|square\s+metres?|m2|m²|hectares?|ha|acres?)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return {}
+    numeric_value = float(match.group("value").replace(",", ""))
+    unit_text = match.group("unit").lower().replace(".", "").strip()
+    if unit_text in {"m2", "m²"} or "metre" in unit_text or "meter" in unit_text or unit_text.startswith("sq m"):
+        canonical_unit = "SQUARE_METRES"
+    elif unit_text in {"ha", "hectare", "hectares"}:
+        canonical_unit = "HECTARES"
+    elif unit_text in {"acre", "acres"}:
+        canonical_unit = "ACRES"
+    else:
+        canonical_unit = unit_text.upper().replace(" ", "_")
+    return {"value": numeric_value, "unit": canonical_unit}
+
+
 def _has_scale_bar_text(raw: dict[str, Any]) -> bool:
     text = _collect_document_text(raw)
     if not text:
@@ -418,8 +534,11 @@ def _extract_scale_bar_text(raw: dict[str, Any]) -> str | None:
 def _normalize_memorandum_name(item: Any, role: str) -> dict[str, Any]:
     if isinstance(item, dict):
         name = _string_or_none(item.get("name") or item.get("value") or item.get("party"))
+        semantic_state = _resolve_semantic_state(item, name or "")
         return {
             "name": name,
+            "raw_value": _extract_raw_value(item, name or ""),
+            "semantic_state": semantic_state,
             "role": item.get("role") or role,
             "confidence": _coerce_float(item.get("confidence")) or (0.75 if name else 0.0),
             "source_page": _coerce_int(item.get("source_page")) or 1,
@@ -429,8 +548,11 @@ def _normalize_memorandum_name(item: Any, role: str) -> dict[str, Any]:
         }
 
     name = _string_or_none(item)
+    semantic_state = _resolve_semantic_state(item, name or "")
     return {
         "name": name,
+        "raw_value": name,
+        "semantic_state": semantic_state,
         "role": role,
         "confidence": 0.75 if name else 0.0,
         "source_page": 1,
@@ -443,9 +565,12 @@ def _normalize_memorandum_name(item: Any, role: str) -> dict[str, Any]:
 def _normalize_memorandum_value(item: Any, field: str) -> dict[str, Any]:
     if isinstance(item, dict):
         value = _string_or_none(item.get("value") or item.get("name") or item.get("text"))
+        semantic_state = _resolve_semantic_state(item, value or "")
         return {
             "field": field,
             "value": value,
+            "raw_value": _extract_raw_value(item, value or ""),
+            "semantic_state": semantic_state,
             "confidence": _coerce_float(item.get("confidence")) or (0.75 if value else 0.0),
             "source_page": _coerce_int(item.get("source_page")) or 1,
             "source_zone": item.get("source_zone") or "memorandum",
@@ -454,9 +579,12 @@ def _normalize_memorandum_value(item: Any, field: str) -> dict[str, Any]:
         }
 
     value = _string_or_none(item)
+    semantic_state = _resolve_semantic_state(item, value or "")
     return {
         "field": field,
         "value": value,
+        "raw_value": value,
+        "semantic_state": semantic_state,
         "confidence": 0.75 if value else 0.0,
         "source_page": 1,
         "source_zone": "memorandum",
@@ -472,9 +600,12 @@ def _normalize_presence_evidence(item: Any, field: str, fallback_zone: str) -> d
         present_value = node.get("detected") or node.get("Detected")
     value = _string_or_none(node.get("value") or node.get("text"))
     present = bool(present_value)
+    semantic_state = _resolve_semantic_state(node, value or ("Present" if present else ""))
     return {
         "field": field,
         "value": value,
+        "raw_value": _extract_raw_value(node, value or ("Present" if present else "")),
+        "semantic_state": semantic_state,
         "present": present,
         "confidence": _coerce_float(node.get("confidence")) or (0.75 if present or value else 0.0),
         "source_page": _coerce_int(node.get("source_page")) or 1,
@@ -494,6 +625,8 @@ def _normalize_appeared_party(item: Any) -> dict[str, Any]:
     mode = mode or "unknown"
     return {
         "name": name,
+        "raw_value": _extract_raw_value(node, name or ""),
+        "semantic_state": "NO_ONE_APPEARED" if explicit_no_appearance else _resolve_semantic_state(node, name or ""),
         "appearance_mode": mode.strip().lower(),
         "representative": _string_or_none(node.get("representative") or node.get("representative_name")),
         "confidence": _coerce_float(node.get("confidence")) or (0.8 if explicit_no_appearance else 0.75 if name else 0.0),
@@ -692,8 +825,10 @@ def _prompt(profile: str) -> str:
         "Extract structured cadastral survey plan data from this Jamaica survey plan image. "
         "Return only JSON with keys: coordinate_system, coordinate_system_confidence, "
         "north_arrow {detected, approximate_page_location, confidence, review_note}, "
-        "survey_metadata {parish, document_area, survey_date, instrument, surveyed_by, "
+        "survey_metadata {parish, document_area, survey_date, survey_method, grounds_of_objection, "
+        "surveyor_decision_grounds, instrument, instrument_check_date, instrument_check_result, surveyed_by, "
         "plan_check_date, file_reference, volume_folio [{volume,folio,raw_text,confidence,source_page,source_zone,review_note}]}, "
+        "surveyed_for_names, surveyed_property_names, notice_served_on, interested_parties, appeared_parties, "
         "parties, representatives, adjacent_owners, "
         "points [{point_id,northing,easting,confidence,source_page,source_zone,status,review_note}], "
         "derived_points [{point_id,northing,easting,confidence,source_page,source_zone,status,review_note}], "
@@ -714,6 +849,12 @@ def _prompt(profile: str) -> str:
         "and a review_note explaining the derivation. Use null when uncertain. Do not invent values. "
         f"For Volume/Folio, recognize these labels and abbreviations: {VOLUME_FOLIO_ALIASES}. "
         "Return each detected pair as survey_metadata.volume_folio. Treat Occ. or Occ as Occupant in party or owner roles. "
+        "For region-first MEMORANDUM table extraction, detect the memorandum region/table before reading labels and values. "
+        "For memorandum fields return raw_value, normalized_value, source_page, source_zone, confidence, and semantic_state. "
+        "Allowed semantic_state values are VALUE, NONE, N_A, NOT_STATED, NOT_FOUND, ILLEGIBLE, NO_ONE_APPEARED, UNKNOWN. "
+        "Do not collapse blank cells, missing labels, illegible OCR, explicit None, explicit N/A, or No one appeared into the same null value. "
+        "Parse area into numeric value and unit when readable. Keep memorandum instrument/check evidence distinct from GPS or remarks text. "
+        "Preserve row boundaries for interested parties and appeared parties, and preserve surveyor certification name, title, and organization. "
         f"Extraction profile: {profile}."
     )
 

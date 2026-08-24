@@ -14,6 +14,9 @@ public sealed class PxaMemorandumReviewRuleService
         new("pxa_memorandum_surveyed_for_names_present", "property_survey_request", "Property / Survey Request", "Survey made at the instance of", RequiresDisposition),
         new("pxa_memorandum_surveyed_property_name_present", "property_survey_request", "Property / Survey Request", "Surveyed property name", RequiresDisposition),
         new("pxa_memorandum_property_name_near_diagram", "property_survey_request", "Property / Survey Request", "Property name near parcel diagram", ReportOnly),
+        new("pxa_memorandum_document_area_present", "property_survey_request", "Property / Survey Request", "Area value and unit", RequiresDisposition),
+        new("pxa_memorandum_objections_captured", "notice_attendance", "Notice / Attendance", "Grounds of objections", RequiresDisposition),
+        new("pxa_memorandum_surveyor_certification_present", "final_certification", "Surveyor Certification", "Surveyor certification", RequiresDisposition),
         new("pxa_memorandum_instrument_group_complete", "instrument_check", "Instrument Check", "Instrument check evidence", RequiresDisposition),
         new("pxa_memorandum_parish_present", "location_map_evidence", "Location / Map Evidence", "Parish", RequiresDisposition),
         new("pxa_memorandum_north_arrow_present", "location_map_evidence", "Location / Map Evidence", "North arrow", ReportOnly),
@@ -38,7 +41,7 @@ public sealed class PxaMemorandumReviewRuleService
         {
             return rules
                 .Select(rule => rule.Enabled
-                    ? Create(rule, "not_applicable", "Memorandum was not detected for this PXA source document.")
+                    ? Create(rule, "not_applicable", "Memorandum was not detected for this survey-plan source document.")
                     : Create(rule, "disabled", "Rule is disabled in the compute rule catalog."))
                 .ToArray();
         }
@@ -49,12 +52,15 @@ public sealed class PxaMemorandumReviewRuleService
             EvaluateParty(document, rules[1], "surveyed_for", "Surveyed-for party is missing."),
             EvaluateField(document, rules[2], "surveyed_property_name", "Surveyed property name is missing."),
             EvaluatePresenceField(document, rules[3], "property_name_near_parcel_diagram", "Diagram proximity evidence is missing."),
-            EvaluateInstrumentGroup(document, rules[4]),
-            EvaluateField(document, rules[5], "parish", "Parish is missing."),
-            EvaluatePresenceField(document, rules[6], "north_arrow", "North arrow evidence is missing."),
-            EvaluatePresenceField(document, rules[7], "scale_bar", "Scale bar evidence is missing."),
-            EvaluateParty(document, rules[8], "notice_served_on", "Notice-served-on parties are missing."),
-            EvaluateParty(document, rules[9], "appeared", "Appeared parties are missing.")
+            EvaluateField(document, rules[4], "document_area", "Area value and unit are missing."),
+            EvaluateField(document, rules[5], "grounds_of_objection", "Objection grounds are missing.", allowNone: true, allowNotApplicable: true),
+            EvaluateSurveyorCertification(document, rules[6]),
+            EvaluateInstrumentGroup(document, rules[7]),
+            EvaluateField(document, rules[8], "parish", "Parish is missing."),
+            EvaluatePresenceField(document, rules[9], "north_arrow", "North arrow evidence is missing."),
+            EvaluatePresenceField(document, rules[10], "scale_bar", "Scale bar evidence is missing."),
+            EvaluateParty(document, rules[11], "notice_served_on", "Notice-served-on parties are missing."),
+            EvaluateParty(document, rules[12], "appeared", "Appeared parties are missing.")
         ];
     }
 
@@ -119,7 +125,7 @@ public sealed class PxaMemorandumReviewRuleService
 
         var parties = document.MemorandumParties
             .Where(party => string.Equals(party.Role, role, StringComparison.OrdinalIgnoreCase))
-            .Where(party => !string.IsNullOrWhiteSpace(party.Name))
+            .Where(party => !string.IsNullOrWhiteSpace(party.Name) || string.Equals(party.SemanticState, "NO_ONE_APPEARED", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (parties.Length == 0)
         {
@@ -131,14 +137,16 @@ public sealed class PxaMemorandumReviewRuleService
         var message = parties.Length == 1 && IsNoAppearanceEvidence(first)
             ? $"{evidenceValue} is recorded for examiner review."
             : $"{parties.Length} value(s) available for examiner review.";
-        return Create(rule, ResolveEvidenceOutcome(first.ReviewStatus, first.SourceZone, null), message, evidenceValue, first.SourcePage, first.SourceZone);
+        return Create(rule, ResolveEvidenceOutcome(first.ReviewStatus, first.SourceZone, null, first.SemanticState), message, evidenceValue, first.SourcePage, first.SourceZone, first.SemanticState);
     }
 
     private static ExtractionReviewMemorandumRuleResult EvaluateField(
         ExtractionReviewDocument document,
         RuleSpec rule,
         string fieldKey,
-        string missingMessage)
+        string missingMessage,
+        bool allowNone = false,
+        bool allowNotApplicable = false)
     {
         if (!rule.Enabled)
         {
@@ -146,13 +154,26 @@ public sealed class PxaMemorandumReviewRuleService
         }
 
         var field = FindField(document, fieldKey);
-        if (field is null || string.IsNullOrWhiteSpace(FirstNonBlank(field.Value, field.RawText)))
+        var semanticState = field?.SemanticState;
+        if (field is null
+            || IsUnavailableSemanticState(semanticState)
+            || (string.IsNullOrWhiteSpace(FirstNonBlank(field.Value, field.RawText)) && !IsExplicitAllowedState(semanticState, allowNone, allowNotApplicable)))
         {
             return Create(rule, "not_available", missingMessage);
         }
 
         var evidenceValue = FirstNonBlank(field.Value, field.RawText) ?? string.Empty;
-        return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence), "Evidence value is available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone);
+        if (string.Equals(semanticState, "N_A", StringComparison.OrdinalIgnoreCase) && allowNotApplicable)
+        {
+            return Create(rule, "not_applicable", "Field is explicitly marked not applicable.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
+        }
+
+        if (string.Equals(semanticState, "NONE", StringComparison.OrdinalIgnoreCase) && allowNone)
+        {
+            return Create(rule, "passed", "Field is explicitly recorded as none.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
+        }
+
+        return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence, semanticState), "Evidence value is available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone, semanticState);
     }
 
     private static ExtractionReviewMemorandumRuleResult EvaluatePresenceField(
@@ -173,7 +194,26 @@ public sealed class PxaMemorandumReviewRuleService
         }
 
         var evidenceValue = FirstNonBlank(field.Value, field.RawText) ?? (field.Present == true ? "Present" : string.Empty);
-        return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence), "Presence evidence is available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone);
+        return Create(rule, ResolveEvidenceOutcome(field.ReviewStatus, field.SourceZone, field.Confidence, field.SemanticState), "Presence evidence is available for examiner review.", evidenceValue, field.SourcePage, field.SourceZone, field.SemanticState);
+    }
+
+    private static ExtractionReviewMemorandumRuleResult EvaluateSurveyorCertification(ExtractionReviewDocument document, RuleSpec rule)
+    {
+        if (!rule.Enabled)
+        {
+            return Create(rule, "disabled", "Rule is disabled in the compute rule catalog.");
+        }
+
+        var surveyor = FindField(document, "surveyed_by");
+        if (surveyor is null || IsUnavailableSemanticState(surveyor.SemanticState) || string.IsNullOrWhiteSpace(FirstNonBlank(surveyor.Value, surveyor.RawText)))
+        {
+            return Create(rule, "not_available", "Surveyor certification is missing.");
+        }
+
+        var evidenceValue = string.Join(
+            "; ",
+            new[] { surveyor.Value, surveyor.Title, surveyor.Organization }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return Create(rule, ResolveEvidenceOutcome(surveyor.ReviewStatus, surveyor.SourceZone, surveyor.Confidence, surveyor.SemanticState), "Surveyor certification evidence is available for examiner review.", evidenceValue, surveyor.SourcePage, surveyor.SourceZone, surveyor.SemanticState);
     }
 
     private static ExtractionReviewMemorandumRuleResult EvaluateInstrumentGroup(ExtractionReviewDocument document, RuleSpec rule)
@@ -192,7 +232,10 @@ public sealed class PxaMemorandumReviewRuleService
             return Create(rule, "not_available", "Instrument name/type, check date, or check result is missing.");
         }
 
-        var outcome = requiredFields.Any(field => ResolveEvidenceOutcome(field!.ReviewStatus, field.SourceZone, field.Confidence) == "needs_review")
+        var stateOutcomes = requiredFields.Select(field => ResolveEvidenceOutcome(field!.ReviewStatus, field.SourceZone, field.Confidence, field.SemanticState)).ToArray();
+        var outcome = stateOutcomes.Any(result => result == "not_available")
+            ? "not_available"
+            : stateOutcomes.Any(result => result == "needs_review")
             ? "needs_review"
             : "passed";
         var evidenceValue = string.Join(
@@ -203,7 +246,10 @@ public sealed class PxaMemorandumReviewRuleService
                 FormatFieldValue("Check date", date),
                 FormatFieldValue("Result", result)
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
-        return Create(rule, outcome, "Instrument check date and result are grouped with the instrument evidence.", evidenceValue, instrument?.SourcePage, instrument?.SourceZone);
+        var evidenceState = stateOutcomes.Contains("not_available")
+            ? "NOT_AVAILABLE"
+            : string.Join("/", requiredFields.Select(field => field?.SemanticState).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase));
+        return Create(rule, outcome, "Instrument check date and result are grouped with the instrument evidence.", evidenceValue, instrument?.SourcePage, instrument?.SourceZone, evidenceState);
     }
 
     private static ExtractionReviewMetadataField? FindField(ExtractionReviewDocument document, string key)
@@ -218,7 +264,8 @@ public sealed class PxaMemorandumReviewRuleService
         string message,
         string? evidenceValue = null,
         string? sourcePage = null,
-        string? sourceZone = null)
+        string? sourceZone = null,
+        string? evidenceState = null)
     {
         return new ExtractionReviewMemorandumRuleResult
         {
@@ -230,6 +277,7 @@ public sealed class PxaMemorandumReviewRuleService
             WorkflowEffect = rule.WorkflowEffect,
             Message = message,
             EvidenceValue = evidenceValue ?? string.Empty,
+            EvidenceState = evidenceState ?? string.Empty,
             SourcePage = sourcePage ?? string.Empty,
             SourceZone = sourceZone ?? string.Empty,
             ReportVisible = rule.ReportVisible
@@ -260,8 +308,20 @@ public sealed class PxaMemorandumReviewRuleService
         return new PreflightRuleCatalogLoader().Load().Rules;
     }
 
-    private static string ResolveEvidenceOutcome(string? reviewStatus, string? sourceZone, string? confidence)
+    private static string ResolveEvidenceOutcome(string? reviewStatus, string? sourceZone, string? confidence, string? semanticState)
     {
+        if (IsUnavailableSemanticState(semanticState))
+        {
+            return "not_available";
+        }
+
+        if (string.Equals(semanticState, "ILLEGIBLE", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(semanticState, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(semanticState, "N_A", StringComparison.OrdinalIgnoreCase))
+        {
+            return "needs_review";
+        }
+
         if (IsAccepted(reviewStatus))
         {
             return "passed";
@@ -278,6 +338,18 @@ public sealed class PxaMemorandumReviewRuleService
         }
 
         return "needs_review";
+    }
+
+    private static bool IsUnavailableSemanticState(string? value)
+    {
+        return string.Equals(value, "NOT_STATED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "NOT_FOUND", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExplicitAllowedState(string? value, bool allowNone, bool allowNotApplicable)
+    {
+        return (allowNone && string.Equals(value, "NONE", StringComparison.OrdinalIgnoreCase))
+            || (allowNotApplicable && string.Equals(value, "N_A", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsAccepted(string? value)

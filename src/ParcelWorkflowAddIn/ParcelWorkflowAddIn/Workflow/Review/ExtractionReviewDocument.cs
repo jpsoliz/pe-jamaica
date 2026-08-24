@@ -71,6 +71,14 @@ public sealed class ExtractionReviewMetadataField
 
     public string ReviewNotes { get; set; } = string.Empty;
 
+    public string SemanticState { get; set; } = string.Empty;
+
+    public string Unit { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string Organization { get; set; } = string.Empty;
+
     public bool? Present { get; set; }
 
     public string OriginalValue { get; set; } = string.Empty;
@@ -128,6 +136,8 @@ public sealed class ExtractionReviewNamedParty
 
     public string ReviewNotes { get; set; } = string.Empty;
 
+    public string SemanticState { get; set; } = string.Empty;
+
     public JsonObject RawParty { get; set; } = [];
 }
 
@@ -168,6 +178,8 @@ public sealed class ExtractionReviewMemorandumParty
 
     public string ReviewNotes { get; set; } = string.Empty;
 
+    public string SemanticState { get; set; } = string.Empty;
+
     public JsonObject RawParty { get; set; } = [];
 }
 
@@ -188,6 +200,8 @@ public sealed class ExtractionReviewMemorandumRuleResult
     public string Message { get; set; } = string.Empty;
 
     public string EvidenceValue { get; set; } = string.Empty;
+
+    public string EvidenceState { get; set; } = string.Empty;
 
     public string SourcePage { get; set; } = string.Empty;
 

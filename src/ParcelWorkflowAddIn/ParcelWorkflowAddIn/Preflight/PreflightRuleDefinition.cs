@@ -84,7 +84,11 @@ public sealed record PreflightRuleDefinition(
 
     public bool AppliesToStage(string? stageId)
     {
-        return string.Equals(StageId, NormalizeStageId(stageId, string.Empty), StringComparison.OrdinalIgnoreCase);
+        var normalizedStageId = NormalizeStageId(stageId, string.Empty);
+        return string.Equals(normalizedStageId, PreflightCheckStageExtensions.CombinedStageId, StringComparison.OrdinalIgnoreCase)
+            || (string.Equals(normalizedStageId, PreflightCheckStageExtensions.StructureCheckStageId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(StageId, "supporting_document_check", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(StageId, normalizedStageId, StringComparison.OrdinalIgnoreCase);
     }
 
     public static string NormalizeStageId(string? value, string fallback = "structure_check")
@@ -97,6 +101,7 @@ public sealed record PreflightRuleDefinition(
         return value.Trim().ToLowerInvariant() switch
         {
             "supporting_document_check" => "supporting_document_check",
+            "preflight" => PreflightCheckStageExtensions.CombinedStageId,
             "structure_check" => "structure_check",
             "data_extraction" => "data_extraction",
             "georeference_check" => "georeference_check",
@@ -185,6 +190,9 @@ public sealed record PreflightRuleDefinition(
         "pxa_memorandum_surveyed_for_names_present",
         "pxa_memorandum_surveyed_property_name_present",
         "pxa_memorandum_property_name_near_diagram",
+        "pxa_memorandum_document_area_present",
+        "pxa_memorandum_objections_captured",
+        "pxa_memorandum_surveyor_certification_present",
         "pxa_memorandum_instrument_group_complete",
         "pxa_memorandum_parish_present",
         "pxa_memorandum_north_arrow_present",

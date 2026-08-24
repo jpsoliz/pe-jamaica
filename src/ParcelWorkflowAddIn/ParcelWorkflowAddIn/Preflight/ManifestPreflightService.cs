@@ -261,6 +261,10 @@ public sealed class ManifestPreflightService
         }
 
         var requiredRoles = GetRequiredRoles(manifest, profile.ProfileCode);
+        if (requiredRoles.Count == 0)
+        {
+            requiredRoles = RequiredRoles(profile.ProfileCode);
+        }
         var sourceFiles = manifest.Payload.SourceFiles
             .Where(source => !IsInternalGeneratedSource(source))
             .ToArray();
