@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-24
+# last_updated: 2026-08-25
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-24
+last_updated: 2026-08-25
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -76,6 +76,10 @@ development_status:
   2-20-add-pxa-survey-plan-metadata-review-model-and-ux: done
   2-21-add-innola-arcgis-pro-in-progress-workflow-stage: ready-for-dev
   2-22-add-innola-api-connection-health-retry-and-session-recovery: review
+  2-23a-add-pla-transaction-profile-source-type-and-doc-type-resolution: done
+  2-23b-add-pla-plan-annexation-pdf-page-selection-and-evidence-artifact: done
+  2-23c-add-pla-selected-plan-extraction-review-and-local-origin-geometry: done
+  2-23d-add-pla-visual-comparison-and-finalize-upload-flow: review
   epic-2-retrospective: optional
 
   epic-3: backlog

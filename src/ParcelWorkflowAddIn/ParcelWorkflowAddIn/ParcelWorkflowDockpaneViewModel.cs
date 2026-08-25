@@ -8,6 +8,7 @@ using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Contracts;
@@ -33,6 +34,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly WorkflowSession workflowSession = new(new CaseFolderStore());
     private readonly PreflightRuleCatalog preflightRuleCatalog = new PreflightRuleCatalogLoader().Load();
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
+    private readonly PlaPlanEvidenceSelectionService plaPlanEvidenceSelectionService = new();
+    private readonly PlaFinalizeService plaFinalizeReadinessService = new(new PlaFinalizeReadinessOnlyUploader());
     private readonly ParcelScopedManualPointService manualPointService = new();
     private readonly ManualBoundarySegmentService manualBoundarySegmentService = new();
     private readonly ParcelScopedReviewValidationService reviewValidationService = new();
@@ -88,6 +91,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand cancelProcessCommand;
     private readonly RelayCommand completeTransactionCommand;
     private readonly IOutputMapIntegrationService outputMapIntegrationService = new ArcGisOutputMapIntegrationService();
+    private PlaPlanEvidenceSelectionViewModel? plaPlanEvidenceSelection;
     private readonly ISpatialOverlapReviewService spatialOverlapReviewService = new ArcGisSpatialOverlapReviewService();
     private readonly SpatialOverlapReviewPersistenceService spatialOverlapReviewPersistence = new();
     private string? outputLocation;
@@ -192,6 +196,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         FrameworkApplication.DockPaneManager.Find(DockPaneId)?.Activate();
     }
 
+    public string WorkflowPaneTitle => IsPlaPlanAnnexationWorkflow ? "Parcel Workflow - Plan Annexation" : "Parcel Workflow";
+
     public ObservableCollection<ExtractionReviewRowViewModel> ReviewRows { get; } = [];
 
     public ObservableCollection<ExtractionReviewSegmentViewModel> ReviewSegments { get; } = [];
@@ -234,6 +240,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         get
         {
+            if (IsPlaPlanAnnexationWorkflow)
+            {
+                return "Workflow: Plan Annexation (PLA)";
+            }
+
             var transactionType = ResolveSelectedTransactionType();
             return string.IsNullOrWhiteSpace(transactionType) ? "Transaction Type: not available" : $"Transaction Type: {transactionType}";
         }
@@ -396,7 +407,20 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool IsDimensionCheckStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.DimensionCheck;
 
+    public bool IsPlaPlanEvidenceSelectionStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.PlaPlanEvidenceSelection;
+
     public bool IsExtractionReviewStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.ExtractionReview;
+
+    public bool IsPlaPlanAnnexationWorkflow =>
+        string.Equals(workflowSession.WorkflowProfile, SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsPlaDeferredEvidenceSummaryVisible => IsPlaPlanAnnexationWorkflow && !IsPlaPlanEvidenceSelectionStageActive;
+
+    public bool ShowPlaPlanEvidenceSelection =>
+        IsPlaPlanAnnexationWorkflow
+        && (IsPlaPlanEvidenceSelectionStageActive || IsExtractionReviewStageActive);
+
+    public PlaPlanEvidenceSelectionViewModel? PlaPlanEvidenceSelection => plaPlanEvidenceSelection;
 
     public bool IsValidationStageActive => ActiveWorkspaceStage == WorkflowWorkspaceStage.Validation;
 
@@ -409,6 +433,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public bool ShowIntakeSummary => HasActiveCase && !IsIntakeStageActive;
 
     public bool ShowPreflightSummary => HasPreflightResults && !IsPreflightStageActive;
+
+    public bool ShowStructureCheckSummary => ShowPreflightSummary;
+
+    public bool ShowGeoreferenceSummary => ShowPreflightSummary && (!IsPlaPlanAnnexationWorkflow || IsPlaDeferredEvidenceSummaryVisible);
+
+    public bool ShowDimensionCheckSummary => ShowPreflightSummary && (!IsPlaPlanAnnexationWorkflow || IsPlaDeferredEvidenceSummaryVisible);
 
     public bool ShowExtractionSummary => HasExtractionArtifact && !IsExtractionReviewStageActive;
 
@@ -427,7 +457,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanRunDimensionCheck => CanUseWorkflowActions && workflowSession.CanRunDimensionCheck;
 
-    public bool CanRunExtractionReview => CanUseWorkflowActions && workflowSession.CanRunExtractionReview;
+    public bool CanRunExtractionReview =>
+        CanUseWorkflowActions
+        && workflowSession.CanRunExtractionReview
+        && (!IsPlaPlanAnnexationWorkflow || HasCompletePlaPlanEvidenceSelection());
 
     public bool CanReprocessExtractionReview =>
         CanUseWorkflowActions
@@ -451,7 +484,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanOpenSpatialOverlapReview => HasSpatialOverlapReview && CanUseWorkflowActions;
 
-    public bool CanCompleteTransaction => CanUseWorkflowActions && ShellState.Session.CanCompleteTransaction && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved;
+    public bool CanCompleteTransaction =>
+        CanUseWorkflowActions
+        && ShellState.Session.CanCompleteTransaction
+        && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        && (!IsPlaPlanAnnexationWorkflow || HasPlaFinalizeReadiness());
 
     public ICommand CreateCaseCommand => createCaseCommand;
 
@@ -631,6 +668,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public string DimensionCheckBadge => BuildGroupedBadge(DimensionCheckResults, workflowSession.IsPreflightRunning ? "Pending" : "Not processed");
 
+    public string GeoreferenceEvidenceLabel => IsPlaPlanAnnexationWorkflow ? "Deferred Coordinate Evidence" : "Georeference Check";
+
+    public string DimensionEvidenceLabel => IsPlaPlanAnnexationWorkflow ? "Deferred Dimension Evidence" : "Dimension Check";
+
     public string SourceIntakeBadge => SourceFiles.Count > 0 && SourceFiles.All(item => item.SourceFile.Copied)
         ? "Copied"
         : "Pending";
@@ -732,6 +773,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             _ => "Not started"
         };
 
+    public string ExtractionReviewTitle => IsPlaPlanAnnexationWorkflow ? "Extract Plan Geometry" : "Validate Points and Lines";
+
     public string ExtractionReviewActionLabel =>
         HasLoadedReviewData
             ? "Continue Validation"
@@ -757,7 +800,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.OutputRunning or WorkflowState.OutputCreated => "Validate Points and Lines is approved. Create Spatial Units is now building the downstream parcel geometry package before Final Review.",
             WorkflowState.ReviewPending when HasExtractionReviewArtifact(workflowSession) => "Continue point and line review in Points and Lines Validation Tool, then approve the review before Create Spatial Units and Final Review.",
             WorkflowState.PreflightPassed => "Generate the extracted point and line package from the selected transaction attachments, then continue in Points and Lines Validation Tool to inspect and correct the parcel data.",
+            WorkflowState.PreflightBlocked when IsPlaPlanAnnexationWorkflow => "Select and save PLA plan evidence before running extraction. Coordinate and dimension evidence is evaluated after OCR/vision extraction.",
             WorkflowState.PreflightBlocked => "Validate Points and Lines is unavailable until Supporting Document Check, Structure Check, Georeference Check, and Dimension Check blockers are resolved.",
+            _ when IsPlaPlanAnnexationWorkflow => "PLA extraction is enabled after Structure Check and saved plan evidence selection.",
             _ => "Validate Points and Lines is enabled after Structure Check, Georeference Check, and Dimension Check complete."
         };
 
@@ -913,7 +958,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
-    public string ReviewWorkspaceTitle => "Points Validation Tool";
+    public string ReviewWorkspaceTitle => IsPlaPlanAnnexationWorkflow ? "PLA Local-Origin Review" : "Points Validation Tool";
 
     public bool CanOpenExperimentalReviewWorkspace =>
         CanUseWorkflowActions
@@ -1338,6 +1383,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool IsPxaSurveyPlanReview { get; private set; }
 
+    public bool IsPxaOnlySurveyPlanReview { get; private set; }
+
+    public bool IsPlaPlanAnnexationReview { get; private set; }
+
     public bool ExtractionSummaryExpanded
     {
         get => extractionSummaryExpanded;
@@ -1454,12 +1503,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             : "Pending";
 
     public string ReadyToCompleteSummaryText =>
-        workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? "PLA review evidence is complete. Finalize attaches the generated PLA output documents to Innola and closes the task."
+            : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Final Review is complete. Finalize records that the submitted geometry passed Compute review and closes the Innola task."
             : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
-        workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? "Review the selected plan evidence, extraction findings, generated geometry visual comparison, and local output PDFs, then select Finalize to attach the generated PLA output documents and close the Innola task. Select Suspend to save this state and come back later."
+            : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Use the ArcGIS Pro map for a final visual check, compare the temporary geometry with official reference layers, then select Finalize to record the Compute disposition and close the Innola task. Select Suspend to save this state and come back later."
             : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks Compute closeout.";
 
@@ -1759,7 +1812,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             ReviewMemorandumGroups.Add(new ExtractionReviewMemorandumGroupViewModel(group, OnReviewMetadataChanged));
         }
 
-        IsPxaSurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(document);
+        IsPlaPlanAnnexationReview = PxaSurveyPlanReviewRouting.IsPlaPlanAnnexationDocument(document);
+        IsPxaOnlySurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaOnlySurveyPlanDocument(document);
+        IsPxaSurveyPlanReview = IsPxaOnlySurveyPlanReview || IsPlaPlanAnnexationReview;
         SelectedReviewRow = ReviewRows.FirstOrDefault();
     }
 
@@ -1827,7 +1882,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             repairPrematureClosingLabels,
             replaceConflictingCoordinatesFromReviewedSegments,
             mergeGeneratedBoundaryPointsWithReferenceRows,
-            removeInactiveManualRows);
+            removeInactiveManualRows,
+            useLocalOriginWhenUnreferenced: IsPlaPlanAnnexationReview);
         var segmentsChanged = SyncReviewSegmentViewModelsFromDocument();
         var rowsChanged = SyncReviewRowViewModelsFromDocument();
         if (segmentsChanged)
@@ -2535,9 +2591,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var solverResult = ApplyBoundarySolverIfAvailable(
-            useDerivedCoordinatesAsAnchors: true,
-            repairPrematureClosingLabels: true,
-            replaceConflictingCoordinatesFromReviewedSegments: true,
+            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview,
             mergeGeneratedBoundaryPointsWithReferenceRows: false,
             removeInactiveManualRows: true);
         if (solverResult is null)
@@ -2782,9 +2838,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         SyncReviewMetadataBackToDocument();
         ApplyBoundarySolverIfAvailable(
-            useDerivedCoordinatesAsAnchors: IsPxaSurveyPlanReview,
-            repairPrematureClosingLabels: IsPxaSurveyPlanReview,
-            replaceConflictingCoordinatesFromReviewedSegments: IsPxaSurveyPlanReview);
+            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview);
 
         var saveResult = workflowSession.SaveExtractionReview(loadedReviewDocument, Environment.UserName);
         if (saveResult.Success && saveResult.Document is not null)
@@ -2864,9 +2920,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         SyncReviewMetadataBackToDocument();
         var solverResult = ApplyBoundarySolverIfAvailable(
-            useDerivedCoordinatesAsAnchors: IsPxaSurveyPlanReview,
-            repairPrematureClosingLabels: IsPxaSurveyPlanReview,
-            replaceConflictingCoordinatesFromReviewedSegments: IsPxaSurveyPlanReview);
+            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview);
         if (solverResult is not null && string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase))
         {
             workflowSession.SetValidationFailure(BuildBoundarySolverSummaryText());
@@ -3564,30 +3620,39 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        var finalizePrompt = IsPlaPlanAnnexationWorkflow
+            ? "Finalize this PLA review, attach the generated PLA output documents to Innola, upload the working package, and close the task?"
+            : "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?";
+        var finalizeTitle = IsPlaPlanAnnexationWorkflow
+            ? "Finalize PLA Review"
+            : "Finalize Compute Review";
         if (MessageBox.Show(
-                "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?",
-                "Finalize Compute Review",
+                finalizePrompt,
+                finalizeTitle,
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question) != MessageBoxResult.Yes)
         {
             return;
         }
 
-        var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
-        if (publishResult.Attempted && !publishResult.Success)
+        if (!IsPlaPlanAnnexationWorkflow)
         {
-            RefreshWorkflowProperties();
-            return;
-        }
+            var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
+            if (publishResult.Attempted && !publishResult.Success)
+            {
+                RefreshWorkflowProperties();
+                return;
+            }
 
-        var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
-            decision,
-            comment,
-            Environment.UserName);
-        if (!dispositionResult.Success)
-        {
-            RefreshWorkflowProperties();
-            return;
+            var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
+                decision,
+                comment,
+                Environment.UserName);
+            if (!dispositionResult.Success)
+            {
+                RefreshWorkflowProperties();
+                return;
+            }
         }
 
         var completedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
@@ -4033,6 +4098,32 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
     }
 
+    private static string GetStepStateForPlaPlanEvidenceSelection(
+        WorkflowState state,
+        string structureCheckState,
+        bool hasPlaPlanEvidenceSelection)
+    {
+        if (hasPlaPlanEvidenceSelection)
+        {
+            return "done";
+        }
+
+        if (string.Equals(structureCheckState, "blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "blocked";
+        }
+
+        return state switch
+        {
+            WorkflowState.PreflightBlocked or WorkflowState.PreflightPassed => "active",
+            WorkflowState.ExtractionRunning or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewManualPending => "done",
+            WorkflowState.ReviewApproved or WorkflowState.ValidationRunning or WorkflowState.ValidationBlocked or WorkflowState.ValidationPassed => "done",
+            WorkflowState.OutputRunning or WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending or WorkflowState.SpatialReviewApproved => "done",
+            _ when string.Equals(structureCheckState, "done", StringComparison.OrdinalIgnoreCase) => "active",
+            _ => "pending"
+        };
+    }
+
     private static string GetStepStateForValidation(WorkflowState state)
     {
         return state switch
@@ -4119,6 +4210,28 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var spatialUnitsState = MergeStepState(validationState, outputState);
         var finalReviewState = spatialReviewState;
 
+        if (IsPlaPlanAnnexationWorkflow)
+        {
+            var planEvidenceState = GetStepStateForPlaPlanEvidenceSelection(
+                currentState,
+                structureCheckState,
+                HasCompletePlaPlanEvidenceSelection());
+            var plaExtractionState = planEvidenceState == "done"
+                ? extractionState
+                : "pending";
+
+            return new WorkflowLifecycleStep[]
+            {
+                new WorkflowLifecycleStep("PLA Sources", supportingDocumentState, GetLifecycleStepIcon(supportingDocumentState)),
+                new WorkflowLifecycleStep("Structure Check", structureCheckState, GetLifecycleStepIcon(structureCheckState)),
+                new WorkflowLifecycleStep("Select Plan Evidence", planEvidenceState, GetLifecycleStepIcon(planEvidenceState)),
+                new WorkflowLifecycleStep("Extract Plan Geometry", plaExtractionState, GetLifecycleStepIcon(plaExtractionState)),
+                new WorkflowLifecycleStep("Review Local-Origin Geometry", validationState, GetLifecycleStepIcon(validationState)),
+                new WorkflowLifecycleStep("Visual Comparison", finalReviewState, GetLifecycleStepIcon(finalReviewState)),
+                new WorkflowLifecycleStep("Finalize", readyState, GetLifecycleStepIcon(readyState))
+            };
+        }
+
         return new WorkflowLifecycleStep[]
         {
             new WorkflowLifecycleStep("Supporting Document Check", supportingDocumentState, GetLifecycleStepIcon(supportingDocumentState)),
@@ -4169,7 +4282,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private WorkflowWorkspaceStage ResolveActiveWorkspaceStage()
     {
-        var stage = WorkflowWorkspacePlanner.ResolveActiveStage(CurrentWorkflowState, IntakeReadyForPreflight, HasExtractionArtifact);
+        var stage = WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+            CurrentWorkflowState,
+            IntakeReadyForPreflight,
+            HasExtractionArtifact,
+            workflowSession.WorkflowProfile,
+            HasCompletePlaPlanEvidenceSelection(),
+            IsPlaReadyForPlanEvidenceSelection());
         return stage == WorkflowWorkspaceStage.Preflight
             ? ResolveEarlyCheckWorkspaceStage()
             : stage;
@@ -4185,6 +4304,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         if (HasBlockingGroup(StructureCheckResults) || !HasStructureCheckResults)
         {
             return WorkflowWorkspaceStage.StructureCheck;
+        }
+
+        if (IsPlaReadyForPlanEvidenceSelection())
+        {
+            return HasCompletePlaPlanEvidenceSelection()
+                ? WorkflowWorkspaceStage.ExtractionReview
+                : WorkflowWorkspaceStage.PlaPlanEvidenceSelection;
         }
 
         if (HasBlockingGroup(GeoreferenceResults) || !HasGeoreferenceResults)
@@ -4208,12 +4334,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowWorkspaceStage.Intake => "Supporting Document Check",
             WorkflowWorkspaceStage.Preflight => ResolveEarlyCheckWorkspaceLabel(state),
             WorkflowWorkspaceStage.StructureCheck => "Structure Check",
-            WorkflowWorkspaceStage.GeoreferenceCheck => "Georeference Check",
-            WorkflowWorkspaceStage.DimensionCheck => "Dimension Check",
-            WorkflowWorkspaceStage.ExtractionReview => "Validate Points and Lines",
-            WorkflowWorkspaceStage.Validation => "Create Spatial Units",
-            WorkflowWorkspaceStage.Outputs => "Create Spatial Units",
-            WorkflowWorkspaceStage.SpatialReview => "Final Review",
+            WorkflowWorkspaceStage.GeoreferenceCheck => GeoreferenceEvidenceLabel,
+            WorkflowWorkspaceStage.DimensionCheck => DimensionEvidenceLabel,
+            WorkflowWorkspaceStage.PlaPlanEvidenceSelection => "Select Plan Evidence",
+            WorkflowWorkspaceStage.ExtractionReview => IsPlaPlanAnnexationWorkflow ? "Extract Plan Geometry" : "Validate Points and Lines",
+            WorkflowWorkspaceStage.Validation => IsPlaPlanAnnexationWorkflow ? "Review Local-Origin Geometry" : "Create Spatial Units",
+            WorkflowWorkspaceStage.Outputs => IsPlaPlanAnnexationWorkflow ? "Review Local-Origin Geometry" : "Create Spatial Units",
+            WorkflowWorkspaceStage.SpatialReview => IsPlaPlanAnnexationWorkflow ? "Visual Comparison" : "Final Review",
             WorkflowWorkspaceStage.ReadyToComplete => "Finalize",
             _ => "Supporting Document Check"
         };
@@ -4241,6 +4368,23 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         return HasGeoreferenceResults ? "Dimension Check" : "Georeference Check";
+    }
+
+    private bool IsPlaReadyForPlanEvidenceSelection()
+    {
+        return IsPlaPlanAnnexationWorkflow
+            && HasStructureCheckResults
+            && !HasBlockingGroup(StructureCheckResults)
+            && HasPlaPlanAnnexationPdfSource();
+    }
+
+    private bool HasPlaPlanAnnexationPdfSource()
+    {
+        return workflowSession.SourceFiles.Any(sourceFile =>
+            sourceFile.Copied
+            && !string.IsNullOrWhiteSpace(sourceFile.CopiedPath)
+            && (SourceRole.Matches(sourceFile.SourceRole, SourceRole.PlanAnnexationPdf)
+                || string.Equals(sourceFile.SourceType, PlaPlanEvidenceSelectionService.SourceType, StringComparison.OrdinalIgnoreCase)));
     }
 
     private string? ResolveSelectedTransactionType()
@@ -4285,9 +4429,86 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         return TransactionId is null ? "not available" : null;
     }
 
+    private bool HasCompletePlaPlanEvidenceSelection()
+    {
+        if (!string.Equals(workflowSession.WorkflowProfile, SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
+            var selection = PlaPlanEvidenceSelectionService.LoadSelection(layout);
+            return selection is not null
+                && !string.IsNullOrWhiteSpace(selection.GeneratedPlanEvidenceRelativePath)
+                && PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(layout, selection.GeneratedPlanEvidenceRelativePath, out var evidencePath)
+                && File.Exists(evidencePath);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private bool HasPlaFinalizeReadiness()
+    {
+        var caseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
+        if (string.IsNullOrWhiteSpace(caseFolderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+            return plaFinalizeReadinessService.CheckReadiness(layout).IsReady;
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException
+            or InvalidOperationException
+            or System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    private void RefreshPlaPlanEvidenceSelection()
+    {
+        if (!ShowPlaPlanEvidenceSelection
+            || string.IsNullOrWhiteSpace(workflowSession.CaseFolderPath)
+            || string.IsNullOrWhiteSpace(workflowSession.TransactionId))
+        {
+            plaPlanEvidenceSelection = null;
+            return;
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath);
+        plaPlanEvidenceSelection = new PlaPlanEvidenceSelectionViewModel(
+            layout,
+            workflowSession.TransactionId,
+            workflowSession.SourceFiles,
+            plaPlanEvidenceSelectionService,
+            OnPlaPlanEvidenceSelectionSaved);
+    }
+
+    private void OnPlaPlanEvidenceSelectionSaved(PlaPlanEvidenceSelectionSaveResult result)
+    {
+        RefreshWorkflowProperties();
+    }
+
     private void RefreshWorkflowProperties()
     {
         sourceFileItems = workflowSession.SourceFiles.Select(sourceFile => new SourceFileListItem(sourceFile)).ToArray();
+        RefreshPlaPlanEvidenceSelection();
+        Caption = WorkflowPaneTitle;
+        TabText = WorkflowPaneTitle;
         LoadSupportingDocumentImportOptions();
         UpdateReviewRowValidationFlags();
         RefreshReviewViewerState();
@@ -4298,6 +4519,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CurrentStep));
         NotifyPropertyChanged(nameof(StatusText));
         NotifyPropertyChanged(nameof(LifecycleStatusText));
+        NotifyPropertyChanged(nameof(Caption));
+        NotifyPropertyChanged(nameof(TabText));
+        NotifyPropertyChanged(nameof(WorkflowPaneTitle));
         NotifyPropertyChanged(nameof(HeaderTransactionText));
         NotifyPropertyChanged(nameof(HeaderTaskNameText));
         NotifyPropertyChanged(nameof(CurrentStepBadge));
@@ -4311,13 +4535,21 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(IsStructureCheckStageActive));
         NotifyPropertyChanged(nameof(IsGeoreferenceCheckStageActive));
         NotifyPropertyChanged(nameof(IsDimensionCheckStageActive));
+        NotifyPropertyChanged(nameof(IsPlaPlanEvidenceSelectionStageActive));
         NotifyPropertyChanged(nameof(IsExtractionReviewStageActive));
+        NotifyPropertyChanged(nameof(IsPlaPlanAnnexationWorkflow));
+        NotifyPropertyChanged(nameof(IsPlaDeferredEvidenceSummaryVisible));
+        NotifyPropertyChanged(nameof(ShowPlaPlanEvidenceSelection));
+        NotifyPropertyChanged(nameof(PlaPlanEvidenceSelection));
         NotifyPropertyChanged(nameof(IsValidationStageActive));
         NotifyPropertyChanged(nameof(IsOutputsStageActive));
         NotifyPropertyChanged(nameof(IsSpatialReviewStageActive));
         NotifyPropertyChanged(nameof(HasReadyToCompleteStage));
         NotifyPropertyChanged(nameof(ShowIntakeSummary));
         NotifyPropertyChanged(nameof(ShowPreflightSummary));
+        NotifyPropertyChanged(nameof(ShowStructureCheckSummary));
+        NotifyPropertyChanged(nameof(ShowGeoreferenceSummary));
+        NotifyPropertyChanged(nameof(ShowDimensionCheckSummary));
         NotifyPropertyChanged(nameof(ShowExtractionSummary));
         NotifyPropertyChanged(nameof(ShowValidationSummaryCard));
         NotifyPropertyChanged(nameof(ShowOutputsSummary));
@@ -4354,6 +4586,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(IntakeDetailText));
         NotifyPropertyChanged(nameof(IntakeSummaryExpanded));
         NotifyPropertyChanged(nameof(ExtractionReviewBadge));
+        NotifyPropertyChanged(nameof(ExtractionReviewTitle));
         NotifyPropertyChanged(nameof(ExtractionReviewActionLabel));
         NotifyPropertyChanged(nameof(ExtractionReviewHelpText));
         NotifyPropertyChanged(nameof(ShowExtractionDecisionGate));
@@ -4373,6 +4606,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ReviewVolumeFolios));
         NotifyPropertyChanged(nameof(ReviewMemorandumGroups));
         NotifyPropertyChanged(nameof(IsPxaSurveyPlanReview));
+        NotifyPropertyChanged(nameof(IsPxaOnlySurveyPlanReview));
+        NotifyPropertyChanged(nameof(IsPlaPlanAnnexationReview));
         NotifyPropertyChanged(nameof(ReviewHasSegmentSolverBlockers));
         NotifyPropertyChanged(nameof(ReviewHasBlockers));
         NotifyPropertyChanged(nameof(ReviewGateText));
@@ -4425,6 +4660,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(StructureCheckBadge));
         NotifyPropertyChanged(nameof(GeoreferenceBadge));
         NotifyPropertyChanged(nameof(DimensionCheckBadge));
+        NotifyPropertyChanged(nameof(GeoreferenceEvidenceLabel));
+        NotifyPropertyChanged(nameof(DimensionEvidenceLabel));
         NotifyPropertyChanged(nameof(PreflightDetailsExpanded));
         NotifyPropertyChanged(nameof(PreflightToggleText));
         NotifyPropertyChanged(nameof(PreflightSummaryText));
@@ -5131,6 +5368,18 @@ internal sealed record SupportingDocumentStatusItem(
 }
 
 internal sealed record WorkflowLifecycleStep(string Name, string State, string Icon);
+
+internal sealed class PlaFinalizeReadinessOnlyUploader : IPlaGeneratedOutputAttachmentUploader
+{
+    public Task<PlaGeneratedOutputAttachmentResult> UploadAsync(
+        SelectedInnolaTransaction transaction,
+        string pdfPath,
+        string sourceType,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(PlaGeneratedOutputAttachmentResult.Succeeded(sourceType, pdfPath));
+    }
+}
 
 internal sealed record PreflightResultListItem(string Severity, PreflightCheck Check)
 {

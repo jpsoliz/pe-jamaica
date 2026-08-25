@@ -786,7 +786,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Georeference Check"
+                <TextBlock Text="{Binding GeoreferenceEvidenceLabel}"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -862,7 +862,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Dimension Check"
+                <TextBlock Text="{Binding DimensionEvidenceLabel}"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -933,12 +933,91 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding IsPlaPlanEvidenceSelectionStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="Select Plan Evidence"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#E8EEF3"
+                        BorderBrush="#6B7C8F"
+                        Margin="0,8,10,8">
+                  <TextBlock Text="PLA"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="Select and save the plan/map page before running PLA extraction. Georeference and dimension evidence will be evaluated after OCR/vision extraction."
+                           FontSize="12"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <Grid>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <TextBlock Grid.Row="0"
+                             Text="PLA Plan Evidence"
+                             FontSize="12"
+                             FontWeight="SemiBold"
+                             Foreground="#1F2933" />
+                  <Grid Grid.Row="1"
+                        Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="72" />
+                      <ColumnDefinition Width="86" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0"
+                              ItemsSource="{Binding PlaPlanEvidenceSelection.SourceOptions}"
+                              SelectedItem="{Binding PlaPlanEvidenceSelection.SelectedSource, Mode=TwoWay}"
+                              DisplayMemberPath="FileName"
+                              FontSize="11"
+                              MinHeight="26"
+                              Margin="0,0,8,0" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding PlaPlanEvidenceSelection.SelectedPageNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="11"
+                             MinHeight="26"
+                             Margin="0,0,8,0"
+                             HorizontalContentAlignment="Right"
+                             VerticalContentAlignment="Center" />
+                    <Button Grid.Column="2"
+                            Content="Save"
+                            Command="{Binding PlaPlanEvidenceSelection.SaveSelectionCommand}"
+                            Style="{StaticResource SmallButtonStyle}"
+                            MinHeight="26" />
+                  </Grid>
+                  <TextBlock Grid.Row="2"
+                             Margin="0,6,0,0"
+                             Text="{Binding PlaPlanEvidenceSelection.ArtifactStatusText}"
+                             FontSize="11"
+                             Foreground="#52616B"
+                             TextWrapping="Wrap" />
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
                 Visibility="{Binding IsExtractionReviewStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Validate Points and Lines"
+                <TextBlock Text="{Binding ExtractionReviewTitle}"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <Border DockPanel.Dock="Right"
@@ -996,6 +1075,60 @@
                             Visibility="{Binding ShowManualCogoFallbackAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
                   </WrapPanel>
                 </StackPanel>
+
+                <Border Margin="0,10,0,0"
+                        Padding="8"
+                        Background="#F7F8FA"
+                        BorderBrush="#D8E1E7"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Visibility="{Binding ShowPlaPlanEvidenceSelection, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  <Grid>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0"
+                               Text="PLA Plan Evidence"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933" />
+                    <Grid Grid.Row="1"
+                          Margin="0,8,0,0">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="86" />
+                      </Grid.ColumnDefinitions>
+                      <ComboBox Grid.Column="0"
+                                ItemsSource="{Binding PlaPlanEvidenceSelection.SourceOptions}"
+                                SelectedItem="{Binding PlaPlanEvidenceSelection.SelectedSource, Mode=TwoWay}"
+                                DisplayMemberPath="FileName"
+                                FontSize="11"
+                                MinHeight="26"
+                                Margin="0,0,8,0" />
+                      <TextBox Grid.Column="1"
+                               Text="{Binding PlaPlanEvidenceSelection.SelectedPageNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                               FontSize="11"
+                               MinHeight="26"
+                               Margin="0,0,8,0"
+                               HorizontalContentAlignment="Right"
+                               VerticalContentAlignment="Center" />
+                      <Button Grid.Column="2"
+                              Content="Save"
+                              Command="{Binding PlaPlanEvidenceSelection.SaveSelectionCommand}"
+                              Style="{StaticResource SmallButtonStyle}"
+                              MinHeight="26" />
+                    </Grid>
+                    <TextBlock Grid.Row="2"
+                               Margin="0,6,0,0"
+                               Text="{Binding PlaPlanEvidenceSelection.ArtifactStatusText}"
+                               FontSize="11"
+                               Foreground="#52616B"
+                               TextWrapping="Wrap" />
+                  </Grid>
+                </Border>
 
                 <Border Margin="0,10,0,0"
                         Padding="8"
@@ -1761,7 +1894,7 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
-                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+                Visibility="{Binding ShowStructureCheckSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
@@ -1792,11 +1925,11 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
-                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+                Visibility="{Binding ShowGeoreferenceSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Georeference Check"
+                <TextBlock Text="{Binding GeoreferenceEvidenceLabel}"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1823,11 +1956,11 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
-                Visibility="{Binding ShowPreflightSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
+                Visibility="{Binding ShowDimensionCheckSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
           <Expander IsExpanded="{Binding PreflightSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Dimension Check"
+                <TextBlock Text="{Binding DimensionEvidenceLabel}"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"
@@ -1858,7 +1991,7 @@
           <Expander IsExpanded="{Binding ExtractionSummaryExpanded}">
             <Expander.Header>
               <DockPanel>
-                <TextBlock Text="Validate Points and Lines"
+                <TextBlock Text="{Binding ExtractionReviewTitle}"
                            Style="{StaticResource SectionHeaderTextStyle}" />
                 <Border DockPanel.Dock="Right"
                         Style="{StaticResource SmallPillBorderStyle}"

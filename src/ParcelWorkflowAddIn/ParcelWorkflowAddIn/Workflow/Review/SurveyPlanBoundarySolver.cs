@@ -18,14 +18,16 @@ public sealed class SurveyPlanBoundarySolver
         bool repairPrematureClosingLabels = false,
         bool replaceConflictingCoordinatesFromReviewedSegments = false,
         bool mergeGeneratedBoundaryPointsWithReferenceRows = true,
-        bool removeInactiveManualRows = false)
+        bool removeInactiveManualRows = false,
+        bool useLocalOriginWhenUnreferenced = false)
     {
         var result = Solve(
             document,
             documentAreaSqM,
             useDerivedCoordinatesAsAnchors,
             repairPrematureClosingLabels,
-            replaceConflictingCoordinatesFromReviewedSegments);
+            replaceConflictingCoordinatesFromReviewedSegments,
+            useLocalOriginWhenUnreferenced);
         if (replaceConflictingCoordinatesFromReviewedSegments && mergeGeneratedBoundaryPointsWithReferenceRows)
         {
             result = MergeGeneratedBoundaryPointsWithReferenceRows(document, result);
@@ -36,6 +38,7 @@ public sealed class SurveyPlanBoundarySolver
         {
             status = result.Status,
             geometry_source = "reviewed_boundary_segments",
+            geometry_reference_mode = useLocalOriginWhenUnreferenced ? "local_origin" : "source_coordinates",
             derived_point_count = result.DerivedPointCount,
             closure_distance_m = result.ClosureDistanceM,
             computed_area_sq_m = result.ComputedAreaSqM,
@@ -138,7 +141,8 @@ public sealed class SurveyPlanBoundarySolver
         double? documentAreaSqM,
         bool useDerivedCoordinatesAsAnchors = false,
         bool repairPrematureClosingLabels = false,
-        bool replaceConflictingCoordinatesFromReviewedSegments = false)
+        bool replaceConflictingCoordinatesFromReviewedSegments = false,
+        bool useLocalOriginWhenUnreferenced = false)
     {
         var findings = new List<string>();
         var segments = document.Segments
@@ -182,6 +186,20 @@ public sealed class SurveyPlanBoundarySolver
         if (parsedSegments.Count == 0)
         {
             return SurveyPlanBoundarySolverResult.Blocked(findings);
+        }
+
+        if (useLocalOriginWhenUnreferenced && coordinates.Count == 0)
+        {
+            var originPoint = parsedSegments[0].FromPoint;
+            var origin = new SolverPoint(
+                originPoint,
+                0d,
+                0d,
+                "local_origin",
+                "local_origin");
+            coordinates[originPoint] = origin;
+            derivedPoints[originPoint] = origin;
+            findings.Add($"Local-origin geometry uses point {originPoint} at (0,0) because no geographic coordinate control was extracted.");
         }
 
         if (replaceConflictingCoordinatesFromReviewedSegments
@@ -381,6 +399,11 @@ public sealed class SurveyPlanBoundarySolver
                 scale,
                 angle,
                 unscaledAreaDeltaPercent.Value)).ToList();
+            if (IsPrintedReferenceCoordinate(anchors.Value.Second))
+            {
+                unscaledFindings.Add(
+                    $"Reference-fit scale factor {scale.ToString("0.######", CultureInfo.InvariantCulture)} exceeds allowable reviewed-boundary scale tolerance. Check the printed reference point labels, bearings, or distances.");
+            }
             var unscaledUniqueFindings = DeduplicateFindings(unscaledFindings);
             result = new SurveyPlanBoundarySolverResult(
                 unscaledUniqueFindings.Any(IsBlockingFinding) ? "blocked" : unscaledUniqueFindings.Count > 0 ? "warning" : "passed",
@@ -438,7 +461,8 @@ public sealed class SurveyPlanBoundarySolver
             areaDeltaPercent = areaDelta.Value / documentAreaSqM.Value * 100d;
         }
 
-        if (Math.Abs(scale - 1d) > ReferenceFitScaleBlockerTolerance)
+        if (Math.Abs(scale - 1d) > ReferenceFitScaleBlockerTolerance
+            && documentAreaSqM.HasValue)
         {
             referenceFitFindings.Add(
                 $"Reference-fit scale factor {scale.ToString("0.######", CultureInfo.InvariantCulture)} exceeds allowable reviewed-boundary scale tolerance. Check the printed reference point labels, bearings, or distances.");
@@ -610,7 +634,7 @@ public sealed class SurveyPlanBoundarySolver
             yield return $"Reference-fit rotation would be {angleDegrees.ToString("0.###", CultureInfo.InvariantCulture)} degrees if both printed reference points were forced.";
         }
 
-        yield return $"Reviewed boundary area is within document tolerance ({areaDeltaPercent.ToString("0.###", CultureInfo.InvariantCulture)}% difference).";
+        yield return $"Reviewed boundary area is within document area tolerance ({areaDeltaPercent.ToString("0.###", CultureInfo.InvariantCulture)}% difference).";
 
         foreach (var referencePoint in referencePoints)
         {

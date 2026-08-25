@@ -76,6 +76,11 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - PXA memorandum evidence values are first-class review data: table/narrative section type, scale-bar text evidence, split instrument-check date/result values, and explicit negative attendance text such as `No one appeared` must remain visible in the Memorandum tab, saved rule JSON, review hash, and report path.
 - PXA memorandum detection must prefer visible/extracted text evidence over stale boolean flags: if OCR or embedded text contains `MEMORANDUM`, the memorandum rules should evaluate, and scale labels such as `SCALE : 1cm To 10m R.F 1/1000` should remain visible evidence instead of collapsing to only `Present`.
 - PXA review loading must recover memorandum applicability from root-level OCR/text fields and memorandum-sourced metadata, not only from `document_sections.memorandum`; real case artifacts may put visible text evidence outside the normalized section object.
+- PLA Plan Annexation is a distinct Innola transaction profile from PE/PXA. It uses required source type `st_plan_annexation_pdf`; do not route it through PE computation-sheet extraction or hardcode it as PXA.
+- PLA plan PDFs may be image-only, multi-page documents with title information before the plan page. The examiner must select the plan evidence page/area; first implementation may use `selection_type = "full_page"` while preserving schema room for later rectangular crop metadata.
+- PLA selected plan evidence should be generated as PDF when practical, with PNG fallback, and kept as a case-folder artifact until the final PRO step saves/attaches generated output documents back to Innola.
+- PLA geometry extraction should reuse OCR/vision and reviewed segment/boundary solver patterns where possible. If no usable georeference exists, generate form-valid local-origin geometry such as `(0,0)` and record that it is unreferenced instead of blocking solely for missing geographic placement.
+- PLA source-plan versus generated-geometry matching is visual similarity/overlay evidence only; do not label it as survey-accurate georeferencing or authoritative parcel fabric promotion.
 - Workflow/state-changing stories must test restart/reopen, stale artifacts, duplicate IDs, missing/corrupt artifacts, and explicit failure messages when practical.
 - Python adapter changes should include Python tests where pure Python logic changes, and must keep emitted JSON artifacts contract-compatible.
 - Orientation and bearing-consistency changes need tests for clockwise detection, counterclockwise detection, indeterminate geometry, missing/unparsable bearing text, and tolerance-driven mismatch outcomes.
@@ -153,4 +158,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-08-20
+Last Updated: 2026-08-24

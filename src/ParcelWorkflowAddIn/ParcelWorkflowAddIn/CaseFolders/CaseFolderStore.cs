@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Workflow.Pla;
 
 namespace ParcelWorkflowAddIn.CaseFolders;
 
@@ -363,6 +364,7 @@ public sealed partial class CaseFolderStore
         return candidates
             .Where(path => File.Exists(path) || Directory.Exists(path))
             .Select(path => new AvailableArtifact(Path.GetFileName(path), path))
+            .Concat(DiscoverPlaPlanEvidenceArtifacts(layout))
             .Concat(Directory.Exists(layout.OutputDirectory)
                 ? Directory.GetDirectories(layout.OutputDirectory, "*.gdb", SearchOption.TopDirectoryOnly)
                     .Select(path => new AvailableArtifact(Path.GetFileName(path), path))
@@ -370,6 +372,40 @@ public sealed partial class CaseFolderStore
             .GroupBy(artifact => artifact.Path, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToArray();
+    }
+
+    private static IReadOnlyList<AvailableArtifact> DiscoverPlaPlanEvidenceArtifacts(CaseFolderLayout layout)
+    {
+        var selectionPath = PlaPlanEvidenceSelectionService.GetSelectionArtifactPath(layout);
+        if (!File.Exists(selectionPath))
+        {
+            return Array.Empty<AvailableArtifact>();
+        }
+
+        var artifacts = new List<AvailableArtifact>
+        {
+            new(
+                Path.GetFileName(selectionPath),
+                selectionPath,
+                "pla_plan_evidence_selection",
+                IsInternalGenerated: true)
+        };
+
+        var selection = PlaPlanEvidenceSelectionService.LoadSelection(layout);
+        if (selection is null
+            || string.IsNullOrWhiteSpace(selection.GeneratedPlanEvidenceRelativePath)
+            || !PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(layout, selection.GeneratedPlanEvidenceRelativePath, out var evidencePath)
+            || !File.Exists(evidencePath))
+        {
+            return artifacts;
+        }
+
+        artifacts.Add(new AvailableArtifact(
+            Path.GetFileName(evidencePath),
+            evidencePath,
+            "pla_generated_plan_evidence",
+            IsInternalGenerated: true));
+        return artifacts;
     }
 
     private static WorkflowState ResolveWorkflowState(string workflowState, List<RecoverabilityIssue> issues)

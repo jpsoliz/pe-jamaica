@@ -41,7 +41,9 @@ public sealed record InnolaTransactionSettings(
     public static IReadOnlyList<string> SafeDefaultSupportedTransactionTypes { get; } = new[]
     {
         "Plan Examination",
-        "Cadastral Plan Examination"
+        "Cadastral Plan Examination",
+        "PLA",
+        "Plan Annexation"
     };
 
     public static IReadOnlyList<string> SafeDefaultComputeWorkflowStages { get; } = new[]

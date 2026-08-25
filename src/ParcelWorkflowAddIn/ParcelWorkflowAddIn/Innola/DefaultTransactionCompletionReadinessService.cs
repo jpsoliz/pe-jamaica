@@ -1,8 +1,10 @@
 using System.IO;
 using System.Text.Json;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Pla;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -10,6 +12,19 @@ public sealed class DefaultTransactionCompletionReadinessService : ITransactionC
 {
     public TransactionCompletionReadinessResult CheckReadiness(string caseFolderPath)
     {
+        var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+        if (File.Exists(layout.ManifestPath))
+        {
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            if (PlaFinalizeService.IsPlaWorkflow(manifest))
+            {
+                var plaReadiness = new PlaFinalizeService(new NoopPlaGeneratedOutputAttachmentUploader()).CheckReadiness(layout);
+                return plaReadiness.IsReady
+                    ? TransactionCompletionReadinessResult.Ready()
+                    : TransactionCompletionReadinessResult.Blocked(plaReadiness.Reason, plaReadiness.Message);
+            }
+        }
+
         var settings = InnolaTransactionSettings.Load();
         if (string.Equals(settings.ReviewWorkspaceMode, InnolaTransactionSettings.ReviewWorkspaceModeEnterpriseWorkingLayers, StringComparison.OrdinalIgnoreCase))
         {
@@ -31,7 +46,6 @@ public sealed class DefaultTransactionCompletionReadinessService : ITransactionC
 
             try
             {
-                var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
                 var disposition = JsonSerializer.Deserialize<ComputeReviewDispositionDocument>(File.ReadAllText(dispositionPath), JsonOptions);
                 if (disposition is null || !string.Equals(disposition.Decision, ComputeReviewDecision.Approved.ToContractValue(), StringComparison.OrdinalIgnoreCase))
                 {
@@ -120,5 +134,17 @@ public sealed class DefaultTransactionCompletionReadinessService : ITransactionC
         return Path.IsPathFullyQualified(path)
             ? path
             : Path.Combine(layout.RootDirectory, path.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    private sealed class NoopPlaGeneratedOutputAttachmentUploader : IPlaGeneratedOutputAttachmentUploader
+    {
+        public Task<PlaGeneratedOutputAttachmentResult> UploadAsync(
+            SelectedInnolaTransaction transaction,
+            string pdfPath,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(PlaGeneratedOutputAttachmentResult.Succeeded(sourceType, pdfPath));
+        }
     }
 }

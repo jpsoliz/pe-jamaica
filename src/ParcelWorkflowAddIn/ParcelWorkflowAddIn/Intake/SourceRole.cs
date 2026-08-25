@@ -7,6 +7,7 @@ public static class SourceRole
     public const string DwgSource = "dwg_source";
     public const string PlanMapReference = "plan_map_reference";
     public const string SurveyPlanPdf = "survey_plan_pdf";
+    public const string PlanAnnexationPdf = "plan_annexation_pdf";
     public const string WorkflowResumePackage = "workflow_resume_package";
     public const string ComputeReport = "compute_report";
     public const string AmbiguousDocument = "ambiguous_document";
@@ -33,6 +34,7 @@ public static class SourceRole
             DwgSource => DwgSource,
             PlanMapReference => PlanMapReference,
             SurveyPlanPdf => SurveyPlanPdf,
+            PlanAnnexationPdf => PlanAnnexationPdf,
             WorkflowResumePackage => WorkflowResumePackage,
             ComputeReport => ComputeReport,
             AmbiguousDocument => AmbiguousDocument,
@@ -70,6 +72,7 @@ public static class SourceRole
             DwgSource => "AutoCAD survey file",
             PlanMapReference => "survey plan / map reference",
             SurveyPlanPdf => "survey plan PDF",
+            PlanAnnexationPdf => "Plan annexation PDF",
             WorkflowResumePackage => "workflow package",
             ComputeReport => "compute report",
             AmbiguousDocument => "unclassified source",

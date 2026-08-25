@@ -340,10 +340,20 @@ internal static class ExtractionReviewPersistenceServiceTests
 
         var profiledSurveyPlanDocument = new ExtractionReviewDocument();
         profiledSurveyPlanDocument.RootMetadata["source_profile"] = "scanned_single_parcel_survey_plan_pdf";
+        var plaDocument = new ExtractionReviewDocument
+        {
+            ExtractionSource = "pla_plan_ocr_vision"
+        };
+        plaDocument.RootMetadata["source_profile"] = "pla_plan_annexation_selected_plan";
+        plaDocument.RootMetadata["primary_source_role"] = "plan_annexation_pdf";
 
         TestAssert.True(!PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(segmentedPeDocument), "Segment rows alone should not route a PE artifact into the PXA survey-plan UX.");
         TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(surveyPlanDocument), "Survey-plan extraction source should route into the PXA survey-plan UX.");
         TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(profiledSurveyPlanDocument), "Survey-plan source profile should route into the PXA survey-plan UX.");
+        TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaOnlySurveyPlanDocument(surveyPlanDocument), "PXA survey-plan source should keep PXA-only solver behavior.");
+        TestAssert.True(PxaSurveyPlanReviewRouting.IsPxaSurveyPlanDocument(plaDocument), "PLA selected-plan extraction should reuse the survey-plan boundary review UX.");
+        TestAssert.True(PxaSurveyPlanReviewRouting.IsPlaPlanAnnexationDocument(plaDocument), "PLA selected-plan review should remain distinguishable for local-origin solving.");
+        TestAssert.True(!PxaSurveyPlanReviewRouting.IsPxaOnlySurveyPlanDocument(plaDocument), "PLA selected-plan review should not receive PXA-only solver behavior.");
     }
 
     public static void ApprovalIsBlockedWhenUnresolvedRowsRemain()

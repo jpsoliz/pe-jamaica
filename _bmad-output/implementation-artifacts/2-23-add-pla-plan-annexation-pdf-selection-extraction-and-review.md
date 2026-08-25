@@ -4,7 +4,18 @@ baseline_commit: handoff-2026-08-24
 
 # Story 2.23: Add PLA Plan Annexation PDF Selection, Extraction, And Visual Review
 
-Status: ready-for-dev
+Status: superseded-by-split-stories
+
+## Split Notice
+
+This original jumbo story has been split into implementation-ready slices:
+
+- `2-23a-add-pla-transaction-profile-source-type-and-doc-type-resolution.md`
+- `2-23b-add-pla-plan-annexation-pdf-page-selection-and-evidence-artifact.md`
+- `2-23c-add-pla-selected-plan-extraction-review-and-local-origin-geometry.md`
+- `2-23d-add-pla-visual-comparison-and-finalize-upload-flow.md`
+
+Do not implement this parent story directly. Use the split stories above in order.
 
 ## Story
 

@@ -7,6 +7,7 @@ using ParcelWorkflowAddIn.Workflow.Execution;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.Reports;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.WorkflowRules;
@@ -346,6 +347,8 @@ public sealed class WorkflowSession
 
     public string DetectedProfileLabel { get; private set; } = "Detected profile: not refreshed";
 
+    public string? WorkflowProfile { get; private set; }
+
     public IReadOnlyList<string> IntakeIssues => intakeIssues;
 
     public IReadOnlyList<AvailableArtifact> AvailableArtifacts => availableArtifacts;
@@ -393,10 +396,10 @@ public sealed class WorkflowSession
     public bool CanRunDimensionCheck => !preflightRunActive && CanRunPreflightState(CurrentState) && IsStructureCheckPassed() && IsGeoreferenceCheckPassed();
 
     public bool CanRunExtractionReview => !extractionRunActive
-        && CanRunExtractionReviewState(CurrentState)
+        && CanRunExtractionReviewForCurrentProfileState()
         && IsStructureCheckPassed()
-        && IsGeoreferenceCheckPassed()
-        && IsDimensionCheckPassed();
+        && (IsPlaPlanAnnexationWorkflowWithSelection()
+            || (IsGeoreferenceCheckPassed() && IsDimensionCheckPassed()));
 
     public bool CanChooseManualCogoReview =>
         !extractionRunActive
@@ -431,6 +434,7 @@ public sealed class WorkflowSession
         availableArtifacts.Clear();
         ClearPreflightResults();
         DetectedProfileLabel = "Detected profile: not refreshed";
+        WorkflowProfile = null;
         StatusText = statusText;
         preflightRunActive = false;
         extractionRunActive = false;
@@ -459,6 +463,7 @@ public sealed class WorkflowSession
         availableArtifacts.Clear();
         ClearPreflightResults();
         DetectedProfileLabel = "Detected profile: not refreshed";
+        WorkflowProfile = null;
         StatusText = "Case created";
         return result;
     }
@@ -535,6 +540,7 @@ public sealed class WorkflowSession
         InvalidatePreflight(layout);
 
         DetectedProfileLabel = profile.DisplayLabel;
+        WorkflowProfile = ruleResolution?.ScriptPlan?.WorkflowProfile;
         intakeIssues.Clear();
         intakeIssues.AddRange(profile.Issues);
         if (ruleResolution is { Success: false } && !string.IsNullOrWhiteSpace(ruleResolution.ErrorMessage))
@@ -592,6 +598,7 @@ public sealed class WorkflowSession
         intakeIssues.Clear();
         intakeIssues.AddRange(result.RecoverabilityIssues.Select(issue => issue.Message));
         DetectedProfileLabel = result.Manifest.Payload.DetectedProfile?.DisplayLabel ?? "Detected profile: not refreshed";
+        WorkflowProfile = result.Manifest.Payload.WorkflowProfile;
         LoadPreflightResults(result.Layout);
         currentValidationSummary = LoadValidationSummary(result.Layout, result.ResolvedState);
         currentOutputSummary = LoadOutputSummary(result.Layout, result.ResolvedState);
@@ -986,6 +993,12 @@ public sealed class WorkflowSession
     private static bool CanRunExtractionReviewState(WorkflowState state)
     {
         return state is WorkflowState.PreflightPassed or WorkflowState.ExtractionFailed or WorkflowState.ReviewPending or WorkflowState.ReviewManualPending;
+    }
+
+    private bool CanRunExtractionReviewForCurrentProfileState()
+    {
+        return CanRunExtractionReviewState(CurrentState)
+            || (CurrentState == WorkflowState.PreflightBlocked && IsPlaPlanAnnexationWorkflowWithSelection());
     }
 
     private static bool CanChooseManualCogoReviewState(WorkflowState state)
@@ -1697,6 +1710,7 @@ public sealed class WorkflowSession
                 });
             InvalidatePreflight(layout);
             DetectedProfileLabel = profile.DisplayLabel;
+            WorkflowProfile = ruleResolution?.ScriptPlan?.WorkflowProfile;
             intakeIssues.Clear();
             intakeIssues.AddRange(profile.Issues);
             if (ruleResolution is { Success: false } && !string.IsNullOrWhiteSpace(ruleResolution.ErrorMessage))
@@ -1782,15 +1796,18 @@ public sealed class WorkflowSession
             return WorkflowScriptExecutionResult.Failed(StatusText);
         }
 
-        if (!CanRunExtractionReviewState(CurrentState)
+        var plaReadyForExtraction = IsPlaPlanAnnexationWorkflowWithSelection();
+        if (!CanRunExtractionReviewForCurrentProfileState()
             || !IsStructureCheckPassed()
-            || !IsGeoreferenceCheckPassed()
-            || !IsDimensionCheckPassed()
+            || (!plaReadyForExtraction && !IsGeoreferenceCheckPassed())
+            || (!plaReadyForExtraction && !IsDimensionCheckPassed())
             || string.IsNullOrWhiteSpace(CaseFolderPath)
             || string.IsNullOrWhiteSpace(TransactionId))
         {
             StatusText = !IsStructureCheckPassed()
                 ? "Run Structure Check successfully before starting Validate Points and Lines."
+                : IsPlaPlanAnnexationWorkflow()
+                    ? "Select and save PLA plan evidence before starting extraction."
                 : !IsGeoreferenceCheckPassed()
                     ? "Run Georeference Check successfully before starting Validate Points and Lines."
                     : !IsDimensionCheckPassed()
@@ -2649,6 +2666,30 @@ public sealed class WorkflowSession
 
     private bool IsDimensionCheckPassed() =>
         HasRealPassedCheck(dimensionCheckPassedChecks) && dimensionCheckBlockers.Count == 0;
+
+    private bool IsPlaPlanAnnexationWorkflow() =>
+        string.Equals(WorkflowProfile, SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsPlaPlanAnnexationWorkflowWithSelection()
+    {
+        if (!IsPlaPlanAnnexationWorkflow() || string.IsNullOrWhiteSpace(CaseFolderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(CaseFolderPath);
+            var selection = PlaPlanEvidenceSelectionService.LoadSelection(layout);
+            return selection is not null
+                && PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(layout, selection.GeneratedPlanEvidenceRelativePath, out var evidencePath)
+                && File.Exists(evidencePath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
 
     private static bool HasRealPassedCheck(IEnumerable<PreflightCheck> checks)
     {

@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-                          desktopVersion="3.6" version="1.1.215">
+                          desktopVersion="3.6" version="1.1.220">
     <Name>Cadastre Tool by Sidwell</Name>
     <Image>Images\Branding\CadastreTool32.png</Image>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
@@ -11,7 +11,7 @@
     <Company>Sidwell</Company>
   </AddInInfo>
   <modules>
-    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="false" caption="Parcel Workflow [Compute]">
+    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="false" caption="Parcel Workflow">
       <tabs>
         <tab id="ParcelWorkflow_Tab" caption="Cadastre tools">
           <group refID="ParcelWorkflow_Group" />
@@ -59,12 +59,12 @@
           <tooltip heading="Settings">Open local parcel workflow settings<disabledText /></tooltip>
         </button>
         <button id="ParcelWorkflow_ShowDockpaneButton"
-                caption="Parcel Workflow [Compute]"
+                caption="Parcel Workflow"
                 className="ShowParcelWorkflowDockpaneButton"
                 loadOnClick="true"
                 smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
                 largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
-          <tooltip heading="Parcel Workflow [Compute]">Open the compute parcel workflow pane<disabledText /></tooltip>
+          <tooltip heading="Parcel Workflow">Open the parcel workflow pane<disabledText /></tooltip>
         </button>
         <button id="ParcelWorkflow_AboutButton"
                 caption="About"
@@ -93,7 +93,7 @@
           <content className="TransactionPanelDockpane" />
         </dockPane>
         <dockPane id="ParcelWorkflow_Dockpane"
-                  caption="Parcel Workflow [Compute]"
+                  caption="Parcel Workflow"
                   className="ParcelWorkflowDockpaneViewModel"
                   dock="group"
                   condition="esri_mapping_mapPane">

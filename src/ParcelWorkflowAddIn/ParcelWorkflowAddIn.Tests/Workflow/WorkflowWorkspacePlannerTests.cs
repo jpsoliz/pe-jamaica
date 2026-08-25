@@ -1,4 +1,5 @@
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Intake;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -29,6 +30,87 @@ internal static class WorkflowWorkspacePlannerTests
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ExtractionFailed, false, true), "Extraction failed should focus extraction review.");
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ReviewPending, false, true), "Review pending should focus extraction review.");
         TestAssert.Equal(WorkflowWorkspaceStage.ExtractionReview, WorkflowWorkspacePlanner.ResolveActiveStage(WorkflowState.ReviewManualPending, false, true), "Manual review pending should keep focus on extraction review.");
+    }
+
+    public static void PlaPreflightPassedWithoutSelectionResolvesToPlanEvidenceSelection()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.PlaPlanEvidenceSelection,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightPassed,
+                false,
+                false,
+                SourceInputProfile.PlaPlanAnnexation,
+                hasPlaPlanEvidenceSelection: false),
+            "PLA should focus Select Plan Evidence before extraction when no saved selection exists.");
+    }
+
+    public static void PlaPreflightBlockedReadyForEvidenceResolvesToPlanEvidenceSelection()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.PlaPlanEvidenceSelection,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightBlocked,
+                true,
+                false,
+                SourceInputProfile.PlaPlanAnnexation,
+                hasPlaPlanEvidenceSelection: false,
+                plaReadyForPlanEvidenceSelection: true),
+            "PLA should focus Select Plan Evidence when Structure Check and plan annexation PDF are valid even if deferred evidence keeps preflight blocked.");
+    }
+
+    public static void PlaPreflightBlockedWithSelectionResolvesToExtractionWorkspace()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.ExtractionReview,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightBlocked,
+                true,
+                false,
+                SourceInputProfile.PlaPlanAnnexation,
+                hasPlaPlanEvidenceSelection: true,
+                plaReadyForPlanEvidenceSelection: true),
+            "PLA should move from Select Plan Evidence to extraction after the evidence artifact exists.");
+    }
+
+    public static void PlaPreflightBlockedNotReadyKeepsPreflightWorkspace()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.Preflight,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightBlocked,
+                true,
+                false,
+                SourceInputProfile.PlaPlanAnnexation,
+                hasPlaPlanEvidenceSelection: false,
+                plaReadyForPlanEvidenceSelection: false),
+            "PLA should keep the normal preflight route until Structure Check and the plan annexation PDF are valid.");
+    }
+
+    public static void PlaWithSelectionResolvesToExtractionWorkspace()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.ExtractionReview,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightPassed,
+                false,
+                false,
+                SourceInputProfile.PlaPlanAnnexation,
+                hasPlaPlanEvidenceSelection: true),
+            "PLA should focus extraction once selected plan evidence is saved.");
+    }
+
+    public static void NonPlaProfileKeepsDefaultExtractionWorkspace()
+    {
+        TestAssert.Equal(
+            WorkflowWorkspaceStage.ExtractionReview,
+            WorkflowWorkspacePlanner.ResolveProfileActiveStage(
+                WorkflowState.PreflightPassed,
+                false,
+                false,
+                SourceInputProfile.PxaSurveyPlan,
+                hasPlaPlanEvidenceSelection: false),
+            "Non-PLA profiles should keep existing extraction workspace routing.");
     }
 
     public static void ValidationStatesResolveToValidationWorkspace()

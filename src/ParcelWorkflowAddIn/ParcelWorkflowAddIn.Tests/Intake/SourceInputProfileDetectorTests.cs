@@ -56,6 +56,21 @@ internal static class SourceInputProfileDetectorTests
         TestAssert.Equal(0, profile.MissingRoles.Count, "PXA survey plan PDF should not require computation sheet.");
     }
 
+    public static void DetectsPlaPlanAnnexationPdfFromPlanAnnexationRole()
+    {
+        var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 8, 24, 2, 0, 0, TimeSpan.Zero));
+        var sources = new[]
+        {
+            Source("1000-55.pdf", ".pdf", SourceRole.PlanAnnexationPdf)
+        };
+
+        var profile = detector.Detect(sources);
+
+        TestAssert.Equal(SourceInputProfile.PlaPlanAnnexation, profile.ProfileCode, "PLA plan annexation profile code mismatch.");
+        TestAssert.Equal("matched", profile.Status, "PLA plan annexation PDF should be matched.");
+        TestAssert.Equal(0, profile.MissingRoles.Count, "PLA plan annexation PDF should not require PE/PXA source roles.");
+    }
+
     public static void IgnoresGeneratedComputeReportWhenDetectingProfile()
     {
         var detector = new SourceInputProfileDetector(() => new DateTimeOffset(2026, 8, 5, 2, 0, 0, TimeSpan.Zero));

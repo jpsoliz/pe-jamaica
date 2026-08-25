@@ -172,7 +172,9 @@
     "Cadastral Plan Examination",
     "Compute Survey Plan",
     "Plan Examination by Area",
-    "PXA"
+    "PXA",
+    "PLA",
+    "Plan Annexation"
   ],
   "compute_workflow_stages": [
     "Compute Survey Plan",
@@ -334,6 +336,14 @@
       "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
     },
     {
+      "source_type": "st_plan_annexation_pdf",
+      "workflow_role": "plan_annexation_pdf",
+      "display_name": "Plan annexation PDF",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf"]
+    },
+    {
       "source_type": "st_survey_points",
       "workflow_role": "coordinate_text_source",
       "display_name": "Structured survey points",
@@ -364,6 +374,30 @@
       "required": false,
       "internal_only": true,
       "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_plan_annex_output",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 1",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
+    },
+    {
+      "source_type": "st_plan_annex_output2",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 2",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
+    },
+    {
+      "source_type": "st_plan_annex_output3",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 3",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
     }
   ],
   "compute_transaction_type_profiles": [
@@ -408,6 +442,25 @@
       ],
       "primary_extraction_role": "survey_plan_pdf",
       "document_profile": "scanned_single_parcel_survey_plan_pdf"
+    },
+    {
+      "profile_id": "pla_plan_annexation",
+      "enabled": true,
+      "transaction_type_codes": ["PLA"],
+      "transaction_type_names": [
+        "PLA",
+        "Plan Annexation"
+      ],
+      "workflow_profile": "pla_plan_annexation",
+      "required_source_roles": [
+        "plan_annexation_pdf"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "plan_annexation_pdf",
+      "document_profile": "pla_plan_annexation_pdf"
     }
   ],
   "innola_attachment_upload_route": "source/sources/attach",

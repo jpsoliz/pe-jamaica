@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Workflow.Execution;
@@ -50,9 +51,82 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 => CreatePlanOcrArtifact(context),
             "inspect_dwg_reference"
                 => CreateDwgContextArtifact(context),
+            "select_plan_annexation_pdf_page"
+                => await ExecutePlaPlanEvidenceSelectionAsync(context, cancellationToken).ConfigureAwait(false),
             _
                 => WorkflowScriptStepExecutionResult.Failed($"Unsupported workflow script '{context.Step.Script}'.")
         };
+    }
+
+    private async Task<WorkflowScriptStepExecutionResult> ExecutePlaPlanEvidenceSelectionAsync(
+        WorkflowScriptExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var selection = PlaPlanEvidenceSelectionService.LoadSelection(context.Layout);
+        if (selection is null)
+        {
+            return WorkflowScriptStepExecutionResult.Failed("Select and save PLA plan evidence before running PLA extraction.");
+        }
+
+        var selectionPath = PlaPlanEvidenceSelectionService.GetSelectionArtifactPath(context.Layout);
+        if (!File.Exists(selectionPath)
+            || string.IsNullOrWhiteSpace(selection.GeneratedPlanEvidenceRelativePath)
+            || !PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(context.Layout, selection.GeneratedPlanEvidenceRelativePath, out var evidencePath)
+            || !File.Exists(evidencePath))
+        {
+            return WorkflowScriptStepExecutionResult.Failed("Saved PLA plan evidence is incomplete. Re-save the selected plan page before running PLA extraction.");
+        }
+
+        var route = ResolveExtractionRoute(context);
+        if (route.PrimarySource is null)
+        {
+            return WorkflowScriptStepExecutionResult.Failed("No copied PLA plan annexation source is available for selected-plan extraction.");
+        }
+
+        Directory.CreateDirectory(context.Layout.WorkingDirectory);
+        Directory.CreateDirectory(context.Layout.LogsDirectory);
+
+        var transactionNumber = context.Manifest.Payload.InnolaTransaction?.TransactionNumber ?? context.Manifest.TransactionId;
+        var reviewArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_review_data.json");
+        var routeArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "extraction_route.json");
+        var summaryArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "survey_plan_extraction_summary.json");
+        var probe = new SurveyPlanSourceProbe(
+            true,
+            TextLayerAvailable: false,
+            "selected_pla_plan_evidence",
+            string.Empty);
+        var extractionResult = await TryExecuteSurveyPlanExternalExtractionAsync(
+            context,
+            route,
+            transactionNumber,
+            reviewArtifactPath,
+            summaryArtifactPath,
+            routeArtifactPath,
+            probe,
+            cancellationToken,
+            evidencePath).ConfigureAwait(false);
+
+        if (extractionResult is null)
+        {
+            return WorkflowScriptStepExecutionResult.Failed("PLA selected-plan OCR/vision extraction is unavailable. Verify the configured Python environment and survey-plan OCR/vision adapter path.");
+        }
+
+        if (!extractionResult.Success)
+        {
+            return extractionResult;
+        }
+
+        EnrichPlaSelectedPlanReviewArtifact(reviewArtifactPath, selection);
+        WriteSurveyPlanSummaryArtifactFromReviewJson(summaryArtifactPath, reviewArtifactPath, route, transactionNumber);
+
+        var artifacts = extractionResult.ArtifactPaths
+            .Append(selectionPath)
+            .Append(evidencePath)
+            .Where(path => File.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return WorkflowScriptStepExecutionResult.Passed(artifacts);
     }
 
     private async Task<WorkflowScriptStepExecutionResult> ExecuteDraftExtractionAsync(WorkflowScriptExecutionContext context, CancellationToken cancellationToken)
@@ -295,7 +369,8 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         string summaryArtifactPath,
         string routeArtifactPath,
         SurveyPlanSourceProbe probe,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? sourcePathOverride = null)
     {
         if (string.IsNullOrWhiteSpace(context.ExecutionSettings.PythonExecutable) || !File.Exists(context.ExecutionSettings.PythonExecutable))
         {
@@ -309,10 +384,13 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         }
 
         var processEnvironment = BuildProcessEnvironment(context.RuleSettings, route);
+        var sourcePath = string.IsNullOrWhiteSpace(sourcePathOverride)
+            ? route.PrimarySource!.CopiedPath
+            : sourcePathOverride;
         var stopwatch = Stopwatch.StartNew();
         var result = await processRunner.RunAsync(
             context.ExecutionSettings.PythonExecutable,
-            BuildSurveyPlanOcrVisionScriptArguments(scriptPath, route.PrimarySource!.CopiedPath, reviewArtifactPath, transactionNumber, context.RuleSettings),
+            BuildSurveyPlanOcrVisionScriptArguments(scriptPath, sourcePath!, reviewArtifactPath, transactionNumber, context.RuleSettings),
             TimeSpan.FromSeconds(Math.Max(30, context.Step.TimeoutSeconds)),
             processEnvironment,
             cancellationToken).ConfigureAwait(false);
@@ -1328,7 +1406,83 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         rootNode["routing_case_extraction_mode"] = route.CaseExtractionMode;
         ApplyGroupingMetadata(rootNode, route);
 
-        File.WriteAllText(reviewArtifactPath, rootNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(reviewArtifactPath, rootNode.ToJsonString());
+    }
+
+    private static void EnrichPlaSelectedPlanReviewArtifact(
+        string reviewArtifactPath,
+        PlaPlanEvidenceSelectionDocument selection)
+    {
+        var rootNode = JsonNode.Parse(File.ReadAllText(reviewArtifactPath)) as JsonObject;
+        if (rootNode is null)
+        {
+            return;
+        }
+
+        var rowCount = ReadInt(rootNode, "row_count");
+        var segmentCount = ReadInt(rootNode, "segment_row_count");
+        var hasCoordinates = HasUsableCoordinateRows(rootNode);
+        rootNode["source_profile"] = "pla_plan_annexation_selected_plan";
+        rootNode["extraction_source"] = "pla_plan_ocr_vision";
+        rootNode["active_extractor_id"] = "pla_plan_ocr_vision";
+        rootNode["primary_source_role"] = SourceRole.PlanAnnexationPdf;
+        rootNode["primary_source_file"] = Path.GetFileName(selection.GeneratedPlanEvidencePath);
+        rootNode["selected_plan_evidence"] = new JsonObject
+        {
+            ["source_type"] = selection.SourceType,
+            ["source_relative_path"] = selection.SourceRelativePath,
+            ["selected_page_number"] = selection.SelectedPageNumber,
+            ["selection_type"] = selection.SelectionType,
+            ["generated_plan_evidence_path"] = selection.GeneratedPlanEvidenceRelativePath,
+            ["generated_plan_evidence_format"] = selection.GeneratedPlanEvidenceFormat,
+            ["fallback_reason"] = selection.FallbackReason
+        };
+        rootNode["geometry_reference_mode"] = hasCoordinates ? "source_coordinates" : "local_origin";
+        rootNode["georeference_evidence"] = new JsonObject
+        {
+            ["coordinates_available"] = hasCoordinates,
+            ["georeference_available"] = hasCoordinates,
+            ["source"] = hasCoordinates ? "selected_plan_coordinate_evidence" : "no_coordinate_or_georeference_evidence",
+            ["message"] = hasCoordinates
+                ? "Coordinate evidence was extracted from the selected PLA plan evidence."
+                : "No usable coordinate/georeference evidence was extracted from the selected PLA plan evidence; geometry may be constructed in local-origin mode."
+        };
+
+        if (rootNode["review_notes"] is not JsonArray reviewNotes)
+        {
+            reviewNotes = [];
+            rootNode["review_notes"] = reviewNotes;
+        }
+
+        if (!hasCoordinates)
+        {
+            reviewNotes.Add("No usable coordinate/georeference evidence was extracted; PLA geometry will use local-origin construction if reviewed segments close.");
+        }
+
+        rootNode["stage_evidence"] = new JsonObject
+        {
+            ["structure_check"] = new JsonObject
+            {
+                ["source_profile"] = "pla_plan_annexation_selected_plan",
+                ["selected_plan_evidence"] = true,
+                ["selected_page_number"] = selection.SelectedPageNumber,
+                ["extractor_eligible"] = true
+            },
+            ["georeference_check"] = new JsonObject
+            {
+                ["coordinates_available"] = hasCoordinates,
+                ["geometry_reference_mode"] = hasCoordinates ? "source_coordinates" : "local_origin"
+            },
+            ["dimension_check"] = new JsonObject
+            {
+                ["point_count"] = rowCount,
+                ["segment_count"] = segmentCount,
+                ["geometry_candidate_status"] = segmentCount >= 3 ? "candidate" : "manual_review_required",
+                ["construction_source"] = "reviewed_boundary_segments"
+            }
+        };
+
+        File.WriteAllText(reviewArtifactPath, rootNode.ToJsonString());
     }
 
     private static void ApplyGroupingMetadata(JsonObject rootNode, ResolvedExtractionRoute route)
@@ -1395,6 +1549,45 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         rootNode["supports_multi_parcel"] = geometry.SupportsMultiParcel;
         rootNode["supports_boundary_breaks"] = geometry.SupportsBoundaryBreaks;
         rootNode["requires_grouping"] = geometry.RequiresGrouping;
+    }
+
+    private static bool HasUsableCoordinateRows(JsonObject rootNode)
+    {
+        if (rootNode["rows"] is not JsonArray rows)
+        {
+            return false;
+        }
+
+        foreach (var row in rows.OfType<JsonObject>())
+        {
+            if (TryReadCoordinate(row, "easting", out _)
+                && TryReadCoordinate(row, "northing", out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadCoordinate(JsonObject row, string propertyName, out double value)
+    {
+        value = 0d;
+        if (!row.TryGetPropertyValue(propertyName, out var node) || node is null)
+        {
+            return false;
+        }
+
+        if (node is JsonValue jsonValue
+            && jsonValue.TryGetValue<double>(out value)
+            && double.IsFinite(value))
+        {
+            return true;
+        }
+
+        var text = node.ToString();
+        return double.TryParse(text, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands, System.Globalization.CultureInfo.InvariantCulture, out value)
+            && double.IsFinite(value);
     }
 
     private static ManifestSourceFile? ResolvePointsSource(IReadOnlyList<ManifestSourceFile> sourceFiles, IReadOnlyList<string> preferredRoles)
@@ -1703,7 +1896,18 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         var profile = string.IsNullOrWhiteSpace(ruleSettings.OpenAiExtractionProfile)
             ? "balanced"
             : ruleSettings.OpenAiExtractionProfile.Trim();
-        return $"\"{scriptPath}\" --source-pdf \"{sourcePdfPath}\" --output-json \"{outputJsonPath}\" --transaction-number \"{transactionNumber}\" --model \"{model}\" --profile \"{profile}\"";
+        var sourceArgumentName = IsImageSource(sourcePdfPath) ? "--source-image" : "--source-pdf";
+        return $"\"{scriptPath}\" {sourceArgumentName} \"{sourcePdfPath}\" --output-json \"{outputJsonPath}\" --transaction-number \"{transactionNumber}\" --model \"{model}\" --profile \"{profile}\"";
+    }
+
+    private static bool IsImageSource(string sourcePath)
+    {
+        var extension = Path.GetExtension(sourcePath);
+        return string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".tif", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".tiff", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolveTextStructuredExtractionScriptPath(WorkflowExecutionSettings executionSettings)
@@ -1968,6 +2172,15 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private static int ReadInt(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
+            ? result
+            : 0;
+    }
+
+    private static int ReadInt(JsonObject element, string name)
+    {
+        return element.TryGetPropertyValue(name, out var value)
+               && value is JsonValue jsonValue
+               && jsonValue.TryGetValue<int>(out var result)
             ? result
             : 0;
     }

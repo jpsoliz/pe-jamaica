@@ -114,6 +114,43 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.Equal("1.0", document.Rows.First(row => row.PointIdentifier == "30").Easting, "Solver must not overwrite printed coordinates silently.");
     }
 
+    public static void SolvesPlaLocalOriginBoundaryWithoutCoordinateEvidence()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000701",
+            ExtractionSource = "pla_plan_ocr_vision"
+        };
+        document.RootMetadata["source_profile"] = "pla_plan_annexation_selected_plan";
+        document.RootMetadata["geometry_reference_mode"] = "local_origin";
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "pla-seg-1", Sequence = 1, FromPoint = "A", ToPoint = "B", BearingText = "N00 00E", DistanceText = "10.000" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "pla-seg-2", Sequence = 2, FromPoint = "B", ToPoint = "C", BearingText = "S90 00E", DistanceText = "10.000" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "pla-seg-3", Sequence = 3, FromPoint = "C", ToPoint = "D", BearingText = "S00 00W", DistanceText = "10.000" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "pla-seg-4", Sequence = 4, FromPoint = "D", ToPoint = "A", BearingText = "N90 00W", DistanceText = "10.000" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, null, useLocalOriginWhenUnreferenced: true);
+
+        TestAssert.True(result.Status is "passed" or "warning", "Local-origin PLA boundary should not block solely because geographic control is absent.");
+        var origin = document.Rows.FirstOrDefault(row => row.PointIdentifier == "A");
+        TestAssert.True(origin is not null && origin.Easting == "0" && origin.Northing == "0", "Local-origin solve should seed the first boundary point at zero.");
+        TestAssert.Equal(4, document.Rows.Count(row => row.ExtractionStatus == "derived_from_reviewed_segments"), "All PLA boundary vertices should be locally constructed.");
+        TestAssert.True(result.ComputedAreaSqM.GetValueOrDefault() > 99d, "Local-origin boundary should compute shape area.");
+        TestAssert.True(document.RootMetadata["boundary_solver"]?.ToJsonString().Contains("local_origin", StringComparison.OrdinalIgnoreCase) == true, "Solver diagnostics should preserve local-origin reference mode.");
+    }
+
+    public static void PlaLocalOriginModeDoesNotChangeDefaultMissingAnchorBehavior()
+    {
+        var document = new ExtractionReviewDocument { TransactionNumber = "100000701" };
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "pla-seg-1", Sequence = 1, FromPoint = "A", ToPoint = "B", BearingText = "N00 00E", DistanceText = "10.000" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, null);
+
+        TestAssert.Equal("blocked", result.Status, "Default survey-plan solve should still block when no coordinate anchor exists.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("no coordinate", StringComparison.OrdinalIgnoreCase)), "Default missing-anchor diagnostic should remain unchanged for PE/PXA.");
+    }
+
     public static void DeduplicatesRepeatedPrintedCoordinateConflictFindings()
     {
         var document = new ExtractionReviewDocument { TransactionNumber = "100000861" };

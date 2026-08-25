@@ -240,6 +240,56 @@
           "timeout_seconds": 600
         }
       ]
+    },
+    {
+      "rule_id": "pla_plan_annexation_v1",
+      "rule_version": "0.1.0",
+      "workflow_profile": "pla_plan_annexation",
+      "detected_profiles": [
+        "pla_plan_annexation"
+      ],
+      "transaction_type_profiles": [
+        "pla_plan_annexation"
+      ],
+      "document_profiles": [
+        "pla_plan_annexation_pdf"
+      ],
+      "transaction_types": [
+        "PLA",
+        "Plan Annexation"
+      ],
+      "process_steps": [
+        "parcel_workflow"
+      ],
+      "required_sources": [
+        {
+          "role": "plan_annexation_pdf",
+          "extensions": [
+            ".pdf"
+          ]
+        }
+      ],
+      "script_plan": [
+        {
+          "step_name": "select_plan_annexation_pdf_page",
+          "adapter": "extraction_adapter",
+          "script": "select_plan_annexation_pdf_page",
+          "input_roles": [
+            "plan_annexation_pdf"
+          ],
+          "output_artifacts": [
+            "working/pla_plan_annexation/pla_plan_evidence_selection.json",
+            "working/survey_plan_extraction_summary.json",
+            "working/extraction_review_data.json",
+            "working/extraction_route.json"
+          ],
+          "parameters": {
+            "provider": "manual_review",
+            "document_profile": "pla_plan_annexation_pdf"
+          },
+          "timeout_seconds": 300
+        }
+      ]
     }
   ]
 }

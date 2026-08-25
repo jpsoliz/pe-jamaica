@@ -142,6 +142,39 @@ internal static class WorkflowRuleResolverTests
         TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.SurveyPlanPdf), "PXA alias plan should use survey plan PDF input role.");
     }
 
+    public static void PlaPlanAnnexationProfileResolvesToPlaPlan()
+    {
+        using var rules = DefaultRulesFile();
+        var resolver = Resolver(rules.Path);
+        var profile = new DetectedSourceInputProfile(
+            SourceInputProfile.PlaPlanAnnexation,
+            SourceInputProfile.PlaPlanAnnexationLabel,
+            "matched",
+            FixedNow().UtcDateTime.ToString("O"),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+        var sources = new[]
+        {
+            Source("1000-55.pdf", ".pdf", SourceRole.PlanAnnexationPdf)
+        };
+        var context = new WorkflowRuleResolutionContext(
+            "PLA",
+            "parcel_workflow",
+            profile,
+            sources,
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            "pla_plan_annexation",
+            "pla_plan_annexation",
+            "pla_plan_annexation_pdf");
+
+        var result = resolver.Resolve(context);
+
+        TestAssert.True(result.Success, "PLA plan annexation should resolve.");
+        TestAssert.Equal("pla_plan_annexation_v1", result.ScriptPlan!.RuleId, "PLA rule id mismatch.");
+        TestAssert.Equal("pla_plan_annexation", result.ScriptPlan.WorkflowProfile, "PLA workflow profile mismatch.");
+        TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.PlanAnnexationPdf), "PLA plan should use plan annexation PDF input role.");
+    }
+
     public static void PlanParametersDoNotPersistSecretValues()
     {
         using var rules = SecretRulesFile();

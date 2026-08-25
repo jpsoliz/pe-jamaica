@@ -110,6 +110,49 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
             self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
 
+    def test_source_image_input_uses_selected_image_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source_image = temp_path / "pla_selected_plan.png"
+            output_json = temp_path / "extraction_review_data.json"
+            mock_json = temp_path / "mock_vision.json"
+            source_image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            mock_json.write_text(
+                json.dumps(
+                    {
+                        "segments": [
+                            {"from_point": "A", "to_point": "B", "bearing_txt": "N00 00E", "distance_txt": "10.000"},
+                            {"from_point": "B", "to_point": "C", "bearing_txt": "S90 00E", "distance_txt": "10.000"},
+                            {"from_point": "C", "to_point": "A", "bearing_txt": "S45 00W", "distance_txt": "14.142"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            previous = os.environ.get("SURVEY_PLAN_OCR_VISION_MOCK_JSON")
+            os.environ["SURVEY_PLAN_OCR_VISION_MOCK_JSON"] = str(mock_json)
+            try:
+                exit_code = survey_plan_ocr_vision_extraction.main(
+                    [
+                        "--source-image",
+                        str(source_image),
+                        "--output-json",
+                        str(output_json),
+                        "--transaction-number",
+                        "100000701",
+                    ]
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SURVEY_PLAN_OCR_VISION_MOCK_JSON", None)
+                else:
+                    os.environ["SURVEY_PLAN_OCR_VISION_MOCK_JSON"] = previous
+
+            self.assertEqual(0, exit_code)
+            payload = json.loads(output_json.read_text(encoding="utf-8"))
+            self.assertEqual("pla_selected_plan.png", payload["primary_source_file"])
+            self.assertEqual(3, payload["segment_row_count"])
+
     def test_memorandum_response_writes_document_section_and_memorandum_fields(self):
         raw = {
             "document_text": "MEMORANDUM\nSurveyed for Roxine Campbell",

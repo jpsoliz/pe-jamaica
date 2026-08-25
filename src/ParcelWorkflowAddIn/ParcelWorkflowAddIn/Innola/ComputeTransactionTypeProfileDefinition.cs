@@ -95,7 +95,17 @@ internal static class ComputeTransactionTypeProfileCatalog
             new[] { SourceRole.SurveyPlanPdf },
             new[] { SourceRole.CoordinateTextSource, SourceRole.DwgSource },
             SourceRole.SurveyPlanPdf,
-            "scanned_single_parcel_survey_plan_pdf")
+            "scanned_single_parcel_survey_plan_pdf"),
+        new ComputeTransactionTypeProfileDefinition(
+            "pla_plan_annexation",
+            true,
+            new[] { "PLA" },
+            new[] { "PLA", "Plan Annexation" },
+            "pla_plan_annexation",
+            new[] { SourceRole.PlanAnnexationPdf },
+            new[] { SourceRole.CoordinateTextSource, SourceRole.DwgSource },
+            SourceRole.PlanAnnexationPdf,
+            "pla_plan_annexation_pdf")
     };
 
     public static ResolvedComputeTransactionTypeProfile ToResolved(ComputeTransactionTypeProfileDefinition definition)

@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
 using ParcelWorkflowAddIn.Workflow.Execution;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Text.Json;
 
@@ -168,6 +169,162 @@ internal static class CreateParcelDraftExtractionAdapterTests
         var iniText = File.ReadAllText(iniPath);
         TestAssert.True(!iniText.Contains("case1_extraction_mode = structured_points", StringComparison.Ordinal), "Structured points should not drive extraction mode when a computation sheet is present.");
         TestAssert.True(iniText.Contains("points_file = GenericComputationSheet.pdf", StringComparison.Ordinal), "Computation sheet should feed points_file.");
+    }
+
+    public static void PlaExtractionUsesSelectedPlanEvidenceArtifact()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000701");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "pla-title-and-plan.pdf");
+        File.WriteAllBytes(sourcePath, new byte[] { 1, 2, 3, 4 });
+        var service = new PlaPlanEvidenceSelectionService(
+            new StubPlaPlanEvidenceRenderer(PlaPlanEvidenceRenderResult.Png(new byte[] { 137, 80, 78, 71 }, 600, 800, "test png fallback")),
+            () => new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero));
+        var source = new SourceFileCopyResult(
+            "innola:pla-plan",
+            sourcePath,
+            Path.GetFileName(sourcePath),
+            ".pdf",
+            4,
+            SourceRole.PlanAnnexationPdf,
+            "copied",
+            "Copied.",
+            true,
+            PlaPlanEvidenceSelectionService.SourceType);
+        var save = service.SaveSelectionAsync(layout, "100000701", new PlaPlanEvidenceSelectionRequest(source, 3), CancellationToken.None).GetAwaiter().GetResult();
+        TestAssert.True(save.Success, "PLA selected evidence setup should save.");
+
+        string? processArguments = null;
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            processArguments = arguments;
+            var reviewPath = Path.Combine(layout.WorkingDirectory, "provider_review.json");
+            File.WriteAllText(
+                reviewPath,
+                """
+                {
+                  "schema_version": "2.18.0",
+                  "transaction_number": "100000701",
+                  "source_profile": "pla_plan_annexation_selected_plan",
+                  "extraction_source": "pla_plan_ocr_vision",
+                  "active_extractor_id": "pla_plan_ocr_vision",
+                  "primary_source_role": "plan_annexation_pdf",
+                  "primary_source_file": "pla_selected_plan.png",
+                  "row_count": 0,
+                  "segment_row_count": 4,
+                  "rows": [],
+                  "segments": [
+                    { "segment_no": 1, "from_point": "A", "to_point": "B", "bearing_txt": "N00 00E", "distance_txt": "10.000", "source_page": 3, "source_zone": "selected_plan_full_page", "confidence": 0.9, "extraction_status": "matched", "review_note": "Visible segment." },
+                    { "segment_no": 2, "from_point": "B", "to_point": "C", "bearing_txt": "S90 00E", "distance_txt": "10.000", "source_page": 3, "source_zone": "selected_plan_full_page", "confidence": 0.9, "extraction_status": "matched", "review_note": "Visible segment." },
+                    { "segment_no": 3, "from_point": "C", "to_point": "D", "bearing_txt": "S00 00W", "distance_txt": "10.000", "source_page": 3, "source_zone": "selected_plan_full_page", "confidence": 0.9, "extraction_status": "matched", "review_note": "Visible segment." },
+                    { "segment_no": 4, "from_point": "D", "to_point": "A", "bearing_txt": "N90 00W", "distance_txt": "10.000", "source_page": 3, "source_zone": "selected_plan_full_page", "confidence": 0.9, "extraction_status": "matched", "review_note": "Visible segment." }
+                  ],
+                  "review_notes": []
+                }
+                """);
+            var stdout = $$"""
+            {
+              "status": "success",
+              "parser_status": "ocr_vision_parsed",
+              "parsed_row_count": 0,
+              "parsed_parcel_count": 1,
+              "outputs": {
+                "review_json": "{{reviewPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner);
+        var context = CreatePlaContext(layout, sourcePath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "PLA selected-plan extraction should succeed.");
+        TestAssert.True(processArguments?.Contains(PlaPlanEvidenceSelectionService.PngEvidenceFileName, StringComparison.OrdinalIgnoreCase) == true, "OCR/vision process should receive selected evidence artifact, not the original multi-page PDF.");
+        TestAssert.True(processArguments?.Contains("--source-image", StringComparison.OrdinalIgnoreCase) == true, "PNG selected evidence should use the OCR/vision image input contract.");
+        TestAssert.True(processArguments?.Contains("--source-pdf", StringComparison.OrdinalIgnoreCase) == false, "PNG selected evidence should not be passed through the PDF-only input contract.");
+        var reviewPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        TestAssert.True(File.Exists(reviewPath), "PLA extraction should write extraction_review_data.json.");
+        using var document = JsonDocument.Parse(File.ReadAllText(reviewPath));
+        var root = document.RootElement;
+        TestAssert.Equal("pla_plan_annexation_selected_plan", root.GetProperty("source_profile").GetString(), "PLA source profile should be persisted.");
+        TestAssert.Equal("local_origin", root.GetProperty("geometry_reference_mode").GetString(), "PLA with no coordinates should record local-origin geometry mode.");
+        TestAssert.True(root.GetProperty("georeference_evidence").GetProperty("coordinates_available").GetBoolean() == false, "No-coordinate evidence should be explicit.");
+        TestAssert.Equal(4, root.GetProperty("segment_row_count").GetInt32(), "PLA segment rows should be preserved.");
+        TestAssert.Equal(3, root.GetProperty("selected_plan_evidence").GetProperty("selected_page_number").GetInt32(), "Selected page evidence should be copied into review metadata.");
+    }
+
+    public static void PlaExtractionTreatsLabelOnlyPointRowsAsLocalOrigin()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000702");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "pla-title-and-plan.pdf");
+        File.WriteAllBytes(sourcePath, new byte[] { 1, 2, 3, 4 });
+        var service = new PlaPlanEvidenceSelectionService(
+            new StubPlaPlanEvidenceRenderer(PlaPlanEvidenceRenderResult.Png(new byte[] { 137, 80, 78, 71 }, 600, 800, "test png fallback")),
+            () => new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero));
+        var source = new SourceFileCopyResult(
+            "innola:pla-plan",
+            sourcePath,
+            Path.GetFileName(sourcePath),
+            ".pdf",
+            4,
+            SourceRole.PlanAnnexationPdf,
+            "copied",
+            "Copied.",
+            true,
+            PlaPlanEvidenceSelectionService.SourceType);
+        var save = service.SaveSelectionAsync(layout, "100000702", new PlaPlanEvidenceSelectionRequest(source, 2), CancellationToken.None).GetAwaiter().GetResult();
+        TestAssert.True(save.Success, "PLA selected evidence setup should save.");
+
+        var fakeRunner = new FakeProcessRunner((_, _, _, _, _) =>
+        {
+            var reviewPath = Path.Combine(layout.WorkingDirectory, "provider_review.json");
+            File.WriteAllText(
+                reviewPath,
+                """
+                {
+                  "schema_version": "2.18.0",
+                  "transaction_number": "100000702",
+                  "row_count": 2,
+                  "segment_row_count": 3,
+                  "rows": [
+                    { "point_identifier": "A", "easting": "", "northing": "" },
+                    { "point_identifier": "B" }
+                  ],
+                  "segments": [
+                    { "segment_no": 1, "from_point": "A", "to_point": "B", "bearing_txt": "N00 00E", "distance_txt": "10.000" },
+                    { "segment_no": 2, "from_point": "B", "to_point": "C", "bearing_txt": "S90 00E", "distance_txt": "10.000" },
+                    { "segment_no": 3, "from_point": "C", "to_point": "A", "bearing_txt": "S45 00W", "distance_txt": "14.142" }
+                  ],
+                  "review_notes": []
+                }
+                """);
+            var stdout = $$"""
+            {
+              "status": "success",
+              "parser_status": "ocr_vision_parsed",
+              "parsed_row_count": 2,
+              "parsed_parcel_count": 1,
+              "outputs": {
+                "review_json": "{{reviewPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner);
+        var context = CreatePlaContext(layout, sourcePath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "PLA selected-plan extraction should succeed.");
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
+        var root = document.RootElement;
+        TestAssert.Equal("local_origin", root.GetProperty("geometry_reference_mode").GetString(), "Label-only point rows should not count as usable coordinate evidence.");
+        TestAssert.True(root.GetProperty("georeference_evidence").GetProperty("coordinates_available").GetBoolean() == false, "Blank coordinate rows should keep no-coordinate evidence explicit.");
+        TestAssert.Equal(2, root.GetProperty("stage_evidence").GetProperty("dimension_check").GetProperty("point_count").GetInt32(), "Point row count should still preserve extracted label rows.");
     }
 
     public static void ExtractionAdapterDoesNotPromoteStructuredPointsWhenImportIsDisabled()
@@ -1095,6 +1252,100 @@ internal static class CreateParcelDraftExtractionAdapterTests
             new Dictionary<string, object?>());
     }
 
+    private static WorkflowScriptExecutionContext CreatePlaContext(CaseFolderLayout layout, string planAnnexationPath)
+    {
+        var sourceFiles = new[]
+        {
+            new ManifestSourceFile("innola:pla-plan", planAnnexationPath, Path.GetExtension(planAnnexationPath), 10, "2026-08-24T00:00:00Z", SourceRole.PlanAnnexationPdf, PlaPlanEvidenceSelectionService.SourceType)
+        };
+        var scriptPlan = new WorkflowScriptPlan(
+            "1.0.0",
+            "pla_plan_annexation_v1",
+            "0.1.0",
+            SourceInputProfile.PlaPlanAnnexation,
+            "2026-08-24T00:00:00Z",
+            WorkflowRuleResolver.ComputeSourceManifestHash(sourceFiles),
+            new[]
+            {
+                new WorkflowScriptStep(
+                    "select_plan_annexation_pdf_page",
+                    "extraction_adapter",
+                    "select_plan_annexation_pdf_page",
+                    new[] { SourceRole.PlanAnnexationPdf },
+                    new[]
+                    {
+                        "working/pla_plan_annexation/pla_plan_evidence_selection.json",
+                        "working/survey_plan_extraction_summary.json",
+                        "working/extraction_review_data.json",
+                        "working/extraction_route.json"
+                    },
+                    new Dictionary<string, string>
+                    {
+                        ["document_profile"] = "pla_plan_annexation_pdf"
+                    },
+                    600,
+                    true,
+                    "openai",
+                    "local")
+            });
+        var manifest = ManifestDocument.CreateInitial("100000701", "run-pla", new DateTimeOffset(2026, 8, 24, 0, 0, 0, TimeSpan.Zero), "tester") with
+        {
+            Payload = new ManifestPayload(
+                "preflight_passed",
+                sourceFiles,
+                new DetectedSourceInputProfile(SourceInputProfile.PlaPlanAnnexation, SourceInputProfile.PlaPlanAnnexationLabel, "matched", "2026-08-24T00:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
+                new ManifestInnolaTransaction(
+                    "txn-pla",
+                    "100000701",
+                    "task-pla",
+                    "Review Computation Findings",
+                    "parcel_workflow",
+                    "PLA",
+                    "PLA",
+                    "tester",
+                    "tester",
+                    "Super Group",
+                    null,
+                    null,
+                    "2026-08-24T00:00:00Z"),
+                null,
+                null,
+                SourceInputProfile.PlaPlanAnnexation,
+                "pla_plan_annexation_v1",
+                "0.1.0",
+                scriptPlan,
+                null)
+        };
+        var scriptPath = Path.Combine(layout.RootDirectory, "survey_plan_ocr_vision_extraction.py");
+        File.WriteAllText(scriptPath, "stub");
+        var executionSettings = new WorkflowExecutionSettings(
+            Path.Combine(layout.RootDirectory, "python.exe"),
+            Path.Combine(layout.RootDirectory, "CreateParcelFromFile.py"),
+            "output_adapter.py",
+            "normal",
+            120,
+            false,
+            false,
+            "source_then_computed",
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            "validation_adapter.py",
+            null);
+        File.WriteAllText(executionSettings.PythonExecutable, "stub");
+        File.WriteAllText(executionSettings.CreateParcelScriptPath, "stub");
+
+        return new WorkflowScriptExecutionContext(
+            layout,
+            manifest,
+            scriptPlan,
+            scriptPlan.Steps[0],
+            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+            executionSettings with { OutputAdapterScriptPath = scriptPath },
+            new Dictionary<string, object?>());
+    }
+
     private static CaseFolderLayout CreateLayout(string root, string transactionNumber)
     {
         var layout = CaseFolderLayout.For(root, transactionNumber);
@@ -1137,6 +1388,21 @@ internal static class CreateParcelDraftExtractionAdapterTests
         public void Dispose()
         {
             Environment.SetEnvironmentVariable(variableName, previousValue);
+        }
+    }
+
+    private sealed class StubPlaPlanEvidenceRenderer : IPlaPlanEvidenceRenderer
+    {
+        private readonly PlaPlanEvidenceRenderResult result;
+
+        public StubPlaPlanEvidenceRenderer(PlaPlanEvidenceRenderResult result)
+        {
+            this.result = result;
+        }
+
+        public Task<PlaPlanEvidenceRenderResult> RenderAsync(PlaPlanEvidenceRenderRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(result);
         }
     }
 

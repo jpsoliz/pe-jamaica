@@ -28,6 +28,13 @@ internal static class ComputeAttachmentSourceTypeCatalog
             InternalOnly: false,
             Extensions: new[] { ".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg" }),
         new ComputeAttachmentSourceTypeDefinition(
+            "st_plan_annexation_pdf",
+            SourceRole.PlanAnnexationPdf,
+            "Plan annexation PDF",
+            Required: true,
+            InternalOnly: false,
+            Extensions: new[] { ".pdf" }),
+        new ComputeAttachmentSourceTypeDefinition(
             "st_survey_points",
             SourceRole.CoordinateTextSource,
             "Structured survey points",
@@ -57,11 +64,11 @@ internal static class ComputeAttachmentSourceTypeCatalog
             Extensions: new[] { ".pdf" })
     };
 
-    public static IReadOnlyList<string> RequiredWorkflowRoles { get; } = SafeDefaults
-        .Where(item => item.Required && !item.InternalOnly)
-        .Select(item => item.WorkflowRole)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .ToArray();
+    public static IReadOnlyList<string> RequiredWorkflowRoles { get; } = new[]
+    {
+        SourceRole.PlanMapReference,
+        SourceRole.ComputationSheet
+    };
 
     public static IReadOnlyList<string> GeoreferenceSourceRoles { get; } = new[]
     {

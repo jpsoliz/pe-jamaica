@@ -16,6 +16,11 @@ public sealed class SourceInputProfileDetector
         ".jpeg"
     };
 
+    private static readonly HashSet<string> PdfExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf"
+    };
+
     private static readonly HashSet<string> PointsComputationExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".pdf",
@@ -46,6 +51,12 @@ public sealed class SourceInputProfileDetector
         var hasDwg = HasRoleWithExtension(classified, SourceRole.DwgSource, new[] { ".dwg" });
         var hasPlan = HasRoleWithExtension(classified, SourceRole.PlanMapReference, ImageDocumentExtensions);
         var hasSurveyPlanPdf = HasRoleWithExtension(classified, SourceRole.SurveyPlanPdf, ImageDocumentExtensions);
+        var hasPlanAnnexationPdf = HasRoleWithExtension(classified, SourceRole.PlanAnnexationPdf, PdfExtensions);
+
+        if (hasPlanAnnexationPdf)
+        {
+            return Profile(SourceInputProfile.PlaPlanAnnexation, SourceInputProfile.PlaPlanAnnexationLabel, "matched", Array.Empty<string>(), Array.Empty<string>());
+        }
 
         if (hasSurveyPlanPdf)
         {

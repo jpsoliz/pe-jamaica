@@ -86,6 +86,125 @@ internal static class ManifestPreflightServiceTests
             && check.CheckId != "supporting_document_plan_map_reference"), "PXA should not list PE-only source roles.");
     }
 
+    public static void PlaSupportingDocumentInventoryUsesOnlyPlanAnnexationPdf()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pla_plan_annexation",
+            new[]
+            {
+                Source("1000-55.pdf", ".pdf", "plan_annexation_pdf"),
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf"),
+                Source("computation.pdf", ".pdf", "computation_source")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 24, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pla-roles")
+            .Run(layout, "tester");
+
+        TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "required_role_plan_annexation_pdf"), "PLA should require the plan annexation PDF.");
+        TestAssert.True(summary.Payload.PassedChecks.Concat(summary.Payload.Blockers).Concat(summary.Payload.Warnings).All(check =>
+            check.CheckId != "required_role_survey_plan_pdf"
+            && check.CheckId != "required_role_computation_sheet"
+            && check.CheckId != "required_role_plan_map_reference"
+            && check.CheckId != "supporting_document_survey_plan_pdf"
+            && check.CheckId != "supporting_document_computation_sheet"
+            && check.CheckId != "supporting_document_plan_map_reference"), "PLA should not list PE/PXA source roles.");
+    }
+
+    public static void PlaPreflightBlocksMissingPlanAnnexationPdf()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pla_plan_annexation",
+            new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", "survey_plan_pdf"),
+                Source("computation.pdf", ".pdf", "computation_source")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 24, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pla-missing")
+            .Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "PLA missing plan annexation PDF should block.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "required_role_plan_annexation_pdf"), "Missing PLA plan annexation PDF blocker should be present.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.Message.Contains("Plan annexation PDF", StringComparison.OrdinalIgnoreCase)), "Missing PLA blocker should use a clear display label.");
+    }
+
+    public static void PlaPreflightBlocksUnreadablePlanAnnexationPdf()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pla_plan_annexation",
+            new[]
+            {
+                Source("1000-55.pdf", ".pdf", "plan_annexation_pdf", CreateFile: false)
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 24, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pla-unreadable")
+            .Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "PLA unreadable plan annexation PDF should block.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "source_file_exists_plan_annexation_pdf"), "Unreadable/missing PLA source file blocker should be present.");
+    }
+
+    public static void PlaPreflightBlocksNonPdfPlanAnnexationSource()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pla_plan_annexation",
+            new[]
+            {
+                Source("1000-55.png", ".png", "plan_annexation_pdf")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 24, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pla-not-pdf")
+            .Run(layout, "tester");
+
+        TestAssert.Equal("blocked", summary.Payload.Status, "PLA non-PDF plan annexation source should block.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "source_file_extension_plan_annexation_pdf"), "Non-PDF PLA source file blocker should be present.");
+        TestAssert.True(summary.Payload.Blockers.Any(check => check.Message.Contains("PDF", StringComparison.OrdinalIgnoreCase)), "Non-PDF blocker should mention PDF.");
+    }
+
+    public static void PlaPreflightPassesValidPlanAnnexationPdfBeforeExtraction()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pla_plan_annexation",
+            new[]
+            {
+                Source("1000-55.pdf", ".pdf", "plan_annexation_pdf")
+            });
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 24, 4, 0, 0, TimeSpan.Zero),
+            () => "preflight-pla-valid")
+            .Run(layout, "tester");
+
+        TestAssert.Equal("passed", summary.Payload.Status, "PLA with a valid plan annexation PDF should pass initial preflight before selected-plan extraction.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.Category != "georeference" && check.Category != "dimension"), "PLA initial preflight should not block on coordinate or geometry evidence before extraction.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "georeference_spatial_validation_readiness"
+            && check.Outcome == "deferred"
+            && SourceRole.Matches(check.SourceRole, SourceRole.PlanAnnexationPdf)), "PLA georeference readiness should be deferred to selected-plan extraction.");
+        TestAssert.True(summary.Payload.PassedChecks.Any(check =>
+            check.CheckId == "dimension_geometry_construction_readiness"
+            && check.Outcome == "deferred"
+            && SourceRole.Matches(check.SourceRole, SourceRole.PlanAnnexationPdf)), "PLA dimension readiness should be deferred to selected-plan extraction.");
+    }
+
     public static void ManifestPreflightPassesValidScenarioB()
     {
         using var tempRoot = new TempDirectory();
@@ -894,12 +1013,16 @@ internal static class ManifestPreflightServiceTests
             "scenario_a" => new DetectedSourceInputProfile("scenario_a", SourceInputProfile.ScenarioALabel, "matched", "2026-06-09T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
             "scenario_b" => new DetectedSourceInputProfile("scenario_b", SourceInputProfile.ScenarioBLabel, "matched", "2026-06-09T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
             "pxa_survey_plan_pdf" => new DetectedSourceInputProfile("pxa_survey_plan_pdf", SourceInputProfile.PxaSurveyPlanLabel, "matched", "2026-07-08T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
+            "pla_plan_annexation" => new DetectedSourceInputProfile("pla_plan_annexation", "PLA plan annexation", "matched", "2026-08-24T02:00:00Z", Array.Empty<string>(), Array.Empty<string>()),
             "unsupported_intake" => new DetectedSourceInputProfile("unsupported_intake", SourceInputProfile.UnsupportedIntakeLabel, "unsupported", "2026-06-09T02:00:00Z", Array.Empty<string>(), new[] { "Unsupported intake." }),
             _ => new DetectedSourceInputProfile("incomplete_intake", SourceInputProfile.IncompleteIntakeLabel, "incomplete", "2026-06-09T02:00:00Z", new[] { "plan_map_reference" }, new[] { "Missing: plan/map reference." })
         };
-        var transactionProfile = profileCode == "pxa_survey_plan_pdf"
-            ? ComputeTransactionTypeProfileCatalog.ToResolved(ComputeTransactionTypeProfileCatalog.SafeDefaults.First(item => item.ProfileId == "pxa_single_parcel_survey_plan"))
-            : null;
+        var transactionProfile = profileCode switch
+        {
+            "pxa_survey_plan_pdf" => ComputeTransactionTypeProfileCatalog.ToResolved(ComputeTransactionTypeProfileCatalog.SafeDefaults.First(item => item.ProfileId == "pxa_single_parcel_survey_plan")),
+            "pla_plan_annexation" => ComputeTransactionTypeProfileCatalog.ToResolved(ComputeTransactionTypeProfileCatalog.SafeDefaults.First(item => item.ProfileId == "pla_plan_annexation")),
+            _ => null
+        };
 
         ManifestSerializer.Write(
             created.Layout.ManifestPath,
@@ -907,9 +1030,9 @@ internal static class ManifestPreflightServiceTests
         return (created.Layout, sources);
     }
 
-    internal static SourceSeed Source(string fileName, string extension, string role)
+    internal static SourceSeed Source(string fileName, string extension, string role, bool CreateFile = true)
     {
-        return new SourceSeed(fileName, extension, role, CopiedPath: null, CreateFile: true);
+        return new SourceSeed(fileName, extension, role, CopiedPath: null, CreateFile: CreateFile);
     }
 
     private static void WriteSurveyPlanSummary(

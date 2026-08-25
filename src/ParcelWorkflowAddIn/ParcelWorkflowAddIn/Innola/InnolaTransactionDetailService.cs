@@ -292,7 +292,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return InnolaAttachmentUploadResult.Failure("Could not prepare uploaded source for transaction registration.", exception.GetType().Name);
         }
 
-        RemovePreviousComputeReportSources(existingSources, sourceType);
+        RemovePreviousReplaceableGeneratedSources(existingSources, sourceType);
         existingSources.Add(uploadedSource);
         var payload = new JsonArray(existingSources.Select(node => node.DeepClone()).ToArray());
         var payloadJson = payload.ToJsonString();
@@ -562,14 +562,20 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         }
     }
 
-    private static void RemovePreviousComputeReportSources(List<JsonNode> sources, string sourceType)
+    private static void RemovePreviousReplaceableGeneratedSources(List<JsonNode> sources, string sourceType)
     {
-        if (!string.Equals(sourceType, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase))
+        if (!IsReplaceableGeneratedSourceType(sourceType))
         {
             return;
         }
 
         sources.RemoveAll(source => HasSourceType(source, sourceType));
+    }
+
+    private static bool IsReplaceableGeneratedSourceType(string sourceType)
+    {
+        return string.Equals(sourceType, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase)
+            || PlaOutputDocumentSourceTypeResolver.OrderedOutputSourceTypes.Contains(sourceType, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool HasSourceType(JsonNode? source, string sourceType)
@@ -1025,6 +1031,11 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             || text.Contains("single parcel survey", StringComparison.Ordinal))
         {
             sourceType = "st_survey_plan_pdf";
+        }
+        else if (text.Contains("plan annexation", StringComparison.Ordinal)
+            || text.Contains("annexation", StringComparison.Ordinal))
+        {
+            sourceType = "st_plan_annexation_pdf";
         }
         else if (text.Contains("surveyplan", StringComparison.Ordinal)
             || text.Contains("survey plan", StringComparison.Ordinal)

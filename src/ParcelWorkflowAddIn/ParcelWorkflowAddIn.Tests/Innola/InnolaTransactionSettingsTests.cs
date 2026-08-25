@@ -64,9 +64,11 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(2, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
+        TestAssert.Equal(4, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
         TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Fallback review workspace mode mismatch.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "Fallback first supported transaction type mismatch.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("PLA"), "Fallback supported transaction types should include PLA.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Annexation"), "Fallback supported transaction types should include Plan Annexation.");
         TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Fallback review workspace mode warning mismatch.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback warning mismatch.");
         TestAssert.True(settings.ComputeWorkflowStagesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback compute workflow stage warning mismatch.");
@@ -85,7 +87,7 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(2, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
+        TestAssert.Equal(4, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("empty or invalid", StringComparison.OrdinalIgnoreCase) == true, "Invalid list warning mismatch.");
     }
 
@@ -196,6 +198,7 @@ internal static class InnolaTransactionSettingsTests
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
         var pe = settings.ResolveComputeTransactionTypeProfile("Compute Survey Plan", "Assign Computation Task");
         var pxa = settings.ResolveComputeTransactionTypeProfile("PXA");
+        var pla = settings.ResolveComputeTransactionTypeProfile("Plan Annexation");
 
         TestAssert.True(settings.ComputeTransactionTypeProfilesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Missing profiles should warn about safe defaults.");
         TestAssert.Equal("pe_computation_review", pe?.ProfileId, "PE safe default profile mismatch.");
@@ -204,6 +207,10 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal("pxa_single_parcel_survey_plan", pxa?.ProfileId, "PXA safe default profile mismatch.");
         TestAssert.True(pxa!.RequiredSourceRoles.Contains("survey_plan_pdf"), "PXA should require survey plan PDF.");
         TestAssert.True(!pxa.RequiredSourceRoles.Contains("computation_sheet"), "PXA should not require computation sheet.");
+        TestAssert.Equal("pla_plan_annexation", pla?.ProfileId, "PLA safe default profile mismatch.");
+        TestAssert.True(pla!.RequiredSourceRoles.Contains("plan_annexation_pdf"), "PLA should require plan annexation PDF.");
+        TestAssert.True(!pla.RequiredSourceRoles.Contains("survey_plan_pdf"), "PLA should not reuse PXA survey plan PDF.");
+        TestAssert.True(!pla.RequiredSourceRoles.Contains("computation_sheet"), "PLA should not require PE computation sheet.");
     }
 
     public static void ProfileHintBeatsBroadTransactionTypeName()
@@ -248,6 +255,129 @@ internal static class InnolaTransactionSettingsTests
         TestAssert.Equal("custom_pxa", profile?.ProfileId, "Configured profile id mismatch.");
         TestAssert.Equal("survey_plan_pdf", profile?.PrimaryExtractionRole, "Primary extraction role mismatch.");
         TestAssert.Equal("scanned_single_parcel_survey_plan_pdf", profile?.DocumentProfile, "Document profile mismatch.");
+    }
+
+    public static void CheckedInConfigurationIncludesPlaTransactionProfile()
+    {
+        var settings = InnolaTransactionSettings.Load();
+        var profileByCode = settings.ResolveComputeTransactionTypeProfile("PLA");
+        var profileByName = settings.ResolveComputeTransactionTypeProfile("Plan Annexation");
+        var sourceType = settings.ComputeAttachmentSourceTypes.FirstOrDefault(item =>
+            item.SourceType.Equals("st_plan_annexation_pdf", StringComparison.OrdinalIgnoreCase));
+        var outputSourceTypes = PlaOutputDocumentSourceTypeResolver.OrderedOutputSourceTypes
+            .Select(sourceType => settings.ComputeAttachmentSourceTypes.FirstOrDefault(item =>
+                item.SourceType.Equals(sourceType, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("PLA"), "Supported transaction types should include PLA code.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Annexation"), "Supported transaction types should include Plan Annexation name.");
+        TestAssert.Equal("pla_plan_annexation", profileByCode?.ProfileId, "PLA code should resolve to PLA profile.");
+        TestAssert.Equal("pla_plan_annexation", profileByName?.ProfileId, "Plan Annexation should resolve to PLA profile.");
+        TestAssert.True(profileByCode!.RequiredSourceRoles.Contains("plan_annexation_pdf"), "PLA profile should require plan annexation PDF.");
+        TestAssert.Equal("plan_annexation_pdf", profileByCode.PrimaryExtractionRole, "PLA primary extraction role mismatch.");
+        TestAssert.Equal("pla_plan_annexation_pdf", profileByCode.DocumentProfile, "PLA document profile mismatch.");
+        TestAssert.Equal("plan_annexation_pdf", sourceType?.WorkflowRole, "PLA input source type should map to plan annexation PDF role.");
+        TestAssert.True(sourceType?.Required == true, "PLA source type should be required for the PLA profile.");
+        TestAssert.True(sourceType?.SupportsExtension(".pdf") == true, "PLA input source type should support PDFs.");
+        TestAssert.True(outputSourceTypes.All(item => item is not null), "All PLA output source types should be configured.");
+        TestAssert.True(outputSourceTypes.All(item => item?.WorkflowRole == PlaOutputDocumentSourceTypeResolver.GeneratedOutputRole), "PLA output source types should be configured for generated output.");
+        TestAssert.True(outputSourceTypes.All(item => item?.InternalOnly == true && item.Required == false), "PLA output source types should be internal/generated and optional.");
+    }
+
+    public static void PlaOutputDocumentTypeResolverUsesOrderedLocalConfiguration()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "compute_attachment_source_types": [
+                {
+                  "source_type": "st_plan_annexation_pdf",
+                  "workflow_role": "plan_annexation_pdf",
+                  "display_name": "Plan annexation PDF",
+                  "required": true,
+                  "internal_only": false,
+                  "extensions": [".pdf"]
+                },
+                {
+                  "source_type": "st_plan_annex_output",
+                  "workflow_role": "pla_generated_output",
+                  "display_name": "PLA generated output 1",
+                  "required": false,
+                  "internal_only": true,
+                  "extensions": [".pdf", ".png"]
+                },
+                {
+                  "source_type": "st_plan_annex_output2",
+                  "workflow_role": "pla_generated_output",
+                  "display_name": "PLA generated output 2",
+                  "required": false,
+                  "internal_only": true,
+                  "extensions": [".pdf", ".png"]
+                },
+                {
+                  "source_type": "st_plan_annex_output3",
+                  "workflow_role": "pla_generated_output",
+                  "display_name": "PLA generated output 3",
+                  "required": false,
+                  "internal_only": true,
+                  "extensions": [".pdf", ".png"]
+                }
+              ]
+            }
+            """);
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        var result = PlaOutputDocumentSourceTypeResolver.Resolve(settings, 2);
+
+        TestAssert.True(result.Success, "Local PLA output source type should resolve.");
+        TestAssert.Equal(2, result.SourceTypes.Count, "Two generated outputs should resolve two source types.");
+        TestAssert.Equal("st_plan_annex_output", result.SourceTypes[0], "First PLA output source type mismatch.");
+        TestAssert.Equal("st_plan_annex_output2", result.SourceTypes[1], "Second PLA output source type mismatch.");
+        TestAssert.Equal("local_configuration", result.ResolutionSource, "PLA output source should come from local configuration.");
+        TestAssert.Equal(null, result.Diagnostic, "Successful local resolution should not produce diagnostics.");
+    }
+
+    public static void PlaOutputDocumentTypeResolverBlocksMoreThanThreeOutputs()
+    {
+        var settings = InnolaTransactionSettings.Load();
+
+        var result = PlaOutputDocumentSourceTypeResolver.Resolve(settings, 4);
+
+        TestAssert.True(!result.Success, "More than three generated PLA output documents should block.");
+        TestAssert.True(result.Diagnostic?.Contains("up to 3", StringComparison.OrdinalIgnoreCase) == true, "More-than-three diagnostic should be clear.");
+    }
+
+    public static void PlaOutputDocumentTypeResolverFailsWhenConfiguredAsExternalInput()
+    {
+        using var settingsFile = WriteSettingsFile(
+            """
+            {
+              "compute_attachment_source_types": [
+                {
+                  "source_type": "st_plan_annexation_pdf",
+                  "workflow_role": "plan_annexation_pdf",
+                  "display_name": "Plan annexation PDF",
+                  "required": true,
+                  "internal_only": false,
+                  "extensions": [".pdf"]
+                },
+                {
+                  "source_type": "st_plan_annex_output",
+                  "workflow_role": "pla_generated_output",
+                  "display_name": "PLA generated output 1",
+                  "required": true,
+                  "internal_only": false,
+                  "extensions": [".pdf", ".png"]
+                }
+              ]
+            }
+            """);
+        var settings = InnolaTransactionSettings.Load(settingsFile.Path);
+
+        var result = PlaOutputDocumentSourceTypeResolver.Resolve(settings, 1);
+
+        TestAssert.True(!result.Success, "External/required PLA output source type should fail.");
+        TestAssert.True(result.Diagnostic?.Contains("internal", StringComparison.OrdinalIgnoreCase) == true, "Invalid PLA output diagnostic should mention internal/generated configuration.");
     }
 
     public static void ManualReviewRetryThresholdLoadsFromConfiguration()

@@ -7,6 +7,7 @@ internal enum WorkflowWorkspaceStage
     StructureCheck,
     GeoreferenceCheck,
     DimensionCheck,
+    PlaPlanEvidenceSelection,
     ExtractionReview,
     Validation,
     Outputs,
@@ -32,5 +33,31 @@ internal static class WorkflowWorkspacePlanner
             WorkflowState.SpatialReviewApproved => WorkflowWorkspaceStage.ReadyToComplete,
             _ => WorkflowWorkspaceStage.Intake
         };
+    }
+
+    public static WorkflowWorkspaceStage ResolveProfileActiveStage(
+        WorkflowState state,
+        bool intakeReadyForPreflight,
+        bool hasReviewArtifact,
+        string? workflowProfile,
+        bool hasPlaPlanEvidenceSelection,
+        bool plaReadyForPlanEvidenceSelection = false)
+    {
+        var stage = ResolveActiveStage(state, intakeReadyForPreflight, hasReviewArtifact);
+        if (!string.Equals(workflowProfile, Intake.SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase))
+        {
+            return stage;
+        }
+
+        if (state == WorkflowState.PreflightBlocked && plaReadyForPlanEvidenceSelection)
+        {
+            return hasPlaPlanEvidenceSelection
+                ? WorkflowWorkspaceStage.ExtractionReview
+                : WorkflowWorkspaceStage.PlaPlanEvidenceSelection;
+        }
+
+        return stage == WorkflowWorkspaceStage.ExtractionReview && !hasPlaPlanEvidenceSelection
+            ? WorkflowWorkspaceStage.PlaPlanEvidenceSelection
+            : stage;
     }
 }

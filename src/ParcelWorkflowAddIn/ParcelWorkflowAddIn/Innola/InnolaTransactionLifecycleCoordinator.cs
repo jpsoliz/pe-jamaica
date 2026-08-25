@@ -5,6 +5,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Reports;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -22,6 +23,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
     private readonly IComputeExaminationReportService computeExaminationReportService;
     private readonly IComputeReportAttachmentService computeReportAttachmentService;
     private readonly IInnolaPlanCheckService planCheckService;
+    private readonly PlaFinalizeService plaFinalizeService;
     private readonly Func<DateTimeOffset> getUtcNow;
 
     public InnolaTransactionLifecycleCoordinator(
@@ -48,6 +50,9 @@ public sealed class InnolaTransactionLifecycleCoordinator
         this.computeExaminationReportService = computeExaminationReportService ?? new ComputeExaminationReportService();
         this.computeReportAttachmentService = computeReportAttachmentService ?? new ComputeReportAttachmentService(() => sessionManager.CurrentSession, detailService);
         this.planCheckService = planCheckService ?? new MockInnolaPlanCheckService();
+        this.plaFinalizeService = new PlaFinalizeService(
+            new PlaGeneratedOutputAttachmentUploader(() => sessionManager.CurrentSession, detailService),
+            getUtcNow: getUtcNow);
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -257,8 +262,10 @@ public sealed class InnolaTransactionLifecycleCoordinator
         var now = NowString();
         try
         {
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            var isPlaWorkflow = PlaFinalizeService.IsPlaWorkflow(manifest);
             var disposition = dispositionPersistenceService.Load(layout);
-            if (disposition is not null)
+            if (disposition is not null && !isPlaWorkflow)
             {
                 var plannedPackageFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName(sessionManager.SelectedTransaction!.TransactionNumber);
                 disposition = SaveWorkingPackageState(
@@ -411,7 +418,7 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 disposition = updatedDisposition;
             }
 
-            if (disposition is not null)
+            if (disposition is not null && !isPlaWorkflow)
             {
                 var reportResult = await computeExaminationReportService.GenerateAsync(
                     layout,
@@ -554,6 +561,48 @@ public sealed class InnolaTransactionLifecycleCoordinator
                         spatialUnitId: disposition.SpatialUnitId,
                         spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
                 }
+            }
+
+            if (isPlaWorkflow)
+            {
+                UpdateManifestAndAudit(
+                    "pla_output_attachment_started",
+                    "started",
+                    "Starting PLA generated output document attachment.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready");
+
+                var plaUpload = await plaFinalizeService.UploadGeneratedOutputsAsync(
+                    layout,
+                    sessionManager.SelectedTransaction!,
+                    sessionManager.CurrentUser?.Username,
+                    cancellationToken).ConfigureAwait(false);
+                if (!plaUpload.Success)
+                {
+                    var message = SafeRetryMessage(plaUpload.Message, "Could not attach PLA generated output documents. Try again.");
+                    sessionManager.MarkLifecycleError(message);
+                    UpdateManifestAndAudit(
+                        "pla_output_attachment_failed",
+                        "failed",
+                        message,
+                        plaUpload.ErrorCategory,
+                        "error",
+                        completionReady: true,
+                        completionReadyReason: "ready",
+                        lastErrorCategory: plaUpload.ErrorCategory);
+                    return InnolaTransactionLoadResult.Failure(message);
+                }
+
+                UpdateManifestAndAudit(
+                    "pla_output_attachment_uploaded",
+                    "succeeded",
+                    "PLA generated output documents attached to the transaction.",
+                    null,
+                    LifecycleStatusForManifest(),
+                    completionReady: true,
+                    completionReadyReason: "ready");
             }
 
             var packageFileName = disposition?.WorkingPackageFileName

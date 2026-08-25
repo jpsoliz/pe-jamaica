@@ -340,12 +340,22 @@ public sealed class ManifestPreflightService
         var sources = manifest.Payload.SourceFiles
             .Where(source => !IsInternalGeneratedSource(source))
             .ToArray();
+        var plaPlanAnnexationSource = TryGetValidPlaPlanAnnexationSource(manifest, sources);
         var hasConcreteGeoreferenceValidation = false;
         var georeferenceSourceRule = ruleCatalog.TryGetRule("georeference_source_presence");
         if (georeferenceSourceRule is { Enabled: true } && RuleAppliesToStage(georeferenceSourceRule, stageId))
         {
             var georeferenceSource = sources.FirstOrDefault(source => RuleAppliesToSource(georeferenceSourceRule, source));
-            if (georeferenceSource is null)
+            if (georeferenceSource is null && plaPlanAnnexationSource is not null)
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    georeferenceSourceRule.Category,
+                    georeferenceSourceRule.RuleId,
+                    "Deferred: PLA plan annexation PDF is available; coordinate/local-origin evidence is evaluated after selected-plan extraction.",
+                    plaPlanAnnexationSource.CopiedPath,
+                    plaPlanAnnexationSource.SourceRole).WithDisplayName(georeferenceSourceRule.DisplayName).WithOutcome("deferred"));
+            }
+            else if (georeferenceSource is null)
             {
                 AddRuleIssue(
                     georeferenceSourceRule,
@@ -365,6 +375,22 @@ public sealed class ManifestPreflightService
                     georeferenceSource.CopiedPath,
                     georeferenceSource.SourceRole).WithDisplayName(georeferenceSourceRule.DisplayName));
             }
+        }
+
+        if (plaPlanAnnexationSource is not null)
+        {
+            var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
+            if (readinessRule is { Enabled: true } && RuleAppliesToStage(readinessRule, stageId))
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    readinessRule.Category,
+                    readinessRule.RuleId,
+                    "Deferred: PLA georeference evidence will be classified after selected-plan extraction; missing coordinates remain local-origin/no-coordinate evidence.",
+                    plaPlanAnnexationSource.CopiedPath,
+                    plaPlanAnnexationSource.SourceRole).WithDisplayName(readinessRule.DisplayName).WithOutcome("deferred"));
+            }
+
+            return;
         }
 
         var tabularRule = ruleCatalog.TryGetRule("tabular_coordinate_columns");
@@ -572,28 +598,44 @@ public sealed class ManifestPreflightService
             return;
         }
 
-        var source = manifest.Payload.SourceFiles
+        var sources = manifest.Payload.SourceFiles
             .Where(item => !IsInternalGeneratedSource(item))
-            .FirstOrDefault(item => RuleAppliesToSource(rule, item));
+            .ToArray();
+        var source = sources.FirstOrDefault(item => RuleAppliesToSource(rule, item));
+        var plaPlanAnnexationSource = TryGetValidPlaPlanAnnexationSource(manifest, sources);
         if (source is null)
         {
-            AddRuleIssue(
-                rule,
-                blockers,
-                warnings,
-                "No computation sheet or configured dimension source is present for Dimension Check.",
-                layout.ManifestPath,
-                null,
-                "Add a computation sheet or configured spatial line source before rerunning Dimension Check.");
-            return;
+            if (plaPlanAnnexationSource is not null)
+            {
+                passed.Add(PreflightCheck.PassedForCategory(
+                    rule.Category,
+                    rule.RuleId,
+                    "Deferred: PLA plan annexation PDF is available; dimension evidence is evaluated after selected-plan extraction.",
+                    plaPlanAnnexationSource.CopiedPath,
+                    plaPlanAnnexationSource.SourceRole).WithDisplayName(rule.DisplayName).WithOutcome("deferred"));
+            }
+            else
+            {
+                AddRuleIssue(
+                    rule,
+                    blockers,
+                    warnings,
+                    "No computation sheet or configured dimension source is present for Dimension Check.",
+                    layout.ManifestPath,
+                    null,
+                    "Add a computation sheet or configured spatial line source before rerunning Dimension Check.");
+                return;
+            }
         }
-
-        passed.Add(PreflightCheck.PassedForCategory(
-            rule.Category,
-            rule.RuleId,
-            $"Passed: {RoleDisplayName(source.SourceRole ?? string.Empty)} is available for Dimension Check.",
-            source.CopiedPath,
-            source.SourceRole).WithDisplayName(rule.DisplayName));
+        else
+        {
+            passed.Add(PreflightCheck.PassedForCategory(
+                rule.Category,
+                rule.RuleId,
+                $"Passed: {RoleDisplayName(source.SourceRole ?? string.Empty)} is available for Dimension Check.",
+                source.CopiedPath,
+                source.SourceRole).WithDisplayName(rule.DisplayName));
+        }
 
         var readinessRule = ruleCatalog.TryGetRule("dimension_geometry_construction_readiness");
         if (readinessRule is not { Enabled: true })
@@ -613,6 +655,17 @@ public sealed class ManifestPreflightService
 
         if (!RuleAppliesToStage(readinessRule, stageId))
         {
+            return;
+        }
+
+        if (plaPlanAnnexationSource is not null && source is null)
+        {
+            passed.Add(PreflightCheck.PassedForCategory(
+                readinessRule.Category,
+                readinessRule.RuleId,
+                "Deferred: PLA geometry construction evidence will be evaluated after selected-plan extraction.",
+                plaPlanAnnexationSource.CopiedPath,
+                plaPlanAnnexationSource.SourceRole).WithDisplayName(readinessRule.DisplayName).WithOutcome("deferred"));
             return;
         }
 
@@ -647,7 +700,7 @@ public sealed class ManifestPreflightService
             blockers,
             warnings,
             "Dimension Check did not run a concrete bearing, distance, point-reference, closure, or geometry-construction validation.",
-            source.CopiedPath,
+            source!.CopiedPath,
             source.SourceRole,
             "Add a configured dimension geometry validator or rerun after a dimension-readiness artifact is available.");
     }
@@ -859,6 +912,17 @@ public sealed class ManifestPreflightService
             role));
 
         var extension = Path.GetExtension(copiedPath).ToLowerInvariant();
+        if (SourceRole.Matches(role, SourceRole.PlanAnnexationPdf) && !string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            blockers.Add(PreflightCheck.Blocker(
+                $"source_file_extension_{role}",
+                $"Plan annexation source must be a PDF; found {source.FileType}.",
+                copiedPath,
+                role,
+                "Replace the source with the required plan annexation PDF."));
+            return;
+        }
+
         if (!SupportedExtensions.Contains(extension) || !string.Equals(extension, source.FileType, StringComparison.OrdinalIgnoreCase))
         {
             blockers.Add(PreflightCheck.Blocker(
@@ -1236,6 +1300,7 @@ public sealed class ManifestPreflightService
         {
             SourceRole.PlanMapReference => "Survey plan / map reference: missing.",
             SourceRole.SurveyPlanPdf => "Survey plan PDF: missing.",
+            SourceRole.PlanAnnexationPdf => "Plan annexation PDF: missing.",
             SourceRole.ComputationSheet => "Survey / computation sheet: missing.",
             SourceRole.CoordinateTextSource => "Structured survey points: missing.",
             SourceRole.DwgSource => "AutoCAD survey source: missing.",
@@ -1298,6 +1363,43 @@ public sealed class ManifestPreflightService
     private static ManifestSourceFile? ResolveSourceForRole(IReadOnlyList<ManifestSourceFile> sourceFiles, string role)
     {
         return sourceFiles.FirstOrDefault(source => SourceRole.Matches(source.SourceRole, role));
+    }
+
+    private static ManifestSourceFile? TryGetValidPlaPlanAnnexationSource(
+        ManifestDocument manifest,
+        IReadOnlyList<ManifestSourceFile> sourceFiles)
+    {
+        if (!IsPlaPlanAnnexationProfile(manifest))
+        {
+            return null;
+        }
+
+        var source = ResolveSourceForRole(sourceFiles, SourceRole.PlanAnnexationPdf);
+        if (source is null
+            || string.IsNullOrWhiteSpace(source.CopiedPath)
+            || !File.Exists(source.CopiedPath)
+            || !string.Equals(Path.GetExtension(source.CopiedPath), ".pdf", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.FileType, ".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return source;
+    }
+
+    private static bool IsPlaPlanAnnexationProfile(ManifestDocument manifest)
+    {
+        return IsPlaPlanAnnexationValue(manifest.Payload.DetectedProfile?.ProfileCode)
+            || IsPlaPlanAnnexationValue(manifest.Payload.WorkflowProfile)
+            || IsPlaPlanAnnexationValue(manifest.Payload.TransactionTypeProfile?.ProfileId)
+            || IsPlaPlanAnnexationValue(manifest.Payload.TransactionTypeProfile?.WorkflowProfile)
+            || string.Equals(manifest.Payload.InnolaTransaction?.CaseType, "PLA", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(manifest.Payload.InnolaTransaction?.ProfileHint, "PLA", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPlaPlanAnnexationValue(string? value)
+    {
+        return string.Equals(value, SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ManifestSourceFile? ResolveSourceForDefinition(ManifestDocument manifest, ComputeAttachmentSourceTypeDefinition definition)

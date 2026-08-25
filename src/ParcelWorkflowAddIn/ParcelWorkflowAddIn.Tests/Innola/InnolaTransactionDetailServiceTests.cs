@@ -155,6 +155,53 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.Equal(SourceRole.ComputationSheet, computation.SourceRole, "Submitted computation sheet role mismatch.");
     }
 
+    public static async Task LiveDetailClassifiesPlanAnnexationPdfBySourceType()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                {
+                  "id": "task-1",
+                  "name": "Plan Annexation",
+                  "transactionId": "tx-1",
+                  "transactionCode": "PLA",
+                  "transaction": {
+                    "id": "tx-1",
+                    "transactionNo": "TR100001000",
+                    "transactionType": "Plan Annexation"
+                  },
+                  "application": {
+                    "sources": [
+                      {
+                        "id": "source-pla",
+                        "fileName": "1000-55.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "st_plan_annexation_pdf",
+                        "size": 4
+                      },
+                      {
+                        "id": "source-pxa",
+                        "fileName": "DOC_PLAN_492321.pdf",
+                        "mimeType": "application/pdf",
+                        "category": "st_survey_plan_pdf",
+                        "size": 4
+                      }
+                    ]
+                  }
+                }
+                """, "application/json"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var selected = new SelectedInnolaTransaction("task-1", "tx-1", "TR100001000", "Plan Annexation", "parcel_workflow", DateTimeOffset.UtcNow);
+
+        var detail = await service.GetTransactionDetailAsync(Session(), selected);
+
+        TestAssert.True(detail.Success, "Detail should load.");
+        TestAssert.Equal(2, detail.Detail?.Attachments.Count ?? -1, "Attachment count mismatch.");
+        TestAssert.Equal("st_plan_annexation_pdf", detail.Detail!.Attachments[0].SourceType, "PLA source type mismatch.");
+        TestAssert.Equal(SourceRole.PlanAnnexationPdf, detail.Detail.Attachments[0].SourceRole, "PLA source role mismatch.");
+        TestAssert.Equal(SourceRole.SurveyPlanPdf, detail.Detail.Attachments[1].SourceRole, "PXA survey plan role should remain unchanged.");
+    }
+
+
     public static async Task LiveDetailFallsBackToTransactionSourcesAndDownloadsBody()
     {
         var handler = new SequenceHandler(

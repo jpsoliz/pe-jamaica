@@ -582,6 +582,59 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!body.Contains("\"sourceType\":\"st_compute_report\"", StringComparison.Ordinal), "Prior compute report source variants should be removed.");
     }
 
+    public static async Task AttachmentUploadReplacesExistingPlaOutputSourceType()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 27,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 28 },
+                  "link": { "@id": 29 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, """
+                [
+                  { "@id": "obj:1", "type": "st_plan_annexation_pdf" },
+                  { "@id": "obj:2", "type": "st_plan_annex_output", "body": { "@id": "obj:3" } },
+                  { "@id": "obj:4", "sourceType": "st_plan_annex_output" },
+                  { "@id": "obj:5", "type": "st_plan_annex_output2" }
+                ]
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100001219",
+            "Plan Annexed",
+            "Compute Survey Plan",
+            DateTimeOffset.Parse("2026-08-24T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "pla-output-1.pdf",
+            "application/pdf",
+            Encoding.UTF8.GetBytes("%PDF-1.4 test"),
+            "st_plan_annex_output");
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "PLA output upload and registration should succeed.");
+        var body = handler.Requests[2].Body;
+        TestAssert.True(body.Contains("\"type\":\"st_plan_annexation_pdf\"", StringComparison.Ordinal), "Existing input plan source should be preserved.");
+        TestAssert.True(body.Contains("\"type\":\"st_plan_annex_output2\"", StringComparison.Ordinal), "Other PLA output source slots should be preserved.");
+        TestAssert.Equal(1, CountOccurrences(body, "\"type\":\"st_plan_annex_output\""), "Only the newly uploaded PLA output source should remain for this slot.");
+        TestAssert.True(!body.Contains("\"sourceType\":\"st_plan_annex_output\"", StringComparison.Ordinal), "Prior PLA output source variants should be removed.");
+    }
+
     private static int CountOccurrences(string text, string value)
     {
         var count = 0;
