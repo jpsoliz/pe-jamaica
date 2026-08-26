@@ -30,6 +30,12 @@ PARCEL_FABRIC_RECORD_PREFIX = "sidwell-record"
 JAD2001_WKID = 3448
 JAD2001_LATEST_WKID = 3448
 JAD2001_NAME = "JAD 2001 Jamaica Grid"
+PLA_WORKFLOW_PROFILE = "pla_plan_annexation"
+PLA_REPORTS_DIRECTORY_NAME = "reports"
+PLA_SELECTED_PLAN_OUTPUT_PDF_FILE_NAME = "pla_selected_plan_page.pdf"
+PLA_GEOMETRY_OUTPUT_PDF_FILE_NAME = "pla_generated_geometry.pdf"
+PDF_MAX_LINE_LENGTH = 96
+PDF_MAX_LINES_PER_PAGE = 45
 _ARCPY_IMPORT_ERROR: str | None = None
 
 
@@ -48,6 +54,236 @@ def _read_json(path: Path) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _is_pla_plan_annexation(manifest: dict[str, Any], review_data: dict[str, Any]) -> bool:
+    payload = manifest.get("payload") or {}
+    detected_profile = payload.get("detected_profile") or {}
+    transaction_type_profile = payload.get("transaction_type_profile") or {}
+    candidates = [
+        payload.get("workflow_profile"),
+        detected_profile.get("profile_code"),
+        transaction_type_profile.get("workflow_profile"),
+        review_data.get("source_profile"),
+        review_data.get("extraction_source"),
+    ]
+
+    return any(str(value or "").strip().lower() == PLA_WORKFLOW_PROFILE for value in candidates)
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _wrap_pdf_lines(lines: list[str]) -> list[str]:
+    wrapped: list[str] = []
+    for line in lines:
+        remaining = line
+        if not remaining:
+            wrapped.append("")
+            continue
+
+        while len(remaining) > PDF_MAX_LINE_LENGTH:
+            split_at = remaining.rfind(" ", 0, PDF_MAX_LINE_LENGTH)
+            if split_at <= 0:
+                split_at = PDF_MAX_LINE_LENGTH
+            wrapped.append(remaining[:split_at])
+            remaining = remaining[split_at:].lstrip()
+        wrapped.append(remaining)
+
+    return wrapped
+
+
+def _pdf_content_object(lines: list[str]) -> str:
+    stream_lines = ["BT", "/F1 10 Tf", "50 750 Td"]
+    for line in lines:
+        stream_lines.append(f"({_pdf_escape(line)}) Tj")
+        stream_lines.append("0 -15 Td")
+    stream_lines.append("ET")
+    stream = "\n".join(stream_lines) + "\n"
+    return f"<< /Length {len(stream.encode('ascii', errors='replace'))} >>\nstream\n{stream}endstream"
+
+
+def _write_text_pdf(path: Path, lines: list[str]) -> None:
+    wrapped = _wrap_pdf_lines(lines)
+    pages = [wrapped[index:index + PDF_MAX_LINES_PER_PAGE] for index in range(0, len(wrapped), PDF_MAX_LINES_PER_PAGE)]
+    if not pages:
+        pages = [[""]]
+
+    objects: list[str] = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    page_numbers: list[int] = []
+    for page_lines in pages:
+        page_object_number = len(objects) + 1
+        content_object_number = len(objects) + 2
+        page_numbers.append(page_object_number)
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_object_number} 0 R >>"
+        )
+        objects.append(_pdf_content_object(page_lines))
+
+    objects[1] = f"<< /Type /Pages /Count {len(page_numbers)} /Kids [{' '.join(f'{number} 0 R' for number in page_numbers)}] >>"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        offsets = [0]
+        handle.write(b"%PDF-1.4\n")
+        for index, obj in enumerate(objects, start=1):
+            offsets.append(handle.tell())
+            handle.write(f"{index} 0 obj\n".encode("ascii"))
+            handle.write(obj.encode("ascii", errors="replace"))
+            handle.write(b"\nendobj\n")
+        xref_offset = handle.tell()
+        handle.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+        handle.write(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            handle.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+        handle.write(
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+        )
+
+
+def _load_case_json(path: Path) -> dict[str, Any]:
+    try:
+        return _read_json(path) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _format_number(value: Any, precision: int = 2) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+
+    return f"{number:.{precision}f}"
+
+
+def _resolve_case_artifact_path(case_root: Path, value: Any) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    path = Path(text)
+    if path.is_absolute():
+        return path
+
+    return case_root / text.replace("/", os.sep)
+
+
+def _extract_pdf_page(source_pdf: Path, selected_page_number: int, output_pdf: Path) -> bool:
+    try:
+        from pypdf import PdfReader, PdfWriter  # type: ignore
+
+        reader = PdfReader(str(source_pdf))
+        page_index = selected_page_number - 1
+        if page_index < 0 or page_index >= len(reader.pages):
+            return False
+
+        writer = PdfWriter()
+        writer.add_page(reader.pages[page_index])
+        output_pdf.parent.mkdir(parents=True, exist_ok=True)
+        with output_pdf.open("wb") as handle:
+            writer.write(handle)
+        return output_pdf.exists() and output_pdf.stat().st_size > 0
+    except Exception:
+        return False
+
+
+def _create_pla_selected_plan_output_pdf(output_root: Path, manifest_path: Path) -> Path | None:
+    case_root = manifest_path.parent
+    selection = _load_case_json(case_root / "working" / "pla_plan_annexation" / "pla_plan_evidence_selection.json")
+    selected_page_number = selection.get("selected_page_number")
+    try:
+        selected_page = int(selected_page_number)
+    except (TypeError, ValueError):
+        return None
+
+    output_pdf = output_root / PLA_REPORTS_DIRECTORY_NAME / PLA_SELECTED_PLAN_OUTPUT_PDF_FILE_NAME
+    source_pdf = _resolve_case_artifact_path(case_root, selection.get("source_relative_path"))
+    if source_pdf is not None and source_pdf.exists() and _extract_pdf_page(source_pdf, selected_page, output_pdf):
+        return output_pdf
+
+    generated_evidence = _resolve_case_artifact_path(case_root, selection.get("generated_plan_evidence_path"))
+    generated_format = str(selection.get("generated_plan_evidence_format") or "").strip().lower()
+    if generated_format == "pdf" and generated_evidence is not None and generated_evidence.exists():
+        output_pdf.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(generated_evidence, output_pdf)
+        return output_pdf
+
+    return None
+
+
+def _create_pla_geometry_output_pdf(
+    output_root: Path,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    approved_review: dict[str, Any],
+    review_data: dict[str, Any],
+    points: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    polygons: list[dict[str, Any]],
+    operator_id: str | None,
+    geojson_path: Path,
+    result_gdb_path: Path,
+) -> Path:
+    case_root = manifest_path.parent
+    working_root = case_root / "working"
+    selection = _load_case_json(working_root / "pla_plan_annexation" / "pla_plan_evidence_selection.json")
+    validation = _load_case_json(working_root / "validation_summary.json")
+    spatial_review = _load_case_json(working_root / "spatial_review_approval.json")
+    validation_payload = validation.get("payload") or {}
+    closure_results = validation_payload.get("closure_results") if isinstance(validation_payload.get("closure_results"), list) else []
+    first_closure = closure_results[0] if closure_results else {}
+    first_polygon = polygons[0] if polygons else {}
+
+    transaction_number = str(
+        review_data.get("transaction_number")
+        or approved_review.get("transaction_number")
+        or manifest.get("transaction_id")
+        or case_root.name
+    )
+    selected_evidence = selection.get("generated_plan_evidence_path") or selection.get("generated_plan_evidence_relative_path") or ""
+    selected_page = selection.get("selected_page_number") or ""
+    area_sq_m = _format_number(first_polygon.get("area_sq_m") or first_closure.get("computed_area_sq_m"))
+    perimeter_m = _format_number(first_polygon.get("perimeter_m"))
+
+    lines = [
+        "PLA Plan Annexation Generated Geometry",
+        f"Transaction Number: {transaction_number}",
+        f"Generated At UTC: {_utc_now()}",
+        f"Generated By: {operator_id or approved_review.get('approved_by') or ''}",
+        "",
+        "Review Evidence",
+        f"- Selected Plan Evidence: {selected_evidence}",
+        f"- Selected Source Page: {selected_page}",
+        f"- Review Status: {approved_review.get('status') or approved_review.get('decision') or 'approved'}",
+        f"- Spatial Review Approved At: {spatial_review.get('approved_at') or ''}",
+        "",
+        "Generated Geometry",
+        f"- Coordinate System: {JAD2001_NAME} (EPSG:{JAD2001_WKID})",
+        f"- Points: {len(points)}",
+        f"- Lines: {len(segments)}",
+        f"- Polygons: {len(polygons)}",
+        f"- Area sq m: {area_sq_m}",
+        f"- Perimeter m: {perimeter_m}",
+        "",
+        "Artifacts",
+        f"- GeoJSON: {geojson_path}",
+        f"- Geodatabase: {result_gdb_path}",
+        "",
+        "Notes",
+        "- This PDF describes the geometry generated from approved bearings and distances.",
+        "- Source-plan comparison is approximate visual evidence, not survey-accurate georeferencing.",
+    ]
+
+    pdf_path = output_root / PLA_REPORTS_DIRECTORY_NAME / PLA_GEOMETRY_OUTPUT_PDF_FILE_NAME
+    _write_text_pdf(pdf_path, lines)
+    return pdf_path
 
 
 def _load_arcpy():
@@ -2351,10 +2587,12 @@ def _build_summary(
     built_parcel_count: int,
     built_line_count: int,
     built_point_count: int,
+    generated_artifact_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     artifact_paths = [str(geojson_path)]
     if review_paths.get("review_dataset"):
         artifact_paths.append(review_paths["review_dataset"])
+    artifact_paths.extend(generated_artifact_paths or [])
 
     active_layer_paths = (
         [
@@ -2590,6 +2828,31 @@ def main(argv: list[str] | None = None) -> int:
     diagnostic_fields = ["bearing_txt", "distance_txt", "length_txt", "distance_m"]
     root_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, layer_paths.get("line_fc"), diagnostic_fields)
     review_line_feature_class_diagnostic = _inspect_feature_class_diagnostics(arcpy, review_paths.get("review_line_fc"), diagnostic_fields)
+    generated_artifact_paths: list[str] = []
+    if _is_pla_plan_annexation(manifest, review_data):
+        selected_plan_output = _create_pla_selected_plan_output_pdf(output_root, manifest_path)
+        if selected_plan_output is None:
+            warnings.append("PLA selected plan page output PDF was not generated; Finalize will remain blocked until the selected source page can be extracted.")
+        else:
+            generated_artifact_paths.append(str(selected_plan_output))
+            generated_artifact_paths.append(
+                str(
+                    _create_pla_geometry_output_pdf(
+                        output_root,
+                        manifest_path,
+                        manifest,
+                        approved_review,
+                        review_data,
+                        output_points,
+                        output_segments,
+                        effective_polygons,
+                        args.operator,
+                        geojson_path,
+                        result_gdb_path,
+                    )
+                )
+            )
+
     summary = _build_summary(
         manifest,
         approved_review,
@@ -2624,6 +2887,7 @@ def main(argv: list[str] | None = None) -> int:
         int(review_paths.get("built_parcel_count") or 0),
         int(review_paths.get("built_line_count") or 0),
         int(review_paths.get("built_point_count") or 0),
+        generated_artifact_paths,
     )
     _write_json(output_summary_path, summary)
     return 0

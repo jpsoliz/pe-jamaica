@@ -63,7 +63,11 @@ public sealed record ValidationClosureResult(
     [property: JsonPropertyName("max_closure_distance_m")] double? MaxClosureDistanceM,
     [property: JsonPropertyName("warning_closure_distance_m")] double? WarningClosureDistanceM,
     [property: JsonPropertyName("min_misclose_ratio_denominator")] double? MinMiscloseRatioDenominator,
-    [property: JsonPropertyName("warning_misclose_ratio_denominator")] double? WarningMiscloseRatioDenominator);
+    [property: JsonPropertyName("warning_misclose_ratio_denominator")] double? WarningMiscloseRatioDenominator,
+    [property: JsonPropertyName("computed_area_sq_m")] double? ComputedAreaSqM,
+    [property: JsonPropertyName("document_area_sq_m")] double? DocumentAreaSqM,
+    [property: JsonPropertyName("area_delta_percent")] double? AreaDeltaPercent,
+    [property: JsonPropertyName("max_area_delta_percent")] double? MaxAreaDeltaPercent);
 
 public sealed record ValidationReadinessSummary(
     [property: JsonPropertyName("blocker")] int Blocker,

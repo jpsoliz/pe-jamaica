@@ -177,3 +177,280 @@ Add a Story 2.23 UX adjustment before or as part of 2.23D:
 **Confidence:** High
 
 Yes, a new PLA-specific UX makes sense. It should not duplicate the processing engine; it should wrap the existing reusable services in the correct PLA examiner sequence: load PLA PDF, select plan evidence, extract/review local-origin geometry, compare visually, then Finalize/upload.
+
+## Follow-up: 2026-08-26
+
+### New Question
+
+User reports that TR 100001219 now has a created polygon and closure passed in the Points Validation Tool, but only `Save` is enabled; `Validation Complete` is not available.
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\manifest.json` | Available | Current manifest is `workflow_state = review_pending`, `workflow_profile = pla_plan_annexation`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json` | Available | Current saved artifact is PLA local-origin review data with 5 rows, 8 segments, `boundary_solver.status = blocked`, and 13 memorandum rule results. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceViewModel.cs` | Available | `Validation Complete` requires `HasLoadedReviewData`, not locked, no `ReviewHasBlockers`, and no manual edit mode; `Save` only requires dirty review data. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs` | Available | `ReviewHasBlockers` included memorandum disposition blockers even for PLA, while Story 2.23D hides the Memorandum tab for PLA. |
+
+### Confirmed Findings
+
+#### Finding 11: `Save` and `Validation Complete` use different gates
+
+**Evidence:** `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceViewModel.cs:142`, `JamaicaReviewWorkspaceViewModel.cs:150`, `JamaicaReviewWorkspaceViewModel.cs:156`, `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs:1380`
+
+**Detail:** `Save` is enabled when loaded review data is dirty and unlocked. `Validation Complete` is enabled only when loaded review data is not locked, has no review blockers, and is not in manual edit mode.
+
+#### Finding 12: TR 100001219 still has saved unresolved memorandum disposition rules
+
+**Evidence:** `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json:1145`, `extraction_review_data.json:1164`, `extraction_review_data.json:1178`, `extraction_review_data.json:1206`, `extraction_review_data.json:1220`, `extraction_review_data.json:1234`, `extraction_review_data.json:1248`, `extraction_review_data.json:1262`, `extraction_review_data.json:1304`, `extraction_review_data.json:1318`
+
+**Detail:** The artifact includes multiple `workflow_effect = requires_disposition` memorandum rules with `needs_review` or `not_available` outcomes.
+
+#### Finding 13: The PLA Memorandum tab is hidden, but the blocker gate still considered memorandum dispositions
+
+**Evidence:** `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceViewModel.cs:202`, `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/JamaicaReviewWorkspaceWindow.xaml:692`, `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs:1175`, `ParcelWorkflowDockpaneViewModel.cs:1177`
+
+**Detail:** The UI correctly hides the Memorandum tab for PLA. Before the follow-up patch, `ReviewHasMemorandumDispositionBlockers` had no PLA exception, so hidden memorandum rules could keep `ReviewHasBlockers = true`.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+The reason only `Save` was enabled is that the current review had unsaved edits, but `Validation Complete` was blocked by review blockers. The actionable defect is the hidden PLA memorandum blocker: PLA does not expose the Memorandum tab, so PLA must not require memorandum dispositions to complete validation.
+
+### Fix Direction
+
+Patch `ReviewHasMemorandumDispositionBlockers` to return false for `IsPlaPlanAnnexationReview`, while keeping memorandum disposition blocking intact for non-PLA PXA survey-plan reviews.
+
+## Follow-up: 2026-08-26 #2
+
+### New Question
+
+User shared the Plan Annexation workflow screenshot showing `Validation blocked`, `Closure - blocker 1`, and footer text `Validation blocked: blocking findings require correction before outputs.`
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| Screenshot | Available | Shows active stage `Review Local-Origin Geometry`, Create Spatial Units status `Blocked`, and generic blocking copy. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\validation_summary.json` | Available | Validation status is `blocked`; closure distance is `0.0`, but area delta is `22.0399%` against `5.0%` tolerance. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs` | Available | Summary text grouped the area mismatch under generic `Closure - blocker`, hiding the exact reason. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/WorkflowSession.cs` | Available | Footer status used generic copy: `blocking findings require correction before outputs`. |
+
+### Confirmed Findings
+
+#### Finding 14: The polygon closure distance passed; the blocker is area mismatch
+
+**Evidence:** `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\validation_summary.json:31`, `validation_summary.json:37`, `validation_summary.json:47`, `validation_summary.json:48`, `validation_summary.json:49`, `validation_summary.json:50`
+
+**Detail:** The closure result has `closure_distance_m = 0.0`, computed area `498.6795 sq m`, document area `408.62 sq m`, area delta `22.0399%`, and max area delta `5.0%`.
+
+#### Finding 15: The UI copy made this look like ordinary closure failure
+
+**Evidence:** `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs:1554`, `ParcelWorkflowDockpaneViewModel.cs:1561`, `ParcelWorkflowDockpaneViewModel.cs:1569`, `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/WorkflowSession.cs:1264`
+
+**Detail:** The summary only showed `Closure - blocker 1` and the help/status text was generic, so it did not explain that the polygon closed but failed because generated area did not match the document area.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+The next stage is blocked correctly by validation because the reviewed local-origin geometry area does not match the document area tolerance. The UX text was too generic and misleading; it needed to surface the first blocking validation finding and the area values.
+
+### Fix Applied
+
+Updated validation summary deserialization and UI text so blocked Create Spatial Units now reports closure/area details, including computed area, document area, delta, and tolerance. Replaced the footer copy with `Validation blocked: review blocking findings before Create Spatial Units.`
+
+## Follow-up: 2026-08-26 #3
+
+### New Question
+
+User reports TR 100001219 boundary is OK, but only `Save` is enabled in the Points Validation Tool.
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\manifest.json` | Available | Current run is `workflow_state = review_pending`, `workflow_profile = pla_plan_annexation`; this is a fresh review-stage run, not the earlier spatial-review-approved run. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json` | Available | Boundary solver has `status = warning`, `closure_distance_m = 0`, `derived_point_count = 4`, `computed_area_sq_m = 498.6795`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json` | Available | Reviewed segments are closed: `1->2`, `2->3`, `3->4`, `4->1`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json` | Available | Review rows still include original OCR row `C` with blank easting/northing and sequence `5`, plus four derived rows `1`-`4`. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs` | Available | Save/Approve previously applied PLA solver in merge mode, preserving inactive OCR/reference rows outside the reviewed segment chain. |
+
+### Confirmed Findings
+
+#### Finding 16: The boundary is closed; the stale OCR row is the review blocker
+
+**Evidence:** `extraction_review_data.json` has `boundary_solver.closure_distance_m = 0`, reviewed segments `1->2`, `2->3`, `3->4`, `4->1`, and one non-derived row `C` with blank coordinates.
+
+**Detail:** The generic review validator treats blank-coordinate rows as blockers. For PLA local-origin geometry, the reviewed boundary segment chain is the authoritative construction path after solver rebuild. Keeping row `C` in the active row list lets a stale OCR/reference row block `Validation Complete` even though the generated boundary points are complete.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+The UI is correct to show `Save` while the review is dirty, but the old Save/Approve path did not clean the stale PLA OCR row. After Save, that stale row could keep approval disabled or blocked.
+
+### Fix Applied
+
+Patched PLA Save/Approve to run the boundary solver in explicit rebuild mode for PLA, replacing the active review row set with the closed reviewed segment chain and removing inactive OCR/reference/manual rows outside it. Non-PLA PXA keeps the existing merge behavior.
+
+## Follow-up: 2026-08-26 #4
+
+### New Question
+
+User reports TR 100001219 is still blocked at Finalize. Screenshot shows Finalize panel message: `Finalize is blocked until PLA visual comparison review is accepted or flagged.`
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\manifest.json` | Available | Current workflow state is `spatial_review_approved`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\validation_summary.json` | Available | Current validation status is `passed`; closure/readiness/orientation all have zero blockers. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\spatial_review_approval.json` | Available | Spatial review was approved at `2026-08-26T02:58:24Z` and matches current output artifacts. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\pla_visual_comparison\pla_visual_comparison.json` | Missing | No native PLA visual comparison decision artifact exists. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\title_plan_overlay\title_plan_overlay_artifact.json` | Missing | No title-plan overlay fallback artifact exists in the current run. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\output\output_summary.json` | Available | Output package exists, but artifact paths list only `output\extracted_geometry.geojson`; no generated PLA PDF is present. |
+
+### Confirmed Findings
+
+#### Finding 17: The Finalize blocker is not validation or geometry
+
+**Evidence:** `validation_summary.json` reports `status = passed`, closure blocker `0`, readiness blocker `0`, orientation blocker `0`; `manifest.json` reports `workflow_state = spatial_review_approved`.
+
+**Detail:** The polygon and validation gates have passed. The blocker shown in the UI comes from `PlaFinalizeService.CheckReadiness(...)`, not from Create Spatial Units or spatial review.
+
+#### Finding 18: The workflow stage and readiness artifact were out of sync
+
+**Evidence:** `spatial_review_approval.json` exists and the UI marks `Visual Comparison` completed, but both `pla_visual_comparison.json` and `title_plan_overlay_artifact.json` are missing.
+
+**Detail:** The stage model treated spatial-review approval as the completed PLA visual comparison, but the Finalize readiness service only accepted native PLA comparison metadata or title-plan overlay metadata.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+Finalize is blocked because the readiness service cannot find accepted/flagged PLA visual-comparison evidence, even though spatial review approval exists. After bridging spatial-review approval into PLA visual-comparison readiness, the next likely blocker for this current case is missing generated PLA output PDF because `output_summary.json` lists only GeoJSON.
+
+### Fix Applied
+
+Patched `PlaVisualComparisonService.Load(...)` so, when native comparison metadata and title-plan overlay metadata are absent, it accepts a current `spatial_review_approval.json` plus matching `output_summary.json` as accepted PLA visual-comparison evidence. Added regression coverage and packaged add-in version `1.1.227`.
+
+## Follow-up: 2026-08-26 #5
+
+### New Question
+
+User reports TR 100001219 must be completed and asks why Create Spatial Units is blocked by `Reviewed boundary area differs from the document area...`.
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\validation_summary.json` | Available | Validation is blocked only by area mismatch: computed area `498.6795`, document area `408.62`, delta `22.0399%`. Closure distance is `0.0`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\extraction_review_data.json` | Available | `survey_metadata.document_area.value = "408.62 square feet"` and review note says the numeric value/unit could not be parsed deterministically. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowDockpaneViewModel.cs` | Available | `TryReadAreaValue(...)` stripped non-numeric characters and parsed the first number, passing `408.62` into `documentAreaSqM`. |
+
+### Confirmed Finding
+
+#### Finding 19: Square-foot text was treated as square metres
+
+**Evidence:** `extraction_review_data.json` says `408.62 square feet`; `validation_summary.json` says `document_area_sq_m = 408.62`.
+
+**Detail:** The validator compared local-origin computed area `498.68` against `408.62` as though both were square metres. The source area text is square feet, and the extractor already marked it `needs_review` because the unit/value was not deterministic.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+The blocker is a unit parsing defect. The polygon closure passed. The area comparison should not use square-foot OCR text as a square-metre document area.
+
+### Fix Applied
+
+Patched document-area parsing so text/unit values containing square-foot units are ignored for square-metre validation comparison. Build and focused tests passed; packaged add-in version `1.1.229`.
+
+## Follow-up: 2026-08-26 #6
+
+### New Question
+
+User reports TR 100001219 is at Finalize but cannot move to the next stage and asks whether all documents are ready to attach.
+
+### Added Evidence
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| Screenshot | Available | Finalize panel shows `Blocked` with `Finalize is blocked until at least one generated PLA output PDF exists.` |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\validation_summary.json` | Available | Validation status is `passed`; closure/readiness/orientation have zero blockers. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\working\spatial_review_approval.json` | Available | Spatial review is approved for the current output created at `2026-08-26T03:37:41Z`. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\output\output_summary.json` | Available | Before repair, `artifact_paths` contained only `output\extracted_geometry.geojson`; no generated `.pdf` was listed. |
+| `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\output\reports` | Available | Directory existed but was empty before repair. |
+| `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Pla/PlaFinalizeService.cs` | Available | `CheckReadiness(...)` blocks with `pla_output_documents_missing` when `ResolveGeneratedOutputDocuments(...)` finds no existing in-case `.pdf` from `output_summary.payload.artifact_paths`. |
+| `src/ProcessingTools/adapters/output_adapter.py` | Available | `_build_summary(...)` only added GeoJSON and optional review dataset artifacts; it did not produce/register any generated PLA PDF. |
+
+### Confirmed Findings
+
+#### Finding 20: The current Finalize block is correct
+
+**Evidence:** Validation passed and spatial review was approved, but `output_summary.payload.artifact_paths` did not contain any generated PDF.
+
+**Detail:** The case had geometry outputs and approval evidence, but not an attachable PLA output document. The only PDF in the case was the original source attachment under `source\1000-55.pdf`, which Finalize must not upload as a generated output.
+
+#### Finding 21: The producer side was incomplete for PLA
+
+**Evidence:** `PlaFinalizeService` requires a current PDF listed in `output_summary.payload.artifact_paths`; `output_adapter.py` generated only GeoJSON/GDB artifacts for this PLA run.
+
+**Detail:** Previous tests fabricated PLA output PDFs for Finalize, proving the upload path, but the real output adapter did not create those PDFs. This made every real PLA case reach Finalize with the correct blocking message and no document to attach.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+TR 100001219 could not move forward because the generated PLA output PDF was missing, not because geometry, validation, or visual comparison was still blocked.
+
+### Fix Applied
+
+Patched `output_adapter.py` so PLA output generation creates `output/reports/pla_plan_annexation_output.pdf` and registers it in `output_summary.payload.artifact_paths`. Added a Python regression test proving a PLA run emits an attachable PDF artifact. Packaged add-in version `1.1.232`.
+
+### Live Case Repair
+
+Backfilled TR 100001219 without touching the locked output GDB:
+
+- Created `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\output\reports\pla_plan_annexation_output.pdf`.
+- Updated `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100001219\output\output_summary.json` so `artifact_paths` now includes the generated PDF after `output\extracted_geometry.geojson`.
+
+## Follow-up: 2026-08-26 #7
+
+### New Question
+
+User clarified the required PLA output document contract and asked whether it exists in the stories:
+
+1. `st_plan_annex_output`: the page selected in the form from the input `st_plan_annexation_pdf`; only that selected page is extracted and attached.
+2. `st_plan_annex_output2`: the generated geometry document built by the user/system from bearings and distances in the selected plan-annexation PDF.
+3. `st_plan_annex_output3`: to be defined.
+
+### Confirmed Findings
+
+#### Finding 22: The previous single-PDF repair was incomplete for the clarified contract
+
+**Evidence:** Follow-up #6 created and registered `pla_plan_annexation_output.pdf` as a generic attachable PLA PDF. The clarified contract requires two defined output PDFs in order, with different content responsibilities.
+
+**Detail:** A single summary PDF must not be treated as `st_plan_annex_output`, because output1 is specifically the examiner-selected source page extracted from `st_plan_annexation_pdf`. The generated geometry belongs to `st_plan_annex_output2`, not output1.
+
+#### Finding 23: The stories now explicitly define the output mapping
+
+**Evidence:** Story 2.23 AC20, Story 2.23A business context/tasks, and Story 2.23D AC9/AC13 now state that output1 is the selected source page, output2 is generated geometry, and output3 is reserved/undefined.
+
+### Deduced Conclusion
+
+**Confidence:** High
+
+TR 100001219 cannot be considered final-ready under the clarified contract until the output summary lists both current PDFs in order:
+
+1. `output\reports\pla_selected_plan_page.pdf`
+2. `output\reports\pla_generated_geometry.pdf`
+
+The stale `pla_plan_annexation_output.pdf` evidence from Follow-up #6 is superseded by this clarification.
+
+### Fix Applied
+
+Patched `output_adapter.py` so PLA output generation extracts the selected page from `st_plan_annexation_pdf` into `pla_selected_plan_page.pdf`, generates `pla_generated_geometry.pdf` from the reviewed geometry data, and registers those two PDFs in `output_summary.payload.artifact_paths` in Finalize upload order. Patched `PlaFinalizeService` so Finalize requires exactly the two currently defined PLA outputs and blocks clearly if only one exists or if an undefined output3 is present.

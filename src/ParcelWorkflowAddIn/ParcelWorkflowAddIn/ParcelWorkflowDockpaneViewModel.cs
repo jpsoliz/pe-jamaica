@@ -15,6 +15,7 @@ using ParcelWorkflowAddIn.Contracts;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -23,7 +24,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ArcGIS.Desktop.Framework.Controls;
 using System.Threading;
-using System.Globalization;
 using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn;
@@ -1174,12 +1174,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool ReviewHasBlockers => HasLoadedReviewData && (ReviewValidationResult.HasBlockers || ReviewHasSegmentSolverBlockers || ReviewHasMemorandumDispositionBlockers);
 
-    private bool ReviewHasMemorandumDispositionBlockers => loadedReviewDocument?.MemorandumRuleResults.Any(rule =>
-        string.Equals(rule.WorkflowEffect, "requires_disposition", StringComparison.OrdinalIgnoreCase)
-        && (string.Equals(rule.Outcome, "needs_review", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(rule.Outcome, "not_available", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(rule.Outcome, "failed", StringComparison.OrdinalIgnoreCase))
-        && !MemorandumRuleHasDisposition(rule)) == true;
+    private bool ReviewHasMemorandumDispositionBlockers =>
+        !IsPlaPlanAnnexationReview
+        && loadedReviewDocument?.MemorandumRuleResults.Any(rule =>
+            string.Equals(rule.WorkflowEffect, "requires_disposition", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(rule.Outcome, "needs_review", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Outcome, "not_available", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Outcome, "failed", StringComparison.OrdinalIgnoreCase))
+            && !MemorandumRuleHasDisposition(rule)) == true;
 
     public ExtractionReviewSummary ReviewSummary =>
         loadedReviewDocument is null
@@ -1498,20 +1500,26 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
 
     public string ReadyToCompleteBadge =>
-        workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? GetPlaFinalizeReadiness().IsReady ? "Ready" : "Blocked"
+            : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Ready"
             : "Pending";
 
     public string ReadyToCompleteSummaryText =>
         IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "PLA review evidence is complete. Finalize attaches the generated PLA output documents to Innola and closes the task."
+            ? GetPlaFinalizeReadiness().IsReady
+                ? "PLA review evidence is complete. Finalize attaches the generated PLA output documents to Innola and closes the task."
+                : GetPlaFinalizeReadiness().Message
             : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Final Review is complete. Finalize records that the submitted geometry passed Compute review and closes the Innola task."
             : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
         IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-            ? "Review the selected plan evidence, extraction findings, generated geometry visual comparison, and local output PDFs, then select Finalize to attach the generated PLA output documents and close the Innola task. Select Suspend to save this state and come back later."
+            ? GetPlaFinalizeReadiness().IsReady
+                ? "Review the selected plan evidence, extraction findings, generated geometry visual comparison, and local output PDFs, then select Finalize to attach the generated PLA output documents and close the Innola task. Select Suspend to save this state and come back later."
+                : "Resolve the PLA Finalize blocker shown above, then refresh or reopen the transaction. Select Suspend to save this state and come back later."
             : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Use the ArcGIS Pro map for a final visual check, compare the temporary geometry with official reference layers, then select Finalize to record the Compute disposition and close the Innola task. Select Suspend to save this state and come back later."
             : "Finish Create Spatial Units and complete Final Review first. That review is the gate that unlocks Compute closeout.";
@@ -1549,14 +1557,15 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             var orientation = summary.Payload.OrientationSummary;
             var closureText = closure is null
                 ? string.Empty
-                : $" Closure - blocker {closure.Blocker}, warning {closure.Warning}, passed {closure.Passed}.";
+                : $" Closure/area - blocker {closure.Blocker}, warning {closure.Warning}, passed {closure.Passed}.";
             var readinessText = readiness is null
                 ? string.Empty
                 : $" Construction readiness - blocker {readiness.Blocker}, warning {readiness.Warning}, passed {readiness.Passed}, skipped {readiness.Skipped}.";
             var orientationText = orientation is null
                 ? string.Empty
                 : $" Orientation - blocker {orientation.Blocker}, warning {orientation.Warning}, passed {orientation.Passed}, skipped {orientation.Skipped}.";
-            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}{readinessText}{orientationText}";
+            var blockerText = BuildValidationBlockingFindingText(summary);
+            return $"Status: {summary.Payload.Status}. Findings - critical {counts.Critical}, high {counts.High}, warning {counts.Warning}, info {counts.Info}, passed {counts.Passed}.{closureText}{readinessText}{orientationText}{blockerText}";
         }
     }
 
@@ -1564,7 +1573,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         workflowSession.CurrentState switch
         {
             WorkflowState.ValidationRunning => "Create Spatial Units checks are running against the approved review snapshot.",
-            WorkflowState.ValidationBlocked => "Create Spatial Units checks completed with blocking findings. Review the validation summary before spatial creation.",
+            WorkflowState.ValidationBlocked => BuildValidationBlockedHelpText(),
             WorkflowState.ValidationPassed => "Create Spatial Units checks passed. Run Create Spatial Units to generate the transaction-local geodatabase.",
             WorkflowState.OutputRunning => "Create Spatial Units checks passed. Create Spatial Units is currently building the local geometry package.",
             WorkflowState.OutputCreated or WorkflowState.SpatialReviewPending when IsManualSpatialReviewRoute => "Manual Mode owns the reviewed geometry. Continue in Final Review and use the transaction PDFs as the source reference while editing.",
@@ -1574,6 +1583,66 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ReviewApproved => "Run Create Spatial Units checks on the approved point-review data before spatial creation.",
             _ => "Create Spatial Units becomes available after Validate Points is approved."
         };
+
+    private string BuildValidationBlockedHelpText()
+    {
+        var blocker = BuildValidationBlockingFindingText(workflowSession.CurrentValidationSummary);
+        return string.IsNullOrWhiteSpace(blocker)
+            ? "Create Spatial Units checks found blockers. Review and correct the listed validation findings, then run the checks again."
+            : $"Create Spatial Units checks found blockers.{blocker} Correct the finding, then run the checks again.";
+    }
+
+    private static string BuildValidationBlockingFindingText(Workflow.Validation.ValidationSummaryDocument? summary)
+    {
+        if (summary is null)
+        {
+            return string.Empty;
+        }
+
+        var closureBlocker = summary.Payload.ClosureResults?
+            .FirstOrDefault(result =>
+                string.Equals(result.Status, "blocker", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(result.EvaluationStatus, "failed", StringComparison.OrdinalIgnoreCase));
+        if (closureBlocker is not null)
+        {
+            var areaText = FormatAreaMismatch(closureBlocker);
+            var message = string.IsNullOrWhiteSpace(closureBlocker.Message)
+                ? "Closure/area validation failed."
+                : closureBlocker.Message;
+            return string.IsNullOrWhiteSpace(areaText)
+                ? $" Blocking finding: {message}"
+                : $" Blocking finding: {message} {areaText}";
+        }
+
+        var finding = summary.Payload.Findings.FirstOrDefault(item =>
+            string.Equals(item.Status, "failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.Severity, "critical", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(item.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        if (finding is null)
+        {
+            return string.Empty;
+        }
+
+        var action = string.IsNullOrWhiteSpace(finding.RecommendedAction)
+            ? string.Empty
+            : $" Action: {finding.RecommendedAction}";
+        return $" Blocking finding: {finding.Title}.{action}";
+    }
+
+    private static string FormatAreaMismatch(Workflow.Validation.ValidationClosureResult result)
+    {
+        if (!result.ComputedAreaSqM.HasValue
+            || !result.DocumentAreaSqM.HasValue
+            || !result.AreaDeltaPercent.HasValue)
+        {
+            return string.Empty;
+        }
+
+        var maxDelta = result.MaxAreaDeltaPercent.HasValue
+            ? $"; tolerance {result.MaxAreaDeltaPercent.Value.ToString("0.##", CultureInfo.InvariantCulture)}%"
+            : string.Empty;
+        return $"Computed area {result.ComputedAreaSqM.Value.ToString("0.##", CultureInfo.InvariantCulture)} sq m; document area {result.DocumentAreaSqM.Value.ToString("0.##", CultureInfo.InvariantCulture)} sq m; delta {result.AreaDeltaPercent.Value.ToString("0.##", CultureInfo.InvariantCulture)}%{maxDelta}.";
+    }
 
     private bool IsManualSpatialReviewRoute =>
         string.Equals(
@@ -2115,8 +2184,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         var valueNode = node[propertyName];
+        var unitText = string.Empty;
         if (valueNode is JsonObject objectNode)
         {
+            unitText = ReadJsonText(objectNode["unit"]);
             valueNode = objectNode["value"];
         }
 
@@ -2132,7 +2203,31 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             _ => valueNode.ToJsonString()
         };
 
+        if (AreaTextUsesNonMetricUnit(text) || AreaTextUsesNonMetricUnit(unitText))
+        {
+            return false;
+        }
+
         return TryParseFirstReviewNumber(text, out area);
+    }
+
+    private static string ReadJsonText(JsonNode? node)
+    {
+        return node is JsonValue value && value.TryGetValue<string>(out var text)
+            ? text
+            : node?.ToJsonString() ?? string.Empty;
+    }
+
+    private static bool AreaTextUsesNonMetricUnit(string? value)
+    {
+        var text = value ?? string.Empty;
+        return text.Contains("square feet", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("square foot", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("sq ft", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("sq. ft", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ft2", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ft²", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("SQUARE_FEET", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryParseFirstReviewNumber(string? value, out double number)
@@ -2837,10 +2932,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         SyncReviewMetadataBackToDocument();
-        ApplyBoundarySolverIfAvailable(
-            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
-            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
-            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview);
+        ApplyBoundarySolverForSaveOrApproval();
 
         var saveResult = workflowSession.SaveExtractionReview(loadedReviewDocument, Environment.UserName);
         if (saveResult.Success && saveResult.Document is not null)
@@ -2919,10 +3011,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
 
         SyncReviewMetadataBackToDocument();
-        var solverResult = ApplyBoundarySolverIfAvailable(
-            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
-            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
-            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview);
+        var solverResult = ApplyBoundarySolverForSaveOrApproval();
         if (solverResult is not null && string.Equals(solverResult.Status, "blocked", StringComparison.OrdinalIgnoreCase))
         {
             workflowSession.SetValidationFailure(BuildBoundarySolverSummaryText());
@@ -2953,6 +3042,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         RefreshWorkflowProperties();
         return approvalResult.Success;
+    }
+
+    private SurveyPlanBoundarySolverResult? ApplyBoundarySolverForSaveOrApproval()
+    {
+        return ApplyBoundarySolverIfAvailable(
+            useDerivedCoordinatesAsAnchors: IsPxaOnlySurveyPlanReview,
+            repairPrematureClosingLabels: IsPxaOnlySurveyPlanReview,
+            replaceConflictingCoordinatesFromReviewedSegments: IsPxaOnlySurveyPlanReview,
+            mergeGeneratedBoundaryPointsWithReferenceRows: !IsPlaPlanAnnexationReview,
+            removeInactiveManualRows: IsPlaPlanAnnexationReview);
     }
 
     private async Task RunValidationAsync()
@@ -4457,16 +4556,23 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     private bool HasPlaFinalizeReadiness()
     {
+        return GetPlaFinalizeReadiness().IsReady;
+    }
+
+    private PlaFinalizeReadinessResult GetPlaFinalizeReadiness()
+    {
         var caseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
         if (string.IsNullOrWhiteSpace(caseFolderPath))
         {
-            return false;
+            return PlaFinalizeReadinessResult.Blocked(
+                "case_folder_missing",
+                "Finalize is blocked because the active case folder is not available.");
         }
 
         try
         {
             var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
-            return plaFinalizeReadinessService.CheckReadiness(layout).IsReady;
+            return plaFinalizeReadinessService.CheckReadiness(layout);
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
@@ -4475,7 +4581,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             or InvalidOperationException
             or System.Text.Json.JsonException)
         {
-            return false;
+            return PlaFinalizeReadinessResult.Blocked(
+                exception.GetType().Name,
+                "Finalize is blocked because PLA readiness evidence could not be read.");
         }
     }
 

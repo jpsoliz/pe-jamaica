@@ -37,16 +37,27 @@ internal static class JamaicaReviewWorkspaceXamlTests
 
         TestAssert.True(
             xaml.Contains("<TabItem Header=\"Memorandum\">", StringComparison.Ordinal)
+            || xaml.Contains("<TabItem Header=\"Memorandum\"\r\n                     Visibility=\"{Binding ShowPxaMemorandumTab, Converter={StaticResource BooleanToVisibilityConverter}}\">", StringComparison.Ordinal)
+            || xaml.Contains("<TabItem Header=\"Memorandum\"\n                     Visibility=\"{Binding ShowPxaMemorandumTab, Converter={StaticResource BooleanToVisibilityConverter}}\">", StringComparison.Ordinal),
+            "PXA review workspace should expose a dedicated Memorandum tab.");
+        TestAssert.True(
+            xaml.Contains("Visibility=\"{Binding ShowPxaMemorandumTab, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal)
             && xaml.Contains("ItemsSource=\"{Binding VisibleMemorandumGroups}\"", StringComparison.Ordinal)
             && xaml.Contains("Binding=\"{Binding EvidenceValue}\"", StringComparison.Ordinal)
-            && xaml.Contains("Binding=\"{Binding ReviewerStatus}\"", StringComparison.Ordinal)
+            && xaml.Contains("SelectedItem=\"{Binding ReviewerStatus, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\"", StringComparison.Ordinal)
             && xaml.Contains("Binding=\"{Binding WorkflowEffect}\"", StringComparison.Ordinal),
             "PXA review workspace should expose a dedicated Memorandum tab with rule evidence, status, and workflow effect rows.");
         TestAssert.True(
             workspaceViewModelCode.Contains("VisibleMemorandumGroups", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("PxaMemorandumSummary", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ReviewMemorandumGroups.CollectionChanged", StringComparison.Ordinal),
-            "PXA review view-model should project memorandum groups and refresh them with the loaded review document.");
+            "PXA review view-model should project memorandum groups while hiding the Memorandum tab for PLA plan-annexation reviews.");
+        var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+        TestAssert.True(
+            workflowDockpaneCode.Contains("!IsPlaPlanAnnexationReview\r\n        && loadedReviewDocument?.MemorandumRuleResults.Any", StringComparison.Ordinal)
+            || workflowDockpaneCode.Contains("!IsPlaPlanAnnexationReview\n        && loadedReviewDocument?.MemorandumRuleResults.Any", StringComparison.Ordinal),
+            "PLA reviews should not be blocked by hidden memorandum disposition rules.");
     }
 
     public static void DockpaneExposesSupportingDocumentsWorkspace()
@@ -301,6 +312,16 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && dockpaneCode.Contains("private bool IsPxaReviewedBoundarySegmentChainClosed()", StringComparison.Ordinal)
             && dockpaneCode.Contains("return string.Equals(firstFrom, finalTo, StringComparison.OrdinalIgnoreCase);", StringComparison.Ordinal),
             "PXA validation completion should not remain blocked by stale solver metadata when the reviewed segment chain is currently closed.");
+        TestAssert.True(
+            dockpaneCode.Contains("private SurveyPlanBoundarySolverResult? ApplyBoundarySolverForSaveOrApproval()", StringComparison.Ordinal)
+            && dockpaneCode.Contains("mergeGeneratedBoundaryPointsWithReferenceRows: !IsPlaPlanAnnexationReview", StringComparison.Ordinal)
+            && dockpaneCode.Contains("removeInactiveManualRows: IsPlaPlanAnnexationReview", StringComparison.Ordinal),
+            "PLA save/approval should rebuild from reviewed boundary segments and remove stale OCR/reference rows that are outside the closed segment chain.");
+        TestAssert.True(
+            dockpaneCode.Contains("AreaTextUsesNonMetricUnit", StringComparison.Ordinal)
+            && dockpaneCode.Contains("\"square feet\"", StringComparison.Ordinal)
+            && dockpaneCode.Contains("\"sq. ft\"", StringComparison.Ordinal),
+            "Document area comparison should not treat square-foot text as square metres.");
     }
 
     public static void PxaParcelPreviewUsesUniqueReviewedSegmentPointOrder()

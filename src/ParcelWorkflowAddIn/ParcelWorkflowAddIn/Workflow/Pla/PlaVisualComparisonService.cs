@@ -5,8 +5,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ParcelWorkflowAddIn.CaseFolders;
+using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 
 namespace ParcelWorkflowAddIn.Workflow.Pla;
 
@@ -16,6 +18,8 @@ internal sealed class PlaVisualComparisonService
     public const string ComparisonArtifactFileName = "pla_visual_comparison.json";
     public const string GeometryVisualFileName = "pla_generated_geometry_visual.svg";
     public const string ComparisonModeApproximate = "approximate_visual_similarity";
+    public const string ComparisonModeTitlePlanOverlay = "title_plan_overlay_two_point_similarity";
+    public const string ComparisonModeSpatialReviewApproval = "spatial_review_approval";
 
     private const string DisclaimerText = "Approximate visual similarity only; not survey-accurate georeferencing or authoritative parcel fabric alignment.";
 
@@ -132,7 +136,8 @@ internal sealed class PlaVisualComparisonService
         var path = GetComparisonArtifactPath(layout);
         if (!File.Exists(path))
         {
-            return null;
+            return LoadTitlePlanOverlayComparison(layout)
+                ?? LoadSpatialReviewApprovalComparison(layout);
         }
 
         try
@@ -173,6 +178,171 @@ internal sealed class PlaVisualComparisonService
     {
         Directory.CreateDirectory(GetWorkingDirectory(layout));
         File.WriteAllText(GetComparisonArtifactPath(layout), JsonSerializer.Serialize(document, JsonOptions));
+    }
+
+    private static PlaVisualComparisonDocument? LoadTitlePlanOverlayComparison(CaseFolderLayout layout)
+    {
+        var artifactPath = MapGeoreferenceOverlayArtifactPlan.BuildMetadataPath(
+            layout.RootDirectory,
+            MapGeoreferenceOverlayKind.TitlePlanComparison);
+        if (!File.Exists(artifactPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var artifact = JsonSerializer.Deserialize<MapGeoreferenceOverlayArtifactDocument>(
+                File.ReadAllText(artifactPath),
+                JsonOptions);
+            if (artifact is null
+                || !MatchesActiveTransaction(layout, artifact.TransactionNumber)
+                || !string.Equals(artifact.OverlayKind, nameof(MapGeoreferenceOverlayKind.TitlePlanComparison), StringComparison.OrdinalIgnoreCase)
+                || !TryResolveInsideCase(layout, artifact.ImagePath, out var overlayImagePath)
+                || !File.Exists(overlayImagePath)
+                || !TryResolveInsideCase(layout, artifact.OutputGeodatabasePath, out var outputGeodatabasePath))
+            {
+                return null;
+            }
+
+            var selection = PlaPlanEvidenceSelectionService.LoadSelection(layout);
+            if (selection is null
+                || !PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(layout, selection.GeneratedPlanEvidenceRelativePath, out _))
+            {
+                return null;
+            }
+
+            var outputPaths = new List<string> { outputGeodatabasePath };
+            if (TryResolveInsideCase(layout, artifact.RasterDatasetPath, out var rasterDatasetPath))
+            {
+                outputPaths.Add(rasterDatasetPath);
+            }
+
+            return new PlaVisualComparisonDocument
+            {
+                SchemaVersion = "1.0.0",
+                TransactionNumber = artifact.TransactionNumber,
+                ComparisonMode = ComparisonModeTitlePlanOverlay,
+                Disclaimer = DisclaimerText,
+                SelectedPlanEvidenceRelativePath = selection.GeneratedPlanEvidenceRelativePath,
+                GeometryVisualRelativePath = ToCaseRelativePath(layout, overlayImagePath),
+                OutputArtifactRelativePaths = outputPaths
+                    .Select(path => ToCaseRelativePath(layout, path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                GeometryReferenceMode = "title_plan_overlay_two_point_similarity",
+                ReviewerDecision = "accepted",
+                ReviewerNotes = "Title-plan comparison overlay was created from examiner-selected image and map control points.",
+                ReviewedAtUtc = artifact.CreatedAtUtc,
+                CreatedAtUtc = artifact.CreatedAtUtc,
+                UpdatedAtUtc = artifact.CreatedAtUtc
+            }.WithCaseRoot(layout.RootDirectory);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private PlaVisualComparisonDocument? LoadSpatialReviewApprovalComparison(CaseFolderLayout layout)
+    {
+        try
+        {
+            var selection = PlaPlanEvidenceSelectionService.LoadSelection(layout);
+            if (selection is null
+                || !PlaPlanEvidenceSelectionService.TryResolveCaseRelativePath(layout, selection.GeneratedPlanEvidenceRelativePath, out _))
+            {
+                return null;
+            }
+
+            var outputSummary = new OutputSummaryPersistenceService().Load(layout);
+            if (outputSummary is null)
+            {
+                return null;
+            }
+
+            var approvalService = new SpatialReviewApprovalPersistenceService();
+            var validation = approvalService.ValidateCurrent(layout, outputSummary);
+            if (!validation.IsCurrent || validation.Approval is null)
+            {
+                return null;
+            }
+
+            var geometryArtifact = outputSummary.Payload.ArtifactPaths
+                .Select(path => ToCaseRelativePathIfInside(layout, path))
+                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))
+                ?? ToCaseRelativePath(layout, approvalService.GetApprovalPath(layout));
+            var outputPaths = outputSummary.Payload.ArtifactPaths
+                .Select(path => ToCaseRelativePathIfInside(layout, path))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Cast<string>()
+                .ToArray();
+
+            return new PlaVisualComparisonDocument
+            {
+                SchemaVersion = "1.0.0",
+                TransactionNumber = validation.Approval.TransactionId,
+                ComparisonMode = ComparisonModeSpatialReviewApproval,
+                Disclaimer = DisclaimerText,
+                SelectedPlanEvidenceRelativePath = selection.GeneratedPlanEvidenceRelativePath,
+                GeometryVisualRelativePath = geometryArtifact,
+                OutputArtifactRelativePaths = outputPaths,
+                GeneratedGeometryPointCount = outputSummary.Payload.PointCount,
+                GeneratedGeometryLineCount = outputSummary.Payload.LineCount,
+                GeneratedGeometryPolygonCount = Math.Max(outputSummary.Payload.PolygonCount, outputSummary.Payload.BuiltParcelCount),
+                GeometryReferenceMode = "spatial_review_approved_output_layers",
+                ReviewerDecision = "accepted",
+                ReviewerNotes = "Final Review approved the generated PLA output layers.",
+                ReviewedBy = validation.Approval.ApprovedBy,
+                ReviewedAtUtc = DateTimeOffset.TryParse(validation.Approval.ApprovedAt, out var reviewedAt) ? reviewedAt : null,
+                CreatedAtUtc = DateTimeOffset.TryParse(validation.Approval.ApprovedAt, out var createdAt) ? createdAt : getUtcNow(),
+                UpdatedAtUtc = DateTimeOffset.TryParse(validation.Approval.ApprovedAt, out var updatedAt) ? updatedAt : getUtcNow()
+            }.WithCaseRoot(layout.RootDirectory);
+        }
+        catch (Exception exception) when (exception is JsonException
+            or IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static bool MatchesActiveTransaction(CaseFolderLayout layout, string? transactionNumber)
+    {
+        if (string.IsNullOrWhiteSpace(transactionNumber))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (File.Exists(layout.ManifestPath))
+            {
+                var manifest = ManifestSerializer.Read(layout.ManifestPath);
+                return string.Equals(manifest.TransactionId, transactionNumber, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(manifest.Payload.InnolaTransaction?.TransactionNumber, transactionNumber, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or JsonException
+            or ArgumentException
+            or NotSupportedException)
+        {
+            return false;
+        }
+
+        var caseFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(layout.RootDirectory));
+        return string.Equals(caseFolderName, transactionNumber, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildSvg(string transactionNumber, IReadOnlyList<SolverPoint> points, OutputSummaryDocument outputSummary)
@@ -251,6 +421,34 @@ internal sealed class PlaVisualComparisonService
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return null;
+        }
+    }
+
+    private static bool TryResolveInsideCase(CaseFolderLayout layout, string? path, out string resolvedPath)
+    {
+        resolvedPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var normalizedRoot = Path.GetFullPath(layout.RootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var candidate = Path.IsPathFullyQualified(path)
+                ? Path.GetFullPath(path)
+                : Path.GetFullPath(Path.Combine(layout.RootDirectory, path.Replace('/', Path.DirectorySeparatorChar)));
+            if (!candidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            resolvedPath = candidate;
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
         }
     }
 }

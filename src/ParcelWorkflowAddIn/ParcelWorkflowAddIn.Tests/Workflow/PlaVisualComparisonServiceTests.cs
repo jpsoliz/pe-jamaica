@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.Tests;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.SpatialReview;
 using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
@@ -44,6 +45,66 @@ internal static class PlaVisualComparisonServiceTests
         TestAssert.Equal("accepted", reloaded?.ReviewerDecision, "Reviewer decision should persist.");
         TestAssert.Equal("Looks consistent for local-origin geometry.", reloaded?.ReviewerNotes, "Reviewer notes should persist.");
         TestAssert.Equal("reviewer", reloaded?.ReviewedBy, "Reviewer identity should persist.");
+    }
+
+    public static void LoadAcceptsTitlePlanOverlayAsVisualComparisonEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WritePlaSelection(layout);
+        WriteTitlePlanOverlayArtifact(layout);
+        var service = new PlaVisualComparisonService(() => FixedNow());
+
+        var document = service.Load(layout);
+
+        TestAssert.Equal(PlaVisualComparisonService.ComparisonModeTitlePlanOverlay, document?.ComparisonMode, "PLA visual comparison should load the title-plan overlay artifact when native comparison metadata is absent.");
+        TestAssert.Equal("accepted", document?.ReviewerDecision, "A persisted title-plan overlay should satisfy the examiner visual-comparison decision gate.");
+        TestAssert.True(document?.GeometryVisualPath.EndsWith("title_plan_overlay_100001219.png", StringComparison.OrdinalIgnoreCase) == true, "Visual comparison should point to the captured overlay image.");
+    }
+
+    public static void LoadDoesNotFallbackWhenNativeComparisonArtifactIsCorrupt()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WritePlaSelection(layout);
+        WriteTitlePlanOverlayArtifact(layout);
+        Directory.CreateDirectory(PlaVisualComparisonService.GetWorkingDirectory(layout));
+        File.WriteAllText(PlaVisualComparisonService.GetComparisonArtifactPath(layout), "{ invalid json");
+        var service = new PlaVisualComparisonService(() => FixedNow());
+
+        var document = service.Load(layout);
+
+        TestAssert.Equal(null, document, "Corrupt native PLA visual comparison metadata should not be silently replaced by overlay fallback evidence.");
+    }
+
+    public static void LoadRejectsTitlePlanOverlayForDifferentTransaction()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WritePlaSelection(layout);
+        WriteTitlePlanOverlayArtifact(layout, transactionNumber: "100009999");
+        var service = new PlaVisualComparisonService(() => FixedNow());
+
+        var document = service.Load(layout);
+
+        TestAssert.Equal(null, document, "Title-plan overlay fallback must not satisfy visual comparison readiness for a different transaction.");
+    }
+
+    public static void LoadAcceptsCurrentSpatialReviewApprovalAsVisualComparisonEvidence()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WritePlaSelection(layout);
+        var output = CreateOutputSummary(layout);
+        new OutputSummaryPersistenceService().Save(layout, output);
+        new SpatialReviewApprovalPersistenceService().Save(layout, output, "reviewer");
+        var service = new PlaVisualComparisonService(() => FixedNow());
+
+        var document = service.Load(layout);
+
+        TestAssert.Equal(PlaVisualComparisonService.ComparisonModeSpatialReviewApproval, document?.ComparisonMode, "Current spatial-review approval should bridge PLA visual comparison readiness when native comparison metadata is absent.");
+        TestAssert.Equal("accepted", document?.ReviewerDecision, "Spatial review approval should satisfy the PLA visual comparison decision gate.");
+        TestAssert.Equal("reviewer", document?.ReviewedBy, "Spatial review approval reviewer should be retained.");
     }
 
     private static CaseFolderLayout CreateLayout(string root)
@@ -158,6 +219,44 @@ internal static class PlaVisualComparisonServiceTests
                 ReviewResultOwner: "approved_review"),
             Array.Empty<string>(),
             Array.Empty<string>());
+    }
+
+    private static void WriteTitlePlanOverlayArtifact(CaseFolderLayout layout, string transactionNumber = "100001219")
+    {
+        var overlayDirectory = Path.Combine(layout.WorkingDirectory, "title_plan_overlay");
+        Directory.CreateDirectory(overlayDirectory);
+        var imagePath = Path.Combine(overlayDirectory, $"title_plan_overlay_{transactionNumber}.png");
+        var worldPath = Path.ChangeExtension(imagePath, ".pgw");
+        var projectionPath = Path.ChangeExtension(imagePath, ".prj");
+        File.WriteAllText(imagePath, "png");
+        File.WriteAllText(worldPath, "world");
+        File.WriteAllText(projectionPath, "prj");
+
+        var outputGdb = Path.Combine(layout.OutputDirectory, $"{transactionNumber}_parcel_output.gdb");
+        Directory.CreateDirectory(outputGdb);
+        var artifact = new MapGeoreferenceOverlayArtifactDocument(
+            transactionNumber,
+            imagePath,
+            worldPath,
+            projectionPath,
+            outputGdb,
+            $"title_plan_overlay_{transactionNumber}",
+            Path.Combine(outputGdb, $"title_plan_overlay_{transactionNumber}"),
+            FixedNow(),
+            1200,
+            900,
+            new MapGeoreferenceImagePoint(10, 20),
+            new MapGeoreferenceImagePoint(300, 220),
+            new MapGeoreferenceCoordinatePoint(750000, 650000),
+            new MapGeoreferenceCoordinatePoint(750050, 650025),
+            nameof(MapGeoreferenceOverlayKind.TitlePlanComparison),
+            "TwoPointSimilarity",
+            Path.Combine(layout.SourceDirectory, "1000-55.pdf"),
+            2);
+
+        File.WriteAllText(
+            MapGeoreferenceOverlayArtifactPlan.BuildMetadataPath(layout.RootDirectory, MapGeoreferenceOverlayKind.TitlePlanComparison),
+            JsonSerializer.Serialize(artifact, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }
 
     private static DateTimeOffset FixedNow() => new(2026, 8, 24, 12, 0, 0, TimeSpan.Zero);

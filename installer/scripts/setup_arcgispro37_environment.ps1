@@ -408,7 +408,7 @@ $commands.Add((New-CommandRecord `
 $commands.Add((New-CommandRecord `
     -Phase 'verify-ai-survey-imports' `
     -FilePath $targetPythonExe `
-    -Arguments @('-c', "import openai; import flask; import pdfplumber; import pypdfium2; print('AI Survey required imports OK')")))
+    -Arguments @('-c', "import openai; import flask; import pdfplumber; import pypdf; import pypdfium2; print('AI Survey required imports OK')")))
 $commands.Add((New-CommandRecord `
     -Phase 'verify-clip-imports' `
     -FilePath $targetPythonExe `
@@ -417,7 +417,7 @@ $commands.Add((New-CommandRecord `
 $commands.Add((New-CommandRecord `
     -Phase 'verify-ai-survey-package-versions' `
     -FilePath $targetPythonExe `
-    -Arguments @('-c', "import importlib.metadata as m; packages=['openai','openai-clip','open-clip-torch','Flask','pdfplumber','pypdfium2']; print('package_versions:' + ';'.join(f'{p}={m.version(p)}' for p in packages))")))
+    -Arguments @('-c', "import importlib.metadata as m; packages=['openai','openai-clip','open-clip-torch','Flask','pdfplumber','pypdf','pypdfium2']; print('package_versions:' + ';'.join(f'{p}={m.version(p)}' for p in packages))")))
 
 $plan = [ordered]@{
     schema_version = 'parcel_workflow_arcgispro37_environment_plan_v1'
@@ -473,8 +473,8 @@ $status = [ordered]@{
     target_python_exe = $targetPythonExe
     conda_requirements = $resolvedCondaRequirements
     pip_requirements = $resolvedPipRequirements
-    verified_imports = @('openai', 'flask', 'pdfplumber', 'pypdfium2')
-    verified_packages = @('openai', 'openai-clip', 'open-clip-torch', 'Flask', 'pdfplumber', 'pypdfium2')
+    verified_imports = @('openai', 'flask', 'pdfplumber', 'pypdf', 'pypdfium2')
+    verified_packages = @('openai', 'openai-clip', 'open-clip-torch', 'Flask', 'pdfplumber', 'pypdf', 'pypdfium2')
     optional_imports = @('arcpy', 'clip', 'open_clip')
     warnings = $warnings
     log_path = $logPath

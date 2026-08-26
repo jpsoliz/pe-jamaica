@@ -1261,7 +1261,7 @@ public sealed class WorkflowSession
             var blocked = validationSummaryPersistenceService.IsBlocked(result.Summary);
             SetWorkflowState(layout, blocked ? WorkflowState.ValidationBlocked : WorkflowState.ValidationPassed);
             StatusText = blocked
-                ? "Validation blocked: blocking findings require correction before outputs."
+                ? "Validation blocked: review blocking findings before Create Spatial Units."
                 : "Validation passed: output stage is now eligible.";
             return result;
         }

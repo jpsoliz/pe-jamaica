@@ -81,6 +81,7 @@ internal sealed class PlaFinalizeService
     public const string UploadedStatus = "uploaded";
     public const string FailedStatus = "failed";
     public const string PendingStatus = "pending";
+    public const int DefinedOutputDocumentCount = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -157,11 +158,18 @@ internal sealed class PlaFinalizeService
         }
 
         var outputDocuments = ResolveGeneratedOutputDocuments(layout, outputSummary);
-        if (outputDocuments.Count == 0)
+        if (outputDocuments.Count < DefinedOutputDocumentCount)
         {
             return PlaFinalizeReadinessResult.Blocked(
                 "pla_output_documents_missing",
-                "Finalize is blocked until at least one generated PLA output PDF exists.");
+                "Finalize is blocked until the selected plan page PDF and generated geometry PDF exist.");
+        }
+
+        if (outputDocuments.Count > DefinedOutputDocumentCount)
+        {
+            return PlaFinalizeReadinessResult.Blocked(
+                "pla_output3_undefined",
+                "Finalize is blocked because st_plan_annex_output3 is not defined for PLA yet.");
         }
 
         var sourceTypes = PlaOutputDocumentSourceTypeResolver.Resolve(settingsProvider(), outputDocuments.Count);

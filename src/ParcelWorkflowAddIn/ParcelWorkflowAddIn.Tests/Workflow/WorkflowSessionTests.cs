@@ -1477,7 +1477,7 @@ internal static class WorkflowSessionTests
 
         TestAssert.True(result.Success, "Blocked validation should still complete and write a summary.");
         TestAssert.Equal(WorkflowState.ValidationBlocked, session.CurrentState, "Blocking findings should move workflow to validation blocked.");
-        TestAssert.Equal("Validation blocked: blocking findings require correction before outputs.", session.StatusText, "Validation blocked status mismatch.");
+        TestAssert.Equal("Validation blocked: review blocking findings before Create Spatial Units.", session.StatusText, "Validation blocked status mismatch.");
     }
 
     public static void WorkflowSessionValidationExceptionBecomesBlockedFailure()

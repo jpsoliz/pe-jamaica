@@ -126,7 +126,7 @@ The configured add-in should point to the cloned environment:
 C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-survey-ai\python.exe
 ```
 
-It verifies that the cloned Python can see `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, and `pypdfium2`. This is required for Structure Check, extraction, and Create Spatial Units.
+It verifies that the cloned Python can see `arcpy`, `openai`, `clip`, `open_clip`, `flask`, `pdfplumber`, `pypdf`, and `pypdfium2`. This is required for Structure Check, extraction, selected-page PDF extraction, and Create Spatial Units.
 
 For a standard ArcGIS Pro install, this should be enough:
 

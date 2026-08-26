@@ -19,9 +19,9 @@ PLA is a new Innola transaction type for Plan Annexation. Its input document is 
 
 The final generated-output document/source types for PLA are explicit Innola PRO-stage source types. A PLA transaction may produce up to three output documents, and Finalize must attach them with these output source types in order:
 
-1. `st_plan_annex_output`
-2. `st_plan_annex_output2`
-3. `st_plan_annex_output3`
+1. `st_plan_annex_output`: the examiner-selected page extracted from the input `st_plan_annexation_pdf` document. If the user selected page 2, only page 2 is emitted as this output attachment.
+2. `st_plan_annex_output2`: the generated geometry output produced from the reviewed bearings/distances in the selected plan-annexation PDF page.
+3. `st_plan_annex_output3`: reserved; not yet defined and must not be generated or attached until a later requirement defines the document.
 
 These are distinct from the required input source type `st_plan_annexation_pdf`.
 
@@ -46,7 +46,7 @@ These are distinct from the required input source type `st_plan_annexation_pdf`.
 
 - [x] Add PLA document/source type resolution for generated output. (AC: 5-6)
   - [x] Resolve PLA generated-output attachment types as `st_plan_annex_output`, `st_plan_annex_output2`, and `st_plan_annex_output3`.
-  - [x] Map one, two, or three generated output documents to the corresponding PLA output source types in order.
+  - [x] Map output documents to the corresponding PLA output source types in order: selected source page, generated geometry, then reserved undefined output.
   - [x] Block Finalize preparation with a clear non-secret diagnostic if more than three generated PLA output documents must be attached.
   - [x] Ensure generated PLA output documents never use PE/PXA completed-package source types.
 

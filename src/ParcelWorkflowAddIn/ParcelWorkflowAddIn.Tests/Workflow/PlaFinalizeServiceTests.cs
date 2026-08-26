@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.Tests;
 using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Review;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
@@ -65,6 +66,56 @@ internal static class PlaFinalizeServiceTests
         TestAssert.Equal("st_plan_annex_output2", uploader.Uploads[1].SourceType, "Second explicit output keeps second PLA source type.");
     }
 
+    public static void CheckReadinessAcceptsTitlePlanOverlayComparison()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CaseFolderLayout.For(tempRoot.Path, "100001219");
+        Directory.CreateDirectory(layout.SourceDirectory);
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        Directory.CreateDirectory(layout.OutputDirectory);
+        WriteManifest(layout);
+        WritePlaSelection(layout);
+        WriteOutputSummary(layout, outputCount: 2);
+        WriteTitlePlanOverlayArtifact(layout);
+        var service = new PlaFinalizeService(new RecordingPlaUploader(), getUtcNow: () => FixedNow());
+
+        var readiness = service.CheckReadiness(layout);
+
+        TestAssert.True(readiness.IsReady, "PLA Finalize readiness should accept persisted title-plan overlay evidence when native visual comparison metadata is absent.");
+    }
+
+    public static void CheckReadinessRequiresDefinedPlaOutputDocuments()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateReadyPlaCase(tempRoot.Path, outputCount: 1);
+        var service = new PlaFinalizeService(new RecordingPlaUploader(), getUtcNow: () => FixedNow());
+
+        var readiness = service.CheckReadiness(layout);
+
+        TestAssert.False(readiness.IsReady, "PLA Finalize should require both defined output documents.");
+        TestAssert.Equal("pla_output_documents_missing", readiness.Reason, "Missing output2 should block with the defined output diagnostic.");
+    }
+
+    public static void CheckReadinessBlocksUndefinedPlaOutput3()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateReadyPlaCase(tempRoot.Path, outputCount: 3);
+        var service = new PlaFinalizeService(new RecordingPlaUploader(), getUtcNow: () => FixedNow());
+
+        var readiness = service.CheckReadiness(layout);
+
+        TestAssert.False(readiness.IsReady, "PLA Finalize should not attach output3 before it is defined.");
+        TestAssert.Equal("pla_output3_undefined", readiness.Reason, "Output3 should have an explicit undefined-output blocker.");
+    }
+
+    public static void DockpaneFinalizeTextUsesPlaReadinessMessage()
+    {
+        var source = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+
+        TestAssert.True(source.Contains("GetPlaFinalizeReadiness().Message", StringComparison.Ordinal), "Ready-to-complete text should show the PLA readiness blocker returned by PlaFinalizeService.");
+        TestAssert.True(source.Contains("GetPlaFinalizeReadiness().IsReady ? \"Ready\" : \"Blocked\"", StringComparison.Ordinal), "Ready-to-complete badge should be blocked when PLA readiness is blocked.");
+    }
+
     public static void CompleteTransactionSkipsComputeDispositionForPlaBranch()
     {
         var source = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
@@ -82,14 +133,15 @@ internal static class PlaFinalizeServiceTests
     public static void ReopenLoadsPersistedFinalizeEvidence()
     {
         using var tempRoot = new TempDirectory();
-        var layout = CreateReadyPlaCase(tempRoot.Path, outputCount: 1);
+        var layout = CreateReadyPlaCase(tempRoot.Path, outputCount: 2);
         var service = new PlaFinalizeService(new RecordingPlaUploader(), getUtcNow: () => FixedNow());
         service.UploadGeneratedOutputsAsync(layout, CreateTransaction(), "tester").GetAwaiter().GetResult();
 
         var reopened = new PlaFinalizeService(new RecordingPlaUploader()).LoadEvidence(layout);
 
         TestAssert.Equal(PlaFinalizeService.UploadedStatus, reopened?.UploadStatus, "Reopen should load persisted PLA finalize evidence.");
-        TestAssert.Equal("st_plan_annex_output", reopened?.UploadItems.Single().SourceType, "Reopen evidence should preserve source type.");
+        TestAssert.Equal("st_plan_annex_output", reopened?.UploadItems[0].SourceType, "Reopen evidence should preserve selected-page source type.");
+        TestAssert.Equal("st_plan_annex_output2", reopened?.UploadItems[1].SourceType, "Reopen evidence should preserve geometry source type.");
     }
 
     private static CaseFolderLayout CreateReadyPlaCase(string root, int outputCount)
@@ -157,6 +209,44 @@ internal static class PlaFinalizeServiceTests
               "updated_at_utc": "2026-08-24T12:00:00Z"
             }
             """);
+    }
+
+    private static void WriteTitlePlanOverlayArtifact(CaseFolderLayout layout)
+    {
+        var overlayDirectory = Path.Combine(layout.WorkingDirectory, "title_plan_overlay");
+        Directory.CreateDirectory(overlayDirectory);
+        var imagePath = Path.Combine(overlayDirectory, "title_plan_overlay_100001219.png");
+        var worldPath = Path.ChangeExtension(imagePath, ".pgw");
+        var projectionPath = Path.ChangeExtension(imagePath, ".prj");
+        File.WriteAllText(imagePath, "png");
+        File.WriteAllText(worldPath, "world");
+        File.WriteAllText(projectionPath, "prj");
+
+        var outputGdb = Path.Combine(layout.OutputDirectory, "100001219_parcel_output.gdb");
+        Directory.CreateDirectory(outputGdb);
+        var artifact = new MapGeoreferenceOverlayArtifactDocument(
+            "100001219",
+            imagePath,
+            worldPath,
+            projectionPath,
+            outputGdb,
+            "title_plan_overlay_100001219",
+            Path.Combine(outputGdb, "title_plan_overlay_100001219"),
+            FixedNow(),
+            1200,
+            900,
+            new MapGeoreferenceImagePoint(10, 20),
+            new MapGeoreferenceImagePoint(300, 220),
+            new MapGeoreferenceCoordinatePoint(750000, 650000),
+            new MapGeoreferenceCoordinatePoint(750050, 650025),
+            nameof(MapGeoreferenceOverlayKind.TitlePlanComparison),
+            "TwoPointSimilarity",
+            Path.Combine(layout.SourceDirectory, "1000-55.pdf"),
+            2);
+
+        File.WriteAllText(
+            MapGeoreferenceOverlayArtifactPlan.BuildMetadataPath(layout.RootDirectory, MapGeoreferenceOverlayKind.TitlePlanComparison),
+            JsonSerializer.Serialize(artifact, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
     }
 
     private static OutputSummaryDocument WriteOutputSummary(CaseFolderLayout layout, int outputCount)

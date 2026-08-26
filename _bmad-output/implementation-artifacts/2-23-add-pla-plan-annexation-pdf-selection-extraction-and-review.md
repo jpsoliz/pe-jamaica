@@ -90,7 +90,7 @@ Rationale:
 
 19. Given the visual comparison is approximate, when the reviewer accepts or flags the comparison, then the result is persisted as review evidence without claiming survey-accurate alignment.
 
-20. Given PLA output documents are generated during the workflow, when the transaction reaches the final PRO step, then generated output documents, including the selected plan evidence PDF/PNG and generated geometry visual artifact, are saved/attached according to the PRO-stage behavior, not earlier.
+20. Given PLA output documents are generated during the workflow, when the transaction reaches the final PRO step, then generated output documents are saved/attached according to the PRO-stage behavior, not earlier: `st_plan_annex_output` is the examiner-selected page extracted from the input `st_plan_annexation_pdf`, `st_plan_annex_output2` is the generated geometry document built from reviewed bearings/distances, and `st_plan_annex_output3` remains undefined/reserved until a later requirement defines it.
 
 21. Given the transaction is reopened, when the case folder contains PLA selection, extraction, review, and visual comparison artifacts, then the workflow restores those artifacts and does not require the examiner to repeat page selection or extraction unless they choose to rerun.
 
@@ -166,7 +166,7 @@ The user clarified:
 - Required source type is `st_plan_annexation_pdf`.
 - User should select the relevant plan evidence. Full page is acceptable for the first implementation if rectangular crop is too complex.
 - Preferred generated selected-plan artifact is PDF if practical.
-- Generated output documents should be saved/attached at the final PRO step, not earlier.
+- Generated output documents should be saved/attached at the final PRO step, not earlier. Output 1 is the selected plan-annexation PDF page, output 2 is the generated geometry document, and output 3 is reserved/undefined.
 - If no georeference is available, geometry should still be generated in a local coordinate space from `(0,0)` or equivalent.
 - Matching selected plan evidence against generated geometry is a visual overlay/similarity review only.
 

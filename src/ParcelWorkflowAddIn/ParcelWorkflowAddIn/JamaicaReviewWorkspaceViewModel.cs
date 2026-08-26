@@ -199,6 +199,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public bool HasPxaMemorandumReview => VisibleMemorandumGroups.Count > 0;
 
+    public bool ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview;
+
     public string PxaMemorandumSummary => VisibleMemorandumGroups.Count > 0
         ? string.Join(" | ", VisibleMemorandumGroups.Select(group => $"{group.DisplayName}: {group.Summary}"))
         : "No memorandum-specific rules are available for this review artifact.";
@@ -733,6 +735,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PxaGeneralInfoSummary));
         OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
         OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+        OnPropertyChanged(nameof(ShowPxaMemorandumTab));
         OnPropertyChanged(nameof(HasPxaMemorandumReview));
         OnPropertyChanged(nameof(PxaMemorandumSummary));
     }
@@ -783,6 +786,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewVolumeFolios):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewMemorandumGroups):
             case nameof(ParcelWorkflowDockpaneViewModel.IsPxaSurveyPlanReview):
+            case nameof(ParcelWorkflowDockpaneViewModel.IsPlaPlanAnnexationReview):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
             case nameof(ParcelWorkflowDockpaneViewModel.HasSingleReviewParcelGroup):
                 RefreshProjection();
@@ -794,6 +798,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PxaGeneralInfoSummary));
                 OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+                OnPropertyChanged(nameof(ShowPxaMemorandumTab));
                 OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
                 OnPropertyChanged(nameof(IsStandardPointReview));
                 OnPropertyChanged(nameof(CenterReviewTitle));
@@ -958,6 +963,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PxaGeneralInfoSummary));
             OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
             OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
+            OnPropertyChanged(nameof(ShowPxaMemorandumTab));
             OnPropertyChanged(nameof(HasPxaMemorandumReview));
             OnPropertyChanged(nameof(PxaMemorandumSummary));
             OnPropertyChanged(nameof(IsPxaSurveyPlanReview));

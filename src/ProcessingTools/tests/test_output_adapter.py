@@ -372,6 +372,118 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertIn("area_sq_m", polygon_rows[0])
             self.assertIn("closure_status", polygon_rows[0])
 
+    def test_output_adapter_generates_pla_output_pdf_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.json"
+            approved_path = temp_path / "working" / "approved_review.json"
+            review_path = temp_path / "working" / "extraction_review_data.json"
+            selection_path = temp_path / "working" / "pla_plan_annexation" / "pla_plan_evidence_selection.json"
+            source_path = temp_path / "source" / "1000-55.pdf"
+            output_root = temp_path / "output"
+            output_summary_path = output_root / "output_summary.json"
+
+            approved_path.parent.mkdir(parents=True, exist_ok=True)
+            selection_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            output_adapter._write_text_pdf(
+                source_path,
+                ["PLA source title page"] + [f"title filler {index}" for index in range(50)] + ["PLA selected plan page"],
+            )
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_id": "100001219",
+                        "payload": {
+                            "workflow_profile": "pla_plan_annexation",
+                            "script_plan": {"source_manifest_hash": "hash-pla"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100001219",
+                        "review_hash": "approved-hash",
+                        "approved_by": "tester",
+                        "status": "approved",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "transaction_number": "100001219",
+                        "review_hash": "approved-hash",
+                        "source_profile": "pla_plan_annexation",
+                        "rows": [
+                            {"row_id": "1", "point_identifier": "1", "easting": "0", "northing": "0"},
+                            {"row_id": "2", "point_identifier": "2", "easting": "10", "northing": "0"},
+                            {"row_id": "3", "point_identifier": "3", "easting": "10", "northing": "10"},
+                            {"row_id": "4", "point_identifier": "4", "easting": "0", "northing": "10"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            selection_path.write_text(
+                json.dumps(
+                    {
+                        "generated_plan_evidence_path": "working/pla_plan_annexation/pla_selected_plan.png",
+                        "source_relative_path": "source/1000-55.pdf",
+                        "selected_page_number": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            previous = os.environ.get("SIDWELL_OUTPUT_ADAPTER_TEST_MODE")
+            os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = "1"
+            try:
+                exit_code = output_adapter.main(
+                    [
+                        "--manifest",
+                        str(manifest_path),
+                        "--approved-review",
+                        str(approved_path),
+                        "--review-data",
+                        str(review_path),
+                        "--add-cogo-attributes",
+                        "true",
+                        "--output-root",
+                        str(output_root),
+                        "--output-summary",
+                        str(output_summary_path),
+                        "--operator",
+                        "tester",
+                    ]
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("SIDWELL_OUTPUT_ADAPTER_TEST_MODE", None)
+                else:
+                    os.environ["SIDWELL_OUTPUT_ADAPTER_TEST_MODE"] = previous
+
+            self.assertEqual(0, exit_code)
+            summary = json.loads(output_summary_path.read_text(encoding="utf-8"))
+            pdf_paths = [
+                Path(path)
+                for path in summary["payload"]["artifact_paths"]
+                if str(path).lower().endswith(".pdf")
+            ]
+
+            self.assertEqual(2, len(pdf_paths))
+            self.assertEqual("pla_selected_plan_page.pdf", pdf_paths[0].name)
+            self.assertEqual("pla_generated_geometry.pdf", pdf_paths[1].name)
+            self.assertTrue(pdf_paths[0].exists())
+            self.assertTrue(pdf_paths[1].exists())
+            self.assertGreater(pdf_paths[0].stat().st_size, 100)
+            self.assertGreater(pdf_paths[1].stat().st_size, 100)
+            self.assertEqual([], summary["warnings"])
+
     def test_output_adapter_non_fabric_can_disable_optional_cogo_enrichment(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

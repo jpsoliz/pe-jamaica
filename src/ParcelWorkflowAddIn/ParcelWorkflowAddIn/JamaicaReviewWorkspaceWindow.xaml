@@ -688,7 +688,8 @@
                 </DataGrid>
               </Grid>
             </TabItem>
-            <TabItem Header="Memorandum">
+            <TabItem Header="Memorandum"
+                     Visibility="{Binding ShowPxaMemorandumTab, Converter={StaticResource BooleanToVisibilityConverter}}">
               <Grid Margin="10">
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto" />
@@ -740,6 +741,10 @@
                                 <DataGridTextColumn Header="State"
                                                     Binding="{Binding EvidenceState}"
                                                     Width="105"
+                                                    IsReadOnly="True" />
+                                <DataGridTextColumn Header="Effect"
+                                                    Binding="{Binding WorkflowEffect}"
+                                                    Width="110"
                                                     IsReadOnly="True" />
                                 <DataGridTemplateColumn Header="Status"
                                                         Width="120">
