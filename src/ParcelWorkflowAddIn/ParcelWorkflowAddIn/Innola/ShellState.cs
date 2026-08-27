@@ -109,6 +109,8 @@ internal static class ShellState
 
     public static string AttachmentUploadMode { get; } = Settings.AttachmentUploadMode;
 
+    public static string AttachmentUploadAuthMode { get; } = Settings.AttachmentUploadAuthMode;
+
     public static string ResumeAttachmentSourceType { get; } = Settings.ResumeAttachmentSourceType;
 
     public static string CompletedAttachmentSourceType { get; } = Settings.CompletedAttachmentSourceType;

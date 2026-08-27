@@ -435,6 +435,7 @@ public partial class ConfigurationWindow : ProWindow
         InnolaAttachmentUploadRouteTextBox.Text = document.InnolaAttachmentUploadRoute;
         InnolaAttachmentUploadBindingModeTextBox.Text = document.InnolaAttachmentUploadBindingMode;
         InnolaAttachmentUploadModeTextBox.Text = document.InnolaAttachmentUploadMode;
+        InnolaAttachmentUploadAuthModeTextBox.Text = document.InnolaAttachmentUploadAuthMode;
         InnolaResumeAttachmentSourceTypeTextBox.Text = document.InnolaResumeAttachmentSourceType;
         InnolaCompletedAttachmentSourceTypeTextBox.Text = document.InnolaCompletedAttachmentSourceType;
         InnolaResumeAttachmentRegisteredTypeTextBox.Text = document.InnolaResumeAttachmentRegisteredType;
@@ -563,6 +564,7 @@ public partial class ConfigurationWindow : ProWindow
         document.InnolaAttachmentUploadRoute = InnolaAttachmentUploadRouteTextBox.Text.Trim();
         document.InnolaAttachmentUploadBindingMode = InnolaAttachmentUploadBindingModeTextBox.Text.Trim();
         document.InnolaAttachmentUploadMode = InnolaAttachmentUploadModeTextBox.Text.Trim();
+        document.InnolaAttachmentUploadAuthMode = InnolaAttachmentUploadAuthModeTextBox.Text.Trim();
         document.InnolaResumeAttachmentSourceType = InnolaResumeAttachmentSourceTypeTextBox.Text.Trim();
         document.InnolaCompletedAttachmentSourceType = InnolaCompletedAttachmentSourceTypeTextBox.Text.Trim();
         document.InnolaResumeAttachmentRegisteredType = InnolaResumeAttachmentRegisteredTypeTextBox.Text.Trim();

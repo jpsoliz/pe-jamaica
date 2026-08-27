@@ -49,6 +49,13 @@ internal static class ComputeAttachmentSourceTypeCatalog
             InternalOnly: true,
             Extensions: new[] { ".png" }),
         new ComputeAttachmentSourceTypeDefinition(
+            "st_plan_annex_image",
+            SourceRole.PlaGeneratedOutput,
+            "PLA_B plan annexation image crop",
+            Required: false,
+            InternalOnly: true,
+            Extensions: new[] { ".png" }),
+        new ComputeAttachmentSourceTypeDefinition(
             "pla_b_recovery",
             SourceRole.PlaBRecovery,
             "PLA_B recovery plan",

@@ -1,6 +1,7 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Review;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -19,6 +20,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
     private readonly RelayCommand openSupportingDocumentCommand;
     private readonly RelayCommand revealSupportingDocumentCommand;
     private readonly RelayCommand reloadSupportingDocumentViewerCommand;
+    private readonly RelayCommand cropSupportingDocumentCommand;
     private readonly RenderedReviewDocumentService renderedReviewDocumentService = new();
     private string? activeCaseFolderPath;
     private string? transactionId;
@@ -42,6 +44,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
         openSupportingDocumentCommand = new RelayCommand(OpenSupportingDocument, () => SelectedSupportingDocument is not null);
         revealSupportingDocumentCommand = new RelayCommand(RevealSupportingDocument, () => SelectedSupportingDocument is not null);
         reloadSupportingDocumentViewerCommand = new RelayCommand(ReloadSupportingDocumentViewer, () => SelectedSupportingDocument is not null);
+        cropSupportingDocumentCommand = new RelayCommand(OpenCropWindow, () => CanCropSupportingDocument);
         ShellState.Session.SessionChanged += (_, _) => SyncLoadedCaseFolder();
         SyncLoadedCaseFolder();
         SupportingDocumentsDiagnostics.Write($"Supporting Documents view-model constructed. Title: {SupportingDocumentsTabTitle}");
@@ -120,6 +123,8 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
 
     public ICommand ReloadSupportingDocumentViewerCommand => reloadSupportingDocumentViewerCommand;
 
+    public ICommand CropSupportingDocumentCommand => cropSupportingDocumentCommand;
+
     public IReadOnlyList<SourceFileListItem> SupportingDocumentOptions => SupportingDocumentWorkspaceProjection.BuildReadableSupportingDocumentOptions(sourceFileItems);
 
     public bool HasSupportingDocumentOptions => SupportingDocumentOptions.Count > 0;
@@ -149,6 +154,24 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
         HasActiveCase
             ? "No readable supporting documents are available for this transaction."
             : "Load a transaction to review supporting documents.";
+
+    public bool CanCropSupportingDocument =>
+        SupportingDocumentWorkspaceProjection.CanCropSupportingDocument(
+            SelectedSupportingDocument?.SourceFile,
+            activeCaseFolderPath,
+            out _);
+
+    public string CropSupportingDocumentTooltip
+    {
+        get
+        {
+            SupportingDocumentWorkspaceProjection.CanCropSupportingDocument(
+                SelectedSupportingDocument?.SourceFile,
+                activeCaseFolderPath,
+                out var reason);
+            return reason;
+        }
+    }
 
     public SourceFileListItem? SelectedSupportingDocument
     {
@@ -390,6 +413,47 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
         ExecuteSourceFileAction(SourceFileAction.Reveal);
     }
 
+    private void OpenCropWindow()
+    {
+        var selected = SelectedSupportingDocument;
+        if (selected is null || string.IsNullOrWhiteSpace(activeCaseFolderPath))
+        {
+            supportingDocumentViewerStatusDetail = CropSupportingDocumentTooltip;
+            RefreshProperties();
+            return;
+        }
+
+        if (!SupportingDocumentWorkspaceProjection.CanCropSupportingDocument(selected.SourceFile, activeCaseFolderPath, out var reason))
+        {
+            supportingDocumentViewerStatusDetail = reason;
+            RefreshProperties();
+            return;
+        }
+
+        var transaction = ShellState.Session.SelectedTransaction
+            ?? new SelectedInnolaTransaction(
+                ShellState.Session.LoadedTransactionNumber ?? transactionId ?? "task-unavailable",
+                ShellState.Session.LoadedTransactionNumber ?? transactionId ?? "transaction-unavailable",
+                ShellState.Session.LoadedTransactionNumber ?? transactionId ?? "TR-Unknown",
+                "Current transaction",
+                ShellState.TransactionProcessStep,
+                DateTimeOffset.UtcNow);
+        var peNumber = PlaBTestEmulationContext.GetForTransaction(transaction.TransactionNumber)?.PeNumber;
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(activeCaseFolderPath);
+            var window = new SupportingDocumentCropWindow(layout, transaction, selected.SourceFile, peNumber);
+            window.Show();
+            supportingDocumentViewerStatusDetail = "Crop window opened.";
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or IOException or UnauthorizedAccessException)
+        {
+            supportingDocumentViewerStatusDetail = $"Crop window could not open: {exception.Message}";
+        }
+
+        RefreshProperties();
+    }
+
     private void ExecuteSourceFileAction(SourceFileAction action)
     {
         var selected = SelectedSupportingDocument;
@@ -496,6 +560,8 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
         NotifyPropertyChanged(nameof(HasSupportingDocumentOptions));
         NotifyPropertyChanged(nameof(SupportingDocumentListSummary));
         NotifyPropertyChanged(nameof(SupportingDocumentEmptyText));
+        NotifyPropertyChanged(nameof(CanCropSupportingDocument));
+        NotifyPropertyChanged(nameof(CropSupportingDocumentTooltip));
         NotifyPropertyChanged(nameof(SelectedSupportingDocument));
         NotifyPropertyChanged(nameof(SelectedSupportingDocumentTitle));
         NotifyPropertyChanged(nameof(SelectedSupportingDocumentPath));
@@ -514,6 +580,7 @@ internal sealed class SupportingDocumentsDockpaneViewModel : INotifyPropertyChan
         openSupportingDocumentCommand.RaiseCanExecuteChanged();
         revealSupportingDocumentCommand.RaiseCanExecuteChanged();
         reloadSupportingDocumentViewerCommand.RaiseCanExecuteChanged();
+        cropSupportingDocumentCommand.RaiseCanExecuteChanged();
     }
 
     private void NotifyPropertyChanged(string propertyName)

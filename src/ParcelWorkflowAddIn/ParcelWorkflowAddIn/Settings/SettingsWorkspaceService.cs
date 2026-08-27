@@ -88,6 +88,7 @@ public sealed class SettingsWorkspaceService
             InnolaAttachmentUploadRoute = transactionSettings.AttachmentUploadRoute,
             InnolaAttachmentUploadBindingMode = transactionSettings.AttachmentUploadBindingMode,
             InnolaAttachmentUploadMode = transactionSettings.AttachmentUploadMode,
+            InnolaAttachmentUploadAuthMode = transactionSettings.AttachmentUploadAuthMode,
             InnolaResumeAttachmentSourceType = transactionSettings.ResumeAttachmentSourceType,
             InnolaCompletedAttachmentSourceType = transactionSettings.CompletedAttachmentSourceType,
             InnolaResumeAttachmentRegisteredType = transactionSettings.ResumeAttachmentRegisteredType,
@@ -571,6 +572,7 @@ public sealed class SettingsWorkspaceService
         SetString(root, "innola_attachment_upload_route", document.InnolaAttachmentUploadRoute);
         SetString(root, "innola_attachment_upload_binding_mode", document.InnolaAttachmentUploadBindingMode);
         SetString(root, "innola_attachment_upload_mode", document.InnolaAttachmentUploadMode);
+        SetString(root, "innola_attachment_upload_auth_mode", document.InnolaAttachmentUploadAuthMode);
         SetString(root, "innola_resume_attachment_source_type", document.InnolaResumeAttachmentSourceType);
         SetString(root, "innola_completed_attachment_source_type", document.InnolaCompletedAttachmentSourceType);
         SetString(root, "innola_resume_attachment_registered_type", document.InnolaResumeAttachmentRegisteredType);

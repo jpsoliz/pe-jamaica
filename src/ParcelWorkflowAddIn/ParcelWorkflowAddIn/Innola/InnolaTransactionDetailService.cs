@@ -15,7 +15,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     private readonly HttpClient httpClient;
 
     public InnolaTransactionDetailService()
-        : this(new HttpClient())
+        : this(InnolaHttpClientFactory.Create(InnolaTransactionSettings.Load().ClientCertificate))
     {
     }
 
@@ -160,85 +160,277 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", "unauthorized");
         }
 
+        var route = NormalizeUploadRoute(ShellState.AttachmentUploadRoute);
+        var bindingMode = NormalizeBindingMode(ShellState.AttachmentUploadBindingMode);
+        var uploadMode = NormalizeUploadMode(ShellState.AttachmentUploadMode);
+        var authMode = NormalizeAuthMode(ShellState.AttachmentUploadAuthMode);
+        var taskValue = ResolveUploadTaskValue(selectedTransaction, route, uploadMode);
+        var query = BuildUploadQuery(sourceType, taskValue, bindingMode);
+        var requestPath = BuildUploadRequestPath(route, query);
+        var firstAuth = authMode == AttachmentUploadAuthMode.Bearer
+            ? AttachmentUploadAuthAttempt.Bearer
+            : AttachmentUploadAuthAttempt.AccessToken;
+        var responseAuth = firstAuth;
+
         try
         {
-            var route = NormalizeUploadRoute(ShellState.AttachmentUploadRoute);
-            var bindingMode = NormalizeBindingMode(ShellState.AttachmentUploadBindingMode);
-            var uploadMode = NormalizeUploadMode(ShellState.AttachmentUploadMode);
-            var query = BuildUploadQuery(selectedTransaction, sourceType, bindingMode, route, uploadMode);
-            var requestPath = BuildUploadRequestPath(route, query);
             Debug.WriteLine(
-                $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; SourceType={sourceType}; Path={requestPath}.");
+                $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; AuthMode={authMode}; SourceType={sourceType}; Path={requestPath}.");
 
-            using var response = await InnolaApiResilience.SendAsync(
-                httpClient,
-                new InnolaApiOperation(
-                    "attachment upload",
-                    InnolaApiRetryMode.VerifyBeforeRetry,
-                    selectedTransaction.TransactionNumber,
-                    MaxAttempts: 1),
-                () =>
-                {
-                    var request = new HttpRequestMessage(
-                        HttpMethod.Post,
-                        InnolaHttp.BuildUri(
-                            session.ServerUrl,
-                            requestPath));
-                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
-
-                    var formData = new MultipartFormDataContent();
-                    var fileContent = new ByteArrayContent(content);
-                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-                    formData.Add(fileContent, "file", fileName);
-
-                    if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
-                    {
-                        formData.Add(new StringContent(sourceType), "sourceType");
-                        formData.Add(new StringContent(ResolveUploadTaskValue(selectedTransaction, route, uploadMode)), "taskId");
-                        if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
-                        {
-                            formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
-                        }
-                    }
-
-                    request.Content = formData;
-                    return request;
-                },
+            var uploadAttempt = await SendUploadAttemptWithFallbackAsync(
+                session,
+                selectedTransaction,
+                fileName,
+                contentType,
+                content,
+                sourceType,
+                route,
+                bindingMode,
+                uploadMode,
+                authMode,
+                firstAuth,
+                taskValue,
+                requestPath,
+                attempt => responseAuth = attempt,
                 cancellationToken).ConfigureAwait(false);
+            using var response = uploadAttempt.Response;
+            responseAuth = uploadAttempt.AuthAttempt;
             if (!response.IsSuccessStatusCode)
             {
+                if (ShouldRetryAttachmentWithBearer(response.StatusCode, authMode, firstAuth, session.AccessToken))
+                {
+                    response.Dispose();
+                    using var bearerResponse = await SendUploadAttemptAsync(
+                        session,
+                        selectedTransaction,
+                        fileName,
+                        contentType,
+                        content,
+                        sourceType,
+                        route,
+                        bindingMode,
+                        uploadMode,
+                        authMode,
+                        AttachmentUploadAuthAttempt.Bearer,
+                        taskValue,
+                        requestPath,
+                        cancellationToken).ConfigureAwait(false);
+                    if (bearerResponse.IsSuccessStatusCode)
+                    {
+                        responseAuth = AttachmentUploadAuthAttempt.Bearer;
+                        return await CompleteSuccessfulUploadAsync(
+                            session,
+                            selectedTransaction,
+                            sourceType,
+                            uploadMode,
+                            bearerResponse,
+                            BuildUploadDiagnostics(route, bindingMode, uploadMode, responseAuth, taskValue, contentType, content.Length),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    var bearerResponseBody = await ReadResponseBodyAsync(bearerResponse, cancellationToken).ConfigureAwait(false);
+                    Debug.WriteLine($"Innola attachment upload bearer fallback failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={bearerResponse.StatusCode}; Body={bearerResponseBody}.");
+                    return InnolaAttachmentUploadResult.Failure(
+                        InnolaApiResilience.UserMessageFor(bearerResponse.StatusCode, $"Could not upload attachment ({bearerResponse.StatusCode}). Try again."),
+                        InnolaApiResilience.CategoryFor(bearerResponse.StatusCode),
+                        BuildUploadDiagnostics(route, bindingMode, uploadMode, AttachmentUploadAuthAttempt.Bearer, taskValue, contentType, content.Length));
+                }
+
                 var responseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
                 Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Status={response.StatusCode}; Body={responseBody}.");
                 return InnolaAttachmentUploadResult.Failure(
                     InnolaApiResilience.UserMessageFor(response.StatusCode, $"Could not upload attachment ({response.StatusCode}). Try again."),
-                    InnolaApiResilience.CategoryFor(response.StatusCode));
+                    InnolaApiResilience.CategoryFor(response.StatusCode),
+                    BuildUploadDiagnostics(route, bindingMode, uploadMode, responseAuth, taskValue, contentType, content.Length));
             }
 
-            var uploadResponseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
-            if (uploadMode == AttachmentUploadMode.AttachThenRegisterSource)
-            {
-                var registeredType = ResolveRegisteredType(sourceType);
-                var registerResult = await RegisterUploadedSourceAsync(
-                    session,
-                    selectedTransaction,
-                    sourceType,
-                    registeredType,
-                    uploadResponseBody,
-                    cancellationToken).ConfigureAwait(false);
-                if (!registerResult.Success)
-                {
-                    return registerResult;
-                }
-            }
-
-            Debug.WriteLine($"Innola attachment upload completed. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}.");
-            return InnolaAttachmentUploadResult.Succeeded();
+            return await CompleteSuccessfulUploadAsync(
+                session,
+                selectedTransaction,
+                sourceType,
+                uploadMode,
+                response,
+                BuildUploadDiagnostics(route, bindingMode, uploadMode, responseAuth, taskValue, contentType, content.Length),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
-            Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={exception.GetType().Name}.");
-            return InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", exception.GetType().Name);
+            var safeDiagnostic = BuildSafeUploadExceptionDiagnostic(exception);
+            Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={safeDiagnostic}.");
+            return InnolaAttachmentUploadResult.Failure(
+                $"Could not upload attachment. {safeDiagnostic}",
+                exception.GetType().Name,
+                BuildUploadDiagnostics(route, bindingMode, uploadMode, responseAuth, taskValue, contentType, content.Length));
         }
+    }
+
+    private async Task<(HttpResponseMessage Response, AttachmentUploadAuthAttempt AuthAttempt)> SendUploadAttemptWithFallbackAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        string route,
+        AttachmentUploadBindingMode bindingMode,
+        AttachmentUploadMode uploadMode,
+        AttachmentUploadAuthMode authMode,
+        AttachmentUploadAuthAttempt firstAuth,
+        string taskValue,
+        string requestPath,
+        Action<AttachmentUploadAuthAttempt> setAuthAttempt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            setAuthAttempt(firstAuth);
+            var response = await SendUploadAttemptAsync(
+                session,
+                selectedTransaction,
+                fileName,
+                contentType,
+                content,
+                sourceType,
+                route,
+                bindingMode,
+                uploadMode,
+                authMode,
+                firstAuth,
+                taskValue,
+                requestPath,
+                cancellationToken).ConfigureAwait(false);
+            return (response, firstAuth);
+        }
+        catch (Exception exception) when (ShouldRetryAttachmentExceptionWithBearer(exception, authMode, firstAuth, session.AccessToken, cancellationToken))
+        {
+            var safeDiagnostic = BuildSafeUploadExceptionDiagnostic(exception);
+            Debug.WriteLine($"Innola attachment upload access-token attempt failed before response. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={safeDiagnostic}; retrying with bearer auth.");
+            setAuthAttempt(AttachmentUploadAuthAttempt.Bearer);
+            var response = await SendUploadAttemptAsync(
+                session,
+                selectedTransaction,
+                fileName,
+                contentType,
+                content,
+                sourceType,
+                route,
+                bindingMode,
+                uploadMode,
+                authMode,
+                AttachmentUploadAuthAttempt.Bearer,
+                taskValue,
+                requestPath,
+                cancellationToken).ConfigureAwait(false);
+            return (response, AttachmentUploadAuthAttempt.Bearer);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendUploadAttemptAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        string route,
+        AttachmentUploadBindingMode bindingMode,
+        AttachmentUploadMode uploadMode,
+        AttachmentUploadAuthMode authMode,
+        AttachmentUploadAuthAttempt authAttempt,
+        string taskValue,
+        string requestPath,
+        CancellationToken cancellationToken)
+    {
+        Debug.WriteLine(
+            $"Innola attachment upload attempt. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; ConfiguredAuthMode={authMode}; AuthAttempt={authAttempt}; SourceType={sourceType}; TaskValue={taskValue}; Path={requestPath}.");
+        return await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                authAttempt == AttachmentUploadAuthAttempt.Bearer ? "attachment upload bearer" : "attachment upload",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                selectedTransaction.TransactionNumber,
+                MaxAttempts: 1),
+            () => CreateUploadRequest(session, selectedTransaction, fileName, contentType, content, sourceType, bindingMode, authAttempt, taskValue, requestPath),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static HttpRequestMessage CreateUploadRequest(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string fileName,
+        string contentType,
+        byte[] content,
+        string sourceType,
+        AttachmentUploadBindingMode bindingMode,
+        AttachmentUploadAuthAttempt authAttempt,
+        string taskValue,
+        string requestPath)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            InnolaHttp.BuildUri(
+                session.ServerUrl,
+                requestPath));
+        ApplyUploadAuth(request, session.AccessToken, authAttempt);
+
+        var formData = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(content);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        formData.Add(fileContent, "file", fileName);
+
+        if (bindingMode is AttachmentUploadBindingMode.FormOnly or AttachmentUploadBindingMode.QueryAndForm)
+        {
+            formData.Add(new StringContent(sourceType), "sourceType");
+            formData.Add(new StringContent(taskValue), "taskId");
+            if (!string.IsNullOrWhiteSpace(selectedTransaction.TransactionId))
+            {
+                formData.Add(new StringContent(selectedTransaction.TransactionId), "transactionId");
+            }
+        }
+
+        request.Content = formData;
+        return request;
+    }
+
+    private static void ApplyUploadAuth(HttpRequestMessage request, string accessToken, AttachmentUploadAuthAttempt authAttempt)
+    {
+        if (authAttempt == AttachmentUploadAuthAttempt.Bearer)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            return;
+        }
+
+        InnolaHttp.ApplyAuthHeaders(request, accessToken);
+    }
+
+    private async Task<InnolaAttachmentUploadResult> CompleteSuccessfulUploadAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction selectedTransaction,
+        string sourceType,
+        AttachmentUploadMode uploadMode,
+        HttpResponseMessage response,
+        InnolaAttachmentUploadDiagnostics diagnostics,
+        CancellationToken cancellationToken)
+    {
+        var uploadResponseBody = await ReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+        if (uploadMode == AttachmentUploadMode.AttachThenRegisterSource)
+        {
+            var registeredType = ResolveRegisteredType(sourceType);
+            var registerResult = await RegisterUploadedSourceAsync(
+                session,
+                selectedTransaction,
+                sourceType,
+                registeredType,
+                uploadResponseBody,
+                cancellationToken).ConfigureAwait(false);
+            if (!registerResult.Success)
+            {
+                return registerResult.WithDiagnostics(diagnostics);
+            }
+        }
+
+        Debug.WriteLine($"Innola attachment upload completed. TaskId={selectedTransaction.TaskId}; Bytes={diagnostics.ByteCount}; AuthMode={diagnostics.AuthMode}.");
+        return InnolaAttachmentUploadResult.Succeeded(diagnostics);
     }
 
     private async Task<InnolaAttachmentUploadResult> RegisterUploadedSourceAsync(
@@ -424,6 +616,16 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         };
     }
 
+    private static AttachmentUploadAuthMode NormalizeAuthMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "bearer" => AttachmentUploadAuthMode.Bearer,
+            "access_token_then_bearer" => AttachmentUploadAuthMode.AccessTokenThenBearer,
+            _ => AttachmentUploadAuthMode.AccessToken
+        };
+    }
+
     private static AttachmentUploadBindingMode NormalizeBindingMode(string? value)
     {
         return value?.Trim().ToLowerInvariant() switch
@@ -434,14 +636,14 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         };
     }
 
-    private static string BuildUploadQuery(SelectedInnolaTransaction selectedTransaction, string sourceType, AttachmentUploadBindingMode bindingMode, string route, AttachmentUploadMode uploadMode)
+    private static string BuildUploadQuery(string sourceType, string taskValue, AttachmentUploadBindingMode bindingMode)
     {
         if (bindingMode is AttachmentUploadBindingMode.FormOnly)
         {
             return string.Empty;
         }
 
-        return $"?sourceType={Uri.EscapeDataString(sourceType)}&taskId={Uri.EscapeDataString(ResolveUploadTaskValue(selectedTransaction, route, uploadMode))}";
+        return $"?sourceType={Uri.EscapeDataString(sourceType)}&taskId={Uri.EscapeDataString(taskValue)}";
     }
 
     private static string BuildUploadRequestPath(string route, string query)
@@ -479,6 +681,74 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         return selectedTransaction.TaskId;
     }
 
+    private static bool ShouldRetryAttachmentWithBearer(
+        System.Net.HttpStatusCode statusCode,
+        AttachmentUploadAuthMode authMode,
+        AttachmentUploadAuthAttempt authAttempt,
+        string? accessToken)
+    {
+        return statusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+            && authMode == AttachmentUploadAuthMode.AccessTokenThenBearer
+            && authAttempt == AttachmentUploadAuthAttempt.AccessToken
+            && !string.IsNullOrWhiteSpace(accessToken);
+    }
+
+    private static bool ShouldRetryAttachmentExceptionWithBearer(
+        Exception exception,
+        AttachmentUploadAuthMode authMode,
+        AttachmentUploadAuthAttempt authAttempt,
+        string? accessToken,
+        CancellationToken cancellationToken)
+    {
+        return InnolaApiResilience.IsRetryableException(exception, cancellationToken)
+            && authMode == AttachmentUploadAuthMode.AccessTokenThenBearer
+            && authAttempt == AttachmentUploadAuthAttempt.AccessToken
+            && !string.IsNullOrWhiteSpace(accessToken);
+    }
+
+    private static InnolaAttachmentUploadDiagnostics BuildUploadDiagnostics(
+        string route,
+        AttachmentUploadBindingMode bindingMode,
+        AttachmentUploadMode uploadMode,
+        AttachmentUploadAuthAttempt authAttempt,
+        string taskValue,
+        string contentType,
+        long byteCount)
+    {
+        return new InnolaAttachmentUploadDiagnostics(
+            route,
+            ToConfigString(bindingMode),
+            ToConfigString(uploadMode),
+            ToConfigString(authAttempt),
+            taskValue,
+            contentType,
+            byteCount);
+    }
+
+    private static string ToConfigString(AttachmentUploadBindingMode value)
+    {
+        return value switch
+        {
+            AttachmentUploadBindingMode.QueryOnly => "query_only",
+            AttachmentUploadBindingMode.FormOnly => "form_only",
+            _ => "query_and_form"
+        };
+    }
+
+    private static string ToConfigString(AttachmentUploadMode value)
+    {
+        return value == AttachmentUploadMode.AttachThenRegisterSource
+            ? "attach_then_register_source"
+            : "attach_only";
+    }
+
+    private static string ToConfigString(AttachmentUploadAuthAttempt value)
+    {
+        return value == AttachmentUploadAuthAttempt.Bearer
+            ? "bearer"
+            : "access_token";
+    }
+
     private enum AttachmentUploadBindingMode
     {
         QueryOnly,
@@ -490,6 +760,19 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     {
         AttachOnly,
         AttachThenRegisterSource
+    }
+
+    private enum AttachmentUploadAuthMode
+    {
+        AccessToken,
+        Bearer,
+        AccessTokenThenBearer
+    }
+
+    private enum AttachmentUploadAuthAttempt
+    {
+        AccessToken,
+        Bearer
     }
 
     private async Task<List<JsonNode>> GetAdministrativeSourcesAsync(
@@ -1185,6 +1468,48 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
                 CollectNamedField(values, item, key);
             }
         }
+    }
+
+    private static string BuildSafeUploadExceptionDiagnostic(Exception exception)
+    {
+        var parts = new List<string>();
+        for (Exception? current = exception; current is not null && parts.Count < 3; current = current.InnerException)
+        {
+            var message = SanitizeExceptionMessage(current.Message);
+            parts.Add(string.IsNullOrWhiteSpace(message)
+                ? current.GetType().Name
+                : $"{current.GetType().Name}: {message}");
+        }
+
+        return parts.Count == 0
+            ? "Try again."
+            : string.Join(" Inner: ", parts);
+    }
+
+    private static string SanitizeExceptionMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message) || ContainsSensitiveDiagnostic(message))
+        {
+            return "Sensitive diagnostic was redacted.";
+        }
+
+        var compact = string.Join(" ", message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return compact.Length <= 500 ? compact : string.Concat(compact.AsSpan(0, 500), "...");
+    }
+
+    private static bool ContainsSensitiveDiagnostic(string value)
+    {
+        return value.Contains("token", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("password", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("secret", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("bearer", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("authorization", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("cookie", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("apikey", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("api_key", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("access-token", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("{", StringComparison.Ordinal)
+            || value.Contains("}", StringComparison.Ordinal);
     }
 
     private sealed record AttachmentClassification(string? SourceType, string? SourceRole);

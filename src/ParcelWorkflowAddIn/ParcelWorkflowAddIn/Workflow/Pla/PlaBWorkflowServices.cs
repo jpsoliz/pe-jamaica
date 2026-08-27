@@ -27,6 +27,7 @@ internal static class PlaBWorkflowConstants
     public const string SurveyDiagramSourceType = "st_survey_diagram";
     public const string SurveyDiagramSourceRole = SourceRole.SurveyDiagramPdf;
     public const string SurveyDiagramPngOutputSourceType = "st_survey_diagram_png";
+    public const string PlanAnnexImageSourceType = "st_plan_annex_image";
     public const string SelectionPngFileName = "survey_diagram_selection.png";
     public const string SelectionMetadataFileName = "survey_diagram_selection.json";
     public const string FinalizeEvidenceFileName = "pla_b_finalize_upload.json";

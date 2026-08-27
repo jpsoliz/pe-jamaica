@@ -423,6 +423,17 @@
                     <ColumnDefinition Width="190" />
                     <ColumnDefinition Width="*" />
                   </Grid.ColumnDefinitions>
+                  <TextBlock Text="Upload auth mode" FontWeight="SemiBold" Margin="0,6,8,6" />
+                  <TextBox Grid.Column="1"
+                           x:Name="InnolaAttachmentUploadAuthModeTextBox"
+                           Margin="0,0,0,6" />
+                </Grid>
+
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
                   <TextBlock Text="Resume source type" FontWeight="SemiBold" Margin="0,6,8,6" />
                   <TextBox Grid.Column="1"
                            x:Name="InnolaResumeAttachmentSourceTypeTextBox"

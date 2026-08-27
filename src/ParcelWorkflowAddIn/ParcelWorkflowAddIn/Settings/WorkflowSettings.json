@@ -360,6 +360,14 @@
       "extensions": [".png"]
     },
     {
+      "source_type": "st_plan_annex_image",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA_B plan annexation image crop",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".png"]
+    },
+    {
       "source_type": "pla_b_recovery",
       "workflow_role": "pla_b_recovery",
       "display_name": "PLA_B recovery plan",
@@ -504,6 +512,7 @@
   "innola_attachment_upload_route": "source/sources/attach",
   "innola_attachment_upload_binding_mode": "query_only",
   "innola_attachment_upload_mode": "attach_then_register_source",
+  "innola_attachment_upload_auth_mode": "access_token_then_bearer",
   "innola_resume_attachment_source_type": "sidwell_resume_package",
   "innola_completed_attachment_source_type": "sidwell_completed_package",
   "innola_resume_attachment_registered_type": "st_surveyplan",

@@ -48,6 +48,7 @@ public sealed class SettingsWorkspaceDocument
     public string InnolaAttachmentUploadRoute { get; set; } = string.Empty;
     public string InnolaAttachmentUploadBindingMode { get; set; } = string.Empty;
     public string InnolaAttachmentUploadMode { get; set; } = string.Empty;
+    public string InnolaAttachmentUploadAuthMode { get; set; } = string.Empty;
     public string InnolaResumeAttachmentSourceType { get; set; } = string.Empty;
     public string InnolaCompletedAttachmentSourceType { get; set; } = string.Empty;
     public string InnolaResumeAttachmentRegisteredType { get; set; } = string.Empty;

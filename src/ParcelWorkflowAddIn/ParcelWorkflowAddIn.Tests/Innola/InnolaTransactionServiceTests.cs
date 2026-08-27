@@ -635,6 +635,122 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!body.Contains("\"sourceType\":\"st_plan_annex_output\"", StringComparison.Ordinal), "Prior PLA output source variants should be removed.");
     }
 
+    public static async Task AttachmentUploadPreservesSafeTransportDiagnosticAndRedactsSecrets()
+    {
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-test.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100000724",
+            "Plan Annexed",
+            "Plan Annexation",
+            DateTimeOffset.Parse("2026-08-27T00:00:00Z"));
+        var safeException = new HttpRequestException(
+            "A connection attempt failed because the connected host did not respond. (eltrs-test.innola-solutions.com:443)",
+            new TimeoutException("The operation timed out."));
+        var safeHandler = new SequencedHttpMessageHandler(
+            new SequencedResponse(safeException),
+            new SequencedResponse(safeException),
+            new SequencedResponse(safeException));
+        var safeService = new InnolaTransactionDetailService(new HttpClient(safeHandler));
+        var unsafeException = new HttpRequestException("token secret-password {raw response}");
+        var unsafeHandler = new SequencedHttpMessageHandler(
+            new SequencedResponse(unsafeException),
+            new SequencedResponse(unsafeException),
+            new SequencedResponse(unsafeException));
+        var unsafeService = new InnolaTransactionDetailService(new HttpClient(unsafeHandler));
+
+        var safe = await safeService.UploadAttachmentAsync(
+            session,
+            transaction,
+            "survey_diagram_selection.png",
+            "image/png",
+            Encoding.UTF8.GetBytes("png"),
+            "st_plan_annex_image");
+        var unsafeResult = await unsafeService.UploadAttachmentAsync(
+            session,
+            transaction,
+            "survey_diagram_selection.png",
+            "image/png",
+            Encoding.UTF8.GetBytes("png"),
+            "st_plan_annex_image");
+
+        TestAssert.False(safe.Success, "Transport exception should fail upload.");
+        TestAssert.Equal("HttpRequestException", safe.ErrorCategory, "Transport error category mismatch.");
+        TestAssert.True(safe.ErrorMessage?.Contains("eltrs-test.innola-solutions.com:443", StringComparison.Ordinal) == true, "Safe upload diagnostic should preserve host/port detail.");
+        TestAssert.True(safe.ErrorMessage?.Contains("TimeoutException", StringComparison.Ordinal) == true, "Safe upload diagnostic should preserve inner exception type.");
+        TestAssert.Equal("source/sources/attach", safe.Diagnostics?.Route, "Exception diagnostic should persist upload route.");
+        TestAssert.Equal("bearer", safe.Diagnostics?.AuthMode, "Exception diagnostic should persist the final auth attempt.");
+        TestAssert.Equal("transaction-1", safe.Diagnostics?.TaskValue, "Exception diagnostic should persist task value.");
+        TestAssert.Equal("image/png", safe.Diagnostics?.ContentType, "Exception diagnostic should persist content type.");
+        TestAssert.Equal(3L, safe.Diagnostics?.ByteCount, "Exception diagnostic should persist byte count.");
+        TestAssert.False(unsafeResult.Success, "Unsafe diagnostic upload should fail.");
+        TestAssert.True(unsafeResult.ErrorMessage?.Contains("Sensitive diagnostic was redacted", StringComparison.Ordinal) == true, "Unsafe diagnostic should be redacted.");
+        TestAssert.True(unsafeResult.ErrorMessage?.Contains("secret-password", StringComparison.Ordinal) != true, "Unsafe diagnostic must not leak password text.");
+        TestAssert.True(unsafeResult.ErrorMessage?.Contains("{raw response}", StringComparison.Ordinal) != true, "Unsafe diagnostic must not leak raw structured text.");
+    }
+
+    public static async Task AttachmentUploadRetriesTransportFailureWithBearerAuth()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(new HttpRequestException("Error while copying content to a stream.")),
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 37,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 38 },
+                  "link": { "@id": 39 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-test.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100000724",
+            "Plan Annexed",
+            "Plan Annexation",
+            DateTimeOffset.Parse("2026-08-27T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "survey_diagram_selection.png",
+            "image/png",
+            Encoding.UTF8.GetBytes("png"),
+            "st_plan_annex_image");
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Bearer retry should complete upload.");
+        TestAssert.Equal(4, handler.Requests.Count, "Upload should try access token, retry with bearer, load sources, then register sources.");
+        TestAssert.Equal("token-abc", handler.Requests[0].AccessToken, "First upload attempt should use access-token header.");
+        TestAssert.Equal(null, handler.Requests[0].AuthorizationScheme, "First upload attempt should not use bearer authorization.");
+        TestAssert.Equal(null, handler.Requests[1].AccessToken, "Bearer retry should not keep access-token header.");
+        TestAssert.Equal("Bearer", handler.Requests[1].AuthorizationScheme, "Second upload attempt should use bearer authorization.");
+        TestAssert.Equal("bearer", result.Diagnostics?.AuthMode, "Diagnostics should persist the successful auth mode.");
+        TestAssert.Equal("source/sources/attach", result.Diagnostics?.Route, "Diagnostics should persist upload route.");
+        TestAssert.Equal("query_only", result.Diagnostics?.BindingMode, "Diagnostics should persist binding mode.");
+        TestAssert.Equal("attach_then_register_source", result.Diagnostics?.UploadMode, "Diagnostics should persist upload mode.");
+        TestAssert.Equal("transaction-1", result.Diagnostics?.TaskValue, "Diagnostics should persist task value used for upload.");
+        TestAssert.Equal("image/png", result.Diagnostics?.ContentType, "Diagnostics should persist content type.");
+        TestAssert.Equal(3L, result.Diagnostics?.ByteCount, "Diagnostics should persist byte count.");
+    }
+
     private static int CountOccurrences(string text, string value)
     {
         var count = 0;
@@ -704,7 +820,10 @@ internal static class InnolaTransactionServiceTests
             var body = request.Content is null
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
-            Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body));
+            var accessToken = request.Headers.TryGetValues("Access-Token", out var values)
+                ? values.FirstOrDefault()
+                : null;
+            Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body, accessToken, request.Headers.Authorization?.Scheme));
 
             var response = responses.Dequeue();
             if (response.Exception is not null)
@@ -719,7 +838,7 @@ internal static class InnolaTransactionServiceTests
         }
     }
 
-    private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string Body);
+    private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string Body, string? AccessToken, string? AuthorizationScheme);
 
     private sealed record SequencedResponse(HttpStatusCode StatusCode, string Body)
     {

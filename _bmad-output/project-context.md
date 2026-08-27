@@ -1,11 +1,11 @@
 ---
 project_name: 'Sid-jamaica'
 user_name: 'JotaPe'
-date: '2026-08-20'
+date: '2026-08-27'
 sections_completed: ['technology_stack', 'language_specific_rules', 'framework_specific_rules', 'testing_rules', 'code_quality_style_rules', 'development_workflow_rules', 'critical_dont_miss_rules']
 existing_patterns_found: 18
 status: 'complete'
-rule_count: 80
+rule_count: 81
 optimized_for_llm: true
 ---
 
@@ -81,6 +81,8 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - PLA selected plan evidence should be generated as PDF when practical, with PNG fallback, and kept as a case-folder artifact until the final PRO step saves/attaches generated output documents back to Innola.
 - PLA geometry extraction should reuse OCR/vision and reviewed segment/boundary solver patterns where possible. If no usable georeference exists, generate form-valid local-origin geometry such as `(0,0)` and record that it is unreferenced instead of blocking solely for missing geographic placement.
 - PLA source-plan versus generated-geometry matching is visual similarity/overlay evidence only; do not label it as survey-accurate georeferencing or authoritative parcel fabric promotion.
+- PLA_B is separate from PLA_A: it recovers current transaction geometry from Enterprise `working_review` by stripped PE transaction number and loads the related PE output GDB without using PLA_A extraction, survey-diagram crop, or finalize UX. PE output GDB loading must include standalone feature classes, feature-dataset feature classes, and root raster datasets; `mgeo_overlay_[trnumber]` is a raster dataset in tested GDBs and must be loaded with 70% transparency.
+- Supporting Documents crop/attach from Story 2.23F is a shared viewer capability for copied case-folder PDF/PNG/JPG/TIFF documents: users draw a crop, choose DPI defaulting to 300, save PNG first to `working/pla_b/survey_diagram_selection.png`, then attach to the Current TR only using configured source/document type `st_plan_annex_image`; crop export must use controlled source coordinates, not WebView/screen screenshots.
 - Workflow/state-changing stories must test restart/reopen, stale artifacts, duplicate IDs, missing/corrupt artifacts, and explicit failure messages when practical.
 - Python adapter changes should include Python tests where pure Python logic changes, and must keep emitted JSON artifacts contract-compatible.
 - Orientation and bearing-consistency changes need tests for clockwise detection, counterclockwise detection, indeterminate geometry, missing/unparsable bearing text, and tolerance-driven mismatch outcomes.
@@ -158,4 +160,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-08-24
+Last Updated: 2026-08-27

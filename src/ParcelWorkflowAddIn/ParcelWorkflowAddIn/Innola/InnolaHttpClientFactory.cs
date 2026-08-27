@@ -28,6 +28,10 @@ internal static class InnolaHttpClientFactory
             handler.ClientCertificateOptions = ClientCertificateOption.Manual;
             handler.ClientCertificates.Add(certificate);
         }
+        else if (certificateSettings.Enabled)
+        {
+            handler.ClientCertificateOptions = ClientCertificateOption.Automatic;
+        }
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -91,11 +95,19 @@ internal static class InnolaHttpClientFactory
             return false;
         }
 
-        using var store = new X509Store(storeName, location);
-        store.Open(OpenFlags.ReadOnly);
-        var candidates = store.Certificates
-            .Find(X509FindType.FindByTimeValid, DateTime.Now, validOnly: true)
-            .OfType<X509Certificate2>();
+        X509Certificate2Collection validCertificates;
+        try
+        {
+            using var store = new X509Store(storeName, location);
+            store.Open(OpenFlags.ReadOnly);
+            validCertificates = store.Certificates.Find(X509FindType.FindByTimeValid, DateTime.Now, validOnly: true);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.Security.Cryptography.CryptographicException)
+        {
+            return false;
+        }
+
+        var candidates = validCertificates.OfType<X509Certificate2>();
 
         if (!string.IsNullOrWhiteSpace(settings.Thumbprint))
         {

@@ -11,7 +11,7 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
     private readonly HttpClient httpClient;
 
     public InnolaTransactionService()
-        : this(new HttpClient())
+        : this(InnolaHttpClientFactory.Create(InnolaTransactionSettings.Load().ClientCertificate))
     {
     }
 

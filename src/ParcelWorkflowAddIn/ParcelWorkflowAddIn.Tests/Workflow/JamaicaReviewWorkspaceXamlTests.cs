@@ -88,6 +88,8 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && windowXaml.Contains("DisplayMemberPath=\"DisplayLabel\"", StringComparison.Ordinal)
             && windowXaml.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
             && windowXaml.Contains("ToolTip=\"Refresh supporting documents\"", StringComparison.Ordinal)
+            && windowXaml.Contains("Command=\"{Binding CropSupportingDocumentCommand}\"", StringComparison.Ordinal)
+            && windowXaml.Contains("ToolTip=\"{Binding CropSupportingDocumentTooltip}\"", StringComparison.Ordinal)
             && !windowXaml.Contains("Command=\"{Binding OpenSupportingDocumentCommand}\"", StringComparison.Ordinal)
             && !windowXaml.Contains("Command=\"{Binding RevealSupportingDocumentCommand}\"", StringComparison.Ordinal)
             && !windowXaml.Contains("Content=\"Open\"", StringComparison.Ordinal)
@@ -144,6 +146,8 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && viewModelCode.Contains("INotifyPropertyChanged", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentListSummary", StringComparison.Ordinal)
             && viewModelCode.Contains("SourceFileActionService", StringComparison.Ordinal)
+            && viewModelCode.Contains("CanCropSupportingDocument", StringComparison.Ordinal)
+            && viewModelCode.Contains("SupportingDocumentCropWindow", StringComparison.Ordinal)
             && viewModelCode.Contains("ExecuteSourceFileAction", StringComparison.Ordinal)
             && viewModelCode.Contains("RefreshIfOpen()", StringComparison.Ordinal)
             && viewModelCode.Contains("SupportingDocumentsWindow.RefreshIfOpen();", StringComparison.Ordinal)
@@ -158,10 +162,27 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && transactionPanelDockpaneCode.Contains("supportingDocumentsRefresher: SupportingDocumentsDockpaneViewModel.RefreshIfOpen", StringComparison.Ordinal)
             && workflowDockpaneCode.Contains("SupportingDocumentsDockpaneViewModel.HideIfOpen();", StringComparison.Ordinal),
             "Supporting Documents WPF window should validate file actions, use the active transaction title, refresh with a loaded transaction, auto-open during transaction launch, expose an SD toolbar launcher, and close when the transaction is closed.");
+        var cropWindowXaml = File.ReadAllText(FindSourceFile("SupportingDocumentCropWindow.xaml"));
+        var cropWindowCode = File.ReadAllText(FindSourceFile("SupportingDocumentCropWindow.xaml.cs"));
+        TestAssert.True(
+            cropWindowXaml.Contains("Save PNG", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("Attach", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("<ComboBoxItem Content=\"200\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("<ComboBoxItem Content=\"300\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("<ComboBoxItem Content=\"400\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("<ComboBoxItem Content=\"600\"", StringComparison.Ordinal)
+            && cropWindowCode.Contains("ToSourceRectangle", StringComparison.Ordinal)
+            && cropWindowCode.Contains("SaveCropAsync", StringComparison.Ordinal)
+            && cropWindowCode.Contains("AttachSavedCropAsync", StringComparison.Ordinal)
+            && cropWindowCode.Contains("File was saved:", StringComparison.Ordinal)
+            && cropWindowCode.Contains("Do you want to attach", StringComparison.Ordinal)
+            && cropWindowCode.Contains("Attachment complete:", StringComparison.Ordinal),
+            "Supporting Documents crop window should expose DPI, source-coordinate save, attach confirmation, and completion messages.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
             projectionCode.Contains("or \".png\"", StringComparison.Ordinal)
             && projectionCode.Contains("or \".tiff\"", StringComparison.Ordinal)
+            && projectionCode.Contains("IsCroppableSupportingDocumentFile", StringComparison.Ordinal)
             && projectionCode.Contains("item.SourceFile.Copied && !string.IsNullOrWhiteSpace(item.SourceFile.CopiedPath)", StringComparison.Ordinal),
             "Supporting Documents options should hide archives and unsupported or uncopied files while allowing documents and renderable images.");
     }

@@ -81,6 +81,7 @@ development_status:
   2-23c-add-pla-selected-plan-extraction-review-and-local-origin-geometry: done
   2-23d-add-pla-visual-comparison-and-finalize-upload-flow: review
   2-23e-add-pla-b-plan-annexation-from-pe-workflow-and-test-ux: review
+  2-23f-add-crop-and-attach-action-to-supporting-documents-viewer: review
   epic-2-retrospective: optional
 
   epic-3: backlog

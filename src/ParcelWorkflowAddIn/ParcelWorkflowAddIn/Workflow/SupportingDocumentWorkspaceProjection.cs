@@ -49,6 +49,64 @@ internal static class SupportingDocumentWorkspaceProjection
         return string.Equals(ResolveSourceFileExtension(sourceFile), ".txt", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool CanCropSupportingDocument(SourceFileCopyResult? sourceFile, string? activeCaseFolderPath, out string reason)
+    {
+        if (sourceFile is null)
+        {
+            reason = "Select a PDF, PNG, JPG, or TIFF document to crop.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(activeCaseFolderPath))
+        {
+            reason = "Load a transaction before cropping supporting documents.";
+            return false;
+        }
+
+        if (!sourceFile.Copied || string.IsNullOrWhiteSpace(sourceFile.CopiedPath))
+        {
+            reason = "Only copied case-folder documents can be cropped.";
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(sourceFile.CopiedPath);
+            var caseRoot = Path.GetFullPath(activeCaseFolderPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(caseRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "Selected document is outside the active case folder.";
+                return false;
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                reason = "Selected document is missing from the case folder.";
+                return false;
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            reason = "Selected document path cannot be read.";
+            return false;
+        }
+
+        if (!IsCroppableSupportingDocumentFile(sourceFile))
+        {
+            reason = "Crop supports PDF, PNG, JPG, JPEG, TIFF, and TIF documents.";
+            return false;
+        }
+
+        reason = "Crop selected document.";
+        return true;
+    }
+
+    public static bool IsCroppableSupportingDocumentFile(SourceFileCopyResult sourceFile)
+    {
+        var extension = ResolveSourceFileExtension(sourceFile);
+        return extension is ".pdf" or ".png" or ".jpg" or ".jpeg" or ".tif" or ".tiff";
+    }
+
     private static bool IsReadableSupportingDocumentFile(SourceFileCopyResult sourceFile)
     {
         var extension = ResolveSourceFileExtension(sourceFile);

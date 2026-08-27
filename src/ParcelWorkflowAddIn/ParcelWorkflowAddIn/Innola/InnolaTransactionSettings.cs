@@ -29,6 +29,7 @@ public sealed record InnolaTransactionSettings(
     string AttachmentUploadRoute,
     string AttachmentUploadBindingMode,
     string AttachmentUploadMode,
+    string AttachmentUploadAuthMode,
     string ResumeAttachmentSourceType,
     string CompletedAttachmentSourceType,
     string ResumeAttachmentRegisteredType,
@@ -88,6 +89,7 @@ public sealed record InnolaTransactionSettings(
         "source/sources/attach",
         "query_only",
         "attach_then_register_source",
+        "access_token_then_bearer",
         InnolaResumePackageConventions.ResumeSourceType,
         InnolaResumePackageConventions.CompletedSourceType,
         "st_surveyplan",
@@ -140,6 +142,7 @@ public sealed record InnolaTransactionSettings(
             var attachmentUploadRoute = ReadString(root, "innola_attachment_upload_route") ?? Default.AttachmentUploadRoute;
             var attachmentUploadBindingMode = ReadString(root, "innola_attachment_upload_binding_mode") ?? Default.AttachmentUploadBindingMode;
             var attachmentUploadMode = ReadString(root, "innola_attachment_upload_mode") ?? Default.AttachmentUploadMode;
+            var attachmentUploadAuthMode = ReadString(root, "innola_attachment_upload_auth_mode") ?? Default.AttachmentUploadAuthMode;
             var resumeAttachmentSourceType = ReadString(root, "innola_resume_attachment_source_type") ?? Default.ResumeAttachmentSourceType;
             var completedAttachmentSourceType = ReadString(root, "innola_completed_attachment_source_type") ?? Default.CompletedAttachmentSourceType;
             var resumeAttachmentRegisteredType = ReadString(root, "innola_resume_attachment_registered_type") ?? Default.ResumeAttachmentRegisteredType;
@@ -173,6 +176,7 @@ public sealed record InnolaTransactionSettings(
                 string.IsNullOrWhiteSpace(attachmentUploadRoute) ? Default.AttachmentUploadRoute : attachmentUploadRoute,
                 string.IsNullOrWhiteSpace(attachmentUploadBindingMode) ? Default.AttachmentUploadBindingMode : attachmentUploadBindingMode,
                 string.IsNullOrWhiteSpace(attachmentUploadMode) ? Default.AttachmentUploadMode : attachmentUploadMode,
+                string.IsNullOrWhiteSpace(attachmentUploadAuthMode) ? Default.AttachmentUploadAuthMode : attachmentUploadAuthMode,
                 string.IsNullOrWhiteSpace(resumeAttachmentSourceType) ? Default.ResumeAttachmentSourceType : resumeAttachmentSourceType,
                 string.IsNullOrWhiteSpace(completedAttachmentSourceType) ? Default.CompletedAttachmentSourceType : completedAttachmentSourceType,
                 string.IsNullOrWhiteSpace(resumeAttachmentRegisteredType) ? Default.ResumeAttachmentRegisteredType : resumeAttachmentRegisteredType,

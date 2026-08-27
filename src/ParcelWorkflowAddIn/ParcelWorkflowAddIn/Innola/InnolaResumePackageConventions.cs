@@ -73,15 +73,30 @@ internal static class InnolaResumePackageConventions
 public sealed record InnolaAttachmentUploadResult(
     bool Success,
     string? ErrorMessage,
-    string? ErrorCategory)
+    string? ErrorCategory,
+    InnolaAttachmentUploadDiagnostics? Diagnostics = null)
 {
-    public static InnolaAttachmentUploadResult Succeeded()
+    public static InnolaAttachmentUploadResult Succeeded(InnolaAttachmentUploadDiagnostics? diagnostics = null)
     {
-        return new InnolaAttachmentUploadResult(true, null, null);
+        return new InnolaAttachmentUploadResult(true, null, null, diagnostics);
     }
 
-    public static InnolaAttachmentUploadResult Failure(string errorMessage, string? errorCategory = null)
+    public static InnolaAttachmentUploadResult Failure(string errorMessage, string? errorCategory = null, InnolaAttachmentUploadDiagnostics? diagnostics = null)
     {
-        return new InnolaAttachmentUploadResult(false, errorMessage, errorCategory);
+        return new InnolaAttachmentUploadResult(false, errorMessage, errorCategory, diagnostics);
+    }
+
+    public InnolaAttachmentUploadResult WithDiagnostics(InnolaAttachmentUploadDiagnostics diagnostics)
+    {
+        return this with { Diagnostics = diagnostics };
     }
 }
+
+public sealed record InnolaAttachmentUploadDiagnostics(
+    string Route,
+    string BindingMode,
+    string UploadMode,
+    string AuthMode,
+    string TaskValue,
+    string ContentType,
+    long ByteCount);

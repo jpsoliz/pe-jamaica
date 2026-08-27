@@ -39,6 +39,11 @@
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal"
                     Margin="8,0,0,0">
+          <Button Content="&#xE7A8;"
+                  Command="{Binding CropSupportingDocumentCommand}"
+                  Style="{StaticResource IconButtonStyle}"
+                  ToolTip="{Binding CropSupportingDocumentTooltip}"
+                  Margin="0,0,6,0" />
           <Button Content="&#xE72C;"
                   Command="{Binding ReloadSupportingDocumentViewerCommand}"
                   Style="{StaticResource IconButtonStyle}"
