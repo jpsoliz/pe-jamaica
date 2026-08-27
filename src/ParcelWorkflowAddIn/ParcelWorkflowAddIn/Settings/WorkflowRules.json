@@ -290,6 +290,29 @@
           "timeout_seconds": 300
         }
       ]
+    },
+    {
+      "rule_id": "pla_b_plan_annexation_from_pe_v1",
+      "rule_version": "0.1.0",
+      "workflow_profile": "pla_b_plan_annexation_from_pe",
+      "detected_profiles": [
+        "pla_b_plan_annexation_from_pe"
+      ],
+      "transaction_type_profiles": [
+        "pla_b_plan_annexation_from_pe"
+      ],
+      "document_profiles": [
+        "pla_b_recovery"
+      ],
+      "transaction_types": [
+        "PLA_B",
+        "Plan Annexation From PE"
+      ],
+      "process_steps": [
+        "parcel_workflow"
+      ],
+      "required_sources": [],
+      "script_plan": []
     }
   ]
 }

@@ -8,15 +8,22 @@ internal sealed class ShowAboutWindowButton : Button
 {
     protected override void OnUpdate()
     {
-        Enabled = ShellState.Session.CanOpenAbout;
+        Enabled = true;
     }
 
     protected override void OnClick()
     {
-        var window = new AboutWindow
+        try
         {
-            Owner = FrameworkApplication.Current.MainWindow
-        };
-        window.ShowDialog();
+            var window = new AboutWindow
+            {
+                Owner = FrameworkApplication.Current.MainWindow
+            };
+            window.ShowDialog();
+        }
+        catch (Exception exception)
+        {
+            RibbonCommandErrorReporter.Show("About", exception);
+        }
     }
 }

@@ -147,4 +147,5 @@ public sealed class DefaultTransactionCompletionReadinessService : ITransactionC
             return Task.FromResult(PlaGeneratedOutputAttachmentResult.Succeeded(sourceType, pdfPath));
         }
     }
+
 }

@@ -975,7 +975,9 @@ def _string_or_none(value: Any) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Extract scanned survey plan data with OCR/vision.")
-    parser.add_argument("--source-pdf", required=True)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--source-pdf")
+    source_group.add_argument("--source-image")
     parser.add_argument("--output-json", required=True)
     parser.add_argument("--transaction-number", required=True)
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
@@ -983,18 +985,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-pages", type=int, default=2)
     args = parser.parse_args(argv)
 
-    source_pdf = Path(args.source_pdf)
+    source_path = Path(args.source_image or args.source_pdf)
     output_json = Path(args.output_json)
     parser_status = "ocr_vision_parsed"
     try:
         raw = _load_mock_response()
         if raw is None:
-            image_paths = _render_pdf_pages(source_pdf, max(1, args.max_pages))
+            image_paths = [source_path] if args.source_image else _render_pdf_pages(source_path, max(1, args.max_pages))
             raw = _call_openai_vision(image_paths, args.model, args.profile)
-        review_payload = _normalize_extraction(raw, args.transaction_number, source_pdf.name)
+        review_payload = _normalize_extraction(raw, args.transaction_number, source_path.name)
     except Exception as exc:  # Keep workflow reviewable even when the provider is unavailable.
         parser_status = "ocr_vision_unavailable"
-        review_payload = _fallback_payload(args.transaction_number, source_pdf.name, str(exc))
+        review_payload = _fallback_payload(args.transaction_number, source_path.name, str(exc))
 
     envelope = _write_outputs(output_json, review_payload, parser_status)
     print(json.dumps(envelope))

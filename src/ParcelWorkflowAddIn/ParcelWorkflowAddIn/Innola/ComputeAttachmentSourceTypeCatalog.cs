@@ -35,6 +35,27 @@ internal static class ComputeAttachmentSourceTypeCatalog
             InternalOnly: false,
             Extensions: new[] { ".pdf" }),
         new ComputeAttachmentSourceTypeDefinition(
+            "st_survey_diagram",
+            SourceRole.SurveyDiagramPdf,
+            "Survey diagram PDF",
+            Required: true,
+            InternalOnly: false,
+            Extensions: new[] { ".pdf" }),
+        new ComputeAttachmentSourceTypeDefinition(
+            "st_survey_diagram_png",
+            SourceRole.PlaGeneratedOutput,
+            "PLA_B survey diagram selection PNG",
+            Required: false,
+            InternalOnly: true,
+            Extensions: new[] { ".png" }),
+        new ComputeAttachmentSourceTypeDefinition(
+            "pla_b_recovery",
+            SourceRole.PlaBRecovery,
+            "PLA_B recovery plan",
+            Required: false,
+            InternalOnly: true,
+            Extensions: Array.Empty<string>()),
+        new ComputeAttachmentSourceTypeDefinition(
             "st_survey_points",
             SourceRole.CoordinateTextSource,
             "Structured survey points",

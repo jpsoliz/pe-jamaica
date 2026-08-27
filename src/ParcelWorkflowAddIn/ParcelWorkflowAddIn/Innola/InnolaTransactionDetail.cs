@@ -13,4 +13,5 @@ public sealed record InnolaTransactionDetail(
     string? OwnerUser,
     string? ClaimStatus,
     IReadOnlyList<InnolaAttachmentMetadata> Attachments,
-    string? Parish = null);
+    string? Parish = null,
+    IReadOnlyDictionary<string, string>? CustomFields = null);

@@ -41,6 +41,10 @@ public partial class LoginWindow : ProWindow
         {
             StatusTextBlock.Text = "Login failed. Check server, certificate, and network.";
         }
+        catch (Exception exception)
+        {
+            StatusTextBlock.Text = $"Login failed before completion: {exception.Message}";
+        }
         finally
         {
             LoginButton.IsEnabled = true;

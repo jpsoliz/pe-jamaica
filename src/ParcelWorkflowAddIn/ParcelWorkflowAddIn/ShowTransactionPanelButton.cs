@@ -8,16 +8,30 @@ internal sealed class ShowTransactionPanelButton : Button
 {
     protected override void OnUpdate()
     {
-        Enabled = ShellState.Session.CanOpenTransactionPanel;
+        try
+        {
+            Enabled = ShellState.Session.CanOpenTransactionPanel;
+        }
+        catch
+        {
+            Enabled = false;
+        }
     }
 
     protected override void OnClick()
     {
-        if (!ShellState.Session.CanOpenTransactionPanel)
+        try
         {
-            return;
-        }
+            if (!ShellState.Session.CanOpenTransactionPanel)
+            {
+                return;
+            }
 
-        FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId)?.Activate();
+            FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId)?.Activate();
+        }
+        catch (Exception exception)
+        {
+            RibbonCommandErrorReporter.Show("Transaction Panel", exception);
+        }
     }
 }

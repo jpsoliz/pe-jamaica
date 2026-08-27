@@ -119,12 +119,12 @@ internal static class PlaFinalizeServiceTests
     public static void CompleteTransactionSkipsComputeDispositionForPlaBranch()
     {
         var source = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
-        var guardIndex = source.IndexOf("if (!IsPlaPlanAnnexationWorkflow)", StringComparison.Ordinal);
+        var guardIndex = source.IndexOf("if (!IsPlaPlanAnnexationWorkflow && !IsPlaBWorkflow)", StringComparison.Ordinal);
         var publishIndex = source.IndexOf("PublishEnterpriseWorkingReviewAsync", StringComparison.Ordinal);
         var dispositionIndex = source.IndexOf("RecordComputeDispositionAsync", StringComparison.Ordinal);
         var lifecycleIndex = source.IndexOf("ShellState.LifecycleCoordinator.CompleteAsync", StringComparison.Ordinal);
 
-        TestAssert.True(guardIndex >= 0, "Finalize should branch away from Compute publish/disposition for PLA.");
+        TestAssert.True(guardIndex >= 0, "Finalize should branch away from Compute publish/disposition for PLA and PLA_B.");
         TestAssert.True(publishIndex > guardIndex, "Compute publish should be inside the non-PLA branch.");
         TestAssert.True(dispositionIndex > guardIndex, "Compute disposition should be inside the non-PLA branch.");
         TestAssert.True(lifecycleIndex > dispositionIndex, "Lifecycle complete should remain after the non-PLA Compute branch.");

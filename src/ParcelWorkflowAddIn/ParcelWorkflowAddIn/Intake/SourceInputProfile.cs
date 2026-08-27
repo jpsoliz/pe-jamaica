@@ -6,6 +6,7 @@ public static class SourceInputProfile
     public const string ScenarioB = "scenario_b";
     public const string PxaSurveyPlan = "pxa_survey_plan_pdf";
     public const string PlaPlanAnnexation = "pla_plan_annexation";
+    public const string PlaBPlanAnnexationFromPe = "pla_b_plan_annexation_from_pe";
     public const string IncompleteIntake = "incomplete_intake";
     public const string UnsupportedIntake = "unsupported_intake";
 
@@ -13,6 +14,7 @@ public static class SourceInputProfile
     public const string ScenarioBLabel = "Scenario B - points/computation + DWG + plan/map reference";
     public const string PxaSurveyPlanLabel = "PXA - single parcel survey plan PDF";
     public const string PlaPlanAnnexationLabel = "PLA - plan annexation PDF";
+    public const string PlaBPlanAnnexationFromPeLabel = "PLA_B - plan annexation from approved PE";
     public const string IncompleteIntakeLabel = "Incomplete intake";
     public const string UnsupportedIntakeLabel = "Unsupported intake";
 }

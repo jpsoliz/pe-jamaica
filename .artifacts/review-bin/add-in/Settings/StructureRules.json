@@ -1,0 +1,477 @@
+{
+  "schema_version": "1.0.0",
+  "rules": [
+    {
+      "rule_id": "detected_profile_presence",
+      "group": "supporting_document",
+      "category": "manifest",
+      "display_name": "Detected profile present",
+      "description": "Detected intake profile must be present before Structure Check can continue.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "detected_profile_complete",
+      "group": "supporting_document",
+      "category": "manifest",
+      "display_name": "Detected profile complete",
+      "description": "Incomplete supporting documents remain blocked until required source roles are resolved.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "required_source_roles",
+      "group": "supporting_document",
+      "category": "manifest",
+      "display_name": "Required source roles",
+      "description": "Each compute transaction must provide the required copied source roles before structure and georeference work can begin.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "computation_sheet",
+        "plan_map_reference"
+      ]
+    },
+    {
+      "rule_id": "source_file_integrity",
+      "group": "structure",
+      "category": "manifest",
+      "display_name": "Copied source integrity",
+      "description": "Copied source paths must stay inside the case folder, exist, use supported extensions, and remain readable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "workflow_rule_resolution",
+      "group": "structure",
+      "category": "workflow_rule",
+      "display_name": "Workflow rule resolution",
+      "description": "Transactions must resolve to a current workflow rule and script plan.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "arcgis_sdk_lane",
+      "group": "system",
+      "category": "arcgis_pro",
+      "display_name": "ArcGIS Pro SDK lane",
+      "description": "SDK lane and target framework must match the supported ArcGIS Pro 3.6 add-in lane.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "workspace_access",
+      "group": "system",
+      "category": "write_access",
+      "display_name": "Workspace access",
+      "description": "Case folder working, output, and summary locations must remain writable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "python_executable_health",
+      "group": "system",
+      "category": "python",
+      "display_name": "Python executable health",
+      "description": "Configured Python executable must be set, exist, and be invokable.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true
+    },
+    {
+      "rule_id": "arcgis_unknown_version_behavior",
+      "group": "system",
+      "category": "arcgis_pro",
+      "display_name": "Unknown ArcGIS Pro version handling",
+      "description": "Controls whether unknown ArcGIS Pro version detection is treated as a warning or blocker.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false
+    },
+    {
+      "rule_id": "python_package_probe",
+      "group": "system",
+      "category": "python",
+      "display_name": "Python package probe",
+      "description": "Checks configured required and optional Python packages such as ArcPy before downstream processing runs.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false
+    },
+    {
+      "rule_id": "dwg_signature_check",
+      "group": "structure",
+      "category": "dwg",
+      "display_name": "DWG file signature",
+      "description": "DWG reference files must be non-empty and contain a recognizable DWG signature.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "dwg_source"
+      ],
+      "file_types": [
+        ".dwg"
+      ],
+      "dwg_readiness_required": true
+    },
+    {
+      "rule_id": "dwg_readiness_probe",
+      "group": "structure",
+      "category": "dwg",
+      "display_name": "DWG readiness probe",
+      "description": "Optional CAD sub-layer readiness probe for copied DWG references.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": false,
+      "source_roles": [
+        "dwg_source"
+      ],
+      "file_types": [
+        ".dwg"
+      ],
+      "dwg_readiness_required": true
+    },
+    {
+      "rule_id": "dwg_required_cad_layers",
+      "group": "structure",
+      "category": "dwg",
+      "display_name": "Required DWG CAD layers",
+      "description": "Validates that DWG sources include expected CAD layer categories for points, lines, and annotation.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": false,
+      "source_roles": [
+        "dwg_source"
+      ],
+      "file_types": [
+        ".dwg"
+      ],
+      "dwg_readiness_required": true,
+      "required_cad_layers": {
+        "points": [
+          "POINTS",
+          "SURVEY_POINTS",
+          "PNT",
+          "POINT"
+        ],
+        "lines": [
+          "LINES",
+          "BOUNDARY",
+          "LINEWORK",
+          "POLYLINE",
+          "POLYLINES"
+        ],
+        "annotation": [
+          "TEXT",
+          "ANNOTATION",
+          "ANNO"
+        ]
+      }
+    },
+    {
+      "rule_id": "georeference_source_presence",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Georeference source presence",
+      "description": "At least one source with usable coordinate context must be present before Validate Points and Lines can begin.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source",
+        "plan_map_reference",
+        "survey_plan_pdf"
+      ],
+      "allow_tabular_georeference": true
+    },
+    {
+      "rule_id": "tabular_coordinate_columns",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Tabular coordinate columns",
+      "description": "TXT/CSV coordinate sources should expose Easting/Northing-style columns when they are used for georeference support.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "coordinate_text_source"
+      ],
+      "file_types": [
+        ".txt",
+        ".csv"
+      ],
+      "tabular_coordinates_required": true
+    },
+    {
+      "rule_id": "jamaica_coordinate_bounds",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Jamaica coordinate bounds",
+      "description": "When tabular coordinates are available, the sample coordinate pairs should fall within Jamaica working bounds.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "coordinate_text_source"
+      ],
+      "file_types": [
+        ".txt",
+        ".csv"
+      ],
+      "minimum_coordinate_pairs": 1,
+      "require_jamaica_bounds": true,
+      "allow_tabular_georeference": true
+    },
+    {
+      "rule_id": "georeference_spatial_validation_readiness",
+      "group": "georeference",
+      "category": "georeference",
+      "display_name": "Concrete georeference validation",
+      "description": "Georeference Check should run a concrete coordinate, JAD2001, parish, or location validation; warning by default until parish/JAD2001 validators are configured.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source",
+        "plan_map_reference",
+        "survey_plan_pdf"
+      ]
+    },
+    {
+      "rule_id": "dimension_source_presence",
+      "group": "dimension",
+      "category": "dimension",
+      "display_name": "Dimension source presence",
+      "description": "A computation sheet, survey plan PDF, or configured spatial line source must be available before Validate Points and Lines can begin.",
+      "enabled": true,
+      "severity": "blocker",
+      "locked": true,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source",
+        "survey_plan_pdf"
+      ]
+    },
+    {
+      "rule_id": "dimension_geometry_construction_readiness",
+      "group": "dimension",
+      "category": "dimension",
+      "display_name": "Dimension geometry construction readiness",
+      "description": "Dimension Check should verify bearings, distances, point references, closure, or an equivalent geometry-construction readiness artifact; warning by default until the validator is configured.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "source_roles": [
+        "computation_sheet",
+        "coordinate_text_source",
+        "survey_plan_pdf"
+      ]
+    },
+    {
+      "rule_id": "pxa_memorandum_detected",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Memorandum text detected",
+      "description": "PE/PXA survey-plan memorandum rules apply only when the source document contains MEMORANDUM text.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "data_extraction",
+      "workflow_effect": "info",
+      "evaluator_key": "pxa_memorandum_detected",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ],
+      "document_profiles": [ "scanned_single_parcel_survey_plan_pdf", "survey_plan_pdf" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_surveyed_for_names_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Survey made at the instance of",
+      "description": "Detected memorandum should list the party at whose instance the survey was made or surveyed for.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_surveyed_for_names_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_surveyed_property_name_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Surveyed property name",
+      "description": "Detected memorandum should list the name of the surveyed property.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_surveyed_property_name_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_property_name_near_diagram",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Property name near parcel diagram",
+      "description": "Review whether the surveyed property name is printed near the parcel diagram when visual evidence is available.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "report_only",
+      "evaluator_key": "pxa_memorandum_property_name_near_diagram",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_document_area_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Area value and unit",
+      "description": "Detected memorandum should provide an area value with a reviewable unit.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_document_area_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_objections_captured",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Grounds of objections",
+      "description": "Detected memorandum should capture objections as a value, explicit None, N/A, missing, or needs-review state.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_objections_captured",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_surveyor_certification_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Surveyor certification",
+      "description": "Detected memorandum or certification block should capture the surveyor name and certification evidence.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_surveyor_certification_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_instrument_group_complete",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Instrument check evidence",
+      "description": "Instrument name/type, instrument check date, and instrument check result should be reviewed as one grouped memorandum finding.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_instrument_group_complete",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_parish_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Parish",
+      "description": "Detected memorandum should provide or confirm the parish.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_parish_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_north_arrow_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "North arrow",
+      "description": "Map evidence should record whether a north arrow is present.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "report_only",
+      "evaluator_key": "pxa_memorandum_north_arrow_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_scale_bar_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Scale bar",
+      "description": "Map evidence should record whether a scale bar is present.",
+      "enabled": true,
+      "severity": "warning",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "report_only",
+      "evaluator_key": "pxa_memorandum_scale_bar_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_notice_served_on_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Notices served on",
+      "description": "Detected memorandum should list parties on whom notice was served.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_notice_served_on_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    },
+    {
+      "rule_id": "pxa_memorandum_appearance_parties_present",
+      "group": "memorandum",
+      "category": "survey_plan_memorandum",
+      "display_name": "Appeared parties",
+      "description": "Detected memorandum should list parties who appeared personally or by representative.",
+      "enabled": true,
+      "severity": "configured",
+      "locked": false,
+      "stage_id": "validate_points_and_lines",
+      "workflow_effect": "requires_disposition",
+      "evaluator_key": "pxa_memorandum_appearance_parties_present",
+      "report_visible": true,
+      "transaction_type_profiles": [ "pe", "pxa" ]
+    }
+  ]
+}

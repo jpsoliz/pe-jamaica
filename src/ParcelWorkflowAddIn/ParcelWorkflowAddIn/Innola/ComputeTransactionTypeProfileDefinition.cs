@@ -105,7 +105,17 @@ internal static class ComputeTransactionTypeProfileCatalog
             new[] { SourceRole.PlanAnnexationPdf },
             new[] { SourceRole.CoordinateTextSource, SourceRole.DwgSource },
             SourceRole.PlanAnnexationPdf,
-            "pla_plan_annexation_pdf")
+            "pla_plan_annexation_pdf"),
+        new ComputeTransactionTypeProfileDefinition(
+            "pla_b_plan_annexation_from_pe",
+            true,
+            new[] { "PLA_B" },
+            new[] { "PLA_B", "Plan Annexation From PE" },
+            SourceInputProfile.PlaBPlanAnnexationFromPe,
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            SourceRole.PlaBRecovery,
+            "pla_b_recovery")
     };
 
     public static ResolvedComputeTransactionTypeProfile ToResolved(ComputeTransactionTypeProfileDefinition definition)

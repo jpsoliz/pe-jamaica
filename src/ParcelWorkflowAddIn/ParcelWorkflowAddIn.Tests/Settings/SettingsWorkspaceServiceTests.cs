@@ -200,7 +200,7 @@ internal static class SettingsWorkspaceServiceTests
         TestAssert.Equal("gsi-user", document.GsiUsername, "GSI user mismatch.");
         TestAssert.Equal(SettingsWorkspaceService.GsiPasswordModeEnvironmentVariable, document.GsiPasswordMode, "GSI password mode mismatch.");
         TestAssert.True(document.WorkingMapLayers.Any(layer => layer.Name == "Open Basemap Streets"), "Working map layers should load configurable public basemap entries.");
-        TestAssert.Equal(29, document.PreflightRules.Count, "Structure rules count mismatch.");
+        TestAssert.Equal(32, document.PreflightRules.Count, "Structure rules count mismatch.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "dwg_required_cad_layers" && rule.SectionName == "Structure Check Rules"), "Required DWG CAD layer rule should appear under Structure Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_source_presence" && rule.SectionName == "Georeference Check Rules"), "Georeference rule should appear under Georeference Check Rules.");
         TestAssert.True(document.PreflightRules.Any(rule => rule.RuleId == "georeference_spatial_validation_readiness" && rule.SectionName == "Georeference Check Rules"), "Concrete georeference validation readiness rule should appear under Georeference Check Rules.");

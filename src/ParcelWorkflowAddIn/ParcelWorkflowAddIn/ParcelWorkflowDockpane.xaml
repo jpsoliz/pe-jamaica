@@ -933,6 +933,74 @@
         </Border>
 
         <Border Style="{StaticResource CardBorderStyle}"
+                Visibility="{Binding ShowPlaBTestEmulation, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <Border Style="{StaticResource SectionHeaderBorderStyle}">
+              <DockPanel Height="36"
+                         LastChildFill="False">
+                <TextBlock Text="PLA_B Test Emulation"
+                           Style="{StaticResource SectionHeaderTextStyle}"
+                           Margin="10,0,0,0" />
+                <Border DockPanel.Dock="Right"
+                        Style="{StaticResource SmallPillBorderStyle}"
+                        Background="#E8EEF3"
+                        BorderBrush="#6B7C8F"
+                        Margin="0,8,10,8">
+                  <TextBlock Text="TEST"
+                             FontSize="11"
+                             Foreground="#1F2933" />
+                </Border>
+              </DockPanel>
+            </Border>
+            <Border BorderBrush="#C9D2D8"
+                    BorderThickness="0,1,0,0"
+                    Padding="10">
+              <StackPanel>
+                <TextBlock Text="Manual values for validating PLA_B without live Innola field extraction."
+                           FontSize="12"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0"
+                              Margin="0,0,8,0">
+                    <TextBlock Text="Current transaction"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933" />
+                    <TextBox Text="{Binding PlaBTestCurrentTransactionNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="11"
+                             MinHeight="26"
+                             Margin="0,4,0,0"
+                             VerticalContentAlignment="Center" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1">
+                    <TextBlock Text="PE number"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#1F2933" />
+                    <TextBox Text="{Binding PlaBTestPeNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="11"
+                             MinHeight="26"
+                             Margin="0,4,0,0"
+                             VerticalContentAlignment="Center" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="{Binding PlaBTestEmulationStatusText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,6,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorderStyle}"
                 Visibility="{Binding IsPlaPlanEvidenceSelectionStageActive, Converter={StaticResource BooleanToVisibilityConverter}}">
           <StackPanel>
             <Border Style="{StaticResource SectionHeaderBorderStyle}">

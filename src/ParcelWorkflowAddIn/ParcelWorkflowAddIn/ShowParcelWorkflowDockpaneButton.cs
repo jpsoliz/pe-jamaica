@@ -8,16 +8,30 @@ internal sealed class ShowParcelWorkflowDockpaneButton : Button
 {
     protected override void OnUpdate()
     {
-        Enabled = ShellState.CanOpenComputeWorkflow;
+        try
+        {
+            Enabled = ShellState.CanOpenComputeWorkflow;
+        }
+        catch
+        {
+            Enabled = false;
+        }
     }
 
     protected override void OnClick()
     {
-        if (!ShellState.CanOpenComputeWorkflow)
+        try
         {
-            return;
-        }
+            if (!ShellState.CanOpenComputeWorkflow)
+            {
+                return;
+            }
 
-        FrameworkApplication.DockPaneManager.Find(ParcelWorkflowDockpaneViewModel.DockPaneId)?.Activate();
+            FrameworkApplication.DockPaneManager.Find(ParcelWorkflowDockpaneViewModel.DockPaneId)?.Activate();
+        }
+        catch (Exception exception)
+        {
+            RibbonCommandErrorReporter.Show("Parcel Workflow", exception);
+        }
     }
 }

@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
@@ -26,6 +27,160 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("Server: not connected", panel.ConnectionServerText, "Logged-out server footer mismatch.");
         TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logged-out mode footer mismatch.");
         TestAssert.Equal("Records retrieved: not refreshed", panel.RetrievedRecordCountText, "Logged-out count footer mismatch.");
+    }
+
+    public static void PlaBTestInputRequiresLogin()
+    {
+        var launched = false;
+        var panel = new TransactionPanelState(
+            new InnolaSessionManager(new FakeAuthService()),
+            new FakeTransactionService(),
+            "parcel_workflow",
+            transactionLoadService: null,
+            plaBTestInputLauncher: (_, _, _, _) => launched = true);
+
+        TestAssert.False(panel.CanOpenPlaBTestInput, "PLA_B test input should be disabled while logged out.");
+        TestAssert.False(panel.OpenPlaBTestInputCommand.CanExecute(null), "PLA_B test input command should not execute while logged out.");
+
+        panel.OpenPlaBTestInputCommand.Execute(null);
+
+        TestAssert.False(launched, "PLA_B test input launcher must not run while logged out.");
+        TestAssert.Equal("Log in before opening PLA_B test input.", panel.StatusText, "PLA_B logged-out status mismatch.");
+    }
+
+    public static async Task PlaBTestInputLaunchesWithSelectedTransactionAfterLogin()
+    {
+        string? launchedTransactionNumber = null;
+        string? launchedPeNumber = "unchanged";
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? prepare = null;
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? openViewer = null;
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000111", "PLA Plan Annexation", "survey", "2026-08-27T09:00:00-05:00")
+            })
+        };
+        var panel = new TransactionPanelState(
+            LoggedInManager(),
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            plaBTestInputLauncher: (transactionNumber, peNumber, prepareHandler, openViewerHandler) =>
+            {
+                launchedTransactionNumber = transactionNumber;
+                launchedPeNumber = peNumber;
+                prepare = prepareHandler;
+                openViewer = openViewerHandler;
+            });
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+
+        TestAssert.True(panel.CanOpenPlaBTestInput, "PLA_B test input should be enabled after login.");
+        TestAssert.True(panel.OpenPlaBTestInputCommand.CanExecute(null), "PLA_B test input command should be executable after login.");
+
+        panel.OpenPlaBTestInputCommand.Execute(null);
+
+        TestAssert.Equal("TR100000111", launchedTransactionNumber, "PLA_B test input should receive the selected current transaction number.");
+        TestAssert.Equal(null, launchedPeNumber, "PLA_B test input should leave PE number blank for manual entry.");
+        TestAssert.True(prepare is not null, "PLA_B test input should receive a prepare callback.");
+        TestAssert.True(openViewer is not null, "PLA_B test input should receive an open-viewer callback.");
+        TestAssert.Equal("Opening PLA_B test input for transaction TR100000111.", panel.StatusText, "PLA_B launch status mismatch.");
+    }
+
+    public static async Task PlaBTestOpenViewerDownloadsCurrentTransactionSources()
+    {
+        using var temp = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero);
+        var viewerOpened = false;
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? openViewer = null;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: Loader(manager, temp.Path, clock),
+            clock: clock,
+            supportingDocumentsLauncher: () =>
+            {
+                viewerOpened = true;
+                return true;
+            },
+            plaBTestInputLauncher: (_, _, _, openViewerHandler) => openViewer = openViewerHandler,
+            plaBCurrentSourceDownloader: (selected, token) => new PlaBCurrentTransactionSourceDownloadService(
+                    new MockInnolaTransactionDetailService(),
+                    new CaseFolderStore(clock, () => "run-pla-b-source"),
+                    new AttachmentSourceFileWriter(clock),
+                    clock)
+                .DownloadAsync(manager.CurrentSession!, selected, temp.Path, manager.CurrentSession!.User.Username, token));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        panel.OpenPlaBTestInputCommand.Execute(null);
+
+        TestAssert.True(openViewer is not null, "PLA_B test input should expose an open-viewer callback.");
+        var result = await openViewer!(new PlaBTestEmulationInputViewModel
+        {
+            CurrentTransactionNumber = "TR100000004",
+            PeNumber = "100000630"
+        });
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.True(viewerOpened, "PLA_B viewer action should launch the existing document viewer.");
+        TestAssert.Equal("100000004", manager.LoadedTransactionNumber, "PLA_B viewer action should load the current TR source folder.");
+        TestAssert.True(!manager.HasActiveTransaction, "PLA_B viewer action must not claim/start the transaction.");
+        TestAssert.True(File.Exists(Path.Combine(manager.LoadedCaseFolderPath!, "source", "computation.pdf")), "PLA_B viewer action should download current TR source files.");
+    }
+
+    public static async Task PlaBTestPrepareBuildsRecoveryPlanWithoutStartingWorkflow()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(Array.Empty<InnolaTransactionRow>())
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero);
+        PlaBTestEmulationInputViewModel? preparedInput = null;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Computation Check" },
+            plaBRecoveryPreparer: (input, _) =>
+            {
+                preparedInput = input;
+                return Task.FromResult(PlaBTestInputPreparationResult.Succeeded(
+                    "PLA_B recovery loaded.\nCurrent TR group: PLA 100001266 - Current Transaction\nWorking_review query: transaction_number = 100000630\nPE group: PE 100000630 - Approved PE Output\nGDB: 100000630_parcel_output.gdb\n\nNo PLA_A workflow was opened."));
+            });
+
+        await panel.RefreshAsync();
+        var result = await panel.PreparePlaBTestInputAsync(new PlaBTestEmulationInputViewModel
+        {
+            CurrentTransactionNumber = "100001266",
+            PeNumber = "PE-100000630"
+        });
+
+        TestAssert.True(result.Success, $"PLA_B prepare should build the recovery plan. {result.Message}");
+        TestAssert.Equal(null, manager.LoadedTransactionNumber, "PLA_B prepare must not load the normal Parcel Workflow transaction.");
+        TestAssert.False(manager.HasActiveTransaction, "PLA_B prepare must not start or claim the normal transaction.");
+        TestAssert.Equal("100000630", PlaBTestEmulationContext.GetForTransaction("TR100001266")?.PeNumber, "PLA_B prepare should stage the normalized PE number.");
+        TestAssert.Equal("100000630", preparedInput?.NormalizedPeNumber, "PLA_B prepare should pass normalized PE input to the recovery preparer.");
+        TestAssert.True(result.Message.Contains("Working_review query: transaction_number = 100000630", StringComparison.Ordinal), "PLA_B prepare should expose the working_review query.");
+        TestAssert.True(result.Message.Contains("100000630_parcel_output.gdb", StringComparison.Ordinal), "PLA_B prepare should expose the expected PE output GDB.");
+        TestAssert.True(result.Message.Contains("No PLA_A workflow was opened", StringComparison.Ordinal), "PLA_B prepare should state that PLA_A workflow was not opened.");
     }
 
     public static async Task LoggedInRefreshUsesSessionQueryAndShowsRows()

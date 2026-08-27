@@ -8,15 +8,22 @@ internal sealed class ShowLoginWindowButton : Button
 {
     protected override void OnUpdate()
     {
-        Enabled = ShellState.Session.CanOpenLogin;
+        Enabled = true;
     }
 
     protected override void OnClick()
     {
-        var loginWindow = new LoginWindow
+        try
         {
-            Owner = FrameworkApplication.Current.MainWindow
-        };
-        loginWindow.ShowDialog();
+            var loginWindow = new LoginWindow
+            {
+                Owner = FrameworkApplication.Current.MainWindow
+            };
+            loginWindow.ShowDialog();
+        }
+        catch (Exception exception)
+        {
+            RibbonCommandErrorReporter.Show("Login", exception);
+        }
     }
 }

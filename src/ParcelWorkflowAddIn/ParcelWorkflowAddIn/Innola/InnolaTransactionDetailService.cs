@@ -814,7 +814,8 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             InnolaHttp.ReadString(task, "assignee", "ownerUser", "owner_user"),
             InnolaHttp.ReadString(task, "status", "taskStatus", "task_status"),
             ExtractAttachments(task),
-            parish);
+            parish,
+            ExtractCustomFields(task, transaction, application));
     }
 
     private static IReadOnlyList<InnolaAttachmentMetadata> ExtractAttachments(JsonElement task)
@@ -1037,6 +1038,11 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         {
             sourceType = "st_plan_annexation_pdf";
         }
+        else if (text.Contains("st_survey_diagram", StringComparison.Ordinal)
+            || text.Contains("survey diagram", StringComparison.Ordinal))
+        {
+            sourceType = "st_survey_diagram";
+        }
         else if (text.Contains("surveyplan", StringComparison.Ordinal)
             || text.Contains("survey plan", StringComparison.Ordinal)
             || text.Contains("map", StringComparison.Ordinal)
@@ -1103,6 +1109,82 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     private static long? ReadNestedLong(JsonElement? element, params string[] names)
     {
         return element.HasValue ? ReadLong(element.Value, names) : null;
+    }
+
+    private static IReadOnlyDictionary<string, string> ExtractCustomFields(
+        JsonElement task,
+        JsonElement? transaction,
+        JsonElement? application)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        AddIfPresent(values, "PeNumber", InnolaHttp.ReadString(task, "PeNumber", "peNumber", "pe_number"));
+        AddIfPresent(values, "PeNumber", ReadNested(transaction, "PeNumber", "peNumber", "pe_number"));
+        AddIfPresent(values, "PeNumber", ReadNested(application, "PeNumber", "peNumber", "pe_number"));
+
+        foreach (var containerName in new[] { "fields", "customFields", "attributes", "properties" })
+        {
+            if (task.TryGetProperty(containerName, out var container))
+            {
+                CollectNamedField(values, container, "PeNumber");
+            }
+
+            if (transaction.HasValue && transaction.Value.TryGetProperty(containerName, out var transactionContainer))
+            {
+                CollectNamedField(values, transactionContainer, "PeNumber");
+            }
+
+            if (application.HasValue && application.Value.TryGetProperty(containerName, out var applicationContainer))
+            {
+                CollectNamedField(values, applicationContainer, "PeNumber");
+            }
+        }
+
+        return values;
+    }
+
+    private static void AddIfPresent(Dictionary<string, string> values, string key, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && !values.ContainsKey(key))
+        {
+            values[key] = value.Trim();
+        }
+    }
+
+    private static void CollectNamedField(Dictionary<string, string> values, JsonElement element, string key)
+    {
+        if (values.ContainsKey(key))
+        {
+            return;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty(key, out var direct) && direct.ValueKind == JsonValueKind.String)
+            {
+                AddIfPresent(values, key, direct.GetString());
+                return;
+            }
+
+            var name = InnolaHttp.ReadString(element, "name", "field", "key", "id");
+            var value = InnolaHttp.ReadString(element, "value", "text", "displayValue");
+            if (string.Equals(name, key, StringComparison.OrdinalIgnoreCase))
+            {
+                AddIfPresent(values, key, value);
+                return;
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                CollectNamedField(values, property.Value, key);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectNamedField(values, item, key);
+            }
+        }
     }
 
     private sealed record AttachmentClassification(string? SourceType, string? SourceRole);

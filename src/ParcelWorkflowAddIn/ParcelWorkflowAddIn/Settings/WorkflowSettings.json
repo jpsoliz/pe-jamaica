@@ -344,6 +344,30 @@
       "extensions": [".pdf"]
     },
     {
+      "source_type": "st_survey_diagram",
+      "workflow_role": "survey_diagram_pdf",
+      "display_name": "Survey diagram PDF",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_survey_diagram_png",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA_B survey diagram selection PNG",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".png"]
+    },
+    {
+      "source_type": "pla_b_recovery",
+      "workflow_role": "pla_b_recovery",
+      "display_name": "PLA_B recovery plan",
+      "required": false,
+      "internal_only": true,
+      "extensions": []
+    },
+    {
       "source_type": "st_survey_points",
       "workflow_role": "coordinate_text_source",
       "display_name": "Structured survey points",
@@ -461,6 +485,20 @@
       ],
       "primary_extraction_role": "plan_annexation_pdf",
       "document_profile": "pla_plan_annexation_pdf"
+    },
+    {
+      "profile_id": "pla_b_plan_annexation_from_pe",
+      "enabled": true,
+      "transaction_type_codes": ["PLA_B"],
+      "transaction_type_names": [
+        "PLA_B",
+        "Plan Annexation From PE"
+      ],
+      "workflow_profile": "pla_b_plan_annexation_from_pe",
+      "required_source_roles": [],
+      "optional_source_roles": [],
+      "primary_extraction_role": "pla_b_recovery",
+      "document_profile": "pla_b_recovery"
     }
   ],
   "innola_attachment_upload_route": "source/sources/attach",

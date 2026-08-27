@@ -1,0 +1,88 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.PlaBTestInputWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    Title="PLA_B Test Input"
+                    Width="390"
+                    Height="242"
+                    MinWidth="360"
+                    MinHeight="235"
+                    WindowStartupLocation="CenterOwner">
+  <Grid Margin="14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="112" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+
+    <TextBlock Grid.Row="0"
+               Grid.Column="0"
+               Text="Current TR"
+               FontWeight="SemiBold"
+               VerticalAlignment="Center" />
+    <TextBox Grid.Row="0"
+             Grid.Column="1"
+             Margin="10,0,0,8"
+             Text="{Binding CurrentTransactionNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+    <TextBlock Grid.Row="1"
+               Grid.Column="0"
+               Text="PE Number"
+               FontWeight="SemiBold"
+               VerticalAlignment="Center" />
+    <TextBox Grid.Row="1"
+             Grid.Column="1"
+             Margin="10,0,0,8"
+             Text="{Binding PeNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+    <TextBlock Grid.Row="2"
+               Grid.Column="0"
+               Text="Normalized PE"
+               FontWeight="SemiBold"
+               VerticalAlignment="Center" />
+    <Border Grid.Row="2"
+            Grid.Column="1"
+            Margin="10,0,0,8"
+            BorderBrush="#B8C2CC"
+            BorderThickness="1"
+            Background="#F3F6F7"
+            Padding="4,2">
+      <TextBlock Text="{Binding NormalizedPeNumber, TargetNullValue=Not ready}"
+                 TextTrimming="CharacterEllipsis" />
+    </Border>
+
+    <TextBlock Grid.Row="3"
+               Grid.ColumnSpan="2"
+               Text="{Binding StatusText}"
+               TextWrapping="Wrap"
+               Foreground="#52616B" />
+
+    <StackPanel Grid.Row="4"
+                Grid.ColumnSpan="2"
+                HorizontalAlignment="Right"
+                Orientation="Horizontal">
+      <Button Width="84"
+              Padding="8,2"
+              IsEnabled="{Binding CanPrepare}"
+              Click="PrepareButton_Click"
+              Content="Prepare" />
+      <Button Width="94"
+              Margin="8,0,0,0"
+              Padding="8,2"
+              IsEnabled="{Binding HasCurrentTransactionNumber}"
+              Click="OpenViewerButton_Click"
+              Content="Open Viewer" />
+      <Button Width="80"
+              Margin="8,0,0,0"
+              Padding="8,2"
+              Click="CloseButton_Click"
+              Content="Close" />
+    </StackPanel>
+  </Grid>
+</controls:ProWindow>

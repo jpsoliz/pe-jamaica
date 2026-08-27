@@ -452,12 +452,17 @@ public sealed record InnolaTransactionSettings(
             var primaryExtractionRole = Intake.SourceRole.Normalize(ReadString(item, "primary_extraction_role"));
             var documentProfile = ReadString(item, "document_profile")?.Trim();
 
+            var allowsSourceLessRecovery = string.Equals(
+                workflowProfile,
+                "pla_b_plan_annexation_from_pe",
+                StringComparison.OrdinalIgnoreCase);
+
             if (string.IsNullOrWhiteSpace(profileId)
                 || string.IsNullOrWhiteSpace(workflowProfile)
                 || string.IsNullOrWhiteSpace(primaryExtractionRole)
                 || string.IsNullOrWhiteSpace(documentProfile)
                 || transactionTypeCodes.Count + transactionTypeNames.Count == 0
-                || requiredSourceRoles.Count == 0)
+                || (requiredSourceRoles.Count == 0 && !allowsSourceLessRecovery))
             {
                 ignoredEntries++;
                 continue;

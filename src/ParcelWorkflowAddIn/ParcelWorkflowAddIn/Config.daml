@@ -3,7 +3,7 @@
         xmlns="http://schemas.esri.com/DADF/Registry"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
-                          desktopVersion="3.6" version="1.1.235">
+                          desktopVersion="3.6" version="1.1.257">
     <Name>Cadastre Tool by Sidwell</Name>
     <Image>Images\Branding\CadastreTool32.png</Image>
     <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
@@ -11,7 +11,7 @@
     <Company>Sidwell</Company>
   </AddInInfo>
   <modules>
-    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="false" caption="Parcel Workflow">
+    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="true" caption="Parcel Workflow">
       <tabs>
         <tab id="ParcelWorkflow_Tab" caption="Cadastre tools">
           <group refID="ParcelWorkflow_Group" />
@@ -29,7 +29,7 @@
         <button id="ParcelWorkflow_LoginButton"
                 caption="Login"
                 className="ShowLoginWindowButton"
-                loadOnClick="true"
+                loadOnClick="false"
                 smallImage="Install\Images\Ribbon\Login16.png"
                 largeImage="Install\Images\Ribbon\Login32.png">
           <tooltip heading="Login">Login to the Innola system<disabledText /></tooltip>
@@ -45,7 +45,7 @@
         <button id="ParcelWorkflow_SearchDockpaneButton"
                 caption="Search"
                 className="ShowParcelSearchDockpaneButton"
-                loadOnClick="true"
+                loadOnClick="false"
                 smallImage="Install\Images\TaskList\Search_Alt2_16.png"
                 largeImage="Install\Images\TaskList\Search_Alt2_32.png">
           <tooltip heading="Search">Open parcel search for Legal, Cadastral, and Survey sources<disabledText /></tooltip>
@@ -53,7 +53,7 @@
         <button id="ParcelWorkflow_ConfigurationButton"
                 caption="Settings"
                 className="ShowConfigurationWindowButton"
-                loadOnClick="true"
+                loadOnClick="false"
                 smallImage="Install\Images\Ribbon\Configuration16.png"
                 largeImage="Install\Images\Ribbon\Configuration32.png">
           <tooltip heading="Settings">Open local parcel workflow settings<disabledText /></tooltip>
@@ -69,7 +69,7 @@
         <button id="ParcelWorkflow_AboutButton"
                 caption="About"
                 className="ShowAboutWindowButton"
-                loadOnClick="true"
+                loadOnClick="false"
                 smallImage="Install\Images\Ribbon\About16.png"
                 largeImage="Install\Images\Ribbon\About32.png">
           <tooltip heading="About">About this add-in<disabledText /></tooltip>

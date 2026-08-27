@@ -198,6 +198,14 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && daml.Contains("largeImage=\"Install\\Images\\Ribbon\\Configuration32.png\"", StringComparison.Ordinal)
             && daml.Contains("largeImage=\"Install\\Images\\Ribbon\\About32.png\"", StringComparison.Ordinal),
             "Cadastre tools ribbon commands should keep the individual Login, Settings, and About icons.");
+        TestAssert.True(
+            daml.Contains("autoLoad=\"true\"", StringComparison.Ordinal)
+            && daml.Contains("id=\"ParcelWorkflow_LoginButton\"", StringComparison.Ordinal)
+            && daml.Contains("id=\"ParcelWorkflow_SearchDockpaneButton\"", StringComparison.Ordinal)
+            && daml.Contains("id=\"ParcelWorkflow_ConfigurationButton\"", StringComparison.Ordinal)
+            && daml.Contains("id=\"ParcelWorkflow_AboutButton\"", StringComparison.Ordinal)
+            && !daml.Contains("ParcelWorkflow_LoginButton\"\r\n                caption=\"Login\"\r\n                className=\"ShowLoginWindowButton\"\r\n                loadOnClick=\"true\"", StringComparison.Ordinal),
+            "Safe top-level ribbon commands should load eagerly so ArcGIS does not leave them disabled before click.");
     }
 
     public static void AboutWindowUsesCadastreToolBranding()

@@ -9,6 +9,7 @@ using Microsoft.Win32;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Workflow.Pla;
 
 namespace ParcelWorkflowAddIn;
 
@@ -28,6 +29,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly HashSet<string> compareWorkflowStages;
     private readonly Action<string>? compareWorkspaceLauncher;
     private readonly Action<string, ICompareTaskLifecycleService?>? compareWorkspaceLifecycleLauncher;
+    private readonly Action<string?, string?, Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>, Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>> plaBTestInputLauncher;
+    private readonly Func<PlaBTestEmulationInputViewModel, CancellationToken, Task<PlaBTestInputPreparationResult>> plaBRecoveryPreparer;
+    private readonly Func<SelectedInnolaTransaction, CancellationToken, Task<PlaBCurrentTransactionSourceDownloadResult>> plaBCurrentSourceDownloader;
     private readonly Func<bool> isCompareWorkspaceOpen;
     private readonly Func<bool> supportingDocumentsLauncher;
     private readonly Action supportingDocumentsRefresher;
@@ -95,7 +99,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         Action? supportingDocumentsRefresher = null,
         InnolaTransactionLoadService? compareTransactionLoadService = null,
         Func<bool>? supportingDocumentsLauncher = null,
-        Func<bool>? isCompareWorkspaceOpen = null)
+        Func<bool>? isCompareWorkspaceOpen = null,
+        Action<string?, string?, Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>, Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>>? plaBTestInputLauncher = null,
+        Func<PlaBTestEmulationInputViewModel, CancellationToken, Task<PlaBTestInputPreparationResult>>? plaBRecoveryPreparer = null,
+        Func<SelectedInnolaTransaction, CancellationToken, Task<PlaBCurrentTransactionSourceDownloadResult>>? plaBCurrentSourceDownloader = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -118,6 +125,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             StringComparer.OrdinalIgnoreCase);
         this.compareWorkspaceLauncher = compareWorkspaceLauncher;
         this.compareWorkspaceLifecycleLauncher = compareWorkspaceLifecycleLauncher;
+        this.plaBTestInputLauncher = plaBTestInputLauncher ?? ShowPlaBTestInputWindow;
+        this.plaBRecoveryPreparer = plaBRecoveryPreparer ?? PreparePlaBRecoveryAsync;
+        this.plaBCurrentSourceDownloader = plaBCurrentSourceDownloader ?? DownloadPlaBCurrentTransactionSourcesAsync;
         this.isCompareWorkspaceOpen = isCompareWorkspaceOpen ?? CompareWorkspaceWindowLifecycle.IsOpen;
         this.supportingDocumentsLauncher = supportingDocumentsLauncher ?? TryShowSupportingDocumentsSafely;
         this.supportingDocumentsRefresher = supportingDocumentsRefresher ?? (() => { });
@@ -134,6 +144,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ShowSupportingDocumentsCommand = new RelayCommand(ShowSupportingDocuments, () => CanShowSupportingDocuments);
         OpenMapGeoreferenceCommand = new RelayCommand(async () => await OpenMapGeoreferenceAsync(), () => CanOpenMapGeoreference);
         OpenTitlePlanImagePlacementCommand = new RelayCommand(OpenTitlePlanImagePlacement, () => CanOpenTitlePlanImagePlacement);
+        OpenPlaBTestInputCommand = new RelayCommand(OpenPlaBTestInput, () => CanOpenPlaBTestInput);
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
@@ -169,6 +180,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public ICommand OpenTitlePlanImagePlacementCommand { get; }
 
+    public ICommand OpenPlaBTestInputCommand { get; }
+
     public ICommand AddDocumentCommand { get; }
 
     public ICommand CompleteTaskCommand { get; }
@@ -196,6 +209,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             NotifyPropertyChanged(nameof(CanSearchTransactions));
             NotifyPropertyChanged(nameof(CanUseListControls));
             NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
+            NotifyPropertyChanged(nameof(CanOpenPlaBTestInput));
             NotifyPropertyChanged(nameof(IsEmpty));
             NotifyCommandStates();
         }
@@ -481,6 +495,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ? "Place a title-plan image from transaction attachments for map comparison."
         : TitlePlanImagePlacementDisabledReason();
 
+    public string OpenPlaBTestInputTooltip => CanOpenPlaBTestInput
+        ? "Open PLA_B test input for a current transaction number and PE number."
+        : PlaBTestInputDisabledReason();
+
     public string AddDocumentTooltip => CanAddDocument ? "Attach a document to the active transaction." : DocumentsDisabledReason();
 
     public string CompleteTaskTooltip => CanCompleteTask ? "Complete the active transaction in Innola." : CompleteTaskDisabledReason();
@@ -510,6 +528,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     public bool CanOpenMapGeoreference => CanViewDocuments;
 
     public bool CanOpenTitlePlanImagePlacement => CanViewDocuments && HasTitlePlanPlacementSourceAttachments();
+
+    public bool CanOpenPlaBTestInput => IsLoggedIn && !IsLoading;
 
     public bool CanAddDocument => CanViewDocuments;
 
@@ -1229,6 +1249,371 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StatusText = $"Opening title-plan image placement for {transactionNumber}.";
     }
 
+    private void OpenPlaBTestInput()
+    {
+        if (!CanOpenPlaBTestInput)
+        {
+            StatusText = PlaBTestInputDisabledReason();
+            return;
+        }
+
+        var currentTransactionNumber = SelectedRow?.TransactionNumber
+            ?? session.LoadedTransactionNumber
+            ?? session.SelectedTransaction?.TransactionNumber;
+        plaBTestInputLauncher(
+            currentTransactionNumber,
+            null,
+            input => PreparePlaBTestInputAsync(input),
+            input => OpenPlaBCurrentTransactionViewerAsync(input));
+        StatusText = string.IsNullOrWhiteSpace(currentTransactionNumber)
+            ? "Opening PLA_B test input."
+            : $"Opening PLA_B test input for transaction {currentTransactionNumber}.";
+    }
+
+    private static void ShowPlaBTestInputWindow(
+        string? currentTransactionNumber,
+        string? peNumber,
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> prepareHandler,
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> openViewerHandler)
+    {
+        PlaBTestInputWindow.ShowOrActivate(
+            currentTransactionNumber,
+            peNumber,
+            prepareHandler,
+            openViewerHandler);
+    }
+
+    internal async Task<PlaBTestInputPreparationResult> PreparePlaBTestInputAsync(
+        PlaBTestEmulationInputViewModel input,
+        CancellationToken cancellationToken = default)
+    {
+        if (input is null || !input.CanPrepare)
+        {
+            return PlaBTestInputPreparationResult.Failed("Enter a current transaction number and valid PE number before preparing PLA_B.");
+        }
+
+        PlaBTestEmulationContext.Set(input.CurrentTransactionNumber, input.PeNumber);
+        var result = await plaBRecoveryPreparer(input, cancellationToken).ConfigureAwait(true);
+        StatusText = result.Success
+            ? $"PLA_B recovery loaded for TR {input.CurrentTransactionNumber.Trim()} using PE {input.NormalizedPeNumber}."
+            : result.Message;
+        return result;
+    }
+
+    private async Task<PlaBTestInputPreparationResult> PreparePlaBRecoveryAsync(
+        PlaBTestEmulationInputViewModel input,
+        CancellationToken cancellationToken)
+    {
+        if (session.CurrentSession is null)
+        {
+            return PlaBTestInputPreparationResult.Failed("PLA_B recovery requires an active Innola session.");
+        }
+
+        var settings = InnolaTransactionSettings.Load();
+        var enterprisePlan = PlaBEnterpriseWorkingLayerLookupPlanner.Build(settings, input.PeNumber);
+        if (!enterprisePlan.Success)
+        {
+            return PlaBTestInputPreparationResult.Failed(enterprisePlan.Message ?? "PLA_B working_review recovery could not be prepared.");
+        }
+
+        var normalizedPe = input.NormalizedPeNumber!;
+        var currentSourceLoad = await LoadPlaBCurrentTransactionSourcesAsync(input.CurrentTransactionNumber, cancellationToken).ConfigureAwait(true);
+        if (!currentSourceLoad.Success)
+        {
+            return PlaBTestInputPreparationResult.Failed(currentSourceLoad.Message);
+        }
+
+        var layoutResult = PreparePlaBCaseFolder(settings, input.CurrentTransactionNumber.Trim(), session.CurrentSession.User.Username);
+        if (!layoutResult.Success || layoutResult.Layout is null)
+        {
+            return PlaBTestInputPreparationResult.Failed(layoutResult.ErrorMessage ?? "PLA_B recovery case folder could not be prepared.");
+        }
+
+        var peLookup = await new PlaBRelatedPeTransactionFinder(transactionService)
+            .FindAsync(session.CurrentSession, normalizedPe, cancellationToken)
+            .ConfigureAwait(true);
+        if (!peLookup.Success || peLookup.Transaction is null)
+        {
+            return PlaBTestInputPreparationResult.Failed(peLookup.Message ?? "Related PE transaction could not be found.");
+        }
+
+        var detailService = ShellState.TransactionDetails;
+        var peSelected = ToSelectedTransaction(peLookup.Transaction, clock());
+        var detailResult = await detailService
+            .GetTransactionDetailAsync(session.CurrentSession, peSelected, cancellationToken)
+            .ConfigureAwait(true);
+        if (!detailResult.Success || detailResult.Detail is null)
+        {
+            var reason = detailResult.ErrorMessage ?? "Related PE transaction detail could not be loaded.";
+            var category = string.IsNullOrWhiteSpace(detailResult.ErrorCode) ? string.Empty : $" ({detailResult.ErrorCode})";
+            return PlaBTestInputPreparationResult.Failed($"PLA_B could not load related PE transaction {normalizedPe}: {reason}{category}");
+        }
+
+        var package = await new PlaBPePackageDownloader(detailService)
+            .DownloadAsync(session.CurrentSession, detailResult.Detail, layoutResult.Layout, cancellationToken)
+            .ConfigureAwait(true);
+        if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath))
+        {
+            return PlaBTestInputPreparationResult.Failed(package.Message ?? "Related PE package could not be downloaded.");
+        }
+
+        var gdb = PlaBPackageService.ExtractAndResolveOutputGdb(layoutResult.Layout, package.PackagePath, normalizedPe);
+        if (!gdb.Success || string.IsNullOrWhiteSpace(gdb.GdbPath))
+        {
+            return PlaBTestInputPreparationResult.Failed(gdb.Message ?? "Related PE output geodatabase could not be resolved.");
+        }
+
+        var mapPlan = PlaBMapReviewPlanner.Build(input.CurrentTransactionNumber, normalizedPe, gdb.GdbPath);
+        if (!mapPlan.Success)
+        {
+            return PlaBTestInputPreparationResult.Failed(mapPlan.Message ?? "PLA_B map recovery plan could not be built.");
+        }
+
+        var mapLoad = await new ArcGisPlaBMapRecoveryLoader()
+            .LoadAsync(settings, detailResult.Detail, enterprisePlan, mapPlan, cancellationToken)
+            .ConfigureAwait(true);
+        if (!mapLoad.Success)
+        {
+            return PlaBTestInputPreparationResult.Failed(mapLoad.Message);
+        }
+
+        return PlaBTestInputPreparationResult.Succeeded(
+            $"PLA_B recovery loaded.\nCurrent TR source files: {currentSourceLoad.SourceFileCount} in {currentSourceLoad.SourceDirectory}{FormatPlaBSourceWarnings(currentSourceLoad.Warnings)}\nCurrent TR group: {mapPlan.CurrentTransactionGroupName}\nWorking_review query: {enterprisePlan.ScopeField} = {enterprisePlan.ScopeValue}\nPE group: {mapPlan.PeTransactionGroupName}\nGDB: {gdb.GdbPath}\n\nNo PLA_A workflow was opened.");
+    }
+
+    private async Task<PlaBTestInputPreparationResult> OpenPlaBCurrentTransactionViewerAsync(
+        PlaBTestEmulationInputViewModel input,
+        CancellationToken cancellationToken = default)
+    {
+        if (input is null || string.IsNullOrWhiteSpace(input.CurrentTransactionNumber))
+        {
+            return PlaBTestInputPreparationResult.Failed("Enter a current transaction number before opening the viewer.");
+        }
+
+        var currentSourceLoad = await LoadPlaBCurrentTransactionSourcesAsync(input.CurrentTransactionNumber, cancellationToken).ConfigureAwait(true);
+        if (!currentSourceLoad.Success)
+        {
+            return PlaBTestInputPreparationResult.Failed(currentSourceLoad.Message);
+        }
+
+        return OpenLoadedSupportingDocuments(input.CurrentTransactionNumber.Trim(), currentSourceLoad);
+    }
+
+    private async Task<PlaBCurrentTransactionSourceLoadResult> LoadPlaBCurrentTransactionSourcesAsync(
+        string transactionNumber,
+        CancellationToken cancellationToken)
+    {
+        var requestedTransactionNumber = transactionNumber.Trim();
+        IReadOnlyList<string> warnings = Array.Empty<string>();
+        if (session.HasActiveTransaction && !IsLoadedTransaction(requestedTransactionNumber))
+        {
+            return PlaBCurrentTransactionSourceLoadResult.Failed(
+                $"Active transaction {session.SelectedTransaction?.TransactionNumber} is in progress. Stop/save it before loading {requestedTransactionNumber} for PLA_B viewing.");
+        }
+
+        if (!IsLoadedTransaction(requestedTransactionNumber))
+        {
+            var rowResult = await FindOrFetchAvailableTransactionRowAsync(requestedTransactionNumber, cancellationToken).ConfigureAwait(true);
+            if (!rowResult.Success || rowResult.Row is null)
+            {
+                return PlaBCurrentTransactionSourceLoadResult.Failed(rowResult.Message);
+            }
+
+            if (!rowResult.Row.IsLoadable)
+            {
+                return PlaBCurrentTransactionSourceLoadResult.Failed(rowResult.Row.UnavailableReason ?? $"Current transaction {requestedTransactionNumber} is not loadable.");
+            }
+
+            var previousSelection = SelectedRow;
+            SelectedRow = rowResult.Row;
+            session.SelectTransaction(rowResult.Row, clock());
+            var sourceDownload = await plaBCurrentSourceDownloader(session.SelectedTransaction!, cancellationToken).ConfigureAwait(true);
+            if (!sourceDownload.Success || sourceDownload.Layout is null || sourceDownload.Detail is null || string.IsNullOrWhiteSpace(sourceDownload.LoadedAt))
+            {
+                if (previousSelection is not null && !ReferenceEquals(previousSelection, rowResult.Row))
+                {
+                    SelectedRow = previousSelection;
+                }
+
+                return PlaBCurrentTransactionSourceLoadResult.Failed(sourceDownload.Message);
+            }
+
+            warnings = sourceDownload.Warnings;
+            session.MarkTransactionLoaded(
+                sourceDownload.Detail.TransactionNumber,
+                sourceDownload.Layout.RootDirectory,
+                sourceDownload.LoadedAt,
+                wasRestoredFromResumePackage: false);
+            NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+        }
+
+        var sourceDirectory = CaseFolderLayout.FromRootDirectory(session.LoadedCaseFolderPath!).SourceDirectory;
+        var sourceFileCount = Directory.Exists(sourceDirectory)
+            ? Directory.EnumerateFiles(sourceDirectory).Count()
+            : 0;
+        return sourceFileCount > 0
+            ? PlaBCurrentTransactionSourceLoadResult.Succeeded(sourceDirectory, sourceFileCount, warnings)
+            : PlaBCurrentTransactionSourceLoadResult.Failed(
+                $"Current transaction {requestedTransactionNumber} loaded, but no files were downloaded to {sourceDirectory}.");
+    }
+
+    private Task<PlaBCurrentTransactionSourceDownloadResult> DownloadPlaBCurrentTransactionSourcesAsync(
+        SelectedInnolaTransaction selected,
+        CancellationToken cancellationToken)
+    {
+        return new PlaBCurrentTransactionSourceDownloadService(ShellState.TransactionDetails)
+            .DownloadAsync(
+                session.CurrentSession!,
+                selected,
+                InnolaTransactionSettings.Load().CaseFolderOutputRoot,
+                session.CurrentSession!.User.Username,
+                cancellationToken);
+    }
+
+    private async Task<PlaBTransactionRowLookupResult> FindOrFetchAvailableTransactionRowAsync(
+        string transactionNumber,
+        CancellationToken cancellationToken)
+    {
+        var localRow = FindAvailableTransactionRow(transactionNumber);
+        if (localRow is not null)
+        {
+            return PlaBTransactionRowLookupResult.Succeeded(localRow);
+        }
+
+        if (session.CurrentSession is null)
+        {
+            return PlaBTransactionRowLookupResult.Failed("PLA_B current transaction lookup requires an active Innola session.");
+        }
+
+        var currentSession = session.CurrentSession;
+        var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            currentSession.ServerUrl,
+            currentSession.AccessToken,
+            currentSession.User.Username,
+            currentSession.User.Groups,
+            ProcessStep,
+            null,
+            transactionNumber,
+            SortField,
+            SortDirection), cancellationToken).ConfigureAwait(true);
+        if (!result.Success)
+        {
+            return PlaBTransactionRowLookupResult.Failed(result.ErrorMessage ?? $"Current transaction {transactionNumber} could not be found.");
+        }
+
+        var normalized = InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber);
+        var row = result.Rows.FirstOrDefault(candidate =>
+            string.Equals(
+                InnolaTransactionNumbers.NormalizeWorkflowKey(candidate.TransactionNumber),
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+        return row is null
+            ? PlaBTransactionRowLookupResult.Failed($"Current transaction {transactionNumber} was not returned by Innola.")
+            : PlaBTransactionRowLookupResult.Succeeded(row);
+    }
+
+    private PlaBTestInputPreparationResult OpenLoadedSupportingDocuments(
+        string transactionNumber,
+        PlaBCurrentTransactionSourceLoadResult sourceLoad)
+    {
+        if (!supportingDocumentsLauncher())
+        {
+            return PlaBTestInputPreparationResult.Failed(
+                $"Transaction {transactionNumber} source files are loaded, but the document viewer could not be opened.");
+        }
+
+        return PlaBTestInputPreparationResult.Succeeded(
+            $"Opened document viewer for current transaction {transactionNumber}.\nSource files: {sourceLoad.SourceFileCount} in {sourceLoad.SourceDirectory}{FormatPlaBSourceWarnings(sourceLoad.Warnings)}");
+    }
+
+    private static string FormatPlaBSourceWarnings(IReadOnlyList<string> warnings)
+    {
+        return warnings.Count == 0
+            ? string.Empty
+            : $"\nSkipped attachments: {warnings.Count}. First issue: {warnings[0]}";
+    }
+
+    private sealed record PlaBCurrentTransactionSourceLoadResult(
+        bool Success,
+        string Message,
+        string? SourceDirectory,
+        int SourceFileCount,
+        IReadOnlyList<string> Warnings)
+    {
+        public static PlaBCurrentTransactionSourceLoadResult Succeeded(
+            string sourceDirectory,
+            int sourceFileCount,
+            IReadOnlyList<string>? warnings = null)
+        {
+            return new PlaBCurrentTransactionSourceLoadResult(true, string.Empty, sourceDirectory, sourceFileCount, warnings ?? Array.Empty<string>());
+        }
+
+        public static PlaBCurrentTransactionSourceLoadResult Failed(string message)
+        {
+            return new PlaBCurrentTransactionSourceLoadResult(false, message, null, 0, Array.Empty<string>());
+        }
+    }
+
+    private sealed record PlaBTransactionRowLookupResult(
+        bool Success,
+        InnolaTransactionRow? Row,
+        string Message)
+    {
+        public static PlaBTransactionRowLookupResult Succeeded(InnolaTransactionRow row)
+        {
+            return new PlaBTransactionRowLookupResult(true, row, string.Empty);
+        }
+
+        public static PlaBTransactionRowLookupResult Failed(string message)
+        {
+            return new PlaBTransactionRowLookupResult(false, null, message);
+        }
+    }
+
+    private bool IsLoadedTransaction(string transactionNumber)
+    {
+        return session.IsTransactionLoaded
+            && !string.IsNullOrWhiteSpace(session.LoadedCaseFolderPath)
+            && string.Equals(
+                InnolaTransactionNumbers.NormalizeWorkflowKey(session.LoadedTransactionNumber ?? string.Empty),
+                InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber),
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private InnolaTransactionRow? FindAvailableTransactionRow(string transactionNumber)
+    {
+        var normalized = InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber);
+        return allRows.FirstOrDefault(row =>
+            string.Equals(
+                InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber),
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static CaseFolderCreationResult PreparePlaBCaseFolder(InnolaTransactionSettings settings, string transactionNumber, string username)
+    {
+        var layout = CaseFolderLayout.For(settings.CaseFolderOutputRoot, transactionNumber);
+        return Directory.Exists(layout.RootDirectory)
+            ? CaseFolderCreationResult.Created(layout)
+            : new CaseFolderStore().CreateCase(settings.CaseFolderOutputRoot, transactionNumber, username);
+    }
+
+    private static SelectedInnolaTransaction ToSelectedTransaction(InnolaTransactionRow row, DateTimeOffset selectedAt)
+    {
+        return new SelectedInnolaTransaction(
+            row.TaskId,
+            row.TransactionId,
+            row.TransactionNumber,
+            row.TaskName,
+            row.ProcessStep,
+            selectedAt,
+            row.ApplicationId,
+            row.TransactionType,
+            row.Status,
+            row.AssignedUser,
+            row.AssignedGroup);
+    }
+
     private void ChooseAndAddDocuments()
     {
         var dialog = new OpenFileDialog
@@ -1343,6 +1728,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
         NotifyPropertyChanged(nameof(CanOpenTitlePlanImagePlacement));
+        NotifyPropertyChanged(nameof(CanOpenPlaBTestInput));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1717,6 +2103,21 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return "No PDF or raster image attachments are available in the loaded transaction Case Folder source area.";
     }
 
+    private string PlaBTestInputDisabledReason()
+    {
+        if (!IsLoggedIn)
+        {
+            return "Log in before opening PLA_B test input.";
+        }
+
+        if (IsLoading)
+        {
+            return "Wait for the current action to finish.";
+        }
+
+        return "PLA_B test input is not available right now.";
+    }
+
     private bool HasTitlePlanPlacementSourceAttachments()
     {
         var folder = session.LoadedCaseFolderPath;
@@ -1828,6 +2229,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(ShowSupportingDocumentsTooltip));
         NotifyPropertyChanged(nameof(OpenMapGeoreferenceTooltip));
         NotifyPropertyChanged(nameof(OpenTitlePlanImagePlacementTooltip));
+        NotifyPropertyChanged(nameof(OpenPlaBTestInputTooltip));
         NotifyPropertyChanged(nameof(AddDocumentTooltip));
         NotifyPropertyChanged(nameof(CompleteTaskTooltip));
         NotifyPropertyChanged(nameof(ReopenCompareTooltip));
@@ -1851,6 +2253,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanShowSupportingDocuments));
         NotifyPropertyChanged(nameof(CanOpenMapGeoreference));
         NotifyPropertyChanged(nameof(CanOpenTitlePlanImagePlacement));
+        NotifyPropertyChanged(nameof(CanOpenPlaBTestInput));
         NotifyPropertyChanged(nameof(CanAddDocument));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanReopenCompare));
@@ -1898,6 +2301,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         if (OpenTitlePlanImagePlacementCommand is RelayCommand openTitlePlanImagePlacement)
         {
             openTitlePlanImagePlacement.RaiseCanExecuteChanged();
+        }
+
+        if (OpenPlaBTestInputCommand is RelayCommand openPlaBTestInput)
+        {
+            openPlaBTestInput.RaiseCanExecuteChanged();
         }
 
         if (AddDocumentCommand is RelayCommand addDocument)

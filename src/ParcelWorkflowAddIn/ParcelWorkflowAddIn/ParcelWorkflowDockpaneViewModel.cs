@@ -36,6 +36,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly PlaPlanEvidenceSelectionService plaPlanEvidenceSelectionService = new();
     private readonly PlaFinalizeService plaFinalizeReadinessService = new(new PlaFinalizeReadinessOnlyUploader());
+    private readonly PlaBFinalizeService plaBFinalizeReadinessService = new(new PlaBFinalizeReadinessOnlyUploader());
     private readonly ParcelScopedManualPointService manualPointService = new();
     private readonly ManualBoundarySegmentService manualBoundarySegmentService = new();
     private readonly ParcelScopedReviewValidationService reviewValidationService = new();
@@ -92,6 +93,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand completeTransactionCommand;
     private readonly IOutputMapIntegrationService outputMapIntegrationService = new ArcGisOutputMapIntegrationService();
     private PlaPlanEvidenceSelectionViewModel? plaPlanEvidenceSelection;
+    private readonly PlaBTestEmulationInputViewModel plaBTestEmulationInput = new();
     private readonly ISpatialOverlapReviewService spatialOverlapReviewService = new ArcGisSpatialOverlapReviewService();
     private readonly SpatialOverlapReviewPersistenceService spatialOverlapReviewPersistence = new();
     private string? outputLocation;
@@ -196,7 +198,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         FrameworkApplication.DockPaneManager.Find(DockPaneId)?.Activate();
     }
 
-    public string WorkflowPaneTitle => IsPlaPlanAnnexationWorkflow ? "Parcel Workflow - Plan Annexation" : "Parcel Workflow";
+    public string WorkflowPaneTitle => IsPlaBWorkflow
+        ? "Parcel Workflow - PLA_B Plan Annexation"
+        : IsPlaPlanAnnexationWorkflow
+            ? "Parcel Workflow - Plan Annexation"
+            : "Parcel Workflow";
 
     public ObservableCollection<ExtractionReviewRowViewModel> ReviewRows { get; } = [];
 
@@ -414,6 +420,39 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public bool IsPlaPlanAnnexationWorkflow =>
         string.Equals(workflowSession.WorkflowProfile, SourceInputProfile.PlaPlanAnnexation, StringComparison.OrdinalIgnoreCase);
 
+    public bool IsPlaBWorkflow =>
+        string.Equals(workflowSession.WorkflowProfile, SourceInputProfile.PlaBPlanAnnexationFromPe, StringComparison.OrdinalIgnoreCase);
+
+    public bool ShowPlaBTestEmulation => false;
+
+    public string PlaBTestCurrentTransactionNumber
+    {
+        get => plaBTestEmulationInput.CurrentTransactionNumber;
+        set
+        {
+            plaBTestEmulationInput.CurrentTransactionNumber = value;
+            NotifyPropertyChanged(nameof(PlaBTestCurrentTransactionNumber));
+            NotifyPlaBTestEmulationPropertiesChanged();
+        }
+    }
+
+    public string PlaBTestPeNumber
+    {
+        get => plaBTestEmulationInput.PeNumber;
+        set
+        {
+            plaBTestEmulationInput.PeNumber = value;
+            NotifyPropertyChanged(nameof(PlaBTestPeNumber));
+            NotifyPlaBTestEmulationPropertiesChanged();
+        }
+    }
+
+    public string? PlaBTestNormalizedPeNumber => plaBTestEmulationInput.NormalizedPeNumber;
+
+    public bool CanPreparePlaBTestEmulation => plaBTestEmulationInput.CanPrepare;
+
+    public string PlaBTestEmulationStatusText => plaBTestEmulationInput.StatusText;
+
     public bool IsPlaDeferredEvidenceSummaryVisible => IsPlaPlanAnnexationWorkflow && !IsPlaPlanEvidenceSelectionStageActive;
 
     public bool ShowPlaPlanEvidenceSelection =>
@@ -488,7 +527,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         CanUseWorkflowActions
         && ShellState.Session.CanCompleteTransaction
         && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
-        && (!IsPlaPlanAnnexationWorkflow || HasPlaFinalizeReadiness());
+        && (!IsPlaPlanAnnexationWorkflow || HasPlaFinalizeReadiness())
+        && (!IsPlaBWorkflow || HasPlaBFinalizeReadiness());
 
     public ICommand CreateCaseCommand => createCaseCommand;
 
@@ -1500,14 +1540,20 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         };
 
     public string ReadyToCompleteBadge =>
-        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaBWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? GetPlaBFinalizeReadiness().IsReady ? "Ready" : "Blocked"
+            : IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? GetPlaFinalizeReadiness().IsReady ? "Ready" : "Blocked"
             : workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? "Ready"
             : "Pending";
 
     public string ReadyToCompleteSummaryText =>
-        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaBWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? GetPlaBFinalizeReadiness().IsReady
+                ? "PLA_B review evidence is complete. Finalize attaches configured PLA_B generated evidence to Innola and closes the task."
+                : GetPlaBFinalizeReadiness().Message
+            : IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? GetPlaFinalizeReadiness().IsReady
                 ? "PLA review evidence is complete. Finalize attaches the generated PLA output documents to Innola and closes the task."
                 : GetPlaFinalizeReadiness().Message
@@ -1516,7 +1562,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             : "Finalize becomes available after Create Spatial Units is reviewed in Final Review and that review is marked complete.";
 
     public string ReadyToCompleteHelpText =>
-        IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+        IsPlaBWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
+            ? GetPlaBFinalizeReadiness().IsReady
+                ? "Review the current transaction, related PE evidence, survey diagram selection, and local artifacts, then select Finalize to attach configured PLA_B evidence and close the Innola task. Select Suspend to save this state and come back later."
+                : "Resolve the PLA_B Finalize blocker shown above, then refresh or reopen the transaction. Select Suspend to save this state and come back later."
+            : IsPlaPlanAnnexationWorkflow && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
             ? GetPlaFinalizeReadiness().IsReady
                 ? "Review the selected plan evidence, extraction findings, generated geometry visual comparison, and local output PDFs, then select Finalize to attach the generated PLA output documents and close the Innola task. Select Suspend to save this state and come back later."
                 : "Resolve the PLA Finalize blocker shown above, then refresh or reopen the transaction. Select Suspend to save this state and come back later."
@@ -3719,12 +3769,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        var finalizePrompt = IsPlaPlanAnnexationWorkflow
-            ? "Finalize this PLA review, attach the generated PLA output documents to Innola, upload the working package, and close the task?"
-            : "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?";
-        var finalizeTitle = IsPlaPlanAnnexationWorkflow
-            ? "Finalize PLA Review"
-            : "Finalize Compute Review";
+        var finalizePrompt = IsPlaBWorkflow
+            ? "Finalize this PLA_B review, attach configured PLA_B generated evidence to Innola, upload the working package, and close the task?"
+            : IsPlaPlanAnnexationWorkflow
+                ? "Finalize this PLA review, attach the generated PLA output documents to Innola, upload the working package, and close the task?"
+                : "Finalize this Compute review, record the approved disposition in the Enterprise working layers, upload the working package to Innola, and close the task?";
+        var finalizeTitle = IsPlaBWorkflow
+            ? "Finalize PLA_B Review"
+            : IsPlaPlanAnnexationWorkflow
+                ? "Finalize PLA Review"
+                : "Finalize Compute Review";
         if (MessageBox.Show(
                 finalizePrompt,
                 finalizeTitle,
@@ -3734,7 +3788,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        if (!IsPlaPlanAnnexationWorkflow)
+        if (!IsPlaPlanAnnexationWorkflow && !IsPlaBWorkflow)
         {
             var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
             if (publishResult.Attempted && !publishResult.Success)
@@ -4559,6 +4613,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         return GetPlaFinalizeReadiness().IsReady;
     }
 
+    private bool HasPlaBFinalizeReadiness()
+    {
+        return GetPlaBFinalizeReadiness().IsReady;
+    }
+
     private PlaFinalizeReadinessResult GetPlaFinalizeReadiness()
     {
         var caseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
@@ -4587,6 +4646,34 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    private PlaFinalizeReadinessResult GetPlaBFinalizeReadiness()
+    {
+        var caseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
+        if (string.IsNullOrWhiteSpace(caseFolderPath))
+        {
+            return PlaFinalizeReadinessResult.Blocked(
+                "case_folder_missing",
+                "Finalize is blocked because the active case folder is not available.");
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+            return plaBFinalizeReadinessService.CheckReadiness(layout);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or ArgumentException
+            or InvalidOperationException
+            or System.Text.Json.JsonException)
+        {
+            return PlaFinalizeReadinessResult.Blocked(
+                exception.GetType().Name,
+                "Finalize is blocked because PLA_B readiness evidence could not be read.");
+        }
+    }
+
     private void RefreshPlaPlanEvidenceSelection()
     {
         if (!ShowPlaPlanEvidenceSelection
@@ -4609,6 +4696,13 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private void OnPlaPlanEvidenceSelectionSaved(PlaPlanEvidenceSelectionSaveResult result)
     {
         RefreshWorkflowProperties();
+    }
+
+    private void NotifyPlaBTestEmulationPropertiesChanged()
+    {
+        NotifyPropertyChanged(nameof(PlaBTestNormalizedPeNumber));
+        NotifyPropertyChanged(nameof(CanPreparePlaBTestEmulation));
+        NotifyPropertyChanged(nameof(PlaBTestEmulationStatusText));
     }
 
     private void RefreshWorkflowProperties()
@@ -4646,6 +4740,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(IsPlaPlanEvidenceSelectionStageActive));
         NotifyPropertyChanged(nameof(IsExtractionReviewStageActive));
         NotifyPropertyChanged(nameof(IsPlaPlanAnnexationWorkflow));
+        NotifyPropertyChanged(nameof(IsPlaBWorkflow));
+        NotifyPropertyChanged(nameof(ShowPlaBTestEmulation));
+        NotifyPlaBTestEmulationPropertiesChanged();
         NotifyPropertyChanged(nameof(IsPlaDeferredEvidenceSummaryVisible));
         NotifyPropertyChanged(nameof(ShowPlaPlanEvidenceSelection));
         NotifyPropertyChanged(nameof(PlaPlanEvidenceSelection));
@@ -5486,6 +5583,19 @@ internal sealed class PlaFinalizeReadinessOnlyUploader : IPlaGeneratedOutputAtta
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(PlaGeneratedOutputAttachmentResult.Succeeded(sourceType, pdfPath));
+    }
+}
+
+internal sealed class PlaBFinalizeReadinessOnlyUploader : IPlaBGeneratedEvidenceUploader
+{
+    public Task<PlaGeneratedOutputAttachmentResult> UploadAsync(
+        SelectedInnolaTransaction transaction,
+        string artifactPath,
+        string sourceType,
+        string contentType,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(PlaGeneratedOutputAttachmentResult.Succeeded(sourceType, artifactPath));
     }
 }
 
