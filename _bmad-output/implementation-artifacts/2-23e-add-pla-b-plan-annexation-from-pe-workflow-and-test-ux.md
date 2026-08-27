@@ -28,7 +28,7 @@ For the initial PLA_B test, preparation must load/recover geometry evidence from
 - Enterprise `working_review`, searched by the stripped PE number using configured field `transaction_number`.
 - The related PE transaction `survey_plan` ZIP package, extracting only `{pe_number}_parcel_output.gdb`.
 
-The map/review content is separated into two groups: the current PLA transaction group containing the Enterprise working-review parcel evidence, and the PE group containing layers from the resolved PE output GDB. PLA_B preparation also downloads the current PLA transaction source files into the current TR case folder so the existing Supporting Documents PDF viewer can render them. The PE output GDB `mgeo_overlay_[trnumber]` layer, including when it is inside a GDB feature dataset/output container, and equivalent `m-geo`/`m_geo`/`mgeo` layer names must be added to the map at 70% transparency. The form also includes a separate control to launch the viewer for the current TR. Finalization will be handled by a later, separate form/story.
+The map/review content is separated into two groups: the current PLA transaction group containing the Enterprise working-review parcel evidence, and the PE group containing layers from the resolved PE output GDB. PLA_B preparation also downloads the current PLA transaction source files into the current TR case folder so the existing Supporting Documents PDF viewer can render them. The PE output GDB `mgeo_overlay_[trnumber]` raster dataset, plus equivalent `m-geo`/`m_geo`/`mgeo` layer names, must be added to the map at 70% transparency. The form also includes a separate control to launch the viewer for the current TR. Finalization will be handled by a later, separate form/story.
 
 ## Acceptance Criteria
 
@@ -43,12 +43,12 @@ The map/review content is separated into two groups: the current PLA transaction
 9. Given the PE package is missing, corrupt, unsafe, or lacks the matching GDB, when package preparation runs, then PLA_B reports a retryable non-secret diagnostic and preserves local artifacts.
 10. Given PLA_B map review preparation succeeds, then planned contents include one group for the current PLA transaction and one group for the related PE number.
 11. Given the current PLA group is created, then it contains Enterprise `working_review` parcel evidence filtered by the stripped PE number.
-12. Given the PE group is created, then it contains loadable standalone layers and feature-dataset layers from `{pe_number}_parcel_output.gdb`.
+12. Given the PE group is created, then it contains loadable standalone feature classes, feature-dataset feature classes, and root raster datasets from `{pe_number}_parcel_output.gdb`.
 13. Given the examiner is logged in, when they open the Transaction List, then the `[PA]` test button is enabled.
 14. Given the examiner clicks `[PA]`, then a separate PLA_B test form opens with `Current TR` and `PE Number` fields.
 15. Given the examiner enters both values and clicks `Prepare`, then the form downloads the current TR source files and loads the PLA_B recovery groups without opening the PLA_A/Parcel Workflow pane.
 16. Given the examiner clicks `Open Viewer`, then the current PLA transaction source files are downloaded into that TR case folder and the existing Supporting Documents/PDF viewer opens for that current TR without applying PLA_A/compute transaction-type validation.
-17. Given the PE output GDB contains an `mgeo_overlay_[trnumber]`, `m-geo`, `m_geo`, or `mgeo` layer as a standalone feature class or inside a feature dataset, when PLA_B adds it to the map, then it is displayed with 70% transparency.
+17. Given the PE output GDB contains an `mgeo_overlay_[trnumber]` raster dataset or an `m-geo`, `m_geo`, or `mgeo` layer, when PLA_B adds it to the map, then it is displayed with 70% transparency.
 18. Given initial PLA_B testing is active, then no survey-diagram crop, PLA_A extraction review, or PLA_B finalize/upload UX is required or shown.
 19. Given a current TR has mixed Innola attachments, when one non-system source attachment cannot be downloaded or cannot be viewed, then PLA_B skips that attachment with a diagnostic and continues downloading the remaining source files; the operation fails only if no viewable source file is available in `[TR]/source`.
 
@@ -68,6 +68,7 @@ The map/review content is separated into two groups: the current PLA transaction
   - [x] Resolve only `{pe_number}_parcel_output.gdb`.
   - [x] Build deterministic current PLA and PE map group names.
   - [x] Enumerate PE output GDB feature classes inside feature datasets as well as standalone feature classes.
+  - [x] Enumerate PE output GDB root raster datasets such as `mgeo_overlay_[trnumber]`.
   - [x] Apply 70% transparency when loading the PE output GDB `mgeo_overlay_[trnumber]`/m-geo layer.
 
 - [x] Add Transaction List test UX. (AC: 13-16)
@@ -87,7 +88,7 @@ The map/review content is separated into two groups: the current PLA transaction
   - [x] Cover Transaction List `[PA]` enablement and prepare behavior.
   - [x] Cover current TR viewer action source download without starting the PLA_A workflow pane.
   - [x] Cover current TR source download continuing after an individual attachment failure.
-  - [x] Cover PE GDB feature-dataset scanning and `mgeo_overlay_[trnumber]`/m-geo 70% transparency behavior.
+  - [x] Cover PE GDB feature-dataset scanning, raster dataset scanning, and `mgeo_overlay_[trnumber]`/m-geo 70% transparency behavior.
 
 ## Dev Notes
 
@@ -99,7 +100,7 @@ The map/review content is separated into two groups: the current PLA transaction
 - `PE Number` drives both Enterprise `working_review` lookup and related PE GDB discovery after stripping optional `PE-`.
 - Enterprise working-review search field is `transaction_number`.
 - Expected PE output GDB name is `{pe_number}_parcel_output.gdb`.
-- The PE output GDB layer named `mgeo_overlay_[trnumber]` must be discovered from standalone feature classes or feature datasets and receive 70% transparency when added to the map; legacy/equivalent `m-geo`, `m_geo`, and `mgeo` names remain supported.
+- The PE output GDB layer named `mgeo_overlay_[trnumber]` is a raster dataset in tested GDBs and must be discovered from root raster datasets and receive 70% transparency when added to the map; legacy/equivalent `m-geo`, `m_geo`, and `mgeo` names remain supported.
 - Finalize will be implemented later as a separate form/story.
 
 ## Dev Agent Record
@@ -113,7 +114,7 @@ GPT-5 Codex
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false`: passed with one pre-existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - `.\src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\bin\Release\net8.0-windows\ParcelWorkflowAddIn.Tests.exe "PLA_B" "pla b"`: passed 25 focused PLA_B tests.
 - `.\src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\bin\Release\net8.0-windows\ParcelWorkflowAddIn.Tests.exe`: partial pass, then stopped at an existing ArcGIS SDK assembly-load limitation for a spatial-overlap test outside ArcGIS Pro.
-- `tools/package_addin.ps1 -Configuration Release`: passed; produced `ParcelWorkflowAddIn.esriAddInX` and bumped add-in patch version to `1.1.256`.
+- `tools/package_addin.ps1 -Configuration Release`: passed; produced `ParcelWorkflowAddIn.esriAddInX` and bumped add-in patch version to `1.1.258`.
 
 ### Completion Notes List
 
@@ -124,6 +125,7 @@ GPT-5 Codex
 - Changed Prepare to also ensure current TR source files are downloaded and to fail if `[TR]/source` remains empty.
 - Added PE output GDB `mgeo_overlay_[trnumber]`/m-geo 70% transparency handling.
 - Added PE output GDB feature-dataset scanning so nested `mgeo_overlay_[trnumber]` layers are included in the PE group.
+- Added PE output GDB raster dataset scanning so root `mgeo_overlay_[trnumber]` raster overlays are included in the PE group.
 - Replaced PLA_B current-source loading with a source-only downloader so `First Registration` and other non-PLA_A transaction types are not blocked by PLA_A profile validation.
 - Changed PLA_B current-source downloading to skip failed or non-viewable individual attachments and keep going when at least one usable source file can be downloaded.
 - Removed PLA_B requirement for survey-diagram source documents in profile/rule configuration.
@@ -155,3 +157,4 @@ GPT-5 Codex
 - 2026-08-27: Patched PLA_B current-TR source download to tolerate individual attachment failures and preserve diagnostics for the test form.
 - 2026-08-27: Expanded PE output GDB transparency handling to include `mgeo_overlay_[trnumber]`.
 - 2026-08-27: Fixed PE output GDB enumeration to include feature classes inside feature datasets/output containers.
+- 2026-08-27: Fixed PE output GDB enumeration to include root raster datasets such as `mgeo_overlay_[trnumber]`.

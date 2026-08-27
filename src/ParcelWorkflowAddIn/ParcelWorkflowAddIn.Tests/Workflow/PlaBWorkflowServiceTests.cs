@@ -95,6 +95,7 @@ internal static class PlaBWorkflowServiceTests
             && source.Contains("name.Equals(\"m_geo\"", StringComparison.Ordinal)
             && source.Contains("name.Equals(\"mgeo\"", StringComparison.Ordinal)
             && source.Contains("name.StartsWith(\"mgeo_overlay_\"", StringComparison.Ordinal), "PLA_B m-geo matching should allow common GDB layer names and output overlays.");
+        TestAssert.True(source.Contains("GetDefinitions<RasterDatasetDefinition>", StringComparison.Ordinal), "PLA_B should scan root PE output GDB raster datasets such as mgeo_overlay.");
         TestAssert.True(source.Contains("GetDefinitions<FeatureDatasetDefinition>", StringComparison.Ordinal)
             && source.Contains("OpenDataset<FeatureDataset>", StringComparison.Ordinal), "PLA_B should scan feature classes inside PE output GDB feature datasets.");
     }

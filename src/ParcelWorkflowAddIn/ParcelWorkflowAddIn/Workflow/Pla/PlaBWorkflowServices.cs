@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ArcGIS.Core.Data;
+using ArcGIS.Core.Data.Raster;
 using ArcGIS.Desktop.Framework.Threading.Tasks;
 using ArcGIS.Desktop.Mapping;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -664,7 +665,7 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
                     zoomLayers.Add(layer);
                 }
 
-                foreach (var layerPath in EnumerateFeatureClassPaths(mapPlan.Groups
+                foreach (var layerPath in EnumerateGeodatabaseLayerPaths(mapPlan.Groups
                              .Where(group => string.Equals(group.SourceKind, "pe_output_gdb", StringComparison.OrdinalIgnoreCase))
                              .SelectMany(group => group.LayerPaths)))
                 {
@@ -729,7 +730,7 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static IEnumerable<string> EnumerateFeatureClassPaths(IEnumerable<string> geodatabasePaths)
+    private static IEnumerable<string> EnumerateGeodatabaseLayerPaths(IEnumerable<string> geodatabasePaths)
     {
         foreach (var geodatabasePath in geodatabasePaths)
         {
@@ -740,6 +741,15 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
 
             using var geodatabase = new Geodatabase(new FileGeodatabaseConnectionPath(new Uri(geodatabasePath)));
             foreach (var definition in geodatabase.GetDefinitions<FeatureClassDefinition>())
+            {
+                var name = definition.GetName();
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    yield return Path.Combine(geodatabasePath, name);
+                }
+            }
+
+            foreach (var definition in geodatabase.GetDefinitions<RasterDatasetDefinition>())
             {
                 var name = definition.GetName();
                 if (!string.IsNullOrWhiteSpace(name))
