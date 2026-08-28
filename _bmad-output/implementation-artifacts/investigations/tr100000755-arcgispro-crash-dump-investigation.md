@@ -240,3 +240,24 @@ Add defensive diagnostics and guards in the extraction-review UI refresh path be
 ### Updated Conclusion
 
 The repository now has a diagnostics-only guard for the suspected WPF review rendering crash. The next run should produce actionable JSONL context in the active case folder even if the exact managed stack is still unavailable from WinDbg/SOS.
+
+## Follow-up: 2026-08-28 #2
+
+### New Evidence
+
+- A new ArcGIS Pro dump exists at `C:\Users\js91482\AppData\Local\ESRI\ErrorReports\ArcGISPro_13.6.0.59527_0_08_28_2026_00_36_22.dmp`.
+- The exact nested path from the report, `C:\Users\js91482\AppData\Local\ESRI\ErrorReports\ArcGISPro\_13.6.0.59527\_0_08_28_2026_00_36_22.dmp`, does not exist on disk.
+- `review_workspace_diagnostics.jsonl` captured the failing interaction at `2026-08-28T00:36:01.5281998-04:00` with `selected_tab=Memorandum`, `control_context=Tab:Memorandum; Grid.Measure`, active stage `ExtractionReview`, transaction `100000755`, and 13 memorandum rules / 11 unresolved rules.
+- The captured exception is `System.Windows.Markup.XamlParseException` with inner `System.ArgumentException`: `Auto is not a valid value for Double. (Parameter 'value')`.
+
+### Conclusion
+
+- **Confirmed:** The freeze/crash when clicking the Memorandum tab is caused by invalid WPF XAML on the Memorandum rules `DataGrid`: `RowHeight="Auto"` is parsed into the `DataGrid.RowHeight` double property.
+- **Confirmed:** The issue is in the Memorandum tab rendering path, not transaction `100000755` data quality, OCR extraction, or the Innola attachment path.
+
+### Patch
+
+- Replaced the invalid Memorandum rules `DataGrid` `RowHeight="Auto"` with bounded row rendering: `RowHeight="72"`, `MaxHeight="360"`, DataGrid scrollbars, and row virtualization.
+- Kept wrapped `Value` and `Finding` text visible within bounded cells and added tooltips so full values remain reviewable.
+- Extended the defensive render exception guard to recognize `XamlParseException` wrapping a WPF render/layout exception.
+- Deduplicated tab-selection diagnostics by selected tab to avoid repeated file writes during WPF selection/layout churn.

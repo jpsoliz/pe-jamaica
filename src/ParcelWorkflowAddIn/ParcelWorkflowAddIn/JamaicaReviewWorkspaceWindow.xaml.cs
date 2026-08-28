@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Markup;
 using System.Windows.Threading;
 using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Controls;
@@ -22,6 +23,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
     private bool allowClose;
     private bool renderExceptionHandled;
     private string? selectedTabHeader;
+    private string? lastLoggedTabHeader;
     private string? lastControlContext;
     private ReviewWorkspaceBindingTraceListener? bindingTraceListener;
     private WorkspaceCloseDisposition closeDisposition = WorkspaceCloseDisposition.None;
@@ -215,6 +217,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
         selectedTabHeader = ResolveSelectedTabHeader();
         lastControlContext = $"Tab:{selectedTabHeader}";
+        if (string.Equals(selectedTabHeader, lastLoggedTabHeader, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        lastLoggedTabHeader = selectedTabHeader;
         ReviewWorkspaceDiagnostics.Write(
             viewModel.CaseFolderPath,
             "workspace_tab_selected",
@@ -323,6 +331,11 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
     private static bool IsReviewWorkspaceRenderException(Exception exception)
     {
+        if (exception is XamlParseException { InnerException: { } innerException } && IsReviewWorkspaceRenderException(innerException))
+        {
+            return true;
+        }
+
         if (exception is not ArgumentException and not InvalidOperationException)
         {
             return false;

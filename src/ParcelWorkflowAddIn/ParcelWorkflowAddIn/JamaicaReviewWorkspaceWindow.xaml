@@ -749,7 +749,11 @@
                                       RowHeaderWidth="0"
                                       GridLinesVisibility="Horizontal"
                                       FontSize="11"
-                                      RowHeight="Auto"
+                                      RowHeight="72"
+                                      MaxHeight="360"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      EnableRowVirtualization="True"
                                       RowStyle="{StaticResource MemorandumRuleRowStyle}">
                               <DataGrid.Columns>
                                 <DataGridTextColumn Header="Rule"
@@ -763,7 +767,9 @@
                                     <DataTemplate>
                                       <TextBlock Text="{Binding EvidenceValue}"
                                                  Padding="4,2"
-                                                 TextWrapping="Wrap" />
+                                                 TextWrapping="Wrap"
+                                                 MaxHeight="64"
+                                                 ToolTip="{Binding EvidenceValue}" />
                                     </DataTemplate>
                                   </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -797,7 +803,9 @@
                                     <DataTemplate>
                                       <TextBlock Text="{Binding Message}"
                                                  Padding="4,2"
-                                                 TextWrapping="Wrap" />
+                                                 TextWrapping="Wrap"
+                                                 MaxHeight="64"
+                                                 ToolTip="{Binding Message}" />
                                     </DataTemplate>
                                   </DataGridTemplateColumn.CellTemplate>
                                   <DataGridTemplateColumn.CellEditingTemplate>

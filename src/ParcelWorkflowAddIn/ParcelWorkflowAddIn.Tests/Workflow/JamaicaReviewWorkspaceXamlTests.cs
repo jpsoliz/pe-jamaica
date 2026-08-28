@@ -55,8 +55,12 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && xaml.Contains("Header=\"Value\"", StringComparison.Ordinal)
             && xaml.Contains("Header=\"Finding\"", StringComparison.Ordinal)
             && xaml.Contains("TextWrapping=\"Wrap\"", StringComparison.Ordinal)
-            && xaml.Contains("RowHeight=\"Auto\"", StringComparison.Ordinal),
-            "Memorandum rows should highlight unresolved dispositions and wrap long value/finding text.");
+            && xaml.Contains("RowHeight=\"72\"", StringComparison.Ordinal)
+            && xaml.Contains("MaxHeight=\"360\"", StringComparison.Ordinal)
+            && xaml.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Auto\"", StringComparison.Ordinal)
+            && xaml.Contains("ToolTip=\"{Binding EvidenceValue}\"", StringComparison.Ordinal)
+            && !xaml.Contains("RowHeight=\"Auto\"", StringComparison.Ordinal),
+            "Memorandum rows should highlight unresolved dispositions and wrap long value/finding text without invalid WPF row-height conversion.");
         TestAssert.True(
             workspaceViewModelCode.Contains("VisibleMemorandumGroups", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview", StringComparison.Ordinal)
@@ -507,6 +511,8 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && windowCode.Contains("dispatcher_unhandled_exception", StringComparison.Ordinal)
             && windowCode.Contains("wpf_binding_trace", StringComparison.Ordinal)
             && windowCode.Contains("IsReviewWorkspaceRenderException", StringComparison.Ordinal)
+            && windowCode.Contains("XamlParseException", StringComparison.Ordinal)
+            && windowCode.Contains("lastLoggedTabHeader", StringComparison.Ordinal)
             && windowCode.Contains("ReviewWorkspaceDiagnostics.GetPrimaryLogPath", StringComparison.Ordinal),
             "Points Validation Tool should log viewer, binding, and dispatcher render exceptions with a visible diagnostics path.");
         TestAssert.True(
