@@ -43,16 +43,35 @@ internal static class JamaicaReviewWorkspaceXamlTests
         TestAssert.True(
             xaml.Contains("Visibility=\"{Binding ShowPxaMemorandumTab, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal)
             && xaml.Contains("ItemsSource=\"{Binding VisibleMemorandumGroups}\"", StringComparison.Ordinal)
-            && xaml.Contains("Binding=\"{Binding EvidenceValue}\"", StringComparison.Ordinal)
+            && xaml.Contains("Text=\"{Binding EvidenceValue}\"", StringComparison.Ordinal)
             && xaml.Contains("SelectedItem=\"{Binding ReviewerStatus, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\"", StringComparison.Ordinal)
             && xaml.Contains("Binding=\"{Binding WorkflowEffect}\"", StringComparison.Ordinal),
             "PXA review workspace should expose a dedicated Memorandum tab with rule evidence, status, and workflow effect rows.");
+        TestAssert.True(
+            xaml.Contains("RowStyle=\"{StaticResource MemorandumRuleRowStyle}\"", StringComparison.Ordinal)
+            && xaml.Contains("Binding=\"{Binding IsUnresolvedDisposition}\"", StringComparison.Ordinal)
+            && xaml.Contains("Value=\"#B91C1C\"", StringComparison.Ordinal)
+            && xaml.Contains("Header=\"Reviewer Disposition\"", StringComparison.Ordinal)
+            && xaml.Contains("Header=\"Value\"", StringComparison.Ordinal)
+            && xaml.Contains("Header=\"Finding\"", StringComparison.Ordinal)
+            && xaml.Contains("TextWrapping=\"Wrap\"", StringComparison.Ordinal)
+            && xaml.Contains("RowHeight=\"Auto\"", StringComparison.Ordinal),
+            "Memorandum rows should highlight unresolved dispositions and wrap long value/finding text.");
         TestAssert.True(
             workspaceViewModelCode.Contains("VisibleMemorandumGroups", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("PxaMemorandumSummary", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ReviewMemorandumGroups.CollectionChanged", StringComparison.Ordinal),
             "PXA review view-model should project memorandum groups while hiding the Memorandum tab for PLA plan-annexation reviews.");
+        var memorandumViewModelCode = File.ReadAllText(FindSourceFile("ExtractionReviewMetadataViewModels.cs"));
+        TestAssert.True(
+            memorandumViewModelCode.Contains("IsUnresolvedDisposition", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Needs Review", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Accepted", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Corrected", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Override", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Disposition", StringComparison.Ordinal),
+            "Memorandum rule view-model should expose reviewer disposition states for unresolved/resolved row styling.");
         var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
         TestAssert.True(
             workflowDockpaneCode.Contains("!IsPlaPlanAnnexationReview\r\n        && loadedReviewDocument?.MemorandumRuleResults.Any", StringComparison.Ordinal)
@@ -171,13 +190,20 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && cropWindowXaml.Contains("<ComboBoxItem Content=\"300\"", StringComparison.Ordinal)
             && cropWindowXaml.Contains("<ComboBoxItem Content=\"400\"", StringComparison.Ordinal)
             && cropWindowXaml.Contains("<ComboBoxItem Content=\"600\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("PreviewMouseWheel=\"PreviewScrollViewer_PreviewMouseWheel\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("x:Name=\"PreviewScaleTransform\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("x:Name=\"ZoomStatusTextBlock\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("Click=\"ZoomOutButton_Click\"", StringComparison.Ordinal)
+            && cropWindowXaml.Contains("Click=\"ZoomInButton_Click\"", StringComparison.Ordinal)
+            && cropWindowCode.Contains("ModifierKeys.Control", StringComparison.Ordinal)
+            && cropWindowCode.Contains("SetZoomScale", StringComparison.Ordinal)
             && cropWindowCode.Contains("ToSourceRectangle", StringComparison.Ordinal)
             && cropWindowCode.Contains("SaveCropAsync", StringComparison.Ordinal)
             && cropWindowCode.Contains("AttachSavedCropAsync", StringComparison.Ordinal)
             && cropWindowCode.Contains("File was saved:", StringComparison.Ordinal)
             && cropWindowCode.Contains("Do you want to attach", StringComparison.Ordinal)
             && cropWindowCode.Contains("Attachment complete:", StringComparison.Ordinal),
-            "Supporting Documents crop window should expose DPI, source-coordinate save, attach confirmation, and completion messages.");
+            "Supporting Documents crop window should expose DPI, display-only zoom, source-coordinate save, attach confirmation, and completion messages.");
         var projectionCode = File.ReadAllText(FindSourceFile("SupportingDocumentWorkspaceProjection.cs"));
         TestAssert.True(
             projectionCode.Contains("or \".png\"", StringComparison.Ordinal)
@@ -457,6 +483,47 @@ internal static class JamaicaReviewWorkspaceXamlTests
 
         TestAssert.Equal("A,C", string.Join(",", visibleRows.Select(row => row.PointIdentifier)), "Visible PXA point rows should be rebuilt from live ReviewRows after a delete.");
         TestAssert.True(staleGroupSnapshot.Any(row => row.PointIdentifier == "B"), "The test must simulate a stale parcel-group snapshot that still contains the deleted point.");
+    }
+
+    public static void PointsValidationDiagnosticsCaptureWpfContext()
+    {
+        var xaml = File.ReadAllText(FindWorkspaceXaml());
+        var windowCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceWindow.xaml.cs"));
+        var workspaceViewModelCode = File.ReadAllText(FindSourceFile("JamaicaReviewWorkspaceViewModel.cs"));
+        var diagnosticsCode = File.ReadAllText(FindSourceFile("ReviewWorkspaceDiagnostics.cs"));
+        var dockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+
+        TestAssert.True(
+            xaml.Contains("x:Name=\"ReviewTabs\"", StringComparison.Ordinal)
+            && xaml.Contains("SelectionChanged=\"ReviewTabs_SelectionChanged\"", StringComparison.Ordinal)
+            && xaml.Contains("SelectionChanged=\"ReviewDataGrid_SelectionChanged\"", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"PxaNamedPartiesGrid\"", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"PxaPointsGrid\"", StringComparison.Ordinal),
+            "Points Validation Tool should name and observe tabs/grids so UI crash diagnostics include active control context.");
+        TestAssert.True(
+            windowCode.Contains("Dispatcher.UnhandledException += OnDispatcherUnhandledException", StringComparison.Ordinal)
+            && windowCode.Contains("PresentationTraceSources.DataBindingSource.Listeners.Add", StringComparison.Ordinal)
+            && windowCode.Contains("viewer_refresh_exception", StringComparison.Ordinal)
+            && windowCode.Contains("dispatcher_unhandled_exception", StringComparison.Ordinal)
+            && windowCode.Contains("wpf_binding_trace", StringComparison.Ordinal)
+            && windowCode.Contains("IsReviewWorkspaceRenderException", StringComparison.Ordinal)
+            && windowCode.Contains("ReviewWorkspaceDiagnostics.GetPrimaryLogPath", StringComparison.Ordinal),
+            "Points Validation Tool should log viewer, binding, and dispatcher render exceptions with a visible diagnostics path.");
+        TestAssert.True(
+            workspaceViewModelCode.Contains("BuildDiagnosticsSnapshot", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("invalid_coordinate_row_count", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("selected_row", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("current_memorandum_rule", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("CaseFolderPath => parent.CurrentCaseFolderPath", StringComparison.Ordinal),
+            "Review diagnostics should capture transaction, stage, row counts, invalid coordinates, selected row, and memorandum context.");
+        TestAssert.True(
+            diagnosticsCode.Contains("review_workspace_diagnostics.jsonl", StringComparison.Ordinal)
+            && diagnosticsCode.Contains("DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull", StringComparison.Ordinal)
+            && diagnosticsCode.Contains("Path.Combine(caseFolderPath, \"working\", LogFileName)", StringComparison.Ordinal),
+            "Review diagnostics should write JSONL under LocalAppData and the current case working folder when available.");
+        TestAssert.True(
+            dockpaneCode.Contains("internal string? CurrentCaseFolderPath => workflowSession.CaseFolderPath", StringComparison.Ordinal),
+            "The review workspace should expose the active case folder for diagnostics without changing workflow behavior.");
     }
 
     public static void LoginServerAddressIsConfigurationOnly()

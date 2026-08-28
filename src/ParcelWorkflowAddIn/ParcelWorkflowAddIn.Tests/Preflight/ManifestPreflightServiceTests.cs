@@ -462,6 +462,34 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Dotted J.A.D. 2001 evidence should not leave a georeference blocker.");
     }
 
+    public static void GeoreferenceCheckReportsSurveyMethodWhenCoordinateSystemIsNotJad2001()
+    {
+        using var tempRoot = new TempDirectory();
+        var (layout, _) = CreateCaseWithSources(
+            tempRoot.Path,
+            "pxa_survey_plan_pdf",
+            new[]
+            {
+                Source("DOC_PLAN_486024.pdf", ".pdf", "survey_plan_pdf")
+            });
+        WriteSurveyPlanSummary(
+            layout,
+            pointCount: 5,
+            segmentCount: 6,
+            coordinateSystem: "Theodolite Survey (Compass Standard)",
+            parish: "SAINT ANN");
+
+        var summary = new ManifestPreflightService(
+            () => new DateTimeOffset(2026, 8, 27, 4, 0, 0, TimeSpan.Zero),
+            () => "georeference-survey-method-coordinate-run")
+            .RunGeoreferenceCheck(layout, "tester");
+
+        var blocker = summary.Payload.Blockers.FirstOrDefault(check => check.CheckId == "georeference_spatial_validation_readiness");
+        TestAssert.True(blocker is not null, "Survey-method text must not satisfy JAD2001 georeference readiness.");
+        TestAssert.True(blocker!.Message.Contains("coordinate system was extracted as survey method, not JAD2001", StringComparison.Ordinal), "Blocker should explain the real coordinate-system extraction failure.");
+        TestAssert.True(blocker.Evidence?["coordinate_system"].Contains("Theodolite Survey (Compass Standard)") == true, "Blocker evidence should preserve the rejected coordinate-system value for diagnosis.");
+    }
+
     public static void GeoreferenceCheckBlocksWhenOnlySourcePresenceExists()
     {
         using var tempRoot = new TempDirectory();

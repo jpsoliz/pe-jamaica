@@ -172,6 +172,8 @@ GPT-5 Codex
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln /p:UseSharedCompilation=false /p:BaseIntermediateOutputPath=D:\Code\BMad-Method\dev\pe-jamaica\.tmp\obj\ /p:BaseOutputPath=D:\Code\BMad-Method\dev\pe-jamaica\.tmp\bin\` - passed; existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - `dotnet src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\.tmp\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "supporting documents"` - passed, 11 tests.
 - `dotnet src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\.tmp\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "innola attachment upload"` - passed, 5 tests.
+- `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj /p:BaseIntermediateOutputPath=.tmp\obj\ /p:BaseOutputPath=.tmp\bin\` - passed; existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\.tmp\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "supporting documents"` - passed, 11 tests after crop zoom patch.
 
 ### Completion Notes List
 
@@ -189,6 +191,7 @@ GPT-5 Codex
 - Confirmed live TR `100000724` metadata showed Bearer auth was attempted and still failed during multipart stream copy; exploratory alternate-route, PDF, and source-type fallbacks were reverted so this story remains strict to the approved generated PNG attachment type.
 - Deep-dive validation confirmed Current TR binding and local `st_plan_annex_image` configuration are correct. The user's Swagger browser check prompted for a client certificate, while local store scans did not find the configured certificate through the add-in's manual lookup path.
 - Patched the crop upload path to use the shared `ShellState.TransactionDetails` Innola client, patched default Innola detail/transaction services to use `InnolaHttpClientFactory`, and added automatic Windows client-certificate selection when the configured manual certificate is not found.
+- Added crop preview zoom support with toolbar `-`/`+` controls and `Ctrl` + mouse wheel. Zoom is display-only via a canvas layout transform, so saved crop coordinates still convert from the original preview pixel rectangle back to source coordinates.
 
 ### File List
 
@@ -227,3 +230,4 @@ GPT-5 Codex
 | 2026-08-27 | 0.6 | Added PLA_B crop PDF fallback after PNG transport upload failure. | Codex |
 | 2026-08-27 | 0.7 | Added fallback to original transaction source document type for crop PDF evidence. | Codex |
 | 2026-08-27 | 0.8 | Reverted exploratory upload fallbacks; restored strict `st_plan_annex_image` PNG attach and routed crop upload through the shared certificate-aware Innola client with automatic certificate selection fallback. | Codex |
+| 2026-08-27 | 0.9 | Added display-only crop preview zoom controls and `Ctrl` + mouse wheel support. | Codex |

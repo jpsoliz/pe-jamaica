@@ -52,6 +52,15 @@
       <Setter Property="Width" Value="30" />
       <Setter Property="Height" Value="28" />
     </Style>
+    <Style x:Key="MemorandumRuleRowStyle"
+           TargetType="DataGridRow">
+      <Setter Property="Foreground" Value="#1F2933" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsUnresolvedDisposition}" Value="True">
+          <Setter Property="Foreground" Value="#B91C1C" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
   </controls:ProWindow.Resources>
   <Grid Margin="14">
     <Grid.RowDefinitions>
@@ -454,9 +463,11 @@
             </Border>
           </StackPanel>
 
-          <DataGrid Grid.Row="2"
+          <DataGrid x:Name="StandardReviewPointsGrid"
+                    Grid.Row="2"
                     ItemsSource="{Binding VisibleRows}"
                     SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
+                    SelectionChanged="ReviewDataGrid_SelectionChanged"
                     Visibility="{Binding IsStandardPointReview, Converter={StaticResource BooleanToVisibilityConverter}}"
                     IsReadOnly="True"
                     AutoGenerateColumns="False"
@@ -535,9 +546,11 @@
                     Padding="8,2" />
           </StackPanel>
 
-          <DataGrid Grid.Row="4"
+          <DataGrid x:Name="StandardReviewSegmentsGrid"
+                    Grid.Row="4"
                     ItemsSource="{Binding VisibleSegments}"
                     SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
+                    SelectionChanged="ReviewDataGrid_SelectionChanged"
                     Visibility="{Binding HasStandardReviewSegments, Converter={StaticResource BooleanToVisibilityConverter}}"
                     Height="170"
                     IsReadOnly="True"
@@ -595,8 +608,10 @@
             </DataGrid.Columns>
           </DataGrid>
 
-          <TabControl Grid.Row="2"
+          <TabControl x:Name="ReviewTabs"
+                      Grid.Row="2"
                       Grid.RowSpan="3"
+                      SelectionChanged="ReviewTabs_SelectionChanged"
                       Visibility="{Binding IsPxaSurveyPlanReview, Converter={StaticResource BooleanToVisibilityConverter}}"
                       Background="#FFFFFF"
                       BorderBrush="#C9D2D8"
@@ -617,8 +632,10 @@
                            Foreground="#52616B"
                            TextWrapping="Wrap"
                            Margin="0,0,0,6" />
-                <DataGrid Grid.Row="1"
+                <DataGrid x:Name="PxaMetadataGrid"
+                          Grid.Row="1"
                           ItemsSource="{Binding VisibleMetadataFields}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
@@ -657,8 +674,10 @@
                            Foreground="#1F2933"
                            TextWrapping="Wrap"
                            Margin="0,10,0,6" />
-                <DataGrid Grid.Row="3"
+                <DataGrid x:Name="PxaVolumeFolioGrid"
+                          Grid.Row="3"
                           ItemsSource="{Binding VisibleVolumeFolios}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
@@ -721,6 +740,7 @@
                                        Margin="0,0,0,4" />
                             <DataGrid Grid.Row="1"
                                       ItemsSource="{Binding Rules}"
+                                      SelectionChanged="ReviewDataGrid_SelectionChanged"
                                       IsReadOnly="False"
                                       AutoGenerateColumns="False"
                                       HeadersVisibility="Column"
@@ -728,16 +748,25 @@
                                       CanUserDeleteRows="False"
                                       RowHeaderWidth="0"
                                       GridLinesVisibility="Horizontal"
-                                      FontSize="11">
+                                      FontSize="11"
+                                      RowHeight="Auto"
+                                      RowStyle="{StaticResource MemorandumRuleRowStyle}">
                               <DataGrid.Columns>
                                 <DataGridTextColumn Header="Rule"
                                                     Binding="{Binding Label}"
                                                     Width="190"
                                                     IsReadOnly="True" />
-                                <DataGridTextColumn Header="Value"
-                                                    Binding="{Binding EvidenceValue}"
-                                                    Width="150"
-                                                    IsReadOnly="True" />
+                                <DataGridTemplateColumn Header="Value"
+                                                        Width="190"
+                                                        IsReadOnly="True">
+                                  <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding EvidenceValue}"
+                                                 Padding="4,2"
+                                                 TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                  </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="State"
                                                     Binding="{Binding EvidenceState}"
                                                     Width="105"
@@ -746,7 +775,7 @@
                                                     Binding="{Binding WorkflowEffect}"
                                                     Width="110"
                                                     IsReadOnly="True" />
-                                <DataGridTemplateColumn Header="Status"
+                                <DataGridTemplateColumn Header="Reviewer Disposition"
                                                         Width="120">
                                   <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -762,9 +791,25 @@
                                     </DataTemplate>
                                   </DataGridTemplateColumn.CellEditingTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Finding"
-                                                    Binding="{Binding Message, UpdateSourceTrigger=PropertyChanged}"
-                                                    Width="*" />
+                                <DataGridTemplateColumn Header="Finding"
+                                                        Width="*">
+                                  <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding Message}"
+                                                 Padding="4,2"
+                                                 TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                  </DataGridTemplateColumn.CellTemplate>
+                                  <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                      <TextBox Text="{Binding Message, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                               TextWrapping="Wrap"
+                                               AcceptsReturn="True"
+                                               MinHeight="48"
+                                               VerticalScrollBarVisibility="Auto" />
+                                    </DataTemplate>
+                                  </DataGridTemplateColumn.CellEditingTemplate>
+                                </DataGridTemplateColumn>
                               </DataGrid.Columns>
                             </DataGrid>
                           </Grid>
@@ -789,8 +834,10 @@
                            Foreground="#52616B"
                            TextWrapping="Wrap"
                            Margin="0,0,0,6" />
-                <DataGrid Grid.Row="1"
+                <DataGrid x:Name="PxaNamedPartiesGrid"
+                          Grid.Row="1"
                           ItemsSource="{Binding VisibleNamedParties}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
@@ -826,8 +873,10 @@
                            Foreground="#1F2933"
                            TextWrapping="Wrap"
                            Margin="0,10,0,6" />
-                <DataGrid Grid.Row="3"
+                <DataGrid x:Name="PxaAdjacentOwnersGrid"
+                          Grid.Row="3"
                           ItemsSource="{Binding VisibleAdjacentOwners}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="False"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"
@@ -915,9 +964,11 @@
                     </Button>
                   </StackPanel>
                 </DockPanel>
-                <DataGrid Grid.Row="1"
+                <DataGrid x:Name="PxaBoundarySegmentsGrid"
+                          Grid.Row="1"
                           ItemsSource="{Binding VisibleSegments}"
                           SelectedItem="{Binding SelectedVisibleSegment, Mode=TwoWay}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="True"
                           MouseDoubleClick="SegmentGrid_MouseDoubleClick"
                           AutoGenerateColumns="False"
@@ -1005,9 +1056,11 @@
                     </Button>
                   </StackPanel>
                 </DockPanel>
-                <DataGrid Grid.Row="1"
+                <DataGrid x:Name="PxaPointsGrid"
+                          Grid.Row="1"
                           ItemsSource="{Binding VisibleRows}"
                           SelectedItem="{Binding SelectedVisibleRow, Mode=TwoWay}"
+                          SelectionChanged="ReviewDataGrid_SelectionChanged"
                           IsReadOnly="True"
                           AutoGenerateColumns="False"
                           HeadersVisibility="Column"

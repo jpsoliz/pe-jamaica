@@ -506,10 +506,10 @@ public sealed class ManifestPreflightService
                         blockers.Add(PreflightCheck.BlockerForCategory(
                             readinessRule.Category,
                             readinessRule.RuleId,
-                            "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
+                            surveyPlanEvidence.GeoreferenceReadinessFailureMessage,
                             surveyPlanEvidence.SummaryPath,
                             SourceRole.SurveyPlanPdf,
-                            "Review the survey plan PDF manually, confirm JAD2001 coordinate evidence, and rerun Georeference Check.")
+                            surveyPlanEvidence.GeoreferenceReadinessCorrection)
                             .WithDisplayName(readinessRule.DisplayName)
                             .WithOutcome("failed", evidence));
                     }
@@ -519,10 +519,10 @@ public sealed class ManifestPreflightService
                             readinessRule,
                             blockers,
                             warnings,
-                            "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.",
+                            surveyPlanEvidence.GeoreferenceReadinessFailureMessage,
                             surveyPlanEvidence.SummaryPath,
                             SourceRole.SurveyPlanPdf,
-                            "Review the survey plan PDF manually or rerun the OCR/vision extraction.");
+                            surveyPlanEvidence.GeoreferenceReadinessCorrection);
                     }
                 }
             }
@@ -1642,6 +1642,29 @@ public sealed class ManifestPreflightService
 
         public bool HasDimensionEvidence => PointCount >= 3 && SegmentCount >= 3;
 
+        public string GeoreferenceReadinessFailureMessage
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(CoordinateSystem)
+                    && LooksLikeSurveyMethod(CoordinateSystem)
+                    && !IsJad2001CoordinateSystem(CoordinateSystem))
+                {
+                    return "Survey plan extraction summary exists, but coordinate system was extracted as survey method, not JAD2001.";
+                }
+
+                if (!string.IsNullOrWhiteSpace(CoordinateSystem) && !IsJad2001CoordinateSystem(CoordinateSystem))
+                {
+                    return $"Survey plan extraction summary exists, but coordinate system '{CoordinateSystem}' was not recognized as JAD2001.";
+                }
+
+                return "Survey plan extraction summary exists, but coordinate system, parish, and coordinate table evidence are still low-confidence or missing.";
+            }
+        }
+
+        public string GeoreferenceReadinessCorrection =>
+            "Review the survey plan PDF manually, confirm the JAD2001 label near the coordinate table, rerun OCR/vision extraction, and rerun Georeference Check.";
+
         public IReadOnlyDictionary<string, IReadOnlyList<string>> ToGeoreferenceEvidence()
         {
             return new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
@@ -1679,6 +1702,21 @@ public sealed class ManifestPreflightService
                 .Select(char.ToUpperInvariant)
                 .ToArray());
             return normalized.Contains("JAD2001", StringComparison.Ordinal);
+        }
+
+        private static bool LooksLikeSurveyMethod(string value)
+        {
+            var normalized = new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToUpperInvariant)
+                .ToArray());
+            return normalized.Contains("THEODOLITE", StringComparison.Ordinal)
+                || normalized.Contains("COMPASSSTANDARD", StringComparison.Ordinal)
+                || normalized.Contains("TOTALSTATION", StringComparison.Ordinal)
+                || normalized.Contains("TRAVERSE", StringComparison.Ordinal)
+                || normalized.Contains("GPS", StringComparison.Ordinal)
+                || normalized.Contains("GNSS", StringComparison.Ordinal)
+                || normalized.Contains("RTK", StringComparison.Ordinal);
         }
     }
 }

@@ -27,6 +27,10 @@ internal partial class SupportingDocumentCropWindow : ProWindow
     private bool isDragging;
     private DocumentCropRectangle? previewSelection;
     private CancellationTokenSource? loadCancellation;
+    private const double MinZoomScale = 0.25;
+    private const double MaxZoomScale = 4.0;
+    private const double ZoomStep = 1.1;
+    private double zoomScale = 1.0;
 
     internal SupportingDocumentCropWindow(
         CaseFolderLayout layout,
@@ -160,6 +164,30 @@ internal partial class SupportingDocumentCropWindow : ProWindow
         UpdateSelectionRectangle(dragStart, ClampPoint(e.GetPosition(PreviewCanvas)));
     }
 
+    private void PreviewScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var zoomAnchor = e.GetPosition(PreviewCanvas);
+        var viewportAnchor = e.GetPosition(PreviewScrollViewer);
+        var multiplier = e.Delta > 0 ? ZoomStep : 1 / ZoomStep;
+        SetZoomScale(zoomScale * multiplier, zoomAnchor, viewportAnchor);
+    }
+
+    private void ZoomOutButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetZoomScale(zoomScale / ZoomStep);
+    }
+
+    private void ZoomInButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetZoomScale(zoomScale * ZoomStep);
+    }
+
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         if (previewPage is null || previewSelection is null || string.IsNullOrWhiteSpace(sourceFile.CopiedPath))
@@ -268,6 +296,26 @@ internal partial class SupportingDocumentCropWindow : ProWindow
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void SetZoomScale(double requestedScale, Point? zoomAnchor = null, Point? viewportAnchor = null)
+    {
+        var nextScale = Math.Clamp(requestedScale, MinZoomScale, MaxZoomScale);
+        if (Math.Abs(nextScale - zoomScale) < 0.001)
+        {
+            return;
+        }
+
+        zoomScale = nextScale;
+        PreviewScaleTransform.ScaleX = zoomScale;
+        PreviewScaleTransform.ScaleY = zoomScale;
+        ZoomStatusTextBlock.Text = $"{Math.Round(zoomScale * 100):0}%";
+
+        if (zoomAnchor is { } canvasPoint && viewportAnchor is { } viewerPoint)
+        {
+            PreviewScrollViewer.ScrollToHorizontalOffset(Math.Max(0, canvasPoint.X * zoomScale - viewerPoint.X));
+            PreviewScrollViewer.ScrollToVerticalOffset(Math.Max(0, canvasPoint.Y * zoomScale - viewerPoint.Y));
+        }
     }
 
     private void ClearSelection()

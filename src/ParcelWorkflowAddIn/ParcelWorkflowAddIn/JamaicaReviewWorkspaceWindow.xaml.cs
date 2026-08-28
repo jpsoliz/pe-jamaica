@@ -1,8 +1,13 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Threading;
 using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Controls;
 using Microsoft.Web.WebView2.Core;
@@ -15,6 +20,10 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
     private readonly JamaicaReviewWorkspaceViewModel viewModel;
     private string? lastViewerNavigationKey;
     private bool allowClose;
+    private bool renderExceptionHandled;
+    private string? selectedTabHeader;
+    private string? lastControlContext;
+    private ReviewWorkspaceBindingTraceListener? bindingTraceListener;
     private WorkspaceCloseDisposition closeDisposition = WorkspaceCloseDisposition.None;
 
     internal JamaicaReviewWorkspaceWindow(JamaicaReviewWorkspaceViewModel viewModel)
@@ -25,7 +34,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
         Loaded += OnLoaded;
         Closing += OnClosing;
         Closed += OnClosed;
+        Dispatcher.UnhandledException += OnDispatcherUnhandledException;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ReviewWorkspaceDiagnostics.Write(
+            viewModel.CaseFolderPath,
+            "workspace_window_constructed",
+            context: viewModel.BuildDiagnosticsSnapshot("window_constructor", selectedTabHeader, lastControlContext));
     }
 
     private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -79,6 +93,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        AttachBindingDiagnostics();
+        selectedTabHeader = ResolveSelectedTabHeader();
+        ReviewWorkspaceDiagnostics.Write(
+            viewModel.CaseFolderPath,
+            "workspace_window_loaded",
+            context: viewModel.BuildDiagnosticsSnapshot("window_loaded", selectedTabHeader, lastControlContext));
         await RefreshPdfViewerAsync();
     }
 
@@ -110,6 +130,12 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        ReviewWorkspaceDiagnostics.Write(
+            viewModel.CaseFolderPath,
+            "workspace_window_closed",
+            context: viewModel.BuildDiagnosticsSnapshot("window_closed", selectedTabHeader, lastControlContext));
+        Dispatcher.UnhandledException -= OnDispatcherUnhandledException;
+        DetachBindingDiagnostics();
         viewModel.HandleWindowClosed(
             reviewSaved: closeDisposition is WorkspaceCloseDisposition.SavedOnly or WorkspaceCloseDisposition.SavedAndContinued,
             continuedToCreateSpatialUnits: closeDisposition == WorkspaceCloseDisposition.SavedAndContinued,
@@ -120,52 +146,193 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
     private async Task RefreshPdfViewerAsync()
     {
-        if (!Dispatcher.CheckAccess())
+        try
         {
-            await Dispatcher.InvokeAsync(RefreshPdfViewerAsync).Task.Unwrap();
-            return;
-        }
-
-        if (ViewerPdfWebView is null)
-        {
-            return;
-        }
-
-        if (!viewModel.ViewerUsesBrowser || viewModel.ViewerBrowserUri is null)
-        {
-            lastViewerNavigationKey = null;
-            if (ViewerPdfWebView.CoreWebView2 is not null)
+            if (!Dispatcher.CheckAccess())
             {
-                ViewerPdfWebView.CoreWebView2.Navigate("about:blank");
+                await Dispatcher.InvokeAsync(RefreshPdfViewerAsync).Task.Unwrap();
+                return;
             }
 
-            return;
-        }
+            if (ViewerPdfWebView is null)
+            {
+                return;
+            }
 
-        if (!File.Exists(viewModel.ViewerBrowserUri.LocalPath))
+            if (!viewModel.ViewerUsesBrowser || viewModel.ViewerBrowserUri is null)
+            {
+                lastViewerNavigationKey = null;
+                if (ViewerPdfWebView.CoreWebView2 is not null)
+                {
+                    ViewerPdfWebView.CoreWebView2.Navigate("about:blank");
+                }
+
+                return;
+            }
+
+            if (!File.Exists(viewModel.ViewerBrowserUri.LocalPath))
+            {
+                return;
+            }
+
+            var navigationKey = viewModel.ViewerNavigationKey;
+            if (!string.IsNullOrWhiteSpace(navigationKey)
+                && string.Equals(lastViewerNavigationKey, navigationKey, StringComparison.Ordinal)
+                && ViewerPdfWebView.CoreWebView2 is not null)
+            {
+                return;
+            }
+
+            ViewerPdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
+            {
+                UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "JamaicaReviewWorkspace")
+            };
+
+            await ViewerPdfWebView.EnsureCoreWebView2Async();
+            if (ViewerPdfWebView.CoreWebView2 is not null)
+            {
+                ViewerPdfWebView.CoreWebView2.Navigate(viewModel.ViewerBrowserUri.AbsoluteUri);
+                lastViewerNavigationKey = navigationKey;
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException or COMException or ArgumentException)
+        {
+            ReviewWorkspaceDiagnostics.Write(
+                viewModel.CaseFolderPath,
+                "viewer_refresh_exception",
+                exception,
+                viewModel.BuildDiagnosticsSnapshot("viewer_refresh", selectedTabHeader, lastControlContext));
+            throw;
+        }
+    }
+
+    private void ReviewTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, ReviewTabs))
         {
             return;
         }
 
-        var navigationKey = viewModel.ViewerNavigationKey;
-        if (!string.IsNullOrWhiteSpace(navigationKey)
-            && string.Equals(lastViewerNavigationKey, navigationKey, StringComparison.Ordinal)
-            && ViewerPdfWebView.CoreWebView2 is not null)
+        selectedTabHeader = ResolveSelectedTabHeader();
+        lastControlContext = $"Tab:{selectedTabHeader}";
+        ReviewWorkspaceDiagnostics.Write(
+            viewModel.CaseFolderPath,
+            "workspace_tab_selected",
+            context: viewModel.BuildDiagnosticsSnapshot("tab_selection", selectedTabHeader, lastControlContext));
+    }
+
+    private void ReviewDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is DataGrid grid)
+        {
+            lastControlContext = BuildGridContext(grid);
+        }
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        var controlContext = BuildExceptionControlContext(e.Exception);
+        ReviewWorkspaceDiagnostics.Write(
+            viewModel.CaseFolderPath,
+            "dispatcher_unhandled_exception",
+            e.Exception,
+            viewModel.BuildDiagnosticsSnapshot("dispatcher_unhandled_exception", selectedTabHeader, controlContext));
+
+        if (!IsReviewWorkspaceRenderException(e.Exception))
         {
             return;
         }
 
-        ViewerPdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
+        e.Handled = true;
+        if (renderExceptionHandled)
         {
-            UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "JamaicaReviewWorkspace")
-        };
-
-        await ViewerPdfWebView.EnsureCoreWebView2Async();
-        if (ViewerPdfWebView.CoreWebView2 is not null)
-        {
-            ViewerPdfWebView.CoreWebView2.Navigate(viewModel.ViewerBrowserUri.AbsoluteUri);
-            lastViewerNavigationKey = navigationKey;
+            return;
         }
+
+        renderExceptionHandled = true;
+        var logPath = ReviewWorkspaceDiagnostics.GetPrimaryLogPath(viewModel.CaseFolderPath);
+        MessageBox.Show(
+            this,
+            $"Points Validation Tool hit a display error and wrote diagnostics to:{Environment.NewLine}{logPath}{Environment.NewLine}{Environment.NewLine}Close and reopen the tool after reviewing the log.",
+            "Review display diagnostics captured",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            allowClose = true;
+            Close();
+        }), DispatcherPriority.Background);
+    }
+
+    private void AttachBindingDiagnostics()
+    {
+        if (bindingTraceListener is not null)
+        {
+            return;
+        }
+
+        bindingTraceListener = new ReviewWorkspaceBindingTraceListener(message =>
+        {
+            ReviewWorkspaceDiagnostics.Write(
+                viewModel.CaseFolderPath,
+                "wpf_binding_trace",
+                context: viewModel.BuildDiagnosticsSnapshot("binding_trace", selectedTabHeader, message));
+        });
+        PresentationTraceSources.DataBindingSource.Listeners.Add(bindingTraceListener);
+        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
+    }
+
+    private void DetachBindingDiagnostics()
+    {
+        if (bindingTraceListener is null)
+        {
+            return;
+        }
+
+        PresentationTraceSources.DataBindingSource.Listeners.Remove(bindingTraceListener);
+        bindingTraceListener.Dispose();
+        bindingTraceListener = null;
+    }
+
+    private string? ResolveSelectedTabHeader()
+    {
+        return ReviewTabs?.SelectedItem is TabItem { Header: { } header }
+            ? header.ToString()
+            : null;
+    }
+
+    private string BuildExceptionControlContext(Exception exception)
+    {
+        var stack = exception.StackTrace ?? string.Empty;
+        var stackContext = stack.Contains("DataGrid", StringComparison.OrdinalIgnoreCase)
+            ? "DataGrid"
+            : stack.Contains("Grid.Measure", StringComparison.OrdinalIgnoreCase)
+                ? "Grid.Measure"
+                : stack.Contains("Binding", StringComparison.OrdinalIgnoreCase)
+                    ? "Binding"
+                    : null;
+        return string.Join("; ", new[] { lastControlContext, stackContext }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string BuildGridContext(DataGrid grid)
+    {
+        var selectedItemType = grid.SelectedItem?.GetType().Name;
+        var selectedItemText = grid.SelectedItem?.ToString();
+        return $"DataGrid:{grid.Name}; Items={grid.Items.Count}; SelectedType={selectedItemType}; Selected={selectedItemText}";
+    }
+
+    private static bool IsReviewWorkspaceRenderException(Exception exception)
+    {
+        if (exception is not ArgumentException and not InvalidOperationException)
+        {
+            return false;
+        }
+
+        var stack = exception.StackTrace ?? string.Empty;
+        return stack.Contains("System.Windows.Controls.Grid", StringComparison.OrdinalIgnoreCase)
+            || stack.Contains("System.Windows.Controls.DataGrid", StringComparison.OrdinalIgnoreCase)
+            || stack.Contains("System.Windows.ContextLayoutManager", StringComparison.OrdinalIgnoreCase)
+            || stack.Contains("System.Windows.Data", StringComparison.OrdinalIgnoreCase);
     }
 
     private bool ExecuteSaveFlow(bool closeAfterSave, bool triggerClose)
@@ -303,6 +470,35 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
             + "Yes = save changes and close."
             + $"{Environment.NewLine}No = discard unsaved changes and close."
             + $"{Environment.NewLine}Cancel = stay in Points Validation Tool.";
+    }
+
+    private sealed class ReviewWorkspaceBindingTraceListener : TraceListener
+    {
+        private readonly Action<string> writeMessage;
+        private string pendingMessage = string.Empty;
+
+        internal ReviewWorkspaceBindingTraceListener(Action<string> writeMessage)
+        {
+            this.writeMessage = writeMessage;
+        }
+
+        public override void Write(string? message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                pendingMessage += message;
+            }
+        }
+
+        public override void WriteLine(string? message)
+        {
+            var fullMessage = string.Concat(pendingMessage, message).Trim();
+            pendingMessage = string.Empty;
+            if (!string.IsNullOrWhiteSpace(fullMessage))
+            {
+                writeMessage(fullMessage);
+            }
+        }
     }
 
     private enum WorkspaceCloseDisposition

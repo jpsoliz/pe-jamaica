@@ -104,8 +104,8 @@
         "url": "https://www.arcgis.com/sharing/rest/content/items/643f29ef5ab94511912dd337c9e1a13b/resources/styles/root.json",
         "group": "Basemaps",
         "basemap_role": "streets",
-        "required": false,
-        "visible": false,
+        "required": true,
+        "visible": true,
         "order": 1,
         "opacity": 1.0
       },
@@ -145,8 +145,8 @@
         "source_type": "map_service_url",
         "url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/MapServer",
         "group": "Cadastre Reference",
-        "required": false,
-        "visible": false,
+        "required": true,
+        "visible": true,
         "order": 20,
         "opacity": 1.0
       },

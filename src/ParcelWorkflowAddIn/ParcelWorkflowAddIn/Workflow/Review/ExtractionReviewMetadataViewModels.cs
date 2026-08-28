@@ -471,6 +471,11 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPrope
         "Disposition"
     ];
 
+    public bool IsUnresolvedDisposition =>
+        string.Equals(reviewerStatus, "Needs Review", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(reviewerStatus, "Failed", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(reviewerStatus, "Not Available", StringComparison.OrdinalIgnoreCase);
+
     public string ReviewerStatus
     {
         get => reviewerStatus;
@@ -485,6 +490,7 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPrope
             reviewerStatus = next;
             Model.ReviewerStatus = next;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(IsUnresolvedDisposition));
             onRuleChanged();
         }
     }

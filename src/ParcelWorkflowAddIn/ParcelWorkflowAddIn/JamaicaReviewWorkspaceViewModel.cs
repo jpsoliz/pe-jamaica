@@ -261,6 +261,84 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public string ViewerNavigationKey => parent.ReviewViewerNavigationKey;
 
+    internal string? CaseFolderPath => parent.CurrentCaseFolderPath;
+
+    internal object BuildDiagnosticsSnapshot(string surface, string? selectedTab, string? controlContext = null)
+    {
+        var invalidCoordinateRows = VisibleRows.Count(row => !HasValidCoordinates(row));
+        var selectedRule = VisibleMemorandumGroups
+            .SelectMany(group => group.Rules)
+            .FirstOrDefault(rule => rule.IsUnresolvedDisposition);
+        return new
+        {
+            surface,
+            selected_tab = selectedTab,
+            control_context = controlContext,
+            transaction_id = parent.TransactionId,
+            transaction_header = TransactionHeader,
+            transaction_type_header = TransactionTypeHeader,
+            active_stage = parent.ActiveWorkspaceStage.ToString(),
+            workflow_state = parent.CurrentWorkflowState.ToString(),
+            stage_header = StageHeader,
+            review_badge = ReviewBadge,
+            review_gate_text = ApprovalGuidance,
+            has_loaded_review_data = parent.HasLoadedReviewData,
+            is_pxa_survey_plan_review = IsPxaSurveyPlanReview,
+            is_pla_plan_annexation_review = parent.IsPlaPlanAnnexationReview,
+            is_review_locked = IsReviewLocked,
+            is_manual_review_edit_mode = IsManualReviewEditMode,
+            review_content_version = parent.ReviewContentVersion,
+            selected_review_source = SelectedReviewSource?.FileLabel,
+            viewer_mode = ViewerModeLabel,
+            viewer_load_state = ViewerLoadState,
+            parcel_group_count = ParcelGroups.Count,
+            selected_parcel_group_id = SelectedParcelGroup?.GroupId,
+            selected_parcel_group = SelectedParcelGroup?.DisplayName,
+            visible_row_count = VisibleRows.Count,
+            invalid_coordinate_row_count = invalidCoordinateRows,
+            unresolved_row_count = VisibleRows.Count(row => row.Unresolved),
+            missing_required_row_count = VisibleRows.Count(row => row.HasMissingRequiredValues),
+            validation_blocker_row_count = VisibleRows.Count(row => row.HasValidationBlocker),
+            selected_row = SelectedVisibleRow is null ? null : new
+            {
+                row_id = SelectedVisibleRow.RowId,
+                point_identifier = SelectedVisibleRow.PointIdentifier,
+                easting = SelectedVisibleRow.Easting,
+                northing = SelectedVisibleRow.Northing,
+                parcel_group_id = SelectedVisibleRow.ParcelGroupId,
+                sequence_in_group = SelectedVisibleRow.SequenceInGroup,
+                extraction_status = SelectedVisibleRow.ExtractionStatus,
+                unresolved = SelectedVisibleRow.Unresolved,
+                validation_issue = SelectedVisibleRow.ValidationIssueSummary
+            },
+            visible_segment_count = VisibleSegments.Count,
+            selected_segment = SelectedVisibleSegment is null ? null : new
+            {
+                segment_id = SelectedVisibleSegment.SegmentId,
+                from_point = SelectedVisibleSegment.FromPoint,
+                to_point = SelectedVisibleSegment.ToPoint,
+                sequence = SelectedVisibleSegment.Sequence,
+                status = SelectedVisibleSegment.Status
+            },
+            metadata_field_count = VisibleMetadataFields.Count,
+            named_party_count = VisibleNamedParties.Count,
+            adjacent_owner_count = VisibleAdjacentOwners.Count,
+            volume_folio_count = VisibleVolumeFolios.Count,
+            memorandum_group_count = VisibleMemorandumGroups.Count,
+            memorandum_rule_count = VisibleMemorandumGroups.Sum(group => group.Rules.Count),
+            unresolved_memorandum_rule_count = VisibleMemorandumGroups.Sum(group => group.Rules.Count(rule => rule.IsUnresolvedDisposition)),
+            current_memorandum_rule = selectedRule is null ? null : new
+            {
+                label = selectedRule.Label,
+                reviewer_status = selectedRule.ReviewerStatus,
+                workflow_effect = selectedRule.WorkflowEffect,
+                evidence_state = selectedRule.EvidenceState,
+                evidence_value = selectedRule.EvidenceValue,
+                message = selectedRule.Message
+            }
+        };
+    }
+
     public string UnsupportedFallbackSummary
     {
         get
@@ -1416,6 +1494,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         }
 
         return double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out coordinate);
+    }
+
+    private static bool HasValidCoordinates(ExtractionReviewRowViewModel row)
+    {
+        return TryParseCoordinate(row.Easting, out _) && TryParseCoordinate(row.Northing, out _);
     }
 
     private static PointCollection ScaleToPreview(IReadOnlyList<Point> source)

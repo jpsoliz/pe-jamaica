@@ -375,6 +375,10 @@ GPT-5 Codex (Amelia)
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj /p:UseSharedCompilation=false /p:BuildProjectReferences=false /p:BaseIntermediateOutputPath=...\.tmp-build\obj\ParcelWorkflowAddIn.Tests\ /p:BaseOutputPath=...\.tmp-build\bin\ParcelWorkflowAddIn.Tests\` - passed; one existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - `dotnet .tmp-build\bin\ParcelWorkflowAddIn.Tests\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll memorandum` - passed, 6 tests including root-level OCR text with no memorandum section.
 - `dotnet .tmp-build\bin\ParcelWorkflowAddIn.Tests\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "compute examination report generation uses persisted stage findings"` - passed, 1 test.
+- `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj /p:UseSharedCompilation=false /p:BaseIntermediateOutputPath=.tmp/obj/ /p:BaseOutputPath=.tmp/bin/` - passed; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/.tmp/bin/Debug/net8.0-windows/ParcelWorkflowAddIn.Tests.dll "pxa review" "compute examination report generation uses persisted stage findings"` - passed, 4 tests.
+- `dotnet src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/.tmp/bin/Debug/net8.0-windows/ParcelWorkflowAddIn.Tests.dll memorandum` - passed, 8 tests.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.282`.
 
 ### Completion Notes List
 
@@ -390,6 +394,8 @@ GPT-5 Codex (Amelia)
 - Embedded-text survey plan extraction now writes `document_sections.memorandum` and `scale_bar` so the Memorandum tab rules can evaluate when the text layer already contains the memorandum header.
 - Expanded recovery for real artifacts: review loading now infers memorandum detection from root-level OCR/text fields (`document_text`, `raw_text`, `ocr_text`, `source_text`, `text_content`) and from memorandum-sourced survey metadata, so rules do not remain Not Applicable when visible evidence exists outside `document_sections`.
 - Preserved visible scale text in both OCR/vision and embedded-text extraction outputs so the Memorandum tab Value column can show the actual scale label.
+- Review-fix patch clarified the Memorandum tab's editable status as `Reviewer Disposition`, highlights unresolved `Needs Review`/`Failed`/`Not Available` rows in red, returns rows to normal text color after the reviewer selects `Accepted`, `Corrected`, `Override`, or `Disposition`, and wraps long Value/Finding text.
+- Compute examination report output now includes all memorandum rule results and exposes each memorandum finding's evidence value and message in both the report JSON and the PDF Memorandum Findings table.
 
 ### File List
 
@@ -417,6 +423,8 @@ GPT-5 Codex (Amelia)
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ComputeExaminationReportServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/ExtractionReviewPersistenceServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Workflow/JamaicaReviewWorkspaceXamlTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Config.daml`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowAddIn.csproj`
 
 ## Change Log
 
@@ -428,3 +436,4 @@ GPT-5 Codex (Amelia)
 | 2026-08-21 | 1.2 | Patched review feedback into 4.11: table layout detection, combined instrument-check parsing, scale-bar text evidence, explicit no-appearance evidence, and on-screen rule evidence values. | Amelia / Codex |
 | 2026-08-21 | 1.3 | Fixed visible `MEMORANDUM` and `SCALE : 1cm To 10m R.F 1/1000` evidence so memorandum rules no longer remain Not Applicable when the text is present. | Amelia / Codex |
 | 2026-08-21 | 1.4 | Added loader recovery for root-level OCR text and memorandum-sourced metadata, and preserved visible scale text in extracted values. | Mary / Amelia / Codex |
+| 2026-08-28 | 1.5 | Patched Memorandum review UX/status readability and compute report Memorandum Findings value/message output while keeping sprint status in review pending code review. | JotaPe / Amelia / Codex |

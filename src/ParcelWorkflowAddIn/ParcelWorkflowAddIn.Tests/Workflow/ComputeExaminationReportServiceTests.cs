@@ -312,6 +312,9 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(pdfText.Contains("Owners / Neighbors / Participants", StringComparison.OrdinalIgnoreCase), "PDF report should include participant section.");
         TestAssert.True(pdfText.Contains("Adjacent Owners / Neighbors", StringComparison.OrdinalIgnoreCase), "PDF report should include adjacent owner section.");
         TestAssert.True(pdfText.Contains("Memorandum Findings", StringComparison.OrdinalIgnoreCase), "PDF report should include memorandum findings section.");
+        TestAssert.True(pdfText.Contains("Value", StringComparison.OrdinalIgnoreCase), "PDF memorandum findings should expose the evidence value column.");
+        TestAssert.True(pdfText.Contains("Finding", StringComparison.OrdinalIgnoreCase), "PDF memorandum findings should expose the finding/message column.");
+        TestAssert.True(pdfText.Contains("Lot 12 Bellevue", StringComparison.OrdinalIgnoreCase), "PDF memorandum findings should include actual reviewed memorandum values.");
         TestAssert.True(pdfText.Contains("Boundary Segments", StringComparison.OrdinalIgnoreCase), "PDF report should include boundary segments.");
         TestAssert.True(pdfText.Contains("Survey Points", StringComparison.OrdinalIgnoreCase), "PDF report should include points.");
         TestAssert.True(pdfText.Contains("Executive Summary", StringComparison.OrdinalIgnoreCase), "PDF report should include a professional executive summary section.");
@@ -380,6 +383,10 @@ internal static class ComputeExaminationReportServiceTests
         TestAssert.True(memorandumFindings.Any(finding =>
             finding.GetProperty("rule").GetString() == "Memorandum text detected"
             && finding.GetProperty("outcome").GetString() == "passed"), "Report should include passed memorandum detection finding.");
+        TestAssert.True(memorandumFindings.Any(finding =>
+            finding.GetProperty("rule").GetString() == "Surveyed property name"
+            && finding.GetProperty("evidence_value").GetString() == "Lot 12 Bellevue"
+            && finding.GetProperty("message").GetString() == "Evidence value is available for examiner review."), "Report should include memorandum evidence values and messages.");
         TestAssert.True(memorandumFindings.Any(finding =>
             finding.GetProperty("rule").GetString() == "Scale bar"
             && finding.GetProperty("outcome").GetString() == "not_available"

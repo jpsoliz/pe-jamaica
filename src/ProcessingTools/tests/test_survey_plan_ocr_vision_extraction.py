@@ -19,6 +19,9 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
         self.assertIn("grounds_of_objection", prompt)
         self.assertIn("document_type", prompt)
         self.assertIn("scale_bar", prompt)
+        self.assertIn("Look directly near and above coordinate tables", prompt)
+        self.assertIn("J.A.D. 2001", prompt)
+        self.assertIn("Do not put survey method text", prompt)
 
     def test_mock_vision_response_writes_review_rows_segments_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -109,6 +112,46 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual("Occupant", payload["adjacent_owners"][0]["role"])
             self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
             self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
+
+    def test_coordinate_system_rejects_survey_method_text(self):
+        raw = {
+            "coordinate_system": "Theodolite Survey (Compass Standard)",
+            "coordinate_system_confidence": 0.95,
+            "survey_metadata": {
+                "parish": "SAINT ANN",
+                "survey_method": "Theodolite Survey (Compass Standard)",
+            },
+            "points": [
+                {"point_id": "152", "northing": "709365.526", "easting": "693581.129"},
+                {"point_id": "32", "northing": "709367.907", "easting": "693553.416"},
+            ],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000755", "PLAN_DOC_486024.pdf")
+
+        self.assertIsNone(payload["coordinate_system"]["value"])
+        self.assertEqual(0.0, payload["field_confidence"]["coordinate_system"])
+        self.assertEqual("Theodolite Survey (Compass Standard)", payload["survey_metadata"]["survey_method"]["value"])
+        self.assertTrue(
+            any(
+                "treated as survey method, not JAD2001 coordinate evidence" in note
+                for note in payload["review_notes"]
+            )
+        )
+
+    def test_coordinate_system_recovers_jad_label_from_coordinate_table_text(self):
+        raw = {
+            "coordinate_system": "Theodolite Survey (Compass Standard)",
+            "coordinate_table_text": "J.A.D. 2001\nPoint Northing Easting",
+            "points": [
+                {"point_id": "152", "northing": "709365.526", "easting": "693581.129"},
+            ],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100000755", "PLAN_DOC_486024.pdf")
+
+        self.assertEqual("JAD 2001", payload["coordinate_system"]["value"])
+        self.assertGreaterEqual(payload["field_confidence"]["coordinate_system"], 0.9)
 
     def test_source_image_input_uses_selected_image_name(self):
         with tempfile.TemporaryDirectory() as temp_dir:

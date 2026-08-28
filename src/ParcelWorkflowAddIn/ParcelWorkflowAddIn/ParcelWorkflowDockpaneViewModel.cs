@@ -865,6 +865,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool HasLoadedReviewData => loadedReviewDocument is not null;
 
+    internal string? CurrentCaseFolderPath => workflowSession.CaseFolderPath;
+
     public ExtractionReviewRowViewModel? SelectedReviewRow
     {
         get => selectedReviewRow;

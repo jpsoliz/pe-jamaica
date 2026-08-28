@@ -364,7 +364,6 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         }
 
         return reviewedData.MemorandumRuleResults
-            .Where(rule => rule.ReportVisible)
             .Select(rule => new ComputeExaminationReportMemorandumFinding(
                 rule.Group,
                 rule.Label,
@@ -372,6 +371,7 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 rule.ReviewerStatus,
                 rule.WorkflowEffect,
                 BuildSourceText(rule.SourcePage, rule.SourceZone),
+                NonEmpty(rule.EvidenceValue),
                 NonEmpty(rule.Message),
                 string.IsNullOrWhiteSpace(rule.EvidenceState) ? null : rule.EvidenceState))
             .ToArray();
@@ -782,6 +782,18 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
         return FirstNonBlank(reviewStatus, reviewNotes) ?? string.Empty;
     }
 
+    private static string FormatEffectSource(string? workflowEffect, string? source)
+    {
+        var effect = NonEmpty(workflowEffect);
+        var sourceText = NonEmpty(source);
+        if (string.IsNullOrWhiteSpace(effect))
+        {
+            return sourceText;
+        }
+
+        return string.IsNullOrWhiteSpace(sourceText) ? effect : $"{effect}; {sourceText}";
+    }
+
     private static string NonEmpty(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
@@ -1099,15 +1111,24 @@ public sealed class ComputeExaminationReportService : IComputeExaminationReportS
                 DrawTable(
                     new[]
                     {
-                        new PdfColumn("Group", 100),
-                        new PdfColumn("Rule", 132),
-                        new PdfColumn("Status", 82),
-                        new PdfColumn("Effect", 92),
-                        new PdfColumn("Source", 122)
+                        new PdfColumn("Group", 70),
+                        new PdfColumn("Rule", 95),
+                        new PdfColumn("Value", 120),
+                        new PdfColumn("Status", 62),
+                        new PdfColumn("Effect / Source", 88),
+                        new PdfColumn("Finding", 93)
                     },
                     _report.MemorandumFindings.Count == 0
-                        ? new[] { new[] { "No memorandum findings recorded.", string.Empty, string.Empty, string.Empty, string.Empty } }
-                        : _report.MemorandumFindings.Select(item => new[] { item.Group, item.Rule, item.ReviewerStatus, item.WorkflowEffect, item.Source }));
+                        ? new[] { new[] { "No memorandum findings recorded.", string.Empty, string.Empty, string.Empty, string.Empty, string.Empty } }
+                        : _report.MemorandumFindings.Select(item => new[]
+                        {
+                            item.Group,
+                            item.Rule,
+                            item.EvidenceValue,
+                            item.ReviewerStatus,
+                            FormatEffectSource(item.WorkflowEffect, item.Source),
+                            item.Message
+                        }));
 
                 DrawSection("Boundary Segments");
                 DrawTable(
@@ -1529,6 +1550,7 @@ public sealed record ComputeExaminationReportMemorandumFinding(
     [property: JsonPropertyName("reviewer_status")] string ReviewerStatus,
     [property: JsonPropertyName("workflow_effect")] string WorkflowEffect,
     [property: JsonPropertyName("source")] string Source,
+    [property: JsonPropertyName("evidence_value")] string EvidenceValue,
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("evidence_state")] string? EvidenceState = null);
 

@@ -38,12 +38,27 @@
                      Margin="0,0,6,0" />
           <ComboBox x:Name="DpiComboBox"
                     Width="76"
-                    SelectedIndex="1">
+                    SelectedIndex="1"
+                    Margin="0,0,14,0">
             <ComboBoxItem Content="200" />
             <ComboBoxItem Content="300" />
             <ComboBoxItem Content="400" />
             <ComboBoxItem Content="600" />
           </ComboBox>
+          <Button Content="-"
+                  Width="28"
+                  ToolTip="Zoom out"
+                  Click="ZoomOutButton_Click" />
+          <TextBlock x:Name="ZoomStatusTextBlock"
+                     Text="100%"
+                     VerticalAlignment="Center"
+                     TextAlignment="Center"
+                     MinWidth="48"
+                     Margin="4,0" />
+          <Button Content="+"
+                  Width="28"
+                  ToolTip="Zoom in"
+                  Click="ZoomInButton_Click" />
         </StackPanel>
         <StackPanel Orientation="Horizontal"
                     DockPanel.Dock="Right"
@@ -83,12 +98,18 @@
                   Margin="10"
                   HorizontalScrollBarVisibility="Auto"
                   VerticalScrollBarVisibility="Auto"
-                  Background="#E9EEF2">
+                  Background="#E9EEF2"
+                  PreviewMouseWheel="PreviewScrollViewer_PreviewMouseWheel">
       <Canvas x:Name="PreviewCanvas"
               Background="#FFFFFF"
               MouseLeftButtonDown="PreviewCanvas_MouseLeftButtonDown"
               MouseMove="PreviewCanvas_MouseMove"
               MouseLeftButtonUp="PreviewCanvas_MouseLeftButtonUp">
+        <Canvas.LayoutTransform>
+          <ScaleTransform x:Name="PreviewScaleTransform"
+                          ScaleX="1"
+                          ScaleY="1" />
+        </Canvas.LayoutTransform>
         <Image x:Name="PreviewImage"
                RenderOptions.BitmapScalingMode="HighQuality"
                Stretch="None" />
