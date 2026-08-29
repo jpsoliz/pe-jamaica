@@ -260,6 +260,9 @@ class OutputAdapterTests(unittest.TestCase):
                     {
                         "transaction_number": "100000206",
                         "review_hash": "approved-hash",
+                        "survey_metadata": {
+                            "property_name": {"value": "Lot 12 Bellevue"},
+                        },
                         "rows": [
                             {"row_id": "1", "point_identifier": "P1", "easting": "1000.0", "northing": "2000.0"},
                             {"row_id": "2", "point_identifier": "P2", "easting": "1010.0", "northing": "2000.0"},
@@ -314,6 +317,8 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertEqual("source_then_computed", summary["payload"]["cogo_source_mode"])
             self.assertEqual("non_fabric", summary["payload"]["map_load_mode"])
             self.assertEqual("JAD 2001 Jamaica Grid", summary["payload"]["coordinate_system"])
+            self.assertEqual("Lot 12 Bellevue", summary["payload"]["property_name"])
+            self.assertEqual("Lot 12 Bellevue", summary["payload"]["propertyName"])
             self.assertEqual(3448, summary["payload"]["spatial_reference"]["wkid"])
             self.assertEqual(3448, summary["payload"]["output_epsg"])
             self.assertTrue(summary["payload"]["bearing_txt_populated"])
@@ -364,6 +369,8 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertIn("line_type", line_rows[0])
             self.assertEqual("parcel-001", polygon_rows[0]["parcel_id"])
             self.assertEqual("parcel-001", polygon_rows[0]["parcel_name"])
+            self.assertEqual("Lot 12 Bellevue", polygon_rows[0]["property_name"])
+            self.assertEqual("Lot 12 Bellevue", polygon_rows[0]["propertyName"])
             self.assertEqual("100000206", polygon_rows[0]["transaction_number"])
             self.assertIn("parcel_group_id", polygon_rows[0])
             self.assertIn("polygon_order", polygon_rows[0])
@@ -371,6 +378,9 @@ class OutputAdapterTests(unittest.TestCase):
             self.assertIn("perimeter_m", polygon_rows[0])
             self.assertIn("area_sq_m", polygon_rows[0])
             self.assertIn("closure_status", polygon_rows[0])
+            polygon_features = [feature for feature in geojson["features"] if feature["geometry"]["type"] == "Polygon"]
+            self.assertEqual("Lot 12 Bellevue", polygon_features[0]["properties"]["property_name"])
+            self.assertEqual("Lot 12 Bellevue", polygon_features[0]["properties"]["propertyName"])
 
     def test_output_adapter_generates_pla_output_pdf_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

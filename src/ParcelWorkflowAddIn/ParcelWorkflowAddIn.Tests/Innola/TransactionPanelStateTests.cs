@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.WorkflowRules;
 
@@ -37,7 +38,7 @@ internal static class TransactionPanelStateTests
             new FakeTransactionService(),
             "parcel_workflow",
             transactionLoadService: null,
-            plaBTestInputLauncher: (_, _, _, _) => launched = true);
+            plaBTestInputLauncher: (_, _, _, _, _, _) => launched = true);
 
         TestAssert.False(panel.CanOpenPlaBTestInput, "PLA_B test input should be disabled while logged out.");
         TestAssert.False(panel.OpenPlaBTestInputCommand.CanExecute(null), "PLA_B test input command should not execute while logged out.");
@@ -53,12 +54,78 @@ internal static class TransactionPanelStateTests
         string? launchedTransactionNumber = null;
         string? launchedPeNumber = "unchanged";
         Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? prepare = null;
-        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? openViewer = null;
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>>? complete = null;
+        string? status = null;
         var service = new FakeTransactionService
         {
             Result = InnolaTransactionListResult.Succeeded(new[]
             {
-                Row("task-1", "TR100000111", "PLA Plan Annexation", "survey", "2026-08-27T09:00:00-05:00")
+                Row(
+                    "task-1",
+                    "TR100000111",
+                    "In Plan Annexation Preparation",
+                    "survey",
+                    "2026-08-27T09:00:00-05:00",
+                    "First Registration",
+                    "First Registration",
+                    "Plan Annexation",
+                    new[] { "First Registration", "Plan Annexation" })
+            })
+        };
+        var manager = LoggedInManager();
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            plaBTestInputLauncher: (transactionNumber, peNumber, prepareHandler, completeHandler, _, statusText) =>
+            {
+                launchedTransactionNumber = transactionNumber;
+                launchedPeNumber = peNumber;
+                prepare = prepareHandler;
+                complete = completeHandler;
+                status = statusText;
+            },
+            plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService("100000631"));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        manager.SelectTransaction(panel.Rows[0], new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero));
+        manager.MarkTransactionLoaded(panel.Rows[0].TransactionNumber, Path.GetTempPath(), "2026-08-27T10:00:00.0000000Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-08-27T10:00:00.0000000Z", "Transaction is in progress.");
+
+        TestAssert.True(panel.CanOpenPlaBTestInput, "PLA_B test input should be enabled after login.");
+        TestAssert.True(panel.OpenPlaBTestInputCommand.CanExecute(null), "PLA_B test input command should be executable after login.");
+
+        panel.OpenPlaBTestInputCommand.Execute(null);
+        for (var attempt = 0; attempt < 25 && launchedTransactionNumber is null; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        TestAssert.Equal("TR100000111", launchedTransactionNumber, "PLA_B test input should receive the selected current transaction number.");
+        TestAssert.Equal("100000631", launchedPeNumber, "PLA_B task input should receive PE from SpatialUnit.examinationNumber.");
+        TestAssert.True(prepare is not null, "PLA_B test input should receive a prepare callback.");
+        TestAssert.True(complete is not null, "PLA_B test input should receive a complete callback.");
+        TestAssert.True(status?.Contains("Ready to process Plan Annexation", StringComparison.Ordinal) == true, "PLA_B launch status mismatch.");
+    }
+
+    public static async Task PlaBTaskRequiresStartedActiveTransaction()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row(
+                    "task-1",
+                    "TR100000111",
+                    "In Plan Annexation Preparation",
+                    "survey",
+                    "2026-08-27T09:00:00-05:00",
+                    "First Registration",
+                    "First Registration",
+                    "Plan Annexation",
+                    new[] { "First Registration", "Plan Annexation" })
             })
         };
         var panel = new TransactionPanelState(
@@ -66,78 +133,153 @@ internal static class TransactionPanelStateTests
             service,
             "parcel_workflow",
             transactionLoadService: null,
-            plaBTestInputLauncher: (transactionNumber, peNumber, prepareHandler, openViewerHandler) =>
-            {
-                launchedTransactionNumber = transactionNumber;
-                launchedPeNumber = peNumber;
-                prepare = prepareHandler;
-                openViewer = openViewerHandler;
-            });
+            lifecycleCoordinator: null);
 
         await panel.RefreshAsync();
         panel.SelectedRow = panel.Rows[0];
 
-        TestAssert.True(panel.CanOpenPlaBTestInput, "PLA_B test input should be enabled after login.");
-        TestAssert.True(panel.OpenPlaBTestInputCommand.CanExecute(null), "PLA_B test input command should be executable after login.");
-
-        panel.OpenPlaBTestInputCommand.Execute(null);
-
-        TestAssert.Equal("TR100000111", launchedTransactionNumber, "PLA_B test input should receive the selected current transaction number.");
-        TestAssert.Equal(null, launchedPeNumber, "PLA_B test input should leave PE number blank for manual entry.");
-        TestAssert.True(prepare is not null, "PLA_B test input should receive a prepare callback.");
-        TestAssert.True(openViewer is not null, "PLA_B test input should receive an open-viewer callback.");
-        TestAssert.Equal("Opening PLA_B test input for transaction TR100000111.", panel.StatusText, "PLA_B launch status mismatch.");
+        TestAssert.False(panel.CanOpenPlaBTestInput, "PLA_B task form should remain disabled until the selected transaction is started/active.");
+        TestAssert.True(panel.OpenPlaBTestInputTooltip.Contains("Start", StringComparison.OrdinalIgnoreCase)
+            && panel.OpenPlaBTestInputTooltip.Contains("In Plan Annexation Preparation", StringComparison.Ordinal), "Disabled tooltip should explain the start requirement.");
     }
 
-    public static async Task PlaBTestOpenViewerDownloadsCurrentTransactionSources()
+    public static async Task PlaBTaskRequiresActivePlanAnnexationTaskWhenTransactionHasMultipleRows()
     {
-        using var temp = new TempDirectory();
+        string? launchedTransactionNumber = null;
+        var sendNoticeRow = Row(
+            "task-send-notice",
+            "TR100001349",
+            "Send Notices by Mail",
+            "survey",
+            "2026-08-27T09:00:00-05:00",
+            "First Registration",
+            "First Registration",
+            null,
+            new[] { "First Registration", "Plan Annexation" });
+        var planAnnexRow = Row(
+            "task-plan-annex",
+            "TR100001349",
+            "In Plan Annexation Preparation",
+            "survey",
+            "2026-08-27T09:05:00-05:00",
+            "First Registration",
+            "First Registration",
+            "Plan Annexation",
+            new[] { "First Registration", "Plan Annexation" });
         var service = new FakeTransactionService
         {
-            Result = InnolaTransactionListResult.Succeeded(new[]
-            {
-                Row("task-100000004", "TR100000004", "Computation Check", "tester", "2024-10-15T09:24:00-05:00")
-            })
+            Result = InnolaTransactionListResult.Succeeded(new[] { sendNoticeRow, planAnnexRow })
         };
         var manager = LoggedInManager();
-        var clock = () => new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero);
-        var viewerOpened = false;
-        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>>? openViewer = null;
         var panel = new TransactionPanelState(
             manager,
             service,
             "parcel_workflow",
-            transactionLoadService: Loader(manager, temp.Path, clock),
-            clock: clock,
-            supportingDocumentsLauncher: () =>
-            {
-                viewerOpened = true;
-                return true;
-            },
-            plaBTestInputLauncher: (_, _, _, openViewerHandler) => openViewer = openViewerHandler,
-            plaBCurrentSourceDownloader: (selected, token) => new PlaBCurrentTransactionSourceDownloadService(
-                    new MockInnolaTransactionDetailService(),
-                    new CaseFolderStore(clock, () => "run-pla-b-source"),
-                    new AttachmentSourceFileWriter(clock),
-                    clock)
-                .DownloadAsync(manager.CurrentSession!, selected, temp.Path, manager.CurrentSession!.User.Username, token));
+            transactionLoadService: null,
+            plaBTestInputLauncher: (transactionNumber, _, _, _, _, _) => launchedTransactionNumber = transactionNumber,
+            plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService("100000631"));
 
         await panel.RefreshAsync();
-        panel.SelectedRow = panel.Rows[0];
-        panel.OpenPlaBTestInputCommand.Execute(null);
+        panel.SelectedRow = planAnnexRow;
+        manager.SelectTransaction(sendNoticeRow, new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero));
+        manager.MarkTransactionLoaded(sendNoticeRow.TransactionNumber, Path.GetTempPath(), "2026-08-27T10:00:00.0000000Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-08-27T10:00:00.0000000Z", "Transaction is in progress.");
 
-        TestAssert.True(openViewer is not null, "PLA_B test input should expose an open-viewer callback.");
-        var result = await openViewer!(new PlaBTestEmulationInputViewModel
+        TestAssert.False(panel.CanOpenPlaBTestInput, "PLA_B form must stay disabled when another task for the same TR is active.");
+        TestAssert.True(panel.OpenPlaBTestInputTooltip.Contains("Send Notices by Mail", StringComparison.Ordinal), "Disabled tooltip should identify the active non-PLA_B task.");
+
+        manager.SelectTransaction(planAnnexRow, new DateTimeOffset(2026, 8, 27, 10, 5, 0, TimeSpan.Zero));
+        manager.MarkTransactionLoaded(planAnnexRow.TransactionNumber, Path.GetTempPath(), "2026-08-27T10:05:00.0000000Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-08-27T10:05:00.0000000Z", "Transaction is in progress.");
+
+        TestAssert.True(panel.CanOpenPlaBTestInput, "PLA_B form should enable once the Plan Annexation task itself is active.");
+        panel.OpenPlaBTestInputCommand.Execute(null);
+        for (var attempt = 0; attempt < 25 && launchedTransactionNumber is null; attempt++)
         {
-            CurrentTransactionNumber = "TR100000004",
-            PeNumber = "100000630"
+            await Task.Delay(10);
+        }
+
+        TestAssert.Equal("TR100001349", launchedTransactionNumber, "PLA_B form should launch for the active Plan Annexation task.");
+    }
+
+    public static async Task PlaBStartAllowsFirstRegistrationPreparationAndOpensTaskForm()
+    {
+        using var temp = new TempDirectory();
+        string? launchedTransactionNumber = null;
+        string? launchedPeNumber = null;
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>>? cancel = null;
+        IReadOnlyList<string>? cleanupGroups = null;
+        var planAnnexRow = Row(
+            "task-plan-annex",
+            "TR100001349",
+            "In Plan Annexation Preparation",
+            "survey",
+            "2026-08-27T09:05:00-05:00",
+            "First Registration");
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { planAnnexRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 27, 10, 5, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            lifecycleCoordinator: LifecycleCoordinator(manager, clock),
+            clock: clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            plaBTestInputLauncher: (transactionNumber, peNumber, _, _, cancelHandler, _) =>
+            {
+                launchedTransactionNumber = transactionNumber;
+                launchedPeNumber = peNumber;
+                cancel = cancelHandler;
+            },
+            plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService("100000631"),
+            plaBMapCleanup: (groups, _) =>
+            {
+                cleanupGroups = groups;
+                return Task.FromResult(PlaBMapCleanupResult.Succeeded(groups.Count));
+            },
+            plaBCaseFolderPreparer: (transactionNumber, username) => new CaseFolderStore(clock, () => "run-pla-b-start")
+                .CreateCase(temp.Path, transactionNumber, username));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = planAnnexRow;
+
+        TestAssert.True(panel.CanStartTransaction, "Plan Annexation preparation row should be startable even when older supported_transaction_types omit First Registration.");
+        await panel.StartSelectedTransactionAsync();
+        for (var attempt = 0; attempt < 25 && launchedTransactionNumber is null; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        TestAssert.True(manager.HasActiveTransaction, "Starting Plan Annexation preparation should claim the Innola task.");
+        TestAssert.Equal("task-plan-annex", manager.SelectedTransaction?.TaskId, "PLA_B start should preserve the exact selected task id.");
+        TestAssert.Equal("TR100001349", launchedTransactionNumber, "PLA_B start should open the task form for the selected transaction.");
+        TestAssert.Equal("100000631", launchedPeNumber, "PLA_B start should populate PE from SpatialUnit.examinationNumber.");
+        TestAssert.True(cancel is not null, "PLA_B form should receive a cancel callback.");
+
+        var cancelResult = await cancel!(new PlaBTestEmulationInputViewModel
+        {
+            CurrentTransactionNumber = "TR100001349",
+            PeNumber = "100000631",
+            ProcessSucceeded = true,
+            ProcessMapGroupNames = new[] { "PLA TR100001349 - Current Transaction", "PE 100000631 - Approved PE Output" }
         });
 
-        TestAssert.True(result.Success, result.Message);
-        TestAssert.True(viewerOpened, "PLA_B viewer action should launch the existing document viewer.");
-        TestAssert.Equal("100000004", manager.LoadedTransactionNumber, "PLA_B viewer action should load the current TR source folder.");
-        TestAssert.True(!manager.HasActiveTransaction, "PLA_B viewer action must not claim/start the transaction.");
-        TestAssert.True(File.Exists(Path.Combine(manager.LoadedCaseFolderPath!, "source", "computation.pdf")), "PLA_B viewer action should download current TR source files.");
+        TestAssert.True(cancelResult.Success, cancelResult.Message);
+        TestAssert.Equal(2, cleanupGroups?.Count ?? 0, "PLA_B cancel should clean tracked Process map groups.");
+        TestAssert.True(!manager.HasActiveTransaction, "PLA_B cancel should release the active transaction list lock.");
+        TestAssert.True(!manager.IsTransactionLoaded, "PLA_B cancel should clear the loaded transaction.");
+    }
+
+    public static async Task PlaBTestOpenViewerDownloadsCurrentTransactionSources()
+    {
+        var xaml = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "PlaBTestInputWindow.xaml"));
+
+        TestAssert.False(xaml.Contains("Open Viewer", StringComparison.Ordinal), "PLA_B task form should not expose the old test Open Viewer button.");
     }
 
     public static async Task PlaBTestPrepareBuildsRecoveryPlanWithoutStartingWorkflow()
@@ -163,7 +305,7 @@ internal static class TransactionPanelStateTests
             {
                 preparedInput = input;
                 return Task.FromResult(PlaBTestInputPreparationResult.Succeeded(
-                    "PLA_B recovery loaded.\nCurrent TR group: PLA 100001266 - Current Transaction\nWorking_review query: transaction_number = 100000630\nPE group: PE 100000630 - Approved PE Output\nGDB: 100000630_parcel_output.gdb\n\nNo PLA_A workflow was opened."));
+                    "PLA_B recovery loaded.\nCurrent TR group: PLA 100001266 - Current Transaction\nWorking_review query: transaction_number = 100000630\nPE group: PE 100000630 - Approved PE Output\nGDB: 100000630_parcel_output.gdb"));
             });
 
         await panel.RefreshAsync();
@@ -180,7 +322,55 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("100000630", preparedInput?.NormalizedPeNumber, "PLA_B prepare should pass normalized PE input to the recovery preparer.");
         TestAssert.True(result.Message.Contains("Working_review query: transaction_number = 100000630", StringComparison.Ordinal), "PLA_B prepare should expose the working_review query.");
         TestAssert.True(result.Message.Contains("100000630_parcel_output.gdb", StringComparison.Ordinal), "PLA_B prepare should expose the expected PE output GDB.");
-        TestAssert.True(result.Message.Contains("No PLA_A workflow was opened", StringComparison.Ordinal), "PLA_B prepare should state that PLA_A workflow was not opened.");
+        TestAssert.False(result.Message.Contains("No PLA_A workflow was opened", StringComparison.Ordinal), "PLA_B prepare should not show obsolete test workflow text.");
+    }
+
+    public static async Task PlaBCompleteUsesConfiguredTransitionAndCleansProcessGroups()
+    {
+        using var temp = new TempDirectory();
+        var manager = LoggedInManager();
+        var now = new DateTimeOffset(2026, 8, 27, 10, 0, 0, TimeSpan.Zero);
+        var row = Row(
+            "task-1",
+            "TR100000111",
+            "In Plan Annexation Preparation",
+            "survey",
+            "2026-08-27T09:00:00-05:00",
+            "First Registration",
+            "First Registration",
+            "Plan Annexation",
+            new[] { "First Registration", "Plan Annexation" });
+        manager.SelectTransaction(row, now);
+        manager.MarkTransactionLoaded(row.TransactionNumber, temp.Path, now.ToString("O"), false);
+        var lifecycle = new RecordingCompleteLifecycleService();
+        IReadOnlyList<string>? cleanupGroups = null;
+        var panel = new TransactionPanelState(
+            manager,
+            new FakeTransactionService(),
+            "parcel_workflow",
+            transactionLoadService: null,
+            plaBTransactionLifecycleService: lifecycle,
+            plaBMapCleanup: (groups, _) =>
+            {
+                cleanupGroups = groups;
+                return Task.FromResult(PlaBMapCleanupResult.Succeeded(groups.Count));
+            });
+        var input = new PlaBTestEmulationInputViewModel
+        {
+            CurrentTransactionNumber = "TR100000111",
+            PeNumber = "100000631",
+            ProcessSucceeded = true,
+            ProcessMapGroupNames = new[] { "PLA TR100000111 - Current Transaction", "PE 100000631 - Approved PE Output" }
+        };
+
+        var result = await panel.CompletePlaBPlanAnnexationTaskAsync(input);
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.Equal(1, lifecycle.CompleteCalls, "PLA_B Complete should call Innola lifecycle once.");
+        TestAssert.Equal("Review and Sign Plan Annexed Diagram", lifecycle.LastRequest?.DesiredTransitionName, "PLA_B Complete should request the configured next stage.");
+        TestAssert.Equal(2, cleanupGroups?.Count ?? 0, "PLA_B Complete should clean only tracked Process map groups.");
+        TestAssert.True(!manager.HasActiveTransaction, "PLA_B Complete should release the active transaction list lock.");
+        TestAssert.True(!manager.IsTransactionLoaded, "PLA_B Complete should clear the loaded transaction.");
     }
 
     public static async Task LoggedInRefreshUsesSessionQueryAndShowsRows()
@@ -1353,7 +1543,16 @@ internal static class TransactionPanelStateTests
             clock);
     }
 
-    private static InnolaTransactionRow Row(string taskId, string transactionNumber, string taskName, string assignedGroup, string receivedAt, string transactionType = "Plan Examination")
+    private static InnolaTransactionRow Row(
+        string taskId,
+        string transactionNumber,
+        string taskName,
+        string assignedGroup,
+        string receivedAt,
+        string transactionType = "Plan Examination",
+        string? workflowName = null,
+        string? subworkflowName = null,
+        IReadOnlyList<string>? workflowNames = null)
     {
         return new InnolaTransactionRow(
             taskId,
@@ -1370,7 +1569,15 @@ internal static class TransactionPanelStateTests
             true,
             true,
             null,
-            null);
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            workflowName,
+            subworkflowName,
+            workflowNames);
     }
 
     private static InnolaTransactionRow FindRow(TransactionPanelState panel, string transactionNumber)
@@ -1568,6 +1775,61 @@ internal static class TransactionPanelStateTests
                 request.Session.User.Username,
                 request.Session.User.DisplayName,
                 "Transaction completed."));
+        }
+    }
+
+    private sealed class FixedExaminationNumberSpatialUnitService : IInnolaSpatialUnitService
+    {
+        private readonly string? examinationNumber;
+
+        public FixedExaminationNumberSpatialUnitService(string? examinationNumber)
+        {
+            this.examinationNumber = examinationNumber;
+        }
+
+        public Task<InnolaSpatialUnitExaminationNumberResult> GetExaminationNumberAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction transaction,
+            string examinationFieldName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(string.IsNullOrWhiteSpace(examinationNumber)
+                ? InnolaSpatialUnitExaminationNumberResult.Failed("SpatialUnit examinationNumber is missing.")
+                : InnolaSpatialUnitExaminationNumberResult.Succeeded(examinationNumber));
+        }
+
+        public Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction transaction,
+            string caseFolderPath,
+            ComputeReviewDispositionDocument disposition,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaSpatialUnitSaveResult.Failed("Not used by transaction panel tests.", "not_used"));
+        }
+    }
+
+    private sealed class RecordingCompleteLifecycleService : IInnolaTransactionLifecycleService
+    {
+        public int CompleteCalls { get; private set; }
+
+        public InnolaTransactionLifecycleRequest? LastRequest { get; private set; }
+
+        public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("in_progress", request.Session.User.Username, request.Session.User.DisplayName, "Claimed."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("in_progress", request.Session.User.Username, request.Session.User.DisplayName, "Saved."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            CompleteCalls++;
+            LastRequest = request;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("completed", request.Session.User.Username, request.Session.User.DisplayName, "Completed."));
         }
     }
 

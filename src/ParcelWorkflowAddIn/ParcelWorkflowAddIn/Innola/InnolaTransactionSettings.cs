@@ -22,6 +22,7 @@ public sealed record InnolaTransactionSettings(
     string? ComputeWorkflowStagesWarning,
     IReadOnlyList<string> CompareWorkflowStages,
     string? CompareWorkflowStagesWarning,
+    PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask,
     IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
     string? ComputeAttachmentSourceTypesWarning,
     IReadOnlyList<ComputeTransactionTypeProfileDefinition> ComputeTransactionTypeProfiles,
@@ -43,6 +44,7 @@ public sealed record InnolaTransactionSettings(
     {
         "Plan Examination",
         "Cadastral Plan Examination",
+        "First Registration",
         "PLA",
         "Plan Annexation"
     };
@@ -82,6 +84,7 @@ public sealed record InnolaTransactionSettings(
         null,
         SafeDefaultCompareWorkflowStages,
         "Compare workflow stages are not configured. Set compare_workflow_stages before enabling Compare transactions.",
+        PlaBPlanAnnexationTaskSettings.Default,
         ComputeAttachmentSourceTypeCatalog.SafeDefaults,
         null,
         ComputeTransactionTypeProfileCatalog.SafeDefaults,
@@ -132,6 +135,7 @@ public sealed record InnolaTransactionSettings(
             var supportedTypes = ResolveSupportedTransactionTypes(root);
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var compareWorkflowStages = ResolveCompareWorkflowStages(root);
+            var plaBPlanAnnexationTask = PlaBPlanAnnexationTaskSettings.FromJson(root);
             var computeAttachmentSourceTypes = ResolveComputeAttachmentSourceTypes(root);
             var computeTransactionTypeProfiles = ResolveComputeTransactionTypeProfiles(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
@@ -169,6 +173,7 @@ public sealed record InnolaTransactionSettings(
                 computeWorkflowStages.Warning,
                 compareWorkflowStages.Values,
                 compareWorkflowStages.Warning,
+                plaBPlanAnnexationTask,
                 computeAttachmentSourceTypes.Values,
                 computeAttachmentSourceTypes.Warning,
                 computeTransactionTypeProfiles.Values,
@@ -769,6 +774,78 @@ public sealed record InnolaTransactionSettings(
     private sealed record ComputeTransactionTypeProfileResolution(
         IReadOnlyList<ComputeTransactionTypeProfileDefinition> Values,
         string? Warning);
+}
+
+public sealed record PlaBPlanAnnexationTaskSettings(
+    bool Enabled,
+    string MainTransactionType,
+    string SubworkflowName,
+    string PreparationStageName,
+    string NextStageName,
+    IReadOnlyList<string> RequiredWorkflowNames,
+    string SpatialUnitExaminationField)
+{
+    public static PlaBPlanAnnexationTaskSettings Default { get; } = new(
+        true,
+        "First Registration",
+        "Plan Annexation",
+        "In Plan Annexation Preparation",
+        "Review and Sign Plan Annexed Diagram",
+        new[] { "First Registration", "Plan Annexation" },
+        "examinationNumber");
+
+    public static PlaBPlanAnnexationTaskSettings FromJson(JsonElement root)
+    {
+        if (!root.TryGetProperty("pla_b_plan_annexation_task", out var value) || value.ValueKind != JsonValueKind.Object)
+        {
+            return Default;
+        }
+
+        var enabled = ReadBool(value, "enabled") ?? Default.Enabled;
+        var mainTransactionType = ReadString(value, "main_transaction_type") ?? Default.MainTransactionType;
+        var subworkflowName = ReadString(value, "subworkflow_name") ?? Default.SubworkflowName;
+        var preparationStageName = ReadString(value, "preparation_stage_name") ?? Default.PreparationStageName;
+        var nextStageName = ReadString(value, "next_stage_name") ?? Default.NextStageName;
+        var requiredWorkflowNames = ReadStringArray(value, "required_workflow_names");
+        var spatialUnitExaminationField = ReadString(value, "spatial_unit_examination_field") ?? Default.SpatialUnitExaminationField;
+        return new PlaBPlanAnnexationTaskSettings(
+            enabled,
+            string.IsNullOrWhiteSpace(mainTransactionType) ? Default.MainTransactionType : mainTransactionType,
+            string.IsNullOrWhiteSpace(subworkflowName) ? Default.SubworkflowName : subworkflowName,
+            string.IsNullOrWhiteSpace(preparationStageName) ? Default.PreparationStageName : preparationStageName,
+            string.IsNullOrWhiteSpace(nextStageName) ? Default.NextStageName : nextStageName,
+            requiredWorkflowNames.Count == 0 ? Default.RequiredWorkflowNames : requiredWorkflowNames,
+            string.IsNullOrWhiteSpace(spatialUnitExaminationField) ? Default.SpatialUnitExaminationField : spatialUnitExaminationField);
+    }
+
+    private static string? ReadString(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static bool? ReadBool(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Cast<string>()
+            .ToArray();
+    }
 }
 
 public sealed record EnterpriseParcelFabricReviewSettings(

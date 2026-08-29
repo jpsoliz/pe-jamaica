@@ -48,6 +48,8 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("spatial_unit_type_land", savedObject.GetProperty("type").GetString(), "Spatial Unit type mismatch.");
         TestAssert.Equal("reg_status_pending", savedObject.GetProperty("status").GetString(), "Spatial Unit status mismatch.");
         TestAssert.Equal("spatialunit", savedObject.GetProperty("idMarkupType").GetString(), "Spatial Unit markup type mismatch.");
+        TestAssert.Equal("TR100000004", savedObject.GetProperty("planNumber").GetString(), "Spatial Unit plan number should come from the active transaction number.");
+        TestAssert.Equal("TR100000004", savedObject.GetProperty("examinationNumber").GetString(), "Spatial Unit examination number should come from the active transaction number.");
         TestAssert.Equal("approved", savedObject.GetProperty("reviewDecision").GetString(), "Review decision should be sent.");
         TestAssert.Equal("TR100000004-completed.zip", savedObject.GetProperty("workingPackageFileName").GetString(), "Working package file name should be sent.");
         TestAssert.Equal("sidwell_completed_package", savedObject.GetProperty("workingPackageSourceType").GetString(), "Working package source type should be sent.");
@@ -61,12 +63,16 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("110900205", savedObject.GetProperty("lotNo").GetString(), "Spatial Unit lot number should come from working polygon parcel_name.");
         TestAssert.Equal("110900205", savedObject.GetProperty("lot No.").GetString(), "Spatial Unit lot label should come from working polygon parcel_name.");
         TestAssert.Equal("110900205", savedObject.GetProperty("label").GetString(), "Spatial Unit label should come from working polygon parcel_name.");
+        TestAssert.Equal("Lot 12 Bellevue", savedObject.GetProperty("propertyName").GetString(), "Spatial Unit property name should come from working polygon propertyName.");
         TestAssert.Equal("St Andrew", savedObject.GetProperty("Parish").GetString(), "Spatial Unit Parish should default to St Andrew.");
         TestAssert.Equal("parish_st_andrew", savedObject.GetProperty("address").GetProperty("parish").GetString(), "Spatial Unit address parish should use the Innola St Andrew dictionary key.");
         TestAssert.Equal(1234.56, savedObject.GetProperty("area").GetDouble(), "Spatial Unit area should come from working polygon area_sq_m.");
         TestAssert.Equal(1234.56, savedObject.GetProperty("legalArea").GetDouble(), "Spatial Unit legal area should come from working polygon area_sq_m.");
         TestAssert.Equal(1234.56, savedObject.GetProperty("surveyArea").GetDouble(), "Spatial Unit survey area should come from working polygon area_sq_m.");
         TestAssert.Equal(1234.56, savedObject.GetProperty("gisArea").GetDouble(), "Spatial Unit GIS area should come from working polygon area_sq_m.");
+        TestAssert.Equal("area_unit_type_sqm", savedObject.GetProperty("legalAreaUnitType").GetString(), "Spatial Unit legal area unit should be square metres.");
+        TestAssert.Equal("area_unit_type_sqm", savedObject.GetProperty("surveyAreaUnitType").GetString(), "Spatial Unit survey area unit should be square metres.");
+        TestAssert.Equal("area_unit_type_sqm", savedObject.GetProperty("gisAreaUnitType").GetString(), "Spatial Unit GIS area unit should be square metres.");
         TestAssert.True(!savedObject.TryGetProperty("SUID", out _), "Spatial Unit create payload should not send a fallback SUID; the framework generates it.");
         var workingLayer = savedObject.GetProperty("workingLayerReferences")[0];
         TestAssert.Equal("polygons", workingLayer.GetProperty("layerRole").GetString(), "Working layer reference should include layer role.");
@@ -176,6 +182,54 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("token-abc", handler.AccessTokens[1], "Bearer default creation retry should retain Access-Token.");
         TestAssert.True(handler.HasAuthorizationHeaders[1], "Bearer default creation retry should add an Authorization header.");
         TestAssert.Equal("token-abc", handler.AccessTokens[2], "Save request should still use Access-Token when default retry succeeds.");
+    }
+
+    public static async Task ReadsExaminationNumberFromSpatialUnitExt()
+    {
+        var handler = new RecordingHandler(new[]
+        {
+            """
+            {
+              "data": [
+                {
+                  "@c": "SpatialUnitExt",
+                  "id": "su-1",
+                  "examinationNumber": "100000631"
+                }
+              ]
+            }
+            """
+        });
+        var service = new InnolaSpatialUnitService(new HttpClient(handler));
+
+        var result = await service.GetExaminationNumberAsync(Session(), Transaction(), "examinationNumber");
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.Equal("100000631", result.ExaminationNumber, "SpatialUnit examinationNumber mismatch.");
+        TestAssert.True(handler.Requests[0].PathAndQuery!.Contains("typeKeyId=spatialunit", StringComparison.OrdinalIgnoreCase), "SpatialUnit read route mismatch.");
+        TestAssert.True(handler.Requests[0].PathAndQuery!.Contains("transactionId=100000004", StringComparison.OrdinalIgnoreCase), "SpatialUnit read should bind to transaction id.");
+    }
+
+    public static async Task ReadExaminationNumberFailsWhenMissing()
+    {
+        var handler = new RecordingHandler(new[]
+        {
+            """
+            [
+              {
+                "@c": "SpatialUnitExt",
+                "id": "su-1",
+                "examinationNumber": ""
+              }
+            ]
+            """
+        });
+        var service = new InnolaSpatialUnitService(new HttpClient(handler));
+
+        var result = await service.GetExaminationNumberAsync(Session(), Transaction(), "examinationNumber");
+
+        TestAssert.False(result.Success, "Missing SpatialUnit examinationNumber should block PLA_B.");
+        TestAssert.True(result.Message.Contains("examinationNumber", StringComparison.OrdinalIgnoreCase), "Failure message should name the missing field.");
     }
 
     private static InnolaSession Session()
@@ -308,6 +362,7 @@ internal static class InnolaSpatialUnitServiceTests
                   "properties": {
                     "parcel_id": "parcel-006",
                     "parcel_name": "110900205",
+                    "propertyName": "Lot 12 Bellevue",
                     "area_sq_m": 1234.56
                   }
                 },

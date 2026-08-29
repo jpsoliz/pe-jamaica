@@ -4,8 +4,10 @@ using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ArcGIS.Core.CIM;
 using ArcGIS.Core.Data;
 using ArcGIS.Core.Data.Raster;
+using ArcGIS.Core.Geometry;
 using ArcGIS.Desktop.Framework.Threading.Tasks;
 using ArcGIS.Desktop.Mapping;
 using ParcelWorkflowAddIn.CaseFolders;
@@ -103,11 +105,21 @@ internal sealed record PlaBTestEmulationValues(
 
 public sealed record PlaBTestInputPreparationResult(
     bool Success,
-    string Message)
+    string Message,
+    IReadOnlyList<string>? MapGroupNames = null)
 {
-    public static PlaBTestInputPreparationResult Succeeded(string message) => new(true, message);
+    public static PlaBTestInputPreparationResult Succeeded(string message, IReadOnlyList<string>? mapGroupNames = null) => new(true, message, mapGroupNames);
 
     public static PlaBTestInputPreparationResult Failed(string message) => new(false, message);
+}
+
+public sealed record PlaBTaskCompletionResult(
+    bool Success,
+    string Message)
+{
+    public static PlaBTaskCompletionResult Succeeded(string message) => new(true, message);
+
+    public static PlaBTaskCompletionResult Failed(string message) => new(false, message);
 }
 
 internal sealed record PlaBPeNumberNormalizationResult(
@@ -660,6 +672,7 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
                     {
                         featureLayer.SetDefinitionQuery(BuildDefinitionQuery(enterprisePlan.ScopeField!, enterprisePlan.ScopeValue!));
                         featureLayer.SetEditable(false);
+                        ApplyPlaBLayerPresentation(featureLayer);
                     }
 
                     loadedLayerPaths.Add(layerTarget);
@@ -680,6 +693,7 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
                     if (layer is FeatureLayer featureLayer)
                     {
                         featureLayer.SetEditable(false);
+                        ApplyPlaBLayerPresentation(featureLayer);
                     }
 
                     loadedLayerPaths.Add(layerPath);
@@ -813,6 +827,97 @@ internal sealed class ArcGisPlaBMapRecoveryLoader
     private static string BuildDefinitionQuery(string fieldName, string value)
     {
         return $"{fieldName} = '{value.Replace("'", "''")}'";
+    }
+
+    private static void ApplyPlaBLayerPresentation(FeatureLayer featureLayer)
+    {
+        if (featureLayer.ShapeType == esriGeometryType.esriGeometryPolygon)
+        {
+            featureLayer.SetTransparency(70);
+            ApplyPlaBLabel(featureLayer, "Parcel", "parcel_name");
+            return;
+        }
+
+        if (featureLayer.ShapeType == esriGeometryType.esriGeometryPolyline)
+        {
+            ApplyPlaBLabel(featureLayer, "Line", "length_txt");
+            return;
+        }
+
+        if (featureLayer.ShapeType == esriGeometryType.esriGeometryPoint)
+        {
+            ApplyPlaBLabel(featureLayer, "Point", "point_id");
+        }
+    }
+
+    private static void ApplyPlaBLabel(FeatureLayer featureLayer, string className, string fieldName)
+    {
+        var field = FirstAvailableField(ReadFieldNames(featureLayer), fieldName);
+        if (field is null)
+        {
+            return;
+        }
+
+        var definition = featureLayer.GetDefinition() as CIMFeatureLayer;
+        if (definition is null)
+        {
+            return;
+        }
+
+        var labelClass = definition.LabelClasses?.FirstOrDefault() ?? new CIMLabelClass();
+        labelClass.Name = className;
+        labelClass.ExpressionEngine = LabelExpressionEngine.Arcade;
+        labelClass.Expression = $"return Text(DefaultValue($feature[\"{field}\"], \"\"));";
+        labelClass.Visibility = true;
+        labelClass.TextSymbol = BuildPlaBTextSymbol().MakeSymbolReference();
+
+        definition.LabelClasses = new[] { labelClass };
+        definition.LabelVisibility = true;
+        featureLayer.SetDefinition(definition);
+    }
+
+    private static IReadOnlySet<string> ReadFieldNames(FeatureLayer featureLayer)
+    {
+        try
+        {
+            using var table = featureLayer.GetTable();
+            var fields = table?.GetDefinition()?.GetFields();
+            return fields is null
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : fields.Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+            or NotSupportedException
+            or ArgumentException)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string? FirstAvailableField(IReadOnlySet<string> fieldNames, params string[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            var match = fieldNames.FirstOrDefault(field => string.Equals(field, candidate, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(match))
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static CIMTextSymbol BuildPlaBTextSymbol()
+    {
+        var textSymbol = SymbolFactory.Instance.ConstructTextSymbol(
+            ColorFactory.Instance.CreateRGBColor(17, 24, 39, 100),
+            8.5,
+            "Arial",
+            "Regular");
+        textSymbol.HorizontalAlignment = HorizontalAlignment.Center;
+        textSymbol.VerticalAlignment = VerticalAlignment.Center;
+        return textSymbol;
     }
 
     private static bool IsMGeoLayerPath(string layerPath)
@@ -1832,6 +1937,9 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
 {
     private string currentTransactionNumber = string.Empty;
     private string peNumber = string.Empty;
+    private string statusText = string.Empty;
+    private bool processSucceeded;
+    private IReadOnlyList<string> processMapGroupNames = Array.Empty<string>();
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1843,6 +1951,7 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
             if (!string.Equals(currentTransactionNumber, value, StringComparison.Ordinal))
             {
                 currentTransactionNumber = value;
+                ProcessSucceeded = false;
                 NotifyPropertyChanged();
                 NotifyComputedProperties();
             }
@@ -1857,6 +1966,7 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
             if (!string.Equals(peNumber, value, StringComparison.Ordinal))
             {
                 peNumber = value;
+                ProcessSucceeded = false;
                 NotifyPropertyChanged();
                 NotifyComputedProperties();
             }
@@ -1867,20 +1977,62 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
 
     public bool HasCurrentTransactionNumber => !string.IsNullOrWhiteSpace(CurrentTransactionNumber);
 
+    public string StatusText
+    {
+        get => statusText;
+        set
+        {
+            if (!string.Equals(statusText, value, StringComparison.Ordinal))
+            {
+                statusText = value;
+                NotifyPropertyChanged();
+            }
+        }
+    }
+
     public bool CanPrepare =>
         HasCurrentTransactionNumber
         && PlaBPeNumberNormalizer.Normalize(PeNumber).Success;
 
-    public string StatusText => CanPrepare
-        ? $"PLA_B test values ready for PE {NormalizedPeNumber}."
-        : "Enter a current transaction number and PE number to emulate PLA_B preparation.";
+    public bool ProcessSucceeded
+    {
+        get => processSucceeded;
+        set
+        {
+            if (processSucceeded != value)
+            {
+                processSucceeded = value;
+                NotifyPropertyChanged();
+                NotifyPropertyChanged(nameof(CanComplete));
+            }
+        }
+    }
+
+    public bool CanComplete => ProcessSucceeded && CanPrepare;
+
+    public IReadOnlyList<string> ProcessMapGroupNames
+    {
+        get => processMapGroupNames;
+        set
+        {
+            processMapGroupNames = value ?? Array.Empty<string>();
+            NotifyPropertyChanged();
+        }
+    }
+
+    public void ClearProcessState(string? message = null)
+    {
+        ProcessSucceeded = false;
+        ProcessMapGroupNames = Array.Empty<string>();
+        StatusText = message ?? string.Empty;
+    }
 
     private void NotifyComputedProperties()
     {
         NotifyPropertyChanged(nameof(NormalizedPeNumber));
         NotifyPropertyChanged(nameof(HasCurrentTransactionNumber));
         NotifyPropertyChanged(nameof(CanPrepare));
-        NotifyPropertyChanged(nameof(StatusText));
+        NotifyPropertyChanged(nameof(CanComplete));
     }
 
     private void NotifyPropertyChanged([CallerMemberName] string? propertyName = null)

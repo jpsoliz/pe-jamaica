@@ -1794,16 +1794,6 @@
                           IsEnabled="{Binding CanLoadSpatialReviewLayers}"
                           Style="{StaticResource SmallButtonStyle}"
                           Margin="0,0,6,0" />
-                  <Button Content="Run Overlap Review"
-                          Command="{Binding RunSpatialOverlapReviewCommand}"
-                          IsEnabled="{Binding CanRunSpatialOverlapReview}"
-                          Style="{StaticResource SmallButtonStyle}"
-                          Margin="0,0,6,0" />
-                  <Button Content="View Overlap Review"
-                          Command="{Binding OpenSpatialOverlapReviewCommand}"
-                          IsEnabled="{Binding CanOpenSpatialOverlapReview}"
-                          Style="{StaticResource SmallButtonStyle}"
-                          Margin="0,0,6,0" />
                   <Button Content="Mark reviewed"
                           Command="{Binding ApproveSpatialReviewCommand}"
                           IsEnabled="{Binding CanApproveSpatialReview}"

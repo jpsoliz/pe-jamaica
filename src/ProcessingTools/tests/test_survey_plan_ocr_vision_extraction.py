@@ -201,6 +201,7 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             "document_text": "MEMORANDUM\nSurveyed for Roxine Campbell",
             "survey_metadata": {
                 "parish": "Clarendon",
+                "property_name": "Lot 12 Bellevue",
                 "instrument": "TOPCON GM-52",
                 "instrument_check_date": "2024-09-04",
                 "instrument_check_result": "Checked and found in order",
@@ -230,6 +231,7 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
         self.assertTrue(memorandum["detected"])
         self.assertEqual("MEMORANDUM", memorandum["matched_text"])
         self.assertEqual("Roxine Campbell", payload["surveyed_for_names"][0]["name"])
+        self.assertEqual("Lot 12 Bellevue", payload["survey_metadata"]["property_name"]["value"])
         self.assertEqual("Lot 12 Bellevue", payload["surveyed_property_names"][0]["value"])
         self.assertTrue(payload["property_name_near_parcel_diagram"]["present"])
         self.assertEqual("TOPCON GM-52", payload["survey_metadata"]["instrument"]["value"])

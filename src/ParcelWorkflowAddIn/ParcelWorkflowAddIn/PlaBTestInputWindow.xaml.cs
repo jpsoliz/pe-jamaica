@@ -10,17 +10,20 @@ public partial class PlaBTestInputWindow : ProWindow
     private static PlaBTestInputWindow? activeWindow;
     private readonly PlaBTestEmulationInputViewModel viewModel;
     private Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> prepareHandler;
-    private Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> openViewerHandler;
+    private Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> completeHandler;
+    private Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> cancelHandler;
 
     internal PlaBTestInputWindow(
         PlaBTestEmulationInputViewModel viewModel,
         Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> prepareHandler,
-        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> openViewerHandler)
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> completeHandler,
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> cancelHandler)
     {
         InitializeComponent();
         this.viewModel = viewModel;
         this.prepareHandler = prepareHandler;
-        this.openViewerHandler = openViewerHandler;
+        this.completeHandler = completeHandler;
+        this.cancelHandler = cancelHandler;
         DataContext = viewModel;
         Owner = FrameworkApplication.Current?.MainWindow;
         Closed += OnClosed;
@@ -30,13 +33,17 @@ public partial class PlaBTestInputWindow : ProWindow
         string? currentTransactionNumber,
         string? peNumber,
         Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> prepareHandler,
-        Func<PlaBTestEmulationInputViewModel, Task<PlaBTestInputPreparationResult>> openViewerHandler)
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> completeHandler,
+        Func<PlaBTestEmulationInputViewModel, Task<PlaBTaskCompletionResult>> cancelHandler,
+        string? statusText = null)
     {
         if (activeWindow is { IsVisible: true } window)
         {
             window.SetInputs(currentTransactionNumber, peNumber);
             window.prepareHandler = prepareHandler;
-            window.openViewerHandler = openViewerHandler;
+            window.completeHandler = completeHandler;
+            window.cancelHandler = cancelHandler;
+            window.viewModel.StatusText = statusText ?? string.Empty;
             window.Activate();
             return;
         }
@@ -44,9 +51,10 @@ public partial class PlaBTestInputWindow : ProWindow
         var input = new PlaBTestEmulationInputViewModel
         {
             CurrentTransactionNumber = currentTransactionNumber ?? string.Empty,
-            PeNumber = peNumber ?? string.Empty
+            PeNumber = peNumber ?? string.Empty,
+            StatusText = statusText ?? string.Empty
         };
-        activeWindow = new PlaBTestInputWindow(input, prepareHandler, openViewerHandler);
+        activeWindow = new PlaBTestInputWindow(input, prepareHandler, completeHandler, cancelHandler);
         try
         {
             activeWindow.Show();
@@ -67,32 +75,72 @@ public partial class PlaBTestInputWindow : ProWindow
     private async void PrepareButton_Click(object sender, RoutedEventArgs e)
     {
         var result = await prepareHandler(viewModel).ConfigureAwait(true);
+        viewModel.ProcessSucceeded = result.Success;
+        viewModel.ProcessMapGroupNames = result.Success
+            ? result.MapGroupNames ?? Array.Empty<string>()
+            : Array.Empty<string>();
+        viewModel.StatusText = result.Message;
+        if (result.Success)
+        {
+            return;
+        }
+
         MessageBox.Show(
             this,
             result.Message,
-            "PLA_B Test Input",
+            "Plan Annexation Task",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+    }
+
+    private async void CompleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        var confirmation = MessageBox.Show(
+            this,
+            "Complete Plan Annexation Preparation and move to Review and Sign Plan Annexed Diagram?",
+            "Plan Annexation Task",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var result = await completeHandler(viewModel).ConfigureAwait(true);
+        viewModel.StatusText = result.Message;
+        if (result.Success)
+        {
+            viewModel.ClearProcessState(result.Message);
+        }
+
+        MessageBox.Show(
+            this,
+            result.Message,
+            "Plan Annexation Task",
             MessageBoxButton.OK,
             result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
+
         if (result.Success)
         {
             Close();
         }
     }
 
-    private async void OpenViewerButton_Click(object sender, RoutedEventArgs e)
+    private async void CloseButton_Click(object sender, RoutedEventArgs e)
     {
-        var result = await openViewerHandler(viewModel).ConfigureAwait(true);
+        var result = await cancelHandler(viewModel).ConfigureAwait(true);
+        viewModel.StatusText = result.Message;
         MessageBox.Show(
             this,
             result.Message,
-            "PLA_B Test Input",
+            "Plan Annexation Task",
             MessageBoxButton.OK,
             result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
-    }
 
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        Close();
+        if (result.Success)
+        {
+            Close();
+        }
     }
 
     private void OnClosed(object? sender, EventArgs e)

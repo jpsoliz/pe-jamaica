@@ -148,6 +148,7 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
         }
 
         JsonElement? fallback = null;
+        JsonElement? defaultTransition = null;
         foreach (var transition in document.RootElement.EnumerateArray())
         {
             if (transition.ValueKind != JsonValueKind.Object)
@@ -156,13 +157,35 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
             }
 
             fallback ??= transition;
-            if (transition.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True)
+            if (!string.IsNullOrWhiteSpace(request.DesiredTransitionName)
+                && TransitionMatches(transition, request.DesiredTransitionName))
             {
                 return InnolaHttp.ReadString(transition, "transitionId", "id", "name");
             }
+
+            if (transition.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True)
+            {
+                defaultTransition ??= transition;
+            }
+        }
+
+        if (defaultTransition.HasValue)
+        {
+            return InnolaHttp.ReadString(defaultTransition.Value, "transitionId", "id", "name");
         }
 
         return fallback.HasValue ? InnolaHttp.ReadString(fallback.Value, "transitionId", "id", "name") : null;
+    }
+
+    private static bool TransitionMatches(JsonElement transition, string expected)
+    {
+        return new[]
+            {
+                InnolaHttp.ReadString(transition, "label", "displayName", "name", "transitionName", "toStageName", "targetStageName"),
+                InnolaHttp.ReadString(transition, "to", "target", "stage")
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Any(value => value!.Trim().Equals(expected.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, InnolaSession session, string relativePath)

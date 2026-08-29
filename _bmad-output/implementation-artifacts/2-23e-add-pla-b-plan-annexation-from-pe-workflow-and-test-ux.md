@@ -113,8 +113,10 @@ GPT-5 Codex
 
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false`: passed with one pre-existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - `.\src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\bin\Release\net8.0-windows\ParcelWorkflowAddIn.Tests.exe "PLA_B" "pla b"`: passed 25 focused PLA_B tests.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "PLA_B" "pla b"`: passed 27 focused PLA_B tests after the Plan Annexation Task form cleanup.
 - `.\src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\bin\Release\net8.0-windows\ParcelWorkflowAddIn.Tests.exe`: partial pass, then stopped at an existing ArcGIS SDK assembly-load limitation for a spatial-overlap test outside ArcGIS Pro.
 - `tools/package_addin.ps1 -Configuration Release`: passed; produced `ParcelWorkflowAddIn.esriAddInX` and bumped add-in patch version to `1.1.258`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "pla b test input window uses plan annexation task labels"`: passed; focused Plan Annexation Task initial form label/button regression.
 
 ### Completion Notes List
 
@@ -130,6 +132,7 @@ GPT-5 Codex
 - Changed PLA_B current-source downloading to skip failed or non-viewable individual attachments and keep going when at least one usable source file can be downloaded.
 - Removed PLA_B requirement for survey-diagram source documents in profile/rule configuration.
 - Removed PLA_B from existing normal completion/finalize upload handling for this initial testing story.
+- Refined the initial PLA_B form copy for Plan Annexation Task: renamed Current TR to Current Transaction, removed the visible Normalized PE/status instruction text, renamed Prepare to Process ..., removed Open Viewer, added a disabled Complete placeholder for future stage wiring, and renamed Close to Cancel.
 
 ### File List
 
@@ -158,3 +161,4 @@ GPT-5 Codex
 - 2026-08-27: Expanded PE output GDB transparency handling to include `mgeo_overlay_[trnumber]`.
 - 2026-08-27: Fixed PE output GDB enumeration to include feature classes inside feature datasets/output containers.
 - 2026-08-27: Fixed PE output GDB enumeration to include root raster datasets such as `mgeo_overlay_[trnumber]`.
+- 2026-08-28: Updated initial PLA_B Plan Annexation Task form labels/buttons; future Process/Complete stage wiring remains follow-up work.

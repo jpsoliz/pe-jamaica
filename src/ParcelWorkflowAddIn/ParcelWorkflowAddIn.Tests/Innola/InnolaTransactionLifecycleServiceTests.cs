@@ -48,6 +48,34 @@ internal static class InnolaTransactionLifecycleServiceTests
         TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/tasks/task-1/complete?transition=flow_approved_enterdata", StringComparison.Ordinal), "Complete endpoint mismatch.");
     }
 
+    public static async Task LiveLifecycleCompletePrefersDesiredTransitionName()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                [
+                  {
+                    "transitionId": "default_transition",
+                    "name": "Some Other Stage",
+                    "isDefault": true
+                  },
+                  {
+                    "transitionId": "plan_annex_review",
+                    "label": "Review and Sign Plan Annexed Diagram"
+                  }
+                ]
+                """, HttpStatusCode.OK),
+            new Response("", HttpStatusCode.OK));
+        var service = new InnolaTransactionLifecycleService(new HttpClient(handler));
+
+        var result = await service.CompleteAsync(Request() with
+        {
+            DesiredTransitionName = "Review and Sign Plan Annexed Diagram"
+        });
+
+        TestAssert.True(result.Success, "Complete should succeed.");
+        TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/tasks/task-1/complete?transition=plan_annex_review", StringComparison.Ordinal), "Complete should use the desired Plan Annexation transition.");
+    }
+
     public static async Task LiveLifecycleBusinessFailureIsRedacted()
     {
         var handler = new SequenceHandler(new Response("""

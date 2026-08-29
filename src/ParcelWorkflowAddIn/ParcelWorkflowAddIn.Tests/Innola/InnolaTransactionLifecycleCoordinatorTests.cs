@@ -663,6 +663,15 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         public int CallCount { get; private set; }
 
+        public Task<InnolaSpatialUnitExaminationNumberResult> GetExaminationNumberAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction transaction,
+            string examinationFieldName,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaSpatialUnitExaminationNumberResult.Failed("Not used by lifecycle coordinator tests."));
+        }
+
         public Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
             InnolaSession session,
             SelectedInnolaTransaction transaction,

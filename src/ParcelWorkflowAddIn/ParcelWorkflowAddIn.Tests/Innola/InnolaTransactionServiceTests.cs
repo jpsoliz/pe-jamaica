@@ -635,6 +635,57 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!body.Contains("\"sourceType\":\"st_plan_annex_output\"", StringComparison.Ordinal), "Prior PLA output source variants should be removed.");
     }
 
+    public static async Task AttachmentUploadReplacesExistingPlanAnnexImageSourceType()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 31,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 32 },
+                  "link": { "@id": 33 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, """
+                [
+                  { "@id": "obj:1", "type": "st_plan_annexation_pdf" },
+                  { "@id": "obj:2", "type": "st_plan_annex_image", "body": { "@id": "obj:3" } },
+                  { "@id": "obj:4", "sourceType": "st_plan_annex_image" }
+                ]
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100001219",
+            "Plan Annexed",
+            "Compute Survey Plan",
+            DateTimeOffset.Parse("2026-08-24T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "survey_diagram_selection.png",
+            "image/png",
+            Encoding.UTF8.GetBytes("png"),
+            "st_plan_annex_image");
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "PLA_B crop image upload and registration should succeed.");
+        var body = handler.Requests[2].Body;
+        TestAssert.True(body.Contains("\"type\":\"st_plan_annexation_pdf\"", StringComparison.Ordinal), "Existing input plan source should be preserved.");
+        TestAssert.Equal(1, CountOccurrences(body, "\"type\":\"st_plan_annex_image\""), "Only the newly uploaded PLA_B crop image source should remain.");
+        TestAssert.True(!body.Contains("\"sourceType\":\"st_plan_annex_image\"", StringComparison.Ordinal), "Prior PLA_B crop image source variants should be removed.");
+    }
+
     public static async Task AttachmentUploadPreservesSafeTransportDiagnosticAndRedactsSecrets()
     {
         var session = new InnolaSession(

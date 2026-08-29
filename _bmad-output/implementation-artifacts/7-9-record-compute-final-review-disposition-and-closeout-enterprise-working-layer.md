@@ -293,6 +293,19 @@ TBD
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --no-build`
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln` - passed, 0 warnings/errors.
 - `dotnet run --no-build --project .\src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj` - passed, 310 tests.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release --no-build "innola spatial unit service creates defaults then saves"` - passed, 1 test after plan/examination/area-unit payload patch.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false` - passed after plan/examination/area-unit payload patch; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.287`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "innola spatial unit service creates defaults then saves"` - passed, 1 test after TR 100000839 recovery patch; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\` - passed after TR 100000839 recovery patch, 0 warnings/errors.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.289`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "innola spatial unit service creates defaults then saves"` - passed, 1 test after confirmed `area_unit_type_sqm` patch; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\` - passed after confirmed `area_unit_type_sqm` patch, 0 warnings/errors.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.291`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "innola spatial unit service creates defaults then saves"` - passed, 1 test after property-name Spatial Unit payload patch.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\` - passed after property-name Spatial Unit payload patch; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.293`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "parcel workflow dockpane xaml hides compute overlap review commands"` - passed, 1 test after hiding Compute-stage overlap buttons; one existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
 
 ### Completion Notes
 
@@ -325,6 +338,10 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 - Expanded completed working package contents to include full output artifacts, including generated GDB contents and extracted geometry artifacts, while preserving lightweight Suspend/Save-and-Close package behavior.
 - Restore now exposes Compute disposition, Enterprise disposition, and Compute examination report artifacts and warns when restored disposition evidence disagrees with the current output summary run.
 - Patched Enterprise working-layer publish metadata so feature rows and case-index rows store the Innola GUID in `transaction_id` and the readable transaction number in `transaction_number`, matching the disposition query scope used by Finalize.
+- Patched Innola `SpatialUnitExt` population so `planNumber` and `examinationNumber` are set from the active transaction number, and computed numeric area values populate `area`, `legalArea`, `surveyArea`, and `gisArea`.
+- TR 100000839 recovery patch: replaced the invalid `area_unit_type_square_meters` value with the confirmed Innola `AreaUnitType` dictionary code `area_unit_type_sqm` for `legalAreaUnitType`, `surveyAreaUnitType`, and `gisAreaUnitType`.
+- TR 100000851 property-name patch: `SpatialUnitExt.propertyName` is now populated from generated polygon `propertyName`/`property_name` output when the reviewed extraction contains a document property value.
+- Hid the disabled `Run Overlap Review` and `View Overlap Review` buttons from the Parcel Workflow Compute Final Review panel; Compare overlap-review controls remain separate.
 
 ### File List
 
@@ -373,3 +390,7 @@ Story created from the July 1 review that clarified Compute as a temporary docum
 | 2026-07-03 | 1.2 | Finished remaining 7.9 closeout: REST disposition guards, Spatial Unit refs in case index/manifest, full output package contents, stronger readiness, and disposition restore artifacts. | Amelia / Codex |
 | 2026-07-06 | 1.3 | Patched story to require explicit Enterprise `working_case_index` fields `spatial_unit_id` and `spatial_unit_api_status` for Spatial Unit closeout reference writeback. | Mary / Codex |
 | 2026-07-21 | 1.4 | Patched Enterprise working-layer transaction metadata so Finalize disposition writeback can find rows by the configured `transaction_id` scope. | Codex |
+| 2026-08-28 | 1.5 | Patched Innola `SpatialUnitExt` payload so plan/examination number and square-metre area unit fields are populated during Compute closeout Spatial Unit save; packaged add-in `1.1.287`. | JotaPe / Winston / Amelia / Codex |
+| 2026-08-28 | 1.6 | Replaced invalid square-metre area unit dictionary key with confirmed `area_unit_type_sqm`; numeric area and plan/examination numbers remain populated. | Amelia / Codex |
+| 2026-08-28 | 1.7 | Mapped reviewed output polygon property name into `SpatialUnitExt.propertyName` during Spatial Unit save. | JotaPe / Amelia / Codex |
+| 2026-08-28 | 1.8 | Hid disabled Compute-stage overlap review buttons from Parcel Workflow Final Review. | JotaPe / Amelia / Codex |

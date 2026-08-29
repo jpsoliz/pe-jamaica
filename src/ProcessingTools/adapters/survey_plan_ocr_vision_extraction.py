@@ -160,6 +160,12 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
 
     survey_metadata = {
         "parish": _field("parish", _first_present(metadata, raw, "parish"), metadata.get("parish_confidence"), "memorandum"),
+        "property_name": _field(
+            "property_name",
+            _first_present(metadata, raw, "property_name", "property", "estate_name", "land_name", "parcel_property_name"),
+            _first_present(metadata, {}, "property_name_confidence", "property_confidence"),
+            "memorandum",
+        ),
         "document_area": _field(
             "document_area",
             _first_present(metadata, raw, "document_area", "area"),
@@ -270,7 +276,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         },
         "survey_metadata": survey_metadata,
         "surveyed_for_names": [_normalize_memorandum_name(item, "surveyed_for") for item in _as_list(raw.get("surveyed_for_names") or raw.get("surveyed_for") or raw.get("party_surveyed_for"))],
-        "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name"))],
+        "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name") or metadata.get("property_name") or metadata.get("property"))],
         "property_name_near_parcel_diagram": _normalize_presence_evidence(raw.get("property_name_near_parcel_diagram"), "property_name_near_parcel_diagram", "parcel_diagram"),
         "notice_served_on": [_normalize_memorandum_name(item, "notice_served_on") for item in _as_list(raw.get("notice_served_on") or raw.get("notices_served_on"))],
         "interested_parties": [_normalize_memorandum_name(item, "interested_party") for item in _as_list(raw.get("interested_parties") or raw.get("parties_interested") or raw.get("parties_served_with_notices"))],
@@ -281,6 +287,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "field_confidence": {
             "coordinate_system": coordinate_system_confidence or (0.85 if coordinate_system else 0.0),
             "parish": survey_metadata["parish"]["confidence"],
+            "property_name": survey_metadata["property_name"]["confidence"],
             "document_area": survey_metadata["document_area"]["confidence"],
             "survey_date": survey_metadata["survey_date"]["confidence"],
             "instrument": survey_metadata["instrument"]["confidence"],
@@ -935,7 +942,7 @@ def _prompt(profile: str) -> str:
         "Return only JSON with keys: document_type, coordinate_system, coordinate_system_confidence, "
         "north_arrow {detected, approximate_page_location, confidence, review_note}, "
         "scale_bar {detected, text, approximate_page_location, confidence, review_note}, "
-        "survey_metadata {parish, document_area, survey_date, survey_method, grounds_of_objection, "
+        "survey_metadata {parish, property_name, document_area, survey_date, survey_method, grounds_of_objection, "
         "surveyor_decision_grounds, instrument, instrument_check_date, instrument_check_result, surveyed_by, "
         "plan_check_date, file_reference, volume_folio [{volume,folio,raw_text,confidence,source_page,source_zone,review_note}]}, "
         "surveyed_for_names, surveyed_property_names, notice_served_on, interested_parties, appeared_parties, "
@@ -948,6 +955,9 @@ def _prompt(profile: str) -> str:
         "above coordinate tables for labels such as JAD 2001, J.A.D. 2001, Jamaica Datum 2001, or Jamaica Grid. "
         "Do not put survey method text such as Theodolite Survey, Compass Standard, GPS, RTK, or Total Station in "
         "coordinate_system; put that text only in survey_metadata.survey_method. "
+        "For survey_metadata.property_name, capture the visible value beside labels such as Property, Property Name, Estate, "
+        "or Name of Property. Do not use owner, surveyed-for, parish, volume/folio, or adjoining-owner text as property_name. "
+        "Also return the same value in surveyed_property_names when the property value appears in the memorandum. "
         "Use point labels only when the label is visibly attached to the boundary point, course table, or coordinate table entry "
         "for that exact point. Do not invent sequential labels from printed reference labels: if the plan has reference points "
         "A and B but an unlabeled boundary vertex follows A, do not call that vertex B unless B is visibly the same vertex. "

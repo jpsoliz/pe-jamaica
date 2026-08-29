@@ -34,14 +34,14 @@ internal static class SpatialOverlapReviewWindowXamlTests
             "The overlap review surface should support both opening and refresh without rebuilding the workflow.");
     }
 
-    public static void ParcelWorkflowDockpaneExposesOverlapReviewSurfaceCommand()
+    public static void ParcelWorkflowDockpaneHidesComputeOverlapReviewCommands()
     {
         var xaml = File.ReadAllText(FindRepoFile("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "ParcelWorkflowDockpane.xaml"));
 
         TestAssert.True(
-            xaml.Contains("Content=\"View Overlap Review\"", StringComparison.Ordinal)
-            && xaml.Contains("Command=\"{Binding OpenSpatialOverlapReviewCommand}\"", StringComparison.Ordinal),
-            "The compute workflow dockpane should expose a View Overlap Review command in Final Review.");
+            !xaml.Contains("Content=\"Run Overlap Review\"", StringComparison.Ordinal)
+            && !xaml.Contains("Content=\"View Overlap Review\"", StringComparison.Ordinal),
+            "The compute workflow dockpane should hide overlap review commands in Final Review.");
     }
 
     private static string FindRepoFile(params string[] relativeSegments)

@@ -260,6 +260,18 @@ internal static class PlaBWorkflowServiceTests
         TestAssert.Equal(2, result.Groups.Count, "PLA_B map plan should contain current and PE groups.");
     }
 
+    public static void MapLoaderAppliesRequestedLabelsAndPolygonTransparency()
+    {
+        var source = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Workflow", "Pla", "PlaBWorkflowServices.cs"));
+
+        TestAssert.True(source.Contains("ApplyPlaBLayerPresentation(featureLayer)", StringComparison.Ordinal), "PLA_B loader should apply presentation to loaded feature layers.");
+        TestAssert.True(source.Contains("featureLayer.SetTransparency(70)", StringComparison.Ordinal), "PLA_B polygon layers should use 70 percent transparency.");
+        TestAssert.True(source.Contains("ApplyPlaBLabel(featureLayer, \"Point\", \"point_id\")", StringComparison.Ordinal), "PLA_B point layers should label point_id.");
+        TestAssert.True(source.Contains("ApplyPlaBLabel(featureLayer, \"Line\", \"length_txt\")", StringComparison.Ordinal), "PLA_B line layers should label length_txt.");
+        TestAssert.True(source.Contains("ApplyPlaBLabel(featureLayer, \"Parcel\", \"parcel_name\")", StringComparison.Ordinal), "PLA_B polygon layers should label parcel_name.");
+        TestAssert.False(source.Contains("HaloSize", StringComparison.Ordinal), "PLA_B labels should not use a halo.");
+    }
+
     public static async Task SurveyDiagramSelectionPersistsPngAndMetadata()
     {
         using var tempRoot = new TempDirectory();
@@ -292,6 +304,71 @@ internal static class PlaBWorkflowServiceTests
 
         TestAssert.True(input.CanPrepare, "Complete test values should enable preparation.");
         TestAssert.Equal("100000631", input.NormalizedPeNumber, "Test UX should use the same PE normalizer as production.");
+    }
+
+    public static void TestInputWindowUsesPlanAnnexationTaskLabels()
+    {
+        var xaml = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "PlaBTestInputWindow.xaml"));
+
+        TestAssert.True(xaml.Contains("Title=\"Plan Annexation Task\"", StringComparison.Ordinal), "PLA_B input window title should use Plan Annexation Task.");
+        TestAssert.True(xaml.Contains("Text=\"Current Transaction:\"", StringComparison.Ordinal), "PLA_B input window should label the current transaction clearly.");
+        TestAssert.True(xaml.Contains("Text=\"PE Number\"", StringComparison.Ordinal), "PLA_B input window should keep PE Number.");
+        TestAssert.True(xaml.Contains("Content=\"Process ...\"", StringComparison.Ordinal), "PLA_B input window should rename Prepare to Process.");
+        TestAssert.True(xaml.Contains("Content=\"Complete\"", StringComparison.Ordinal), "PLA_B input window should expose a Complete action placeholder.");
+        TestAssert.True(xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal), "PLA_B input window should rename Close to Cancel.");
+        TestAssert.False(xaml.Contains("Normalized PE", StringComparison.Ordinal), "PLA_B input window should hide the normalized PE field.");
+        TestAssert.False(xaml.Contains("Open Viewer", StringComparison.Ordinal), "PLA_B input window should not expose Open Viewer.");
+        TestAssert.Equal(1, CountOccurrences(xaml, "IsReadOnly=\"True\""), "Only the Current Transaction field should remain read-only.");
+        TestAssert.True(xaml.Contains("IsEnabled=\"{Binding CanComplete}\"", StringComparison.Ordinal), "PLA_B Complete should bind to processed state.");
+        TestAssert.True(xaml.Contains("Text=\"{Binding StatusText}\"", StringComparison.Ordinal), "PLA_B task form should show runtime process/completion status.");
+        var windowCode = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "PlaBTestInputWindow.xaml.cs"));
+        TestAssert.True(windowCode.Contains("if (result.Success)\r\n        {\r\n            return;\r\n        }", StringComparison.Ordinal)
+            || windowCode.Contains("if (result.Success)\n        {\n            return;\n        }", StringComparison.Ordinal), "PLA_B Process should not show a success popup after data loads.");
+    }
+
+    private static int CountOccurrences(string value, string search)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = value.IndexOf(search, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += search.Length;
+        }
+
+        return count;
+    }
+
+    public static void PlanAnnexationTaskGateRequiresConfiguredWorkflowContext()
+    {
+        var settings = PlaBPlanAnnexationTaskSettings.Default;
+        var eligible = new InnolaTransactionRow(
+            "task-1",
+            "100000111",
+            "TR100000111",
+            "In Plan Annexation Preparation",
+            "parcel_workflow",
+            InnolaTransactionStatus.Available,
+            "First Registration",
+            null,
+            null,
+            "survey",
+            FixedNow(),
+            true,
+            true,
+            null,
+            null,
+            WorkflowName: "First Registration",
+            SubworkflowName: "Plan Annexation",
+            WorkflowNames: new[] { "First Registration", "Plan Annexation" });
+        var wrongStage = eligible with { TaskName = "Review and Sign Plan Annexed Diagram" };
+        var missingSubworkflow = eligible with { SubworkflowName = null, WorkflowNames = new[] { "First Registration" } };
+        var listPayloadShape = eligible with { WorkflowName = null, SubworkflowName = null, WorkflowNames = Array.Empty<string>() };
+
+        TestAssert.True(PlaBPlanAnnexationTaskGate.Evaluate(eligible, settings).IsEligible, "Configured First Registration Plan Annexation preparation row should be eligible.");
+        TestAssert.False(PlaBPlanAnnexationTaskGate.Evaluate(wrongStage, settings).IsEligible, "Wrong Plan Annexation stage should be ineligible.");
+        TestAssert.False(PlaBPlanAnnexationTaskGate.Evaluate(missingSubworkflow, settings).IsEligible, "Partial workflow metadata that omits Plan Annexation should be ineligible.");
+        TestAssert.True(PlaBPlanAnnexationTaskGate.Evaluate(listPayloadShape, settings).IsEligible, "Innola list rows without workflow metadata should rely on configured transaction type and stage.");
     }
 
     public static void DockpaneDoesNotExposePlaBWorkflowTestEmulation()

@@ -573,6 +573,7 @@ public sealed class ExtractionReviewPersistenceService
 
         var surveyMetadata = rootNode["survey_metadata"] as JsonObject;
         AddMetadataField(document, "parish", "Parish", surveyMetadata?["parish"]);
+        AddMetadataField(document, "property_name", "Property name", surveyMetadata?["property_name"] ?? rootNode["property_name"]);
         AddMetadataField(document, "document_area", "Document area", surveyMetadata?["document_area"]);
         AddMetadataField(document, "survey_date", "Survey date", surveyMetadata?["survey_date"]);
         AddMetadataField(document, "survey_method", "Survey method", surveyMetadata?["survey_method"]);
@@ -675,6 +676,7 @@ public sealed class ExtractionReviewPersistenceService
         key is "coordinate_system"
             or "north_arrow"
             or "parish"
+            or "property_name"
             or "document_area"
             or "survey_date"
             or "survey_method"
@@ -727,6 +729,12 @@ public sealed class ExtractionReviewPersistenceService
     {
         if (rootNode["surveyed_property_names"] is not JsonArray propertyNames)
         {
+            var surveyMetadata = rootNode["survey_metadata"] as JsonObject;
+            var fallback = surveyMetadata?["property_name"] ?? rootNode["property_name"];
+            if (fallback is not null)
+            {
+                AddMetadataField(document, "surveyed_property_name", "Surveyed property name", fallback);
+            }
             return;
         }
 

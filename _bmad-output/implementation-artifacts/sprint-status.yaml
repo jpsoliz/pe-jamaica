@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-27
+last_updated: 2026-08-28
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -81,7 +81,8 @@ development_status:
   2-23c-add-pla-selected-plan-extraction-review-and-local-origin-geometry: done
   2-23d-add-pla-visual-comparison-and-finalize-upload-flow: review
   2-23e-add-pla-b-plan-annexation-from-pe-workflow-and-test-ux: review
-  2-23f-add-crop-and-attach-action-to-supporting-documents-viewer: review
+  2-23f-add-crop-and-attach-action-to-supporting-documents-viewer: done
+  2-23g-wire-pla-b-plan-annexation-task-workflow-and-complete-flow: done
   epic-2-retrospective: optional
 
   epic-3: backlog

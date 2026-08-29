@@ -858,6 +858,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
     private static bool IsReplaceableGeneratedSourceType(string sourceType)
     {
         return string.Equals(sourceType, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceType, "st_plan_annex_image", StringComparison.OrdinalIgnoreCase)
             || PlaOutputDocumentSourceTypeResolver.OrderedOutputSourceTypes.Contains(sourceType, StringComparer.OrdinalIgnoreCase);
     }
 

@@ -96,6 +96,8 @@ internal static class ShellState
 
     public static string? CompareWorkflowStagesWarning { get; } = Settings.CompareWorkflowStagesWarning;
 
+    public static PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask { get; } = Settings.PlaBPlanAnnexationTask;
+
     public static bool CanOpenComputeWorkflow => Session.CanOpenParcelWorkflow && IsSelectedTransactionComputeWorkflow;
 
     public static bool IsSelectedTransactionComputeWorkflow => ParcelWorkflowStageRouter.IsComputeStage(

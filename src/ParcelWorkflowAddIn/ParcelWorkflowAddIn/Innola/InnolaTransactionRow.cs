@@ -20,7 +20,10 @@ public sealed record InnolaTransactionRow(
     string? Applicant = null,
     string? OwnerOrResponsibleParty = null,
     string? Surveyor = null,
-    string? Parish = null)
+    string? Parish = null,
+    string? WorkflowName = null,
+    string? SubworkflowName = null,
+    IReadOnlyList<string>? WorkflowNames = null)
 {
     public string DisplayParty => FirstNonEmpty(OwnerOrResponsibleParty, ResponsibleParty, Applicant, AssignedUser, AssignedGroup, "Unassigned");
 

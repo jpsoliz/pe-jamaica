@@ -14,6 +14,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 {
     private const string SpatialUnitClass = "SpatialUnitExt";
     private const string SpatialUnitTypeKey = "spatialunit";
+    private const string SquareMetersAreaUnitTypeKey = "area_unit_type_sqm";
     private const string DefaultParishDisplayName = "St Andrew";
     private const string DefaultParishTypeKey = "parish_st_andrew";
     private static readonly JsonSerializerOptions TraceJsonOptions = new()
@@ -35,6 +36,71 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
     {
         this.httpClient = httpClient;
         this.refreshSession = refreshSession;
+    }
+
+    public async Task<InnolaSpatialUnitExaminationNumberResult> GetExaminationNumberAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction transaction,
+        string examinationFieldName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(session.ServerUrl) || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return InnolaSpatialUnitExaminationNumberResult.Failed(
+                "Could not read Spatial Unit because the Innola session is not authorized.",
+                "unauthorized");
+        }
+
+        if (string.IsNullOrWhiteSpace(transaction.TransactionId))
+        {
+            return InnolaSpatialUnitExaminationNumberResult.Failed(
+                "Could not read Spatial Unit because the transaction id is unavailable.",
+                "transaction_id_missing");
+        }
+
+        var fieldName = string.IsNullOrWhiteSpace(examinationFieldName)
+            ? "examinationNumber"
+            : examinationFieldName.Trim();
+        try
+        {
+            session = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
+            using var response = await InnolaApiResilience.SendAsync(
+                httpClient,
+                new InnolaApiOperation("spatial unit examination lookup", TransactionNumber: transaction.TransactionNumber),
+                () =>
+                {
+                    var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        InnolaHttp.BuildUri(
+                            session.ServerUrl,
+                            $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={SpatialUnitTypeKey}&transactionId={Uri.EscapeDataString(transaction.TransactionId)}"));
+                    InnolaHttp.ApplyAuthHeaders(request, session.AccessToken);
+                    return request;
+                },
+                cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return InnolaSpatialUnitExaminationNumberResult.Failed(
+                    InnolaApiResilience.UserMessageFor(response.StatusCode, "Could not read Spatial Unit. Try again."),
+                    InnolaApiResilience.CategoryFor(response.StatusCode));
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var objects = ReadSpatialUnitObjects(body);
+            var examinationNumber = objects
+                .Select(item => ReadString(item, fieldName))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            return string.IsNullOrWhiteSpace(examinationNumber)
+                ? InnolaSpatialUnitExaminationNumberResult.Failed(
+                    $"SpatialUnit {fieldName} is missing for this transaction.",
+                    "spatial_unit_examination_missing")
+                : InnolaSpatialUnitExaminationNumberResult.Succeeded(examinationNumber);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or TaskCanceledException or InvalidOperationException or UriFormatException)
+        {
+            Debug.WriteLine($"Innola Spatial Unit lookup failed. TransactionId={transaction.TransactionId}; Error={exception.GetType().Name}.");
+            return InnolaSpatialUnitExaminationNumberResult.Failed("Could not read Spatial Unit. Try again.", exception.GetType().Name);
+        }
     }
 
     public async Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
@@ -114,6 +180,36 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
     {
         return exception.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<JsonObject> ReadSpatialUnitObjects(string responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        var node = JsonNode.Parse(responseBody);
+        var array = node switch
+        {
+            JsonArray direct => direct,
+            JsonObject root when root["value"] is JsonArray value => value,
+            JsonObject root when root["data"] is JsonArray data => data,
+            JsonObject root when root["items"] is JsonArray items => items,
+            JsonObject root when root["records"] is JsonArray records => records,
+            JsonObject root when root["result"] is JsonArray result => result,
+            _ => null
+        };
+
+        if (array is null)
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        return array.OfType<JsonObject>()
+            .Where(item => string.Equals(ReadString(item, "@c"), SpatialUnitClass, StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrWhiteSpace(ReadString(item, "examinationNumber", "examination_number")))
+            .ToArray();
     }
 
     private async Task<InnolaSession> RefreshSessionBeforeSpatialUnitWriteAsync(
@@ -374,6 +470,8 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
         spatialUnit["idMarkupType"] = "spatialunit";
         spatialUnit["transactionId"] = transaction.TransactionId;
         spatialUnit["transactionNumber"] = transaction.TransactionNumber;
+        spatialUnit["planNumber"] = transaction.TransactionNumber;
+        spatialUnit["examinationNumber"] = transaction.TransactionNumber;
         spatialUnit["taskId"] = transaction.TaskId;
         spatialUnit["reviewDecision"] = disposition.Decision;
         spatialUnit["reviewDecisionUtc"] = disposition.DecidedAtUtc;
@@ -436,6 +534,11 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             spatialUnit["label"] = polygonAttributes.Pid;
         }
 
+        if (!string.IsNullOrWhiteSpace(polygonAttributes.PropertyName))
+        {
+            spatialUnit["propertyName"] = polygonAttributes.PropertyName;
+        }
+
         spatialUnit["Parish"] = string.IsNullOrWhiteSpace(polygonAttributes.Parish)
             ? DefaultParishDisplayName
             : polygonAttributes.Parish;
@@ -447,6 +550,9 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             spatialUnit["legalArea"] = polygonAttributes.Area.Value;
             spatialUnit["surveyArea"] = polygonAttributes.Area.Value;
             spatialUnit["gisArea"] = polygonAttributes.Area.Value;
+            spatialUnit["legalAreaUnitType"] = SquareMetersAreaUnitTypeKey;
+            spatialUnit["surveyAreaUnitType"] = SquareMetersAreaUnitTypeKey;
+            spatialUnit["gisAreaUnitType"] = SquareMetersAreaUnitTypeKey;
             spatialUnit["legalAreaApproximate"] = false;
         }
 
@@ -494,7 +600,8 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
                 pid,
                 ReadString(properties, "parish", "Parish") ?? DefaultParishDisplayName,
                 ReadDouble(properties, "area_sq_m", "area"),
-                suid));
+                suid,
+                ReadString(properties, "propertyName", "property_name", "surveyed_property_name")));
         }
 
         return polygons;
@@ -606,6 +713,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             ["polygon_attributes"] = new JsonArray(polygonAttributes.Select(item => new JsonObject
             {
                 ["pid"] = item.Pid,
+                ["property_name"] = item.PropertyName,
                 ["parish"] = item.Parish,
                 ["area"] = item.Area,
                 ["suid"] = item.Suid
@@ -851,4 +959,5 @@ internal sealed record WorkingPolygonSpatialUnitAttributes(
     string? Pid,
     string? Parish,
     double? Area,
-    string? Suid);
+    string? Suid,
+    string? PropertyName);

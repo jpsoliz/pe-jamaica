@@ -4,6 +4,12 @@ namespace ParcelWorkflowAddIn.Innola;
 
 public interface IInnolaSpatialUnitService
 {
+    Task<InnolaSpatialUnitExaminationNumberResult> GetExaminationNumberAsync(
+        InnolaSession session,
+        SelectedInnolaTransaction transaction,
+        string examinationFieldName,
+        CancellationToken cancellationToken = default);
+
     Task<InnolaSpatialUnitSaveResult> CreateOrUpdateAsync(
         InnolaSession session,
         SelectedInnolaTransaction transaction,
@@ -37,3 +43,20 @@ public sealed record InnolaSpatialUnitPolygonReference(
     string? ParcelName,
     string? SpatialUnitId,
     string? SpatialUnitSuid);
+
+public sealed record InnolaSpatialUnitExaminationNumberResult(
+    bool Success,
+    string? ExaminationNumber,
+    string Message,
+    string? ErrorCategory)
+{
+    public static InnolaSpatialUnitExaminationNumberResult Succeeded(string examinationNumber)
+    {
+        return new InnolaSpatialUnitExaminationNumberResult(true, examinationNumber, "Spatial Unit examination number resolved.", null);
+    }
+
+    public static InnolaSpatialUnitExaminationNumberResult Failed(string message, string? errorCategory = null)
+    {
+        return new InnolaSpatialUnitExaminationNumberResult(false, null, message, errorCategory);
+    }
+}

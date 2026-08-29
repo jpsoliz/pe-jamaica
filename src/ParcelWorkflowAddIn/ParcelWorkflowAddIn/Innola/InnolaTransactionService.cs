@@ -346,6 +346,18 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             ?? ReadNested(nestedTransaction, "parish", "parishName")
             ?? ReadNested(nestedApplication, "parish", "parishName"));
 
+        var workflowName = InnolaHttp.ReadString(item, "workflow_name", "workflowName", "workflow", "process_name", "processName")
+            ?? ReadNested(nestedTransaction, "workflow_name", "workflowName", "workflow", "process_name", "processName");
+        var subworkflowName = InnolaHttp.ReadString(item, "subworkflow_name", "subworkflowName", "subworkflow", "subWorkflowName", "subWorkflow")
+            ?? ReadNested(nestedTransaction, "subworkflow_name", "subworkflowName", "subworkflow", "subWorkflowName", "subWorkflow");
+        var workflowNames = ReadNameList(item, "workflows", "workflow_names", "workflowNames", "subworkflows", "subworkflow_names", "subworkflowNames")
+            .Concat(ReadNameList(nestedTransaction, "workflows", "workflow_names", "workflowNames", "subworkflows", "subworkflow_names", "subworkflowNames"))
+            .Concat(new[] { workflowName, subworkflowName }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         return new InnolaTransactionRow(
             taskId ?? string.Empty,
             transactionId ?? transactionNumber,
@@ -370,7 +382,10 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
             applicant,
             ownerOrResponsibleParty,
             surveyor,
-            parish);
+            parish,
+            workflowName,
+            subworkflowName,
+            workflowNames);
     }
 
     private static JsonElement? TryObject(JsonElement element, string name)
@@ -383,6 +398,66 @@ public sealed class InnolaTransactionService : IInnolaTransactionService
     private static string? ReadNested(JsonElement? element, params string[] names)
     {
         return element.HasValue ? InnolaHttp.ReadString(element.Value, names) : null;
+    }
+
+    private static IEnumerable<string> ReadNameList(JsonElement? element, params string[] names)
+    {
+        if (!element.HasValue || element.Value.ValueKind != JsonValueKind.Object)
+        {
+            return Array.Empty<string>();
+        }
+
+        var values = new List<string>();
+        foreach (var name in names)
+        {
+            if (!element.Value.TryGetProperty(name, out var property))
+            {
+                continue;
+            }
+
+            ReadNameListValue(property, values);
+        }
+
+        return values;
+    }
+
+    private static void ReadNameListValue(JsonElement value, List<string> values)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            var text = value.GetString();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                values.Add(text);
+            }
+
+            return;
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                var text = item.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    values.Add(text);
+                }
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                var text = InnolaHttp.ReadString(item, "name", "Name", "label", "Label", "workflow_name", "workflowName", "subworkflow_name", "subworkflowName");
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    values.Add(text);
+                }
+            }
+        }
     }
 
     private static DateTimeOffset? ReadNestedDate(JsonElement? element, params string[] names)

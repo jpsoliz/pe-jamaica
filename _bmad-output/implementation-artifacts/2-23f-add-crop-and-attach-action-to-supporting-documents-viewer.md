@@ -37,13 +37,14 @@ The standard Supporting Documents viewer already exists from Story 9.2 as a sepa
 10. Given `st_plan_annex_image` is configured, then it is used as the default upload source/document type for this story; if the source type is missing or invalid, upload is blocked with a non-secret configuration diagnostic.
 11. Given the upload succeeds, then local evidence records the uploaded status and the Supporting Documents/crop UI reports success without completing or finalizing the transaction.
 12. Given the upload fails, then the PNG and metadata remain in the case folder, the failure category/message is preserved for retry, and the transaction is not marked complete.
-13. Given the examiner reopens the same transaction case folder, then the last saved PLA_B crop evidence can be detected and surfaced as available for attach/retry.
-14. Given the examiner changes transaction or closes/suspends/finalizes/cancels the active transaction, then the crop window closes, in-flight render/upload work is canceled where possible, unsaved selections are discarded, saved PNG evidence remains only in its original case folder, and crop state cannot leak into another transaction.
-15. Given the selected crop would create an extremely large PNG, then the UI estimates or validates output dimensions/file size and warns the user before upload; the user may continue unless a hard technical renderer/upload limit is reached.
-16. Given the crop is generated from a good-resolution color PDF or raster image, then the PNG preserves color and is generated using the selected DPI/output-resolution behavior.
-17. Given the examiner needs higher detail, then DPI options include at least `200`, `300`, `400`, and `600`, with `300` as the default; for raster images, follow image-processing best practices and do not imply that higher DPI can recover detail not present in the source pixels.
-18. Given the crop feature is implemented, then existing Supporting Documents behaviors from Story 9.2 continue to work: document selector, refresh, PDF viewing fallback, image/text preview, and transaction-scoped cleanup.
-19. Given the Supporting Documents viewer is shared, then the `Crop` action is available globally for supported loaded documents, while attach still requires a resolvable Current TR and does not open or require PLA_A plan-annexation extraction, PLA_A review, or PLA_A finalize behavior.
+13. Given a prior `st_plan_annex_image` generated crop source is already registered on the transaction, when Attach registers a newly uploaded crop image source, then the prior generated crop source registration is replaced so the transaction keeps the current crop image instead of duplicate stale crop image sources.
+14. Given the examiner reopens the same transaction case folder, then the last saved PLA_B crop evidence can be detected and surfaced as available for attach/retry.
+15. Given the examiner changes transaction or closes/suspends/finalizes/cancels the active transaction, then the crop window closes, in-flight render/upload work is canceled where possible, unsaved selections are discarded, saved PNG evidence remains only in its original case folder, and crop state cannot leak into another transaction.
+16. Given the selected crop would create an extremely large PNG, then the UI estimates or validates output dimensions/file size and warns the user before upload; the user may continue unless a hard technical renderer/upload limit is reached.
+17. Given the crop is generated from a good-resolution color PDF or raster image, then the PNG preserves color and is generated using the selected DPI/output-resolution behavior.
+18. Given the examiner needs higher detail, then DPI options include at least `200`, `300`, `400`, and `600`, with `300` as the default; for raster images, follow image-processing best practices and do not imply that higher DPI can recover detail not present in the source pixels.
+19. Given the crop feature is implemented, then existing Supporting Documents behaviors from Story 9.2 continue to work: document selector, refresh, PDF viewing fallback, image/text preview, and transaction-scoped cleanup.
+20. Given the Supporting Documents viewer is shared, then the `Crop` action is available globally for supported loaded documents, while attach still requires a resolvable Current TR and does not open or require PLA_A plan-annexation extraction, PLA_A review, or PLA_A finalize behavior.
 
 ## Tasks / Subtasks
 
@@ -76,12 +77,13 @@ The standard Supporting Documents viewer already exists from Story 9.2 as a sepa
   - [x] Restore existing crop metadata on reopen only when source and PNG still exist for the same Current TR.
   - [x] Record both local save status and upload status so a future finalize step can avoid duplicate generated-evidence upload.
 
-- [x] Attach generated PNG to Innola. (AC: 9-12, 19)
+- [x] Attach generated PNG to Innola. (AC: 9-13, 20)
   - [x] Reuse `IInnolaTransactionDetailService.UploadAttachmentAsync`; do not create a parallel Innola upload client.
   - [x] Add/verify the generated crop upload source/document type in configuration as `st_plan_annex_image`.
   - [x] Resolve source type from configuration, defaulting to `st_plan_annex_image`.
   - [x] Always upload to the Current TR represented by the active transaction/case context; never upload the crop image to the PE transaction.
   - [x] Upload as `image/png`.
+  - [x] Replace an existing generated `st_plan_annex_image` source registration when the newly uploaded crop is registered.
   - [x] Persist uploaded/failed status for retry without completing the task.
   - [x] Keep final transaction completion/finalize as a later workflow step, not part of this story.
 
@@ -174,6 +176,9 @@ GPT-5 Codex
 - `dotnet src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\.tmp\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "innola attachment upload"` - passed, 5 tests.
 - `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj /p:BaseIntermediateOutputPath=.tmp\obj\ /p:BaseOutputPath=.tmp\bin\` - passed; existing nullable warning in `SurveyPlanBoundarySolverTests.cs`.
 - `dotnet src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\.tmp\bin\Debug\net8.0-windows\ParcelWorkflowAddIn.Tests.dll "supporting documents"` - passed, 11 tests after crop zoom patch.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\ "innola attachment upload replaces pla b crop image source type"` - passed, 1 test after crop image overwrite registration patch.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false -p:BaseIntermediateOutputPath=.artifacts\obj\ -p:BaseOutputPath=.artifacts\bin\` - passed after crop image overwrite registration patch, 0 warnings/errors.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.291`.
 
 ### Completion Notes List
 
@@ -192,6 +197,7 @@ GPT-5 Codex
 - Deep-dive validation confirmed Current TR binding and local `st_plan_annex_image` configuration are correct. The user's Swagger browser check prompted for a client certificate, while local store scans did not find the configured certificate through the add-in's manual lookup path.
 - Patched the crop upload path to use the shared `ShellState.TransactionDetails` Innola client, patched default Innola detail/transaction services to use `InnolaHttpClientFactory`, and added automatic Windows client-certificate selection when the configured manual certificate is not found.
 - Added crop preview zoom support with toolbar `-`/`+` controls and `Ctrl` + mouse wheel. Zoom is display-only via a canvas layout transform, so saved crop coordinates still convert from the original preview pixel rectangle back to source coordinates.
+- Added transaction source-registration replacement for generated `st_plan_annex_image` crop images so re-attaching the same crop filename/source type keeps the current image registration instead of retaining stale duplicate generated crop image sources.
 
 ### File List
 
@@ -231,3 +237,4 @@ GPT-5 Codex
 | 2026-08-27 | 0.7 | Added fallback to original transaction source document type for crop PDF evidence. | Codex |
 | 2026-08-27 | 0.8 | Reverted exploratory upload fallbacks; restored strict `st_plan_annex_image` PNG attach and routed crop upload through the shared certificate-aware Innola client with automatic certificate selection fallback. | Codex |
 | 2026-08-27 | 0.9 | Added display-only crop preview zoom controls and `Ctrl` + mouse wheel support. | Codex |
+| 2026-08-28 | 1.0 | Added generated crop image source replacement for `st_plan_annex_image` so repeat Attach registers the current PNG instead of duplicate stale image sources. | Codex |

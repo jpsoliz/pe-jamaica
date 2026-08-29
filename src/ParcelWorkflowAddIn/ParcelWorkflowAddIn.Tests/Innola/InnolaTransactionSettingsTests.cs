@@ -64,10 +64,11 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(4, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
+        TestAssert.Equal(5, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
         TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Fallback review workspace mode mismatch.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "Fallback first supported transaction type mismatch.");
         TestAssert.True(settings.SupportedTransactionTypes.Contains("PLA"), "Fallback supported transaction types should include PLA.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("First Registration"), "Fallback supported transaction types should include First Registration.");
         TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Annexation"), "Fallback supported transaction types should include Plan Annexation.");
         TestAssert.True(settings.ReviewWorkspaceModeWarning?.Contains("safe default", StringComparison.OrdinalIgnoreCase) == true, "Fallback review workspace mode warning mismatch.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("safe defaults", StringComparison.OrdinalIgnoreCase) == true, "Fallback warning mismatch.");
@@ -87,7 +88,7 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(4, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
+        TestAssert.Equal(5, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("empty or invalid", StringComparison.OrdinalIgnoreCase) == true, "Invalid list warning mismatch.");
     }
 

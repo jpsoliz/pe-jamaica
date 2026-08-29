@@ -383,6 +383,8 @@ GPT-5 Codex (Amelia)
 - `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release --no-build "pxa review xaml" "points validation diagnostics"` - passed, 3 tests.
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release /p:UseSharedCompilation=false` - passed, 0 warnings, 0 errors.
 - `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.285`.
+- `python -m unittest src.ProcessingTools.tests.test_survey_plan_ocr_vision_extraction src.ProcessingTools.tests.test_output_adapter` with `PYTHONPATH=src/ProcessingTools` - passed, 29 tests after property-name extraction/output propagation patch.
+- `tools/package_addin.ps1 -Configuration Release` - passed; add-in package generated and registered as version `1.1.293`.
 
 ### Completion Notes List
 
@@ -401,6 +403,7 @@ GPT-5 Codex (Amelia)
 - Review-fix patch clarified the Memorandum tab's editable status as `Reviewer Disposition`, highlights unresolved `Needs Review`/`Failed`/`Not Available` rows in red, returns rows to normal text color after the reviewer selects `Accepted`, `Corrected`, `Override`, or `Disposition`, and wraps long Value/Finding text.
 - Compute examination report output now includes all memorandum rule results and exposes each memorandum finding's evidence value and message in both the report JSON and the PDF Memorandum Findings table.
 - Fixed the Memorandum tab crash/freeze found on TR `100000755`: replaced invalid `DataGrid RowHeight="Auto"` with bounded row rendering, kept wrapped Value/Finding text with tooltips, and hardened review-window diagnostics for WPF XAML parse/render exceptions.
+- Patched property-name extraction/review propagation for TR `100000851`: `survey_metadata.property_name` now captures labels such as `Property`, remains visible in metadata review, and is carried into output summary/geometry for Spatial Unit closeout.
 
 ### File List
 
@@ -446,3 +449,4 @@ GPT-5 Codex (Amelia)
 | 2026-08-21 | 1.4 | Added loader recovery for root-level OCR text and memorandum-sourced metadata, and preserved visible scale text in extracted values. | Mary / Amelia / Codex |
 | 2026-08-28 | 1.5 | Patched Memorandum review UX/status readability and compute report Memorandum Findings value/message output while keeping sprint status in review pending code review. | JotaPe / Amelia / Codex |
 | 2026-08-28 | 1.6 | Fixed Memorandum tab WPF crash caused by invalid `RowHeight="Auto"` on the rules grid; bounded wrapped rows, preserved full values via tooltips, and packaged add-in `1.1.285`. | JotaPe / Amelia / Codex |
+| 2026-08-28 | 1.7 | Added property-name extraction/review/output propagation so memorandum/source `Property` values can flow to downstream Spatial Unit save. | JotaPe / Amelia / Codex |
