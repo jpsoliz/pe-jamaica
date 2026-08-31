@@ -467,14 +467,13 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPrope
     [
         "Accepted",
         "Corrected",
-        "Override",
-        "Disposition"
+        "Skipped",
+        "Not available"
     ];
 
     public bool IsUnresolvedDisposition =>
         string.Equals(reviewerStatus, "Needs Review", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(reviewerStatus, "Failed", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(reviewerStatus, "Not Available", StringComparison.OrdinalIgnoreCase);
+        || string.Equals(reviewerStatus, "Failed", StringComparison.OrdinalIgnoreCase);
 
     public string ReviewerStatus
     {

@@ -73,8 +73,10 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && memorandumViewModelCode.Contains("Needs Review", StringComparison.Ordinal)
             && memorandumViewModelCode.Contains("Accepted", StringComparison.Ordinal)
             && memorandumViewModelCode.Contains("Corrected", StringComparison.Ordinal)
-            && memorandumViewModelCode.Contains("Override", StringComparison.Ordinal)
-            && memorandumViewModelCode.Contains("Disposition", StringComparison.Ordinal),
+            && memorandumViewModelCode.Contains("Skipped", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Not available", StringComparison.Ordinal)
+            && !memorandumViewModelCode.Contains("\"Override\"", StringComparison.Ordinal)
+            && !memorandumViewModelCode.Contains("\"Disposition\"", StringComparison.Ordinal),
             "Memorandum rule view-model should expose reviewer disposition states for unresolved/resolved row styling.");
         var workflowDockpaneCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
         TestAssert.True(

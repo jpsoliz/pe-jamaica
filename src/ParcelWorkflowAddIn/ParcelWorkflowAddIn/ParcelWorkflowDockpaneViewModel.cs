@@ -2188,9 +2188,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         var text = string.Join(" ", rule.Message, rule.ReviewerStatus).Trim();
         return text.Contains("accepted", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("override", StringComparison.OrdinalIgnoreCase)
             || text.Contains("corrected", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("disposition", StringComparison.OrdinalIgnoreCase);
+            || text.Contains("skipped", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("not available", StringComparison.OrdinalIgnoreCase);
     }
 
     private string BuildMemorandumDispositionBlockerText()
@@ -2224,7 +2224,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             && !MemorandumRuleHasDisposition(rule)) > blockers.Length
                 ? " ..."
                 : string.Empty;
-        return $"Memorandum review needs disposition for: {string.Join(", ", blockers)}{suffix}. In the Memorandum tab, set Status to Accepted, Corrected, Override, or another disposition note, then Save.";
+        return $"Memorandum review needs disposition for: {string.Join(", ", blockers)}{suffix}. In the Memorandum tab, set Status to Accepted, Corrected, Skipped, or Not available, then Save.";
     }
 
     private static bool TryReadAreaValue(JsonObject? node, string propertyName, out double area)

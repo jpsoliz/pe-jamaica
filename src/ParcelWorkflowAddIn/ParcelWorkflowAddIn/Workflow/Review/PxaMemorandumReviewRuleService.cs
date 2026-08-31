@@ -401,7 +401,7 @@ public sealed class PxaMemorandumReviewRuleService
             "passed" => "Passed",
             "needs_review" => "Needs Review",
             "failed" => "Failed",
-            "not_available" => "Not Available",
+            "not_available" => "Not available",
             "not_applicable" => "Not Applicable",
             "disabled" => "Disabled",
             "skipped" => "Skipped",
