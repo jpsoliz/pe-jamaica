@@ -17,8 +17,8 @@ Status: done
 ## Story
 
 As a Plan Examiner working a First Registration transaction with a Plan Annexation subworkflow,
-I want the Plan Annexation Task form to derive its current transaction and PE number from Innola data and complete the current stage after processing succeeds,
-so that PLA_B moves from a test utility into the real `In Plan Annexation Preparation` workflow step without manual PE entry.
+I want the Plan Annexation Task form to derive its current transaction from Innola data, prefill PE number from `SpatialUnitExt.examinationNumber` when available, allow PE override for processing, and complete the current stage after processing succeeds,
+so that PLA_B moves from a test utility into the real `In Plan Annexation Preparation` workflow step while still allowing the examiner to proceed when the PE number must be corrected manually.
 
 ## Business Context
 
@@ -34,9 +34,9 @@ The attached workflow diagrams are visual context only. They show that First Reg
 4. Given the Plan Annexation Task form opens for an eligible transaction, then the title is `Plan Annexation Task`, `Current Transaction:` is prefilled from the selected/loaded transaction number, and `PE Number` is initially empty or loading until SpatialUnit lookup resolves.
 5. Given the form has a selected/loaded transaction, when SpatialUnit lookup succeeds and `SpatialUnit.examinationNumber` is non-empty, then `PE Number` is populated with that value.
 6. Given SpatialUnit lookup finds no SpatialUnit or finds an empty `examinationNumber`, then `Process ...` and `Complete` remain disabled, the PE field remains empty, and only `Cancel`/close remains available.
-7. Given the form is displayed, then both `Current Transaction:` and `PE Number` text boxes are read-only; the examiner cannot manually override either value.
+7. Given the form is displayed, then `Current Transaction:` is read-only and `PE Number:` is editable after being prefilled from SpatialUnit lookup when available.
 8. Given `Process ...` is enabled and clicked, then it reuses the existing PLA_B load/recovery path from Story 2.23E to load current transaction source data and PE-derived map/recovery content.
-9. Given `Process ...` succeeds, then the form records that processing is complete, reports a visible success message, keeps both read-only field values visible, and enables `Complete`.
+9. Given `Process ...` succeeds, then the form records that processing is complete, reports a visible success message, keeps current transaction and PE field values visible, and enables `Complete`.
 10. Given `Process ...` fails, then `Complete` remains disabled and the form preserves a clear retryable non-secret failure message without completing or moving the Innola task.
 11. Given `Complete` is enabled and clicked, then the form shows a Yes/No confirmation asking the examiner to complete Plan Annexation Preparation and move to `Review and Sign Plan Annexed Diagram`.
 12. Given the examiner chooses `No` in the confirmation, then the current stage, map contents, and form values remain unchanged.
@@ -61,8 +61,8 @@ The attached workflow diagrams are visual context only. They show that First Reg
 
 - [x] Convert the PLA_B form from manual test input to real task input. (AC: 4-10)
   - [x] Keep `PlaBTestInputWindow` or rename only if low risk; do not break callers unnecessarily.
-  - [x] Make `Current Transaction:` and `PE Number` read-only in XAML/view model.
-  - [x] Prefill Current Transaction from the selected/loaded transaction; remove manual PE editing.
+  - [x] Make `Current Transaction:` read-only in XAML/view model.
+  - [x] Prefill Current Transaction from the selected/loaded transaction and prefill PE Number from SpatialUnit lookup when available while keeping PE Number editable for processing.
   - [x] Update `Process ...` to require resolved `SpatialUnit.examinationNumber` and then reuse the existing PLA_B prepare/load logic.
   - [x] Track a `ProcessSucceeded` state that enables `Complete` only after the PLA_B recovery content is loaded.
 
@@ -82,13 +82,16 @@ The attached workflow diagrams are visual context only. They show that First Reg
   - [x] Unit-test settings parsing/defaults for the PLA_B Plan Annexation Task gate.
   - [x] Unit-test eligibility for First Registration plus Plan Annexation subworkflow/stage, and non-eligibility for wrong type/stage/missing subworkflow.
   - [x] Unit-test SpatialUnit lookup success, no-object, empty examinationNumber, and safe failure messages.
-  - [x] XAML/source-test read-only text boxes, `Process ...`, `Complete`, and `Cancel` button states.
+  - [x] XAML/source-test read-only Current Transaction, editable PE Number, `Process ...`, `Complete`, and `Cancel` button states.
   - [x] Unit-test Complete confirmation No leaves state unchanged.
   - [x] Unit-test Complete success calls lifecycle completion, clears PLA_B process state, and plans/removes only PLA_B-created map groups.
   - [x] Unit-test Complete failure keeps loaded content and leaves `Complete` retryable.
 
 ### Review Findings
 
+- [x] [Review][Decision] PE Number field contract is contradictory — resolved by clarifying that `SpatialUnitExt.examinationNumber` should prefill `PE Number:` when available, but the PE field remains editable for now so the examiner can proceed with Process.
+- [x] [Review][Patch] Reopened case-folder source files can mask current attachment download failures [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Pla/PlaBWorkflowServices.cs:1100] — resolved by tracking current-attachment availability separately from pre-existing source-folder files.
+- [x] [Review][Patch] Change log has duplicate `1.9` entries for different 2026-08-30 changes [_bmad-output/implementation-artifacts/2-23g-wire-pla-b-plan-annexation-task-workflow-and-complete-flow.md:222] — resolved by merging the attachment/status row into `1.9` and adding `1.10` for the PE/cancel clarification.
 - [x] [Review][Patch] Complete can commit the wrong transaction if panel selection changes after the PLA_B form opens [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs:1356] — resolved by requiring a started active transaction before the Plan Annexation form opens, capturing the active transaction in the form completion callback, and validating the form transaction still matches before lifecycle completion.
 - [x] [Review][Patch] Successful lifecycle completion with cleanup failure leaves local transaction state uncleared [src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs:1388] — resolved by clearing local workflow state after Innola lifecycle success before reporting any map cleanup warning.
 
@@ -137,7 +140,7 @@ The attached workflow diagrams are visual context only. They show that First Reg
 ## Testing Notes
 
 - Use mock HTTP tests for SpatialUnit reads before live Innola testing.
-- Add a test fixture where `SpatialUnitExt.examinationNumber = 100000628` and verify `PE Number` populates while remaining read-only.
+- Add a test fixture where `SpatialUnitExt.examinationNumber = 100000628` and verify `PE Number:` populates while remaining editable.
 - Add a fixture with empty/missing `examinationNumber` and verify only `Cancel` remains available.
 - Add stage-gate fixtures for:
   - eligible: `First Registration` plus `Plan Annexation` plus `In Plan Annexation Preparation`
@@ -156,12 +159,16 @@ GPT-5 Codex
 
 - `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln --no-restore -p:BaseIntermediateOutputPath=D:/Code/BMad-Method/dev/pe-jamaica/.tmp/obj/ -p:BaseOutputPath=D:/Code/BMad-Method/dev/pe-jamaica/.tmp/bin/` passed; one pre-existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
 - Full manual test harness with alternate output passed through the new PLA_B gate/window tests, then stopped later on `FileNotFoundException: ArcGIS.Desktop.Mapping, Version=13.6.0.0` in an ArcGIS-dependent spatial overlap test outside this story. Standalone full harness execution needs the ArcGIS Pro runtime assembly probing context.
+- `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln --no-restore -p:BaseIntermediateOutputPath=.artifacts/obj/ -p:BaseOutputPath=.artifacts/bin/` passed on 2026-08-30; one pre-existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- Full manual test harness passed the new PLA_B attachment-count and unsupported-attachment tests, then stopped later on the known `FileNotFoundException: ArcGIS.Desktop.Mapping, Version=13.6.0.0` spatial-overlap runtime boundary outside this patch.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -p:BaseIntermediateOutputPath=.artifacts\msbuild-obj\ -p:BaseOutputPath=.artifacts\msbuild-bin\` passed on 2026-08-30 after review fixes; one pre-existing nullable warning remains in `SurveyPlanBoundarySolverTests.cs`.
+- Full manual test harness passed the PLA_B block, including normalized numeric/TR-prefixed Cancel, stale source-file rejection after current download failure, attachment-count status, and `PE Number:` label tests, then stopped later on the known `FileNotFoundException: ArcGIS.Desktop.Mapping, Version=13.6.0.0` spatial-overlap runtime boundary outside this patch.
 
 ### Completion Notes List
 
 - Added config-driven PLA_B Plan Annexation Task gating for First Registration + Plan Annexation + In Plan Annexation Preparation.
 - Added SpatialUnit read lookup for configured `examinationNumber` from `SpatialUnitExt`, with no transaction custom-field fallback.
-- Converted the PLA_B form from manual test input into read-only transaction/PE display with Process state, Complete enablement, and confirmation-based completion.
+- Converted the PLA_B form from manual test input into a real task form with read-only current transaction, SpatialUnit-prefilled editable PE Number, Process state, Complete enablement, and confirmation-based completion.
 - Added lifecycle completion transition preference for the configured next stage label and exact map group cleanup for Process-created PLA_B groups.
 - Added focused tests for gate behavior, form source/XAML contract, SpatialUnit read, transition selection, and completion cleanup orchestration.
 - Resolved code review findings by requiring the PLA_B task form to open only for the started active transaction and by preserving local completion state even when post-completion map cleanup reports a warning.
@@ -172,6 +179,13 @@ GPT-5 Codex
 - Aligned Cancel and Complete cleanup behavior: both use the form's tracked Process map groups to remove PLA_B-loaded content before returning control to the transaction list.
 - Added PLA_B map presentation defaults for both current transaction and PE output feature layers: point labels use `point_id`, line labels use `length_txt`, polygon labels use `parcel_name`, and polygon feature layers load with 70% transparency.
 - Removed the PLA_B Process success popup and obsolete `No PLA_A workflow was opened` test message; failure popups remain. PLA_B labels now render without a halo while preserving the configured label size.
+- Simplified PLA_B Process success status to `Attachments for transaction [TR number]: [count] file(s).`, removing the recovery-loaded, current source-folder, and skipped-attachment lines from the user-facing task form status.
+- Kept skipped-attachment diagnostics internal while allowing unsupported-only current transaction attachments to continue with zero copied files; viewable attachment download/copy failures still block when no current files are copied.
+- Fixed the PLA_B attachment count so the task form reports non-system Innola current-transaction attachments, including attachments that are not copied into the local source folder, and updated the PE Number label to include a trailing colon.
+- Resolved the PE Number contract so the field is prefilled from `SpatialUnitExt.examinationNumber` when available but remains editable for now, and fixed Cancel to close quietly on success while accepting normalized TR-prefixed or numeric transaction numbers.
+- Fixed current-source download validation so stale files in an existing case folder cannot hide a failed current viewable attachment download.
+- Fixed Cancel to behave as a form-context cleanup instead of requiring an exact active transaction match, and disabled `Process ...` after a successful run to avoid duplicate GDB/map locks.
+- Added a Yes/No confirmation before Cancel clears the PLA_B task form context.
 
 ### File List
 
@@ -214,3 +228,6 @@ GPT-5 Codex
 | 2026-08-28 | 1.6 | Removed Process-loaded PLA_B map groups on Cancel as well as Complete. | Codex |
 | 2026-08-28 | 1.7 | Added PLA_B point/line/polygon labels and polygon transparency during map load. | Codex |
 | 2026-08-28 | 1.8 | Removed PLA_B Process success popup/obsolete PLA_A test text and dropped label halos while keeping label size. | Codex |
+| 2026-08-30 | 1.9 | Changed PLA_B success count to use Innola attachment count, added the PE Number label colon, simplified Process status, and refined zero-file source download handling. | Codex |
+| 2026-08-30 | 1.10 | Clarified editable PE Number behavior, fixed normalized/quiet Cancel behavior, and disabled duplicate Process runs after success. | Codex |
+| 2026-08-31 | 1.11 | Added Cancel confirmation before clearing the PLA_B task form context. | Codex |

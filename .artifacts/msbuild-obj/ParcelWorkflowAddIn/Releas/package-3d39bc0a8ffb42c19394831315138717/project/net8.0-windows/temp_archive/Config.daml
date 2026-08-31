@@ -1,0 +1,112 @@
+<ArcGIS defaultAssembly="ParcelWorkflowAddIn.dll"
+        defaultNamespace="ParcelWorkflowAddIn"
+        xmlns="http://schemas.esri.com/DADF/Registry"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <AddInInfo id="{7C3FB44F-F7D4-41AB-B51D-92EFCDB2E4AF}"
+                          desktopVersion="3.6" version="1.1.310">
+    <Name>Cadastre Tool by Sidwell</Name>
+    <Image>Images\Branding\CadastreTool32.png</Image>
+    <Description>ArcGIS Pro parcel workflow add-in scaffold.</Description>
+    <Author>Sidwell</Author>
+    <Company>Sidwell</Company>
+  </AddInInfo>
+  <modules>
+    <insertModule id="ParcelWorkflow_Module" className="Module1" autoLoad="true" caption="Parcel Workflow">
+      <tabs>
+        <tab id="ParcelWorkflow_Tab" caption="Cadastre tools">
+          <group refID="ParcelWorkflow_Group" />
+        </tab>
+      </tabs>
+      <groups>
+        <group id="ParcelWorkflow_Group" caption="Cadastre tools" appearsOnAddInTab="true">
+          <button refID="ParcelWorkflow_LoginButton" />
+          <button refID="ParcelWorkflow_SearchDockpaneButton" />
+          <button refID="ParcelWorkflow_ConfigurationButton" />
+          <button refID="ParcelWorkflow_AboutButton" />
+        </group>
+      </groups>
+      <controls>
+        <button id="ParcelWorkflow_LoginButton"
+                caption="Login"
+                className="ShowLoginWindowButton"
+                loadOnClick="false"
+                smallImage="Install\Images\Ribbon\Login16.png"
+                largeImage="Install\Images\Ribbon\Login32.png">
+          <tooltip heading="Login">Login to the Innola system<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_TransactionPanelButton"
+                caption="Transaction Panel"
+                className="ShowTransactionPanelButton"
+                loadOnClick="true"
+                smallImage="Install\Images\Ribbon\Tasks16.png"
+                largeImage="Install\Images\Ribbon\Tasks32.png">
+          <tooltip heading="Transaction Panel">Open available Innola transactions<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_SearchDockpaneButton"
+                caption="Search"
+                className="ShowParcelSearchDockpaneButton"
+                loadOnClick="false"
+                smallImage="Install\Images\TaskList\Search_Alt2_16.png"
+                largeImage="Install\Images\TaskList\Search_Alt2_32.png">
+          <tooltip heading="Search">Open parcel search for Legal, Cadastral, and Survey sources<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_ConfigurationButton"
+                caption="Settings"
+                className="ShowConfigurationWindowButton"
+                loadOnClick="false"
+                smallImage="Install\Images\Ribbon\Configuration16.png"
+                largeImage="Install\Images\Ribbon\Configuration32.png">
+          <tooltip heading="Settings">Open local parcel workflow settings<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_ShowDockpaneButton"
+                caption="Parcel Workflow"
+                className="ShowParcelWorkflowDockpaneButton"
+                loadOnClick="true"
+                smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
+                largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
+          <tooltip heading="Parcel Workflow">Open the parcel workflow pane<disabledText /></tooltip>
+        </button>
+        <button id="ParcelWorkflow_AboutButton"
+                caption="About"
+                className="ShowAboutWindowButton"
+                loadOnClick="false"
+                smallImage="Install\Images\Ribbon\About16.png"
+                largeImage="Install\Images\Ribbon\About32.png">
+          <tooltip heading="About">About this add-in<disabledText /></tooltip>
+        </button>
+        <tool id="ParcelWorkflow_TitlePlanMapPointTool"
+              caption="Pick title-plan map point"
+              className="TitlePlanMapPointTool"
+              loadOnClick="true"
+              condition="esri_mapping_mapPane"
+              smallImage="Install\Images\Ribbon\ParcelWorkflow16.png"
+              largeImage="Install\Images\Ribbon\ParcelWorkflow32.png">
+          <tooltip heading="Pick title-plan map point">Capture the next ArcGIS Pro map click as a matching title-plan control point<disabledText /></tooltip>
+        </tool>
+      </controls>
+      <dockPanes>
+        <dockPane id="ParcelWorkflow_TransactionPanelDockpane"
+                  caption="Transactions List"
+                  className="TransactionPanelDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="TransactionPanelDockpane" />
+        </dockPane>
+        <dockPane id="ParcelWorkflow_Dockpane"
+                  caption="Parcel Workflow"
+                  className="ParcelWorkflowDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="ParcelWorkflowDockpane" />
+        </dockPane>
+        <dockPane id="ParcelWorkflow_ParcelSearchDockpane"
+                  caption="Search"
+                  className="ParcelSearchDockpaneViewModel"
+                  dock="group"
+                  condition="esri_mapping_mapPane">
+          <content className="ParcelSearchDockpane" />
+        </dockPane>
+      </dockPanes>
+    </insertModule>
+  </modules>
+</ArcGIS>

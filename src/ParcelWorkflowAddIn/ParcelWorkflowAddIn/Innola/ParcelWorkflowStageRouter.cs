@@ -5,7 +5,8 @@ internal enum ParcelWorkflowStageRoute
     Unsupported,
     Compute,
     Compare,
-    PlaBPlanAnnexation
+    PlaBPlanAnnexation,
+    FabricMaintenancePromotion
 }
 
 internal static class ParcelWorkflowStageRouter

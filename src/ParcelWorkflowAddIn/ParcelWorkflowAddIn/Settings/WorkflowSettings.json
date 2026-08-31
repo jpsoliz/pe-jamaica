@@ -198,6 +198,12 @@
     ],
     "spatial_unit_examination_field": "examinationNumber"
   },
+  "fabric_maintenance_promotion": {
+    "enabled": true,
+    "subworkflow_name": "Parcel Fabric Maintenance",
+    "stage_name": "In Parcel Fabric Update",
+    "spatial_unit_examination_field": "examinationNumber"
+  },
   "compare_cadaster_query_timeout_seconds": 30,
   "compare_legal_cadaster": {
     "enabled": true,
@@ -419,6 +425,14 @@
       "required": false,
       "internal_only": true,
       "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_fabric_promotion_summary",
+      "workflow_role": "pla_generated_output",
+      "display_name": "Fabric Maintenance promotion summary",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".json"]
     },
     {
       "source_type": "st_plan_annex_output",

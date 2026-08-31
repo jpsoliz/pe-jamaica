@@ -89,7 +89,14 @@ internal static class ComputeAttachmentSourceTypeCatalog
             "Compute report",
             Required: false,
             InternalOnly: true,
-            Extensions: new[] { ".pdf" })
+            Extensions: new[] { ".pdf" }),
+        new ComputeAttachmentSourceTypeDefinition(
+            "st_fabric_promotion_summary",
+            SourceRole.PlaGeneratedOutput,
+            "Fabric Maintenance promotion summary",
+            Required: false,
+            InternalOnly: true,
+            Extensions: new[] { ".json" })
     };
 
     public static IReadOnlyList<string> RequiredWorkflowRoles { get; } = new[]

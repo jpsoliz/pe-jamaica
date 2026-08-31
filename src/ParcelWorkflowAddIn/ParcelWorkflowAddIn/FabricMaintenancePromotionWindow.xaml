@@ -1,0 +1,192 @@
+<controls:ProWindow x:Class="ParcelWorkflowAddIn.FabricMaintenancePromotionWindow"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
+                    Title="Fabric Maintenance"
+                    Width="980"
+                    Height="720"
+                    MinWidth="860"
+                    MinHeight="620"
+                    WindowStartupLocation="CenterOwner">
+  <Grid Background="#F4F7F9">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Border Grid.Row="0" Background="#EAF2F7" BorderBrush="#C8D6DF" BorderThickness="0,0,0,1" Padding="10,8">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock FontWeight="SemiBold" Text="Current Transaction:" />
+          <TextBlock Margin="6,0,16,0" Text="{Binding CurrentTransactionNumber}" />
+          <TextBlock FontWeight="SemiBold" Text="Parcel in Review:" />
+          <TextBox Width="110"
+                   Height="22"
+                   Margin="6,0,16,0"
+                   Text="{Binding ParcelInReview, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                   IsEnabled="{Binding IsParcelInReviewEditable}" />
+          <TextBlock FontWeight="SemiBold" Text="Target:" />
+          <TextBlock Margin="6,0,0,0" Text="{Binding TargetLabel}" />
+        </StackPanel>
+        <TextBlock Grid.Column="1" Text="Review-only map context" Foreground="#41515A" />
+      </Grid>
+    </Border>
+
+    <TabControl Grid.Row="1" Margin="8">
+      <TabItem Header="Review And Decide">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <Grid Margin="8">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="Final Target" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                  <RadioButton Width="108" Height="24" Content="Legal" GroupName="FinalTarget" IsChecked="{Binding IsLegalTargetSelected, Mode=TwoWay}" VerticalContentAlignment="Center" />
+                  <RadioButton Width="108" Height="24" Margin="8,0,0,0" Content="Cadastral" GroupName="FinalTarget" IsChecked="{Binding IsCadastralTargetSelected, Mode=TwoWay}" VerticalContentAlignment="Center" />
+                  <Button Width="116" Height="26" Margin="16,0,0,0" Content="Load Parcel" Command="{Binding LoadParcelCommand}" />
+                </StackPanel>
+                <TextBlock Margin="0,8,0,0" Text="{Binding CandidateStatus}" TextWrapping="Wrap" Foreground="#53636A" />
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="Review Results" />
+                <DataGrid Margin="0,8,0,0"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          IsReadOnly="True"
+                          ItemsSource="{Binding ReviewResults}"
+                          MinHeight="92">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="1.1*" />
+                    <DataGridTextColumn Header="Query Key" Binding="{Binding QueryKey}" Width="1.7*" />
+                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="70" />
+                    <DataGridTextColumn Header="Spatial Relation" Binding="{Binding SpatialRelationMode}" Width="1.3*" />
+                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1.6*" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="Final Candidates" />
+                <DataGrid Margin="0,8,0,0"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          IsReadOnly="True"
+                          ItemsSource="{Binding FinalCandidates}"
+                          SelectedItem="{Binding SelectedFinalCandidate, Mode=TwoWay}"
+                          MinHeight="98">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Candidate" Binding="{Binding CandidateId}" Width="1.3*" />
+                    <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="1.1*" />
+                    <DataGridTextColumn Header="ObjectID" Binding="{Binding ObjectId}" Width="90" />
+                    <DataGridTextColumn Header="Relationship" Binding="{Binding SpatialRelationship}" Width="1.1*" />
+                    <DataGridTextColumn Header="Overlap %" Binding="{Binding OverlapPercent}" Width="90" />
+                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1.4*" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="3" Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Border Grid.Column="0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+                <StackPanel>
+                  <TextBlock FontWeight="SemiBold" Text="Topology Review" />
+                  <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding ReviewChecks}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Margin="0,0,0,4" Text="{Binding Message}" TextWrapping="Wrap" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Width="126" Height="26" Content="Select Features" Command="{Binding SelectWorkingFeaturesCommand}" />
+                    <Button Width="130" Height="26" Margin="8,0,0,0" Content="Attribute Tables" Command="{Binding OpenAttributeTablesCommand}" />
+                    <Button Width="124" Height="26" Margin="8,0,0,0" Content="Topology Tools" Command="{Binding OpenTopologyToolsCommand}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+                <StackPanel>
+                  <TextBlock FontWeight="SemiBold" Text="Attribute Review" />
+                  <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding AttributeChecks}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Margin="0,0,0,4" Text="{Binding Message}" TextWrapping="Wrap" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Margin="0,8,0,0" Text="{Binding WorkingReviewPlan.Message}" TextWrapping="Wrap" Foreground="#53636A" />
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8" Margin="0,0,0,8">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="Decision" />
+                <WrapPanel Margin="0,8,0,0">
+                  <Button Width="130" Height="26" Margin="0,0,8,8" Content="Replace Existing" Command="{Binding ReplaceExistingCommand}" />
+                  <Button Width="180" Height="26" Margin="0,0,8,8" Content="Keep Existing / Discard" Command="{Binding KeepExistingDiscardWorkingCommand}" />
+                  <Button Width="184" Height="26" Margin="0,0,8,8" Content="Merge Attributes Only" Command="{Binding MergeUpdateAttributesOnlyCommand}" />
+                  <Button Width="140" Height="26" Margin="0,0,8,8" Content="Send Back" Command="{Binding SendBackForReviewCommand}" />
+                </WrapPanel>
+                <TextBlock Margin="0,0,0,8" Text="{Binding DecisionLabel, StringFormat=Selected decision: {0}}" FontWeight="SemiBold" />
+                <TextBox Height="78" Text="{Binding DecisionNotes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" />
+                <TextBlock Margin="0,8,0,0" Text="{Binding ReadinessText}" TextWrapping="Wrap" Foreground="#53636A" />
+                <Button Width="150" Height="28" Margin="0,8,0,0" HorizontalAlignment="Left" Content="Approve For Final Write" Command="{Binding ApproveForFinalWriteCommand}" />
+              </StackPanel>
+            </Border>
+          </Grid>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="Final Layer Write">
+        <Grid Margin="8">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Border Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+            <TextBlock FontWeight="SemiBold" Text="Final Write Confirmation" />
+          </Border>
+          <TextBlock Grid.Row="1" Margin="8" Text="{Binding ConfirmationSummary}" TextWrapping="Wrap" />
+          <Button Grid.Row="2" Width="148" Height="28" HorizontalAlignment="Right" Content="Confirm Final Write" Command="{Binding ConfirmFinalWriteCommand}" />
+        </Grid>
+      </TabItem>
+    </TabControl>
+
+    <Grid Grid.Row="2" Margin="10,0,10,8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="#41515A" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Width="92" Height="28" Margin="12,0,0,0" Content="Cancel" Command="{Binding CancelCommand}" />
+    </Grid>
+  </Grid>
+</controls:ProWindow>

@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Maintenance Promotion Stage Mockup</title>
+  <style>
+    :root {
+      --surface-base: #F6F8FA;
+      --surface-panel: #FFFFFF;
+      --surface-subtle: #EEF3F6;
+      --surface-inset: #F9FAFB;
+      --text-primary: #1F2933;
+      --text-secondary: #52616B;
+      --text-muted: #75838F;
+      --border-default: #C9D2D8;
+      --border-strong: #9AA8B2;
+      --primary: #1F6B75;
+      --legal: #2F6F9F;
+      --fiscal: #7A6A2D;
+      --working: #5B6C7A;
+      --success: #2F7D4F;
+      --warning: #A66321;
+      --danger: #B42318;
+      --info: #2B6CB0;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #D8E0E5;
+      color: var(--text-primary);
+      padding: 20px;
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .window {
+      width: 1510px;
+      min-height: 900px;
+      margin: 0 auto 22px;
+      background: var(--surface-base);
+      border: 1px solid var(--border-strong);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 18px 38px rgba(31, 41, 51, 0.16);
+    }
+
+    .titlebar {
+      background: var(--surface-panel);
+      border-bottom: 1px solid var(--border-default);
+      padding: 12px 14px;
+    }
+
+    .title-row, .meta-row, .stage-row, .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .meta-row {
+      margin-top: 6px;
+      color: var(--text-secondary);
+    }
+
+    .stage-row {
+      margin-top: 10px;
+      justify-content: flex-start;
+    }
+
+    .stage {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 5px 9px;
+    }
+
+    .stage.done {
+      background: #EAF5EE;
+      border-color: #B8D4C2;
+      color: #1F5D3B;
+    }
+
+    .stage.active {
+      background: #E7F3F5;
+      border-color: var(--primary);
+      color: #154F57;
+      font-weight: 600;
+    }
+
+    .stage.locked {
+      background: #F1F3F5;
+      color: var(--text-muted);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 330px 1fr 405px;
+      gap: 12px;
+      padding: 12px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--surface-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 10px 11px;
+      background: #FCFDFE;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .panel-header p {
+      margin: 4px 0 0;
+      color: var(--text-secondary);
+      line-height: 1.35;
+    }
+
+    .panel-body {
+      padding: 10px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 116px 1fr;
+      gap: 7px 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    label {
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 11px;
+    }
+
+    input, select, textarea, button {
+      min-height: 26px;
+      border: 1px solid var(--border-default);
+      border-radius: 3px;
+      background: #FFFFFF;
+      color: var(--text-primary);
+      font: inherit;
+    }
+
+    input, select, textarea {
+      padding: 4px 7px;
+      width: 100%;
+    }
+
+    input[readonly] {
+      background: var(--surface-subtle);
+      color: var(--text-secondary);
+    }
+
+    textarea {
+      min-height: 70px;
+      resize: vertical;
+    }
+
+    button {
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+
+    button.danger {
+      color: var(--danger);
+      background: #FFF7F7;
+      border-color: #D8A4A1;
+    }
+
+    button:disabled {
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .status-line {
+      border: 1px solid #B8D4C2;
+      background: #EAF5EE;
+      color: #1F5D3B;
+      border-radius: 4px;
+      padding: 7px 8px;
+      margin: 8px 0;
+      line-height: 1.35;
+    }
+
+    .status-line.warning {
+      background: #FFF4DF;
+      border-color: #E1BF82;
+      color: #70470D;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 7px;
+    }
+
+    .pill {
+      border: 1px solid var(--border-default);
+      background: var(--surface-inset);
+      border-radius: 2px;
+      padding: 2px 7px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .pill.success { background: #EAF5EE; border-color: #B8D4C2; color: #1F5D3B; }
+    .pill.warning { background: #FFF4DF; border-color: #E1BF82; color: #70470D; }
+    .pill.danger { background: #FDECEC; border-color: #D8A4A1; color: #8D1E13; }
+    .pill.legal { background: #E8F2FA; border-color: #AEC6DC; color: #20577E; }
+    .pill.fiscal { background: #F8F0D4; border-color: #D6C17B; color: #5F4D16; }
+
+    .map-shell {
+      height: 100%;
+      min-height: 620px;
+      background: #E7ECEF;
+      border: 1px solid var(--border-default);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .map-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 8px;
+    }
+
+    .map-view {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(117,131,143,0.16) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(117,131,143,0.16) 1px, transparent 1px),
+        #DFE8EC;
+      background-size: 42px 42px;
+    }
+
+    .parcel {
+      position: absolute;
+      border: 2px solid;
+      background: rgba(255,255,255,0.44);
+      transform: skew(-8deg);
+    }
+
+    .parcel.working {
+      left: 320px;
+      top: 170px;
+      width: 250px;
+      height: 185px;
+      border-color: var(--working);
+      background: rgba(91,108,122,0.22);
+    }
+
+    .parcel.target {
+      left: 350px;
+      top: 185px;
+      width: 244px;
+      height: 175px;
+      border-color: var(--fiscal);
+      background: rgba(122,106,45,0.16);
+    }
+
+    .parcel.neighbor-a {
+      left: 150px;
+      top: 145px;
+      width: 155px;
+      height: 175px;
+      border-color: #7C8A96;
+      background: rgba(124,138,150,0.12);
+    }
+
+    .parcel.neighbor-b {
+      left: 605px;
+      top: 200px;
+      width: 180px;
+      height: 210px;
+      border-color: #7C8A96;
+      background: rgba(124,138,150,0.12);
+    }
+
+    .label {
+      position: absolute;
+      background: rgba(255,255,255,0.88);
+      border: 1px solid var(--border-default);
+      border-radius: 3px;
+      padding: 3px 6px;
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+
+    .label.working { left: 345px; top: 132px; color: var(--working); }
+    .label.target { left: 520px; top: 370px; color: var(--fiscal); }
+    .label.issue { left: 575px; top: 150px; color: var(--danger); border-color: #D8A4A1; }
+
+    .map-footer {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border-default);
+      padding: 6px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--surface-subtle);
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .section-title {
+      margin: 12px 0 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .check {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 7px;
+      border: 1px solid var(--border-default);
+      border-radius: 4px;
+      padding: 7px;
+      background: var(--surface-inset);
+      line-height: 1.35;
+    }
+
+    .check .state {
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .state.pass { color: var(--success); }
+    .state.warn { color: var(--warning); }
+    .state.block { color: var(--danger); }
+
+    .footer {
+      border-top: 1px solid var(--border-default);
+      background: var(--surface-panel);
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(31,41,51,0.28);
+      display: grid;
+      place-items: center;
+    }
+
+    .modal {
+      width: 600px;
+      background: #FFFFFF;
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 18px 36px rgba(31,41,51,0.26);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .modal h2 {
+      margin: 0;
+      font-size: 14px;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--border-default);
+      background: #FCFDFE;
+    }
+
+    .modal-body {
+      padding: 12px;
+      line-height: 1.45;
+    }
+
+    .modal-actions {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border-default);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      background: var(--surface-inset);
+    }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="Fabric Maintenance promotion review mockup">
+    <header class="titlebar">
+      <div class="title-row">
+        <h1>Fabric Maintenance</h1>
+        <div class="actions">
+          <button>Refresh</button>
+          <button>Open Supporting Documents</button>
+          <button>Open Attribute Table</button>
+        </div>
+      </div>
+      <div class="meta-row">
+        <span>Current Transaction: TR100001349</span>
+        <span>PE Number: 100000814</span>
+        <span>Examiner: JotaPe</span>
+      </div>
+      <div class="stage-row">
+        <span class="stage done">Load Working Review</span>
+        <span class="stage active">Review And Decide</span>
+        <span class="stage locked">Final Layer Write</span>
+        <span class="stage locked">Complete Task</span>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Promotion Scope</h2>
+          <p>Choose exactly one target and load candidates before topology review.</p>
+        </div>
+        <div class="panel-body">
+          <div class="field-grid">
+            <label>Transaction</label>
+            <input readonly value="TR100001349">
+            <label>PE Number</label>
+            <input readonly value="100000814">
+            <label>Spatial Unit</label>
+            <input readonly value="SU-DEV-004982">
+            <label>Target</label>
+            <select>
+              <option>Fiscal / Cadastral</option>
+              <option>Legal</option>
+            </select>
+          </div>
+
+          <div class="button-row">
+            <button class="primary">Load Review Context</button>
+            <button>Zoom To Working</button>
+          </div>
+
+          <div class="status-line">
+            Working parcel loaded from working_review. Fiscal target candidates found: 1.
+          </div>
+
+          <div class="section-title">Target Candidate</div>
+          <table>
+            <thead>
+              <tr><th>Source</th><th>Identifier</th><th>Relationship</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="pill fiscal">Fiscal</span></td>
+                <td>LV 246813</td>
+                <td>Existing parcel overlaps 96.4%</td>
+              </tr>
+              <tr>
+                <td><span class="pill legal">Legal</span></td>
+                <td>Not loaded</td>
+                <td>Disabled because target is Fiscal</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-title">Layer Controls</div>
+          <div class="check-list">
+            <div class="check"><span class="state pass">On</span><span>Working parcel: TR100001349</span></div>
+            <div class="check"><span class="state pass">On</span><span>Fiscal candidate: LV 246813</span></div>
+            <div class="check"><span class="state warn">Optional</span><span>Legal reference hidden for this decision</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="map-shell">
+        <div class="map-toolbar">
+          <div class="button-row" style="margin-top:0">
+            <button>Select Working</button>
+            <button>Select Target</button>
+            <button>Run ArcGIS Topology Tools</button>
+            <button>Open Edit Tools</button>
+          </div>
+          <span class="pill warning">Review mode: no final edits yet</span>
+        </div>
+        <div class="map-view">
+          <div class="parcel neighbor-a"></div>
+          <div class="parcel working"></div>
+          <div class="parcel target"></div>
+          <div class="parcel neighbor-b"></div>
+          <div class="label working">working_review parcel</div>
+          <div class="label target">Fiscal existing parcel</div>
+          <div class="label issue">Boundary offset: 0.42 m</div>
+        </div>
+        <div class="map-footer">
+          <span>Map layers: Working Review, Fiscal Candidate, Fiscal Neighbors</span>
+          <span class="pill">JAD2001</span>
+          <span class="pill warning">Manual ArcGIS inspection required before write</span>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Checks And Decision</h2>
+          <p>Automated checks summarize risk. The examiner chooses the cadastral action.</p>
+        </div>
+        <div class="panel-body">
+          <div class="section-title">Topology Review</div>
+          <div class="check-list">
+            <div class="check"><span class="state pass">Pass</span><span>Working geometry is valid and has expected spatial reference.</span></div>
+            <div class="check"><span class="state warn">Warn</span><span>Existing Fiscal geometry overlaps the working parcel.</span></div>
+            <div class="check"><span class="state warn">Warn</span><span>Boundary offset exceeds 0.30 m tolerance on east edge.</span></div>
+            <div class="check"><span class="state pass">Pass</span><span>No gap or sliver detected against selected neighbors.</span></div>
+          </div>
+
+          <div class="section-title">Cadastral Consistency</div>
+          <table>
+            <thead>
+              <tr><th>Field</th><th>Working</th><th>Target</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>PE</td><td>100000814</td><td>100000814</td></tr>
+              <tr><td>Parcel</td><td>Lot 12</td><td>Lot 12</td></tr>
+              <tr><td>Area</td><td>1,645.45 sq m</td><td>1,641.02 sq m</td></tr>
+              <tr><td>Parish</td><td>Clarendon</td><td>Clarendon</td></tr>
+            </tbody>
+          </table>
+
+          <div class="section-title">Decision</div>
+          <div class="field-grid">
+            <label>Action</label>
+            <select>
+              <option>Replace existing target geometry</option>
+              <option>Keep existing and discard working geometry</option>
+              <option>Merge / update attributes only</option>
+              <option>Send back for review</option>
+            </select>
+          </div>
+          <textarea>Reviewed working parcel against Fiscal candidate LV 246813. Offset is acceptable after survey evidence review. Replace existing Fiscal geometry and retain audit reference.</textarea>
+
+          <div class="button-row">
+            <button>Save Draft</button>
+            <button class="primary">Approve For Final Write</button>
+            <button class="danger">Send Back</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="footer">
+      <span class="pill warning">Final layer write locked until decision artifact is saved</span>
+      <div class="button-row" style="margin-top:0">
+        <button>Cancel</button>
+        <button>Suspend</button>
+        <button class="primary" disabled>Write To Fiscal</button>
+      </div>
+    </footer>
+  </main>
+
+  <main class="window" style="position:relative; min-height:620px" aria-label="Final write confirmation mockup">
+    <header class="titlebar">
+      <div class="title-row">
+        <h1>Fabric Maintenance</h1>
+        <span class="pill warning">Final Layer Write</span>
+      </div>
+      <div class="meta-row">
+        <span>Current Transaction: TR100001349</span>
+        <span>Target: Fiscal / Cadastral</span>
+        <span>Decision: Replace existing target geometry</span>
+      </div>
+      <div class="stage-row">
+        <span class="stage done">Load Working Review</span>
+        <span class="stage done">Review And Decide</span>
+        <span class="stage active">Final Layer Write</span>
+        <span class="stage locked">Complete Task</span>
+      </div>
+    </header>
+
+    <section class="workspace" style="grid-template-columns: 1fr 405px">
+      <section class="map-shell">
+        <div class="map-toolbar">
+          <span>Preview: replace Fiscal parcel LV 246813 with working_review geometry</span>
+          <span class="pill danger">Writes are irreversible without rollback process</span>
+        </div>
+        <div class="map-view">
+          <div class="parcel target"></div>
+          <div class="parcel working"></div>
+          <div class="label working">new geometry</div>
+          <div class="label target">existing Fiscal geometry</div>
+        </div>
+        <div class="map-footer">
+          <span>Write plan: deactivate old target feature, insert replacement, record promotion audit</span>
+          <span class="pill">1 target feature</span>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Write Readiness</h2>
+          <p>Every required item must pass before the final layer is changed.</p>
+        </div>
+        <div class="panel-body">
+          <div class="check-list">
+            <div class="check"><span class="state pass">Pass</span><span>Decision artifact saved for current transaction.</span></div>
+            <div class="check"><span class="state pass">Pass</span><span>Only one target selected: Fiscal / Cadastral.</span></div>
+            <div class="check"><span class="state pass">Pass</span><span>Target feature still matches pre-write object id.</span></div>
+            <div class="check"><span class="state pass">Pass</span><span>Working review geometry has not changed since approval.</span></div>
+            <div class="check"><span class="state warn">Warn</span><span>Rollback will require audit-based restoration.</span></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <div class="modal-backdrop">
+      <section class="modal" aria-label="Confirm final cadastre write">
+        <h2>Confirm Final Cadastre Write</h2>
+        <div class="modal-body">
+          <p>This will replace one Fiscal / Cadastral parcel using the approved working_review geometry for TR100001349.</p>
+          <table>
+            <tbody>
+              <tr><th>Current transaction</th><td>TR100001349</td></tr>
+              <tr><th>PE number</th><td>100000814</td></tr>
+              <tr><th>Target</th><td>Fiscal / Cadastral</td></tr>
+              <tr><th>Action</th><td>Replace existing target geometry</td></tr>
+              <tr><th>Audit artifact</th><td>final_cadastre_promotion_summary.json</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button>Back To Review</button>
+          <button class="primary">Write To Fiscal</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

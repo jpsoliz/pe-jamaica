@@ -191,9 +191,130 @@ internal static class PlaBWorkflowServiceTests
 
         TestAssert.True(result.Success, result.Message);
         TestAssert.Equal(1, result.SourceFileCount, "PLA_B should keep usable source files when another attachment fails.");
+        TestAssert.Equal(2, result.SourceAttachmentCount, "PLA_B status should count Innola current transaction attachments, not only copied source files.");
         TestAssert.Equal(1, result.Warnings.Count, "PLA_B should preserve a skipped-attachment diagnostic.");
         TestAssert.True(result.Warnings[0].Contains("unavailable.pdf", StringComparison.Ordinal), "PLA_B warning should name the failed attachment.");
         TestAssert.True(File.Exists(Path.Combine(result.Layout!.SourceDirectory, "survey-plan.pdf")), "PLA_B should write the usable source attachment.");
+    }
+
+    public static async Task CurrentSourceDownloaderAllowsUnsupportedOnlyAttachmentsAsZeroFiles()
+    {
+        using var tempRoot = new TempDirectory();
+        var detail = CreateCurrentDetailWithSources(
+            new InnolaAttachmentMetadata(
+                "unsupported-1",
+                "design-package.zip",
+                ".zip",
+                "application/zip",
+                SourceRole.PlanMapReference,
+                "design",
+                10,
+                null,
+                "body-id:unsupported",
+                true,
+                "design"));
+        var service = new PlaBCurrentTransactionSourceDownloadService(
+            new PlaBCurrentSourceDetailService(detail, _ => throw new InvalidOperationException("Unsupported attachments should not be downloaded.")),
+            new CaseFolderStore(() => FixedNow(), () => "run-pla-b-source"),
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            () => FixedNow());
+
+        var result = await service.DownloadAsync(
+            CreateSession(),
+            CreateTransaction(),
+            tempRoot.Path,
+            "tester");
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.Equal(0, result.SourceFileCount, "Unsupported-only current attachments should not block PLA_B PE recovery.");
+        TestAssert.Equal(1, result.SourceAttachmentCount, "Unsupported current attachments should still be counted in the user-facing attachment total.");
+        TestAssert.Equal(1, result.Warnings.Count, "Unsupported attachments should remain available as diagnostics.");
+        TestAssert.True(result.Warnings[0].Contains("design-package.zip", StringComparison.Ordinal), "PLA_B warning should name the unsupported attachment.");
+    }
+
+    public static async Task CurrentSourceDownloaderFailsWhenOnlyViewableAttachmentDownloadFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var detail = CreateCurrentDetailWithSources(
+            new InnolaAttachmentMetadata(
+                "failed-pdf-1",
+                "survey-plan.pdf",
+                ".pdf",
+                "application/pdf",
+                SourceRole.PlanMapReference,
+                "st_survey_diagram",
+                10,
+                null,
+                "body-id:failed",
+                true,
+                "st_survey_diagram"));
+        var service = new PlaBCurrentTransactionSourceDownloadService(
+            new PlaBCurrentSourceDetailService(detail, _ => InnolaAttachmentContentResult.Failure("Could not load attachment. Try again.", "unauthorized")),
+            new CaseFolderStore(() => FixedNow(), () => "run-pla-b-source"),
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            () => FixedNow());
+
+        var result = await service.DownloadAsync(
+            CreateSession(),
+            CreateTransaction(),
+            tempRoot.Path,
+            "tester");
+
+        TestAssert.False(result.Success, "Failed viewable downloads should still block when no current attachments were copied.");
+        TestAssert.True(result.Message.Contains("source attachments could not be downloaded", StringComparison.Ordinal), "Failure should explain current source download failure.");
+        TestAssert.Equal(1, result.Warnings.Count, "Download failure warning should be preserved.");
+    }
+
+    public static async Task CurrentSourceDownloaderDoesNotUseStaleSourceFilesWhenCurrentDownloadFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var store = new CaseFolderStore(() => FixedNow(), () => "run-pla-b-source");
+        var created = store.CreateCase(tempRoot.Path, "100001999", "tester");
+        File.WriteAllBytes(Path.Combine(created.Layout!.SourceDirectory, "stale-survey-plan.pdf"), new byte[] { 9, 9, 9 });
+        var detail = CreateCurrentDetailWithSources(
+            new InnolaAttachmentMetadata(
+                "failed-pdf-1",
+                "survey-plan.pdf",
+                ".pdf",
+                "application/pdf",
+                SourceRole.PlanMapReference,
+                "st_survey_diagram",
+                10,
+                null,
+                "body-id:failed",
+                true,
+                "st_survey_diagram"));
+        var service = new PlaBCurrentTransactionSourceDownloadService(
+            new PlaBCurrentSourceDetailService(detail, _ => InnolaAttachmentContentResult.Failure("Could not load attachment. Try again.", "unauthorized")),
+            store,
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            () => FixedNow());
+
+        var result = await service.DownloadAsync(
+            CreateSession(),
+            CreateTransaction(),
+            tempRoot.Path,
+            "tester");
+
+        TestAssert.False(result.Success, "Stale source files must not let PLA_B proceed when current viewable attachments fail to download.");
+        TestAssert.True(result.Message.Contains("source attachments could not be downloaded", StringComparison.Ordinal), "Failure should explain current source download failure.");
+    }
+
+    public static void ProcessStatusUsesAttachmentCountWithoutSkippedWarningText()
+    {
+        var source = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "TransactionPanelState.cs"));
+
+        TestAssert.True(source.Contains("Attachments for transaction {normalized}: {sourceAttachmentCount} {fileLabel}.", StringComparison.Ordinal), "PLA_B process status should show the transaction attachment count.");
+        TestAssert.False(source.Contains("PLA_B recovery loaded for TR", StringComparison.Ordinal), "PLA_B dockpane status should not show the old recovery-loaded line.");
+        TestAssert.False(source.Contains("PLA_B recovery loaded.\\nCurrent TR source files:", StringComparison.Ordinal), "PLA_B process status should not show the recovery/source-directory line.");
+        TestAssert.False(source.Contains("\\nSkipped attachments: {warnings.Count}. First issue:", StringComparison.Ordinal), "PLA_B process status should not show skipped-attachment warning text.");
+    }
+
+    public static void TestInputWindowUsesPeNumberColonLabel()
+    {
+        var source = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "PlaBTestInputWindow.xaml"));
+
+        TestAssert.True(source.Contains("Text=\"PE Number:\"", StringComparison.Ordinal), "Plan Annexation Task form should display PE Number with a trailing colon.");
     }
 
     public static void EnterpriseWorkingLayerLookupPlannerUsesConfiguredTransactionNumberField()
@@ -304,6 +425,9 @@ internal static class PlaBWorkflowServiceTests
 
         TestAssert.True(input.CanPrepare, "Complete test values should enable preparation.");
         TestAssert.Equal("100000631", input.NormalizedPeNumber, "Test UX should use the same PE normalizer as production.");
+        input.ProcessSucceeded = true;
+        TestAssert.False(input.CanPrepare, "Process should be disabled after a successful run to avoid duplicate GDB/map locks.");
+        TestAssert.True(input.CanComplete, "Complete should remain enabled after Process succeeds.");
     }
 
     public static void TestInputWindowUsesPlanAnnexationTaskLabels()
@@ -312,7 +436,7 @@ internal static class PlaBWorkflowServiceTests
 
         TestAssert.True(xaml.Contains("Title=\"Plan Annexation Task\"", StringComparison.Ordinal), "PLA_B input window title should use Plan Annexation Task.");
         TestAssert.True(xaml.Contains("Text=\"Current Transaction:\"", StringComparison.Ordinal), "PLA_B input window should label the current transaction clearly.");
-        TestAssert.True(xaml.Contains("Text=\"PE Number\"", StringComparison.Ordinal), "PLA_B input window should keep PE Number.");
+        TestAssert.True(xaml.Contains("Text=\"PE Number:\"", StringComparison.Ordinal), "PLA_B input window should label PE Number with a trailing colon.");
         TestAssert.True(xaml.Contains("Content=\"Process ...\"", StringComparison.Ordinal), "PLA_B input window should rename Prepare to Process.");
         TestAssert.True(xaml.Contains("Content=\"Complete\"", StringComparison.Ordinal), "PLA_B input window should expose a Complete action placeholder.");
         TestAssert.True(xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal), "PLA_B input window should rename Close to Cancel.");
@@ -324,6 +448,10 @@ internal static class PlaBWorkflowServiceTests
         var windowCode = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "PlaBTestInputWindow.xaml.cs"));
         TestAssert.True(windowCode.Contains("if (result.Success)\r\n        {\r\n            return;\r\n        }", StringComparison.Ordinal)
             || windowCode.Contains("if (result.Success)\n        {\n            return;\n        }", StringComparison.Ordinal), "PLA_B Process should not show a success popup after data loads.");
+        TestAssert.True(windowCode.Contains("if (result.Success)\r\n        {\r\n            Close();\r\n            return;\r\n        }", StringComparison.Ordinal)
+            || windowCode.Contains("if (result.Success)\n        {\n            Close();\n            return;\n        }", StringComparison.Ordinal), "PLA_B Cancel should close quietly on success without showing a popup.");
+        TestAssert.True(windowCode.Contains("Cancel Plan Annexation Task and clear the current review context?", StringComparison.Ordinal)
+            && windowCode.Contains("MessageBoxButton.YesNo", StringComparison.Ordinal), "PLA_B Cancel should ask for confirmation before clearing context.");
     }
 
     private static int CountOccurrences(string value, string search)

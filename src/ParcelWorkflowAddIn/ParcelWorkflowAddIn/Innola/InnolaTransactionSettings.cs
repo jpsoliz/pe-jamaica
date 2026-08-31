@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.IO;
 using System.Linq;
+using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -23,6 +24,7 @@ public sealed record InnolaTransactionSettings(
     IReadOnlyList<string> CompareWorkflowStages,
     string? CompareWorkflowStagesWarning,
     PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask,
+    FabricMaintenancePromotionSettings FabricMaintenancePromotion,
     IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
     string? ComputeAttachmentSourceTypesWarning,
     IReadOnlyList<ComputeTransactionTypeProfileDefinition> ComputeTransactionTypeProfiles,
@@ -85,6 +87,7 @@ public sealed record InnolaTransactionSettings(
         SafeDefaultCompareWorkflowStages,
         "Compare workflow stages are not configured. Set compare_workflow_stages before enabling Compare transactions.",
         PlaBPlanAnnexationTaskSettings.Default,
+        FabricMaintenancePromotionSettings.Default,
         ComputeAttachmentSourceTypeCatalog.SafeDefaults,
         null,
         ComputeTransactionTypeProfileCatalog.SafeDefaults,
@@ -154,6 +157,10 @@ public sealed record InnolaTransactionSettings(
             var attachmentRegisteredSpatialUnitId = ReadString(root, "innola_attachment_registered_spatial_unit_id");
             var compareCadaster = CompareCadasterQuerySettings.FromJson(root);
             var compareEnterpriseCadaster = CompareEnterpriseCadasterSettings.FromJson(root);
+            var fabricMaintenancePromotion = FabricMaintenancePromotionSettings.FromJson(
+                root,
+                enterpriseWorkingReview,
+                compareEnterpriseCadaster);
             var certificate = InnolaClientCertificateSettings.FromJson(root);
             return new InnolaTransactionSettings(
                 InnolaHttp.NormalizeServerUrl(serverUrl),
@@ -174,6 +181,7 @@ public sealed record InnolaTransactionSettings(
                 compareWorkflowStages.Values,
                 compareWorkflowStages.Warning,
                 plaBPlanAnnexationTask,
+                fabricMaintenancePromotion,
                 computeAttachmentSourceTypes.Values,
                 computeAttachmentSourceTypes.Warning,
                 computeTransactionTypeProfiles.Values,

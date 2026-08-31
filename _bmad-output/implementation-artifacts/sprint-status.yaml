@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-27
+# last_updated: 2026-08-31
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -20,6 +20,7 @@
 #   - backlog: Story only exists in epic file
 #   - ready-for-dev: Story file created in stories folder
 #   - in-progress: Developer actively working on implementation
+#   - partially-implemented: Some scope is implemented and verified, but the story intentionally remains open for return work
 #   - review: Ready for code review (via Dev's code-review workflow)
 #   - done: Story completed
 #
@@ -35,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-28
+last_updated: 2026-08-31
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -158,6 +159,7 @@ development_status:
   7-12-create-innola-compute-review-web-map-view-for-completed-transactions: in-progress
   7-13-add-internal-arcgis-portal-auth-provider-for-enterprise-operations: review
   7-14-attach-formatted-compute-finalize-report-to-innola-transaction: review
+  7-15-add-fabric-maintenance-promotion-review-from-working-review-to-final-cadastre: partially-implemented
   epic-7-retrospective: optional
 
   epic-8: in-progress

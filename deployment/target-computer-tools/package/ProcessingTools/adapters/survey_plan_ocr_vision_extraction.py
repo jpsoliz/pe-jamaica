@@ -52,6 +52,20 @@ VOLUME_FOLIO_PATTERNS = [
         re.IGNORECASE,
     ),
 ]
+JAD2001_COORDINATE_MARKERS = (
+    "JAD2001",
+    "JAMAICADATUM2001",
+    "JAMAICAGRID",
+)
+SURVEY_METHOD_COORDINATE_MARKERS = (
+    "THEODOLITE",
+    "COMPASSSTANDARD",
+    "TOTALSTATION",
+    "TRAVERSE",
+    "GPS",
+    "GNSS",
+    "RTK",
+)
 
 
 def _field(
@@ -112,7 +126,7 @@ def _field(
 def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_file: str) -> dict[str, Any]:
     metadata = raw.get("survey_metadata") if isinstance(raw.get("survey_metadata"), dict) else {}
     memorandum = _normalize_memorandum_section(raw)
-    coordinate_system = raw.get("coordinate_system") or metadata.get("coordinate_system")
+    coordinate_system, coordinate_system_confidence, rejected_coordinate_system = _extract_coordinate_system(raw, metadata)
     north_arrow_raw = raw.get("north_arrow") if isinstance(raw.get("north_arrow"), dict) else {}
     scale_bar_raw = raw.get("scale_bar") if isinstance(raw.get("scale_bar"), dict) else {}
     scale_bar_text_detected = _has_scale_bar_text(raw)
@@ -146,6 +160,12 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
 
     survey_metadata = {
         "parish": _field("parish", _first_present(metadata, raw, "parish"), metadata.get("parish_confidence"), "memorandum"),
+        "property_name": _field(
+            "property_name",
+            _first_present(metadata, raw, "property_name", "property", "estate_name", "land_name", "parcel_property_name"),
+            _first_present(metadata, {}, "property_name_confidence", "property_confidence"),
+            "memorandum",
+        ),
         "document_area": _field(
             "document_area",
             _first_present(metadata, raw, "document_area", "area"),
@@ -204,7 +224,12 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
     if not segments:
         review_notes.append("No bearing/distance segment rows were confidently extracted; manual line review is required.")
     if not coordinate_system:
-        review_notes.append("Coordinate system was not confidently extracted.")
+        if rejected_coordinate_system:
+            review_notes.append(
+                f"Coordinate system candidate '{rejected_coordinate_system}' was treated as survey method, not JAD2001 coordinate evidence."
+            )
+        else:
+            review_notes.append("Coordinate system was not confidently extracted.")
 
     status = "review_required" if points or segments or any(_metadata_has_value(field) for field in survey_metadata.values()) else "manual_review_required"
     return {
@@ -220,7 +245,12 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "primary_source_file": source_file,
         "status": status,
         "fallback_reason": None if status == "review_required" else "low_confidence_or_no_vision_rows",
-        "coordinate_system": _field("coordinate_system", coordinate_system, raw.get("coordinate_system_confidence"), "plan_header"),
+        "coordinate_system": _field(
+            "coordinate_system",
+            coordinate_system,
+            coordinate_system_confidence,
+            "coordinate_table",
+        ),
         "document_sections": {
             "memorandum": memorandum,
         },
@@ -246,7 +276,7 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         },
         "survey_metadata": survey_metadata,
         "surveyed_for_names": [_normalize_memorandum_name(item, "surveyed_for") for item in _as_list(raw.get("surveyed_for_names") or raw.get("surveyed_for") or raw.get("party_surveyed_for"))],
-        "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name"))],
+        "surveyed_property_names": [_normalize_memorandum_value(item, "surveyed_property_name") for item in _as_list(raw.get("surveyed_property_names") or raw.get("surveyed_property_name") or raw.get("property_name") or metadata.get("property_name") or metadata.get("property"))],
         "property_name_near_parcel_diagram": _normalize_presence_evidence(raw.get("property_name_near_parcel_diagram"), "property_name_near_parcel_diagram", "parcel_diagram"),
         "notice_served_on": [_normalize_memorandum_name(item, "notice_served_on") for item in _as_list(raw.get("notice_served_on") or raw.get("notices_served_on"))],
         "interested_parties": [_normalize_memorandum_name(item, "interested_party") for item in _as_list(raw.get("interested_parties") or raw.get("parties_interested") or raw.get("parties_served_with_notices"))],
@@ -255,8 +285,9 @@ def _normalize_extraction(raw: dict[str, Any], transaction_number: str, source_f
         "representatives": representatives,
         "adjacent_owners": adjacent_owners,
         "field_confidence": {
-            "coordinate_system": _coerce_float(raw.get("coordinate_system_confidence")) or (0.85 if coordinate_system else 0.0),
+            "coordinate_system": coordinate_system_confidence or (0.85 if coordinate_system else 0.0),
             "parish": survey_metadata["parish"]["confidence"],
+            "property_name": survey_metadata["property_name"]["confidence"],
             "document_area": survey_metadata["document_area"]["confidence"],
             "survey_date": survey_metadata["survey_date"]["confidence"],
             "instrument": survey_metadata["instrument"]["confidence"],
@@ -458,6 +489,79 @@ def _first_present(primary: dict[str, Any], secondary: dict[str, Any], *keys: st
         if key in secondary:
             return secondary.get(key)
     return None
+
+
+def _extract_coordinate_system(raw: dict[str, Any], metadata: dict[str, Any]) -> tuple[str | None, float | None, str | None]:
+    candidates = (
+        _first_present(
+            raw,
+            metadata,
+            "coordinate_system",
+            "coordinate_reference_system",
+            "coordinate_datum",
+            "datum",
+            "grid",
+            "grid_system",
+            "crs",
+        ),
+        _first_present(
+            metadata,
+            raw,
+            "coordinate_system",
+            "coordinate_reference_system",
+            "coordinate_datum",
+            "datum",
+            "grid",
+            "grid_system",
+            "crs",
+        ),
+    )
+    confidence = (
+        _coerce_float(raw.get("coordinate_system_confidence"))
+        or _coerce_float(metadata.get("coordinate_system_confidence"))
+        or _coerce_float(raw.get("coordinate_reference_system_confidence"))
+        or _coerce_float(metadata.get("coordinate_reference_system_confidence"))
+    )
+    rejected_survey_method: str | None = None
+    for candidate in candidates:
+        text = _extract_field_text(candidate)
+        if not text:
+            continue
+        if _is_jad2001_coordinate_system(text):
+            return "JAD 2001", confidence or 0.95, None
+        if _is_survey_method_text(text):
+            rejected_survey_method = text
+            continue
+        return text, confidence, None
+    for key in (
+        "coordinate_table_label",
+        "coordinate_table_header",
+        "coordinate_table_notes",
+        "coordinate_table_text",
+        "document_text",
+        "ocr_text",
+        "raw_text",
+    ):
+        text = _extract_field_text(raw.get(key)) or _extract_field_text(metadata.get(key))
+        if text and _is_jad2001_coordinate_system(text):
+            return "JAD 2001", confidence or 0.9, None
+    return None, 0.0, rejected_survey_method
+
+
+def _normalized_alnum(value: str) -> str:
+    return "".join(character for character in value.upper() if character.isalnum())
+
+
+def _is_jad2001_coordinate_system(value: str) -> bool:
+    normalized = _normalized_alnum(value)
+    if any(marker in normalized for marker in JAD2001_COORDINATE_MARKERS):
+        return True
+    return "JAMAICA" in normalized and "GRID" in normalized
+
+
+def _is_survey_method_text(value: str) -> bool:
+    normalized = _normalized_alnum(value)
+    return any(marker in normalized for marker in SURVEY_METHOD_COORDINATE_MARKERS)
 
 
 def _resolve_semantic_state(value: Any, text: str) -> str:
@@ -838,7 +942,7 @@ def _prompt(profile: str) -> str:
         "Return only JSON with keys: document_type, coordinate_system, coordinate_system_confidence, "
         "north_arrow {detected, approximate_page_location, confidence, review_note}, "
         "scale_bar {detected, text, approximate_page_location, confidence, review_note}, "
-        "survey_metadata {parish, document_area, survey_date, survey_method, grounds_of_objection, "
+        "survey_metadata {parish, property_name, document_area, survey_date, survey_method, grounds_of_objection, "
         "surveyor_decision_grounds, instrument, instrument_check_date, instrument_check_result, surveyed_by, "
         "plan_check_date, file_reference, volume_folio [{volume,folio,raw_text,confidence,source_page,source_zone,review_note}]}, "
         "surveyed_for_names, surveyed_property_names, notice_served_on, interested_parties, appeared_parties, "
@@ -847,6 +951,13 @@ def _prompt(profile: str) -> str:
         "derived_points [{point_id,northing,easting,confidence,source_page,source_zone,status,review_note}], "
         "segments [{from_point,to_point,bearing_txt,distance_txt,confidence,source_page,source_zone,status,review_note}], "
         "review_notes. Capture every visible boundary point and every visible boundary segment around the parcel. "
+        "For coordinate_system, return only a coordinate reference system, datum, or grid label. Look directly near and "
+        "above coordinate tables for labels such as JAD 2001, J.A.D. 2001, Jamaica Datum 2001, or Jamaica Grid. "
+        "Do not put survey method text such as Theodolite Survey, Compass Standard, GPS, RTK, or Total Station in "
+        "coordinate_system; put that text only in survey_metadata.survey_method. "
+        "For survey_metadata.property_name, capture the visible value beside labels such as Property, Property Name, Estate, "
+        "or Name of Property. Do not use owner, surveyed-for, parish, volume/folio, or adjoining-owner text as property_name. "
+        "Also return the same value in surveyed_property_names when the property value appears in the memorandum. "
         "Use point labels only when the label is visibly attached to the boundary point, course table, or coordinate table entry "
         "for that exact point. Do not invent sequential labels from printed reference labels: if the plan has reference points "
         "A and B but an unlabeled boundary vertex follows A, do not call that vertex B unless B is visibly the same vertex. "

@@ -1017,6 +1017,8 @@ public sealed class PlaBCurrentTransactionSourceDownloadService
         var sourceFiles = DeduplicateSourceFiles(layoutResult.Manifest.Payload.SourceFiles).ToList();
         var provenance = DeduplicateAttachmentProvenance(layoutResult.Manifest.Payload.AttachmentProvenance ?? Array.Empty<ManifestAttachmentProvenance>()).ToList();
         var warnings = new List<string>();
+        var viewableAttachmentFailure = false;
+        var availableCurrentSourceCount = 0;
         var loadedAt = getUtcNow().UtcDateTime.ToString("O");
         foreach (var attachment in sourceAttachments)
         {
@@ -1029,12 +1031,14 @@ public sealed class PlaBCurrentTransactionSourceDownloadService
             if (provenance.Any(existing => existing.AttachmentId.Equals(attachment.AttachmentId, StringComparison.OrdinalIgnoreCase)
                 && File.Exists(existing.CopiedPath)))
             {
+                availableCurrentSourceCount++;
                 continue;
             }
 
             var content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken).ConfigureAwait(false);
             if (!content.Success)
             {
+                viewableAttachmentFailure = true;
                 warnings.Add($"{DescribeAttachment(attachment)} could not be downloaded: {DescribeFailure(content.ErrorMessage, content.ErrorCode)}");
                 continue;
             }
@@ -1049,11 +1053,13 @@ public sealed class PlaBCurrentTransactionSourceDownloadService
                 attachment.SourceType);
             if (!written.Success || written.ManifestSourceFile is null)
             {
+                viewableAttachmentFailure = true;
                 warnings.Add($"{DescribeAttachment(attachment)} could not be copied to the Case Folder: {DescribeFailure(written.ErrorMessage, null)}");
                 continue;
             }
 
             sourceFiles.Add(written.ManifestSourceFile);
+            availableCurrentSourceCount++;
             provenance.Add(new ManifestAttachmentProvenance(
                 attachment.AttachmentId,
                 attachment.FileName,
@@ -1097,11 +1103,20 @@ public sealed class PlaBCurrentTransactionSourceDownloadService
         var sourceFileCount = Directory.Exists(layoutResult.Layout.SourceDirectory)
             ? Directory.EnumerateFiles(layoutResult.Layout.SourceDirectory).Count()
             : 0;
-        return sourceFileCount > 0
-            ? PlaBCurrentTransactionSourceDownloadResult.Succeeded(layoutResult.Layout, detail, loadedAt, sourceFileCount, warnings)
-            : PlaBCurrentTransactionSourceDownloadResult.Failed(
-                BuildNoSourceFilesMessage(detail.TransactionNumber, layoutResult.Layout.SourceDirectory, warnings),
+        if (availableCurrentSourceCount == 0 && viewableAttachmentFailure)
+        {
+            return PlaBCurrentTransactionSourceDownloadResult.Failed(
+                $"Current transaction {detail.TransactionNumber} source attachments could not be downloaded. First issue: {warnings[0]}",
                 warnings);
+        }
+
+        return PlaBCurrentTransactionSourceDownloadResult.Succeeded(
+            layoutResult.Layout,
+            detail,
+            loadedAt,
+            sourceFileCount,
+            sourceAttachments.Length,
+            warnings);
     }
 
     private PlaBCaseFolderPreparationResult PrepareCaseFolder(string outputRoot, string transactionNumber, string username)
@@ -1185,17 +1200,6 @@ public sealed class PlaBCurrentTransactionSourceDownloadService
         return string.IsNullOrWhiteSpace(errorCode) ? reason : $"{reason} ({errorCode})";
     }
 
-    private static string BuildNoSourceFilesMessage(
-        string transactionNumber,
-        string sourceDirectory,
-        IReadOnlyList<string> warnings)
-    {
-        var message = $"Current transaction {transactionNumber} loaded, but no files were downloaded to {sourceDirectory}.";
-        return warnings.Count == 0
-            ? message
-            : $"{message}\nSkipped attachments: {warnings.Count}. First issue: {warnings[0]}";
-    }
-
     private sealed record PlaBCaseFolderPreparationResult(
         bool Success,
         CaseFolderLayout? Layout,
@@ -1221,6 +1225,7 @@ public sealed record PlaBCurrentTransactionSourceDownloadResult(
     InnolaTransactionDetail? Detail,
     string? LoadedAt,
     int SourceFileCount,
+    int SourceAttachmentCount,
     IReadOnlyList<string> Warnings)
 {
     public static PlaBCurrentTransactionSourceDownloadResult Succeeded(
@@ -1228,14 +1233,15 @@ public sealed record PlaBCurrentTransactionSourceDownloadResult(
         InnolaTransactionDetail detail,
         string loadedAt,
         int sourceFileCount,
+        int sourceAttachmentCount,
         IReadOnlyList<string>? warnings = null)
     {
-        return new PlaBCurrentTransactionSourceDownloadResult(true, string.Empty, layout, detail, loadedAt, sourceFileCount, warnings ?? Array.Empty<string>());
+        return new PlaBCurrentTransactionSourceDownloadResult(true, string.Empty, layout, detail, loadedAt, sourceFileCount, sourceAttachmentCount, warnings ?? Array.Empty<string>());
     }
 
     public static PlaBCurrentTransactionSourceDownloadResult Failed(string message, IReadOnlyList<string>? warnings = null)
     {
-        return new PlaBCurrentTransactionSourceDownloadResult(false, message, null, null, null, 0, warnings ?? Array.Empty<string>());
+        return new PlaBCurrentTransactionSourceDownloadResult(false, message, null, null, null, 0, 0, warnings ?? Array.Empty<string>());
     }
 }
 
@@ -1990,9 +1996,11 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanPrepare =>
+    private bool HasValidProcessInput =>
         HasCurrentTransactionNumber
         && PlaBPeNumberNormalizer.Normalize(PeNumber).Success;
+
+    public bool CanPrepare => HasValidProcessInput && !ProcessSucceeded;
 
     public bool ProcessSucceeded
     {
@@ -2003,12 +2011,13 @@ public sealed class PlaBTestEmulationInputViewModel : INotifyPropertyChanged
             {
                 processSucceeded = value;
                 NotifyPropertyChanged();
+                NotifyPropertyChanged(nameof(CanPrepare));
                 NotifyPropertyChanged(nameof(CanComplete));
             }
         }
     }
 
-    public bool CanComplete => ProcessSucceeded && CanPrepare;
+    public bool CanComplete => ProcessSucceeded && HasValidProcessInput;
 
     public IReadOnlyList<string> ProcessMapGroupNames
     {

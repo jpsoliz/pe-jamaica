@@ -128,19 +128,31 @@ public partial class PlaBTestInputWindow : ProWindow
 
     private async void CloseButton_Click(object sender, RoutedEventArgs e)
     {
+        var confirmation = MessageBox.Show(
+            this,
+            "Cancel Plan Annexation Task and clear the current review context?",
+            "Plan Annexation Task",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
         var result = await cancelHandler(viewModel).ConfigureAwait(true);
         viewModel.StatusText = result.Message;
+        if (result.Success)
+        {
+            Close();
+            return;
+        }
+
         MessageBox.Show(
             this,
             result.Message,
             "Plan Annexation Task",
             MessageBoxButton.OK,
-            result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
-
-        if (result.Success)
-        {
-            Close();
-        }
+            MessageBoxImage.Warning);
     }
 
     private void OnClosed(object? sender, EventArgs e)

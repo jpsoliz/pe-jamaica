@@ -1,6 +1,7 @@
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Intake;
+using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Workflow.Maps;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Net.Http;
@@ -98,6 +99,8 @@ internal static class ShellState
 
     public static PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask { get; } = Settings.PlaBPlanAnnexationTask;
 
+    public static FabricMaintenancePromotionSettings FabricMaintenancePromotion { get; } = FabricMaintenancePromotionSettings.FromTransactionSettings(Settings);
+
     public static bool CanOpenComputeWorkflow => Session.CanOpenParcelWorkflow && IsSelectedTransactionComputeWorkflow;
 
     public static bool IsSelectedTransactionComputeWorkflow => ParcelWorkflowStageRouter.IsComputeStage(
@@ -155,6 +158,40 @@ internal static class ShellState
             System.Windows.MessageBox.Show(
                 $"Compare workspace could not be opened for transaction {transactionNumber}. {exception.Message}",
                 "Compare Workspace",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Warning);
+        }
+    }
+
+    public static void OpenFabricMaintenanceWorkspace(string transactionNumber, string peNumber, string? statusText)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(() => OpenFabricMaintenanceWorkspace(transactionNumber, peNumber, statusText));
+            return;
+        }
+
+        try
+        {
+            var viewModel = new FabricMaintenancePromotionViewModel(
+                transactionNumber,
+                peNumber,
+                FabricMaintenancePromotion,
+                statusText,
+                message => System.Windows.MessageBox.Show(
+                    message,
+                    "Fabric Maintenance",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information),
+                new ArcGisFabricMaintenanceReviewLoadService());
+            FabricMaintenancePromotionWindow.ShowOrActivate(viewModel);
+        }
+        catch (Exception exception)
+        {
+            System.Windows.MessageBox.Show(
+                $"Fabric Maintenance workspace could not be opened for transaction {transactionNumber}. {exception.Message}",
+                "Fabric Maintenance",
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Warning);
         }

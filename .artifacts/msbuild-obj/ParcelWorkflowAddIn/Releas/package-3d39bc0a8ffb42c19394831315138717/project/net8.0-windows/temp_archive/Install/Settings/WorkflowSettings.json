@@ -1,0 +1,559 @@
+{
+  "schema_version": "1.0.0",
+  "arcgis_pro_sdk_lane": "3.6",
+  "visual_studio": "2022 17.13+",
+  "target_framework": "net8.0-windows",
+  "arcgis_python_executable": "C:\\JPFiles\\Dropbox\\Sidwell\\Development\\AI-Survey\\python-envs\\arcgispro-survey-ai\\python.exe",
+  "innola_server_url": "https://eltrs-test.innola-solutions.com/",
+  "innola_transaction_mode": "live",
+  "innola_process_step": "parcel_workflow",
+  "review_workspace_mode": "enterprise_working_layers",
+  "manual_review_retry_threshold": 2,
+  "enterprise_working_review": {
+    "enabled": true,
+    "service_root": "https://jm-gis.innola-solutions.com/server/rest",
+    "workspace_name": "working_review",
+    "publish_behavior": "replace_transaction_scope",
+    "publish_timing": "on_complete",
+    "restore_behavior": "prefer_local_then_enterprise",
+    "allow_cross_machine_restore": true,
+    "transaction_scope_field": "transaction_number",
+    "layers": {
+      "points": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/1",
+      "lines": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/2",
+      "polygons": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/3",
+      "issues": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/0",
+      "case_index": "https://jm-gis.innola-solutions.com/server/rest/services/Hosted/working_review/FeatureServer/4"
+    }
+  },
+  "enterprise_working_admin": {
+    "provisioning_enabled": false,
+    "provisioning_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\admin\\provision_enterprise_working_layers.py",
+    "portal_url": "https://jm-gis.innola-solutions.com/portal",
+    "schema_version": "sidwell_enterprise_working_v1",
+    "target_folder": "Sidwell Working Review",
+    "target_service_name": "working_review",
+    "allow_settings_writeback": true,
+    "cleanup_mode": "deactivate",
+    "require_cleanup_scope": true,
+    "last_validation_summary_path": "",
+    "last_maintenance_audit_path": ""
+  },
+  "enterprise_parcel_fabric_review": {
+    "enabled": false,
+    "service_root": "",
+    "fabric_layer_url": "",
+    "parcel_layer_url": "",
+    "records_layer_url": "",
+    "parcel_type_name": "compute_review",
+    "record_name_pattern": "sidwell-record-{transaction_number}",
+    "transaction_scope_field": "transaction_number",
+    "transaction_id_field": "transaction_id",
+    "review_state_field": "review_state",
+    "publish_timing": "on_outputs",
+    "build_behavior": "build_after_copy",
+    "load_overlays": true,
+    "overlay_source": "local_case_outputs",
+    "allow_replace_transaction_scope": true,
+    "require_active_map": true
+  },
+  "working_map": {
+    "enabled": true,
+    "map_name": "Jamaica",
+    "create_if_missing": true,
+    "reuse_existing": true,
+    "activate_on_transaction_load": true,
+    "cleanup_transaction_groups_on_close": true,
+    "preload_after_login": true,
+    "default_basemap": "esri_world_imagery",
+    "alternate_basemaps": [
+      "open_basemap",
+      "world_topographic"
+    ],
+    "default_extent": {
+      "name": "Jamaica",
+      "wkid": 3448,
+      "xmin": 580172.099,
+      "ymin": 605960.245,
+      "xmax": 845529.005,
+      "ymax": 728209.243
+    },
+    "zoom_to_transaction_parish": true,
+    "parish_lookup": {
+      "enabled": true,
+      "layer_name": "Parishes",
+      "name_field": "parish",
+      "required": false,
+      "known_extents": {}
+    },
+    "reference_layers": [
+      {
+        "name": "Esri World Imagery",
+        "source_type": "map_service_url",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+        "group": "Basemaps",
+        "basemap_role": "imagery",
+        "required": false,
+        "visible": true,
+        "order": 0,
+        "opacity": 1.0
+      },
+      {
+        "name": "Open Basemap Streets",
+        "source_type": "vector_tile_style_url",
+        "url": "https://www.arcgis.com/sharing/rest/content/items/643f29ef5ab94511912dd337c9e1a13b/resources/styles/root.json",
+        "group": "Basemaps",
+        "basemap_role": "streets",
+        "required": true,
+        "visible": true,
+        "order": 1,
+        "opacity": 1.0
+      },
+      {
+        "name": "World Topographic",
+        "source_type": "vector_tile_style_url",
+        "url": "https://cdn.arcgis.com/sharing/rest/content/items/7dc6cea0b1764a1f9af2e679f642f0f5/resources/styles/root.json",
+        "group": "Basemaps",
+        "basemap_role": "topographic",
+        "required": false,
+        "visible": false,
+        "order": 2,
+        "opacity": 1.0
+      },
+      {
+        "name": "World Hillshade",
+        "source_type": "map_service_url",
+        "url": "https://services.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer",
+        "group": "Terrain Reference",
+        "required": false,
+        "visible": false,
+        "order": 5,
+        "opacity": 0.65
+      },
+      {
+        "name": "Legal_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": true,
+        "visible": true,
+        "order": 10,
+        "opacity": 1.0
+      },
+      {
+        "name": "Fiscal_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": true,
+        "visible": true,
+        "order": 20,
+        "opacity": 1.0
+      },
+      {
+        "name": "Survey_Cadastre",
+        "source_type": "map_service_url",
+        "url": "https://jm-gis.innola-solutions.com/server/rest/services/Survey_Cadastre/MapServer",
+        "group": "Cadastre Reference",
+        "required": false,
+        "visible": false,
+        "order": 30,
+        "opacity": 1.0
+      }
+    ]
+  },
+  "gsi_server_url": "",
+  "gsi_username": "",
+  "gsi_password_mode": "environment_variable",
+  "gsi_password_env_var": "GSI_PASSWORD",
+  "gsi_password": "",
+  "supported_transaction_types": [
+    "Plan Examination",
+    "Cadastral Plan Examination",
+    "Compute Survey Plan",
+    "Plan Examination by Area",
+    "PXA",
+    "PLA",
+    "First Registration",
+    "Plan Annexation"
+  ],
+  "compute_workflow_stages": [
+    "Compute Survey Plan",
+    "Assign Computation Task",
+    "Computation Check"
+  ],
+  "compare_workflow_stages": [
+    "Compare",
+    "Compare Survey Plan"
+  ],
+  "pla_b_plan_annexation_task": {
+    "enabled": true,
+    "main_transaction_type": "First Registration",
+    "subworkflow_name": "Plan Annexation",
+    "preparation_stage_name": "In Plan Annexation Preparation",
+    "next_stage_name": "Review and Sign Plan Annexed Diagram",
+    "required_workflow_names": [
+      "First Registration",
+      "Plan Annexation"
+    ],
+    "spatial_unit_examination_field": "examinationNumber"
+  },
+  "compare_cadaster_query_timeout_seconds": 30,
+  "compare_legal_cadaster": {
+    "enabled": true,
+    "source_name": "Innola Owner Search",
+    "adapter": "innola_owner_search",
+    "service_url": "portal/searches",
+    "datamap": "BaUnitSearchDM",
+    "search_kind": "owner",
+    "baunit_type": "bu_type_land",
+    "baunit_status": "reg_status_current",
+    "status_latest": true,
+    "page": 1,
+    "start": 0,
+    "limit": 25,
+    "parcel_id_field": "pid",
+    "volume_field": "volume",
+    "folio_field": "folio",
+    "owner_field": "owners"
+  },
+  "compare_fiscal_cadaster": {
+    "enabled": false,
+    "source_name": "Fiscal cadaster",
+    "service_url": "",
+    "parcel_id_field": "parcel_id",
+    "neighbor_relationship_field": "spatial_relationship",
+    "boundary_side_field": "boundary_side",
+    "owner_field": "taxpayer_display"
+  },
+  "compare_enterprise_cadaster": {
+    "enabled": true,
+    "relationship_tolerance_meters": 0.05,
+    "spatial_search_mode": "intersects",
+    "buffer_distance_meters": 25.0,
+    "result_limit": 250,
+    "page_size": 100,
+    "legal": {
+      "enabled": true,
+      "source_name": "Legal Cadastre",
+      "display_name": "Legal",
+      "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Legal_Cadastre/FeatureServer/15",
+      "sublayer_name": "Legal_Parcel",
+      "lot_number_field": "lot_number",
+      "parcel_id_field": "lot_number",
+      "pid_field": "lot_number",
+      "volume_field": "",
+      "folio_field": "",
+      "combined_volume_folio_field": "vol_folio",
+      "combined_volume_folio_separator": "/",
+      "land_valuation_number_field": "Lv_NUMBER",
+      "pe_number_field": "pe_number",
+      "dp_number_field": "dp_number",
+      "r_number_field": "r_number",
+      "owner_field": "",
+      "parish_field": "parish",
+      "suid_field": "suid",
+      "object_id_field": "objectid",
+      "global_id_field": "globalid"
+    },
+    "fiscal": {
+      "enabled": true,
+      "source_name": "Fiscal Cadastre",
+      "display_name": "Cadastral",
+      "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/FeatureServer/1",
+      "sublayer_name": "Parcels",
+      "parcel_id_field": "Lv_number",
+      "pid_field": "Lv_number",
+      "volume_field": "LT_Volume",
+      "folio_field": "LT_Folio",
+      "combined_volume_folio_field": "Title_Reference",
+      "combined_volume_folio_separator": "/",
+      "land_valuation_number_field": "Lv_number",
+      "pe_number_field": "",
+      "dp_number_field": "dp_number",
+      "r_number_field": "R_Number",
+      "occupant_field": "occupant",
+      "taxpayer_field": "taxpayer_display",
+      "parish_field": "parish",
+      "suid_field": "suid",
+      "object_id_field": "objectid",
+      "global_id_field": "globalid"
+    },
+    "survey": {
+      "enabled": true,
+      "source_name": "Survey Cadastre",
+      "display_name": "Survey",
+      "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Survey_Cadastre/FeatureServer/0",
+      "sublayer_name": "COGO_Fabric",
+      "parcel_id_field": "PE_number",
+      "pid_field": "PE_number",
+      "volume_field": "",
+      "folio_field": "",
+      "land_valuation_number_field": "",
+      "pe_number_field": "PE_number",
+      "owner_field": "",
+      "parish_field": "",
+      "suid_field": "suid",
+      "object_id_field": "objectid",
+      "global_id_field": "globalid"
+    },
+    "parish_source": {
+      "enabled": true,
+      "source_kind": "fiscal",
+      "source_name": "Fiscal Cadastre Parishes",
+      "layer_url": "https://jm-gis.innola-solutions.com/server/rest/services/Fiscal_Cadastre/FeatureServer/0",
+      "sublayer_name": "Parishes",
+      "parish_name_field": "Parish_nam"
+    },
+    "popup_fields": [
+      { "field_name": "PID", "alias": "PID", "visible": true },
+      { "field_name": "strata_extension", "alias": "Strata Extension", "visible": true },
+      { "field_name": "landval_number", "alias": "LandVal No.", "visible": true },
+      { "field_name": "Title_Reference", "alias": "Title Reference", "visible": true },
+      { "field_name": "LT_Volume", "alias": "Volume", "visible": true },
+      { "field_name": "LT_Folio", "alias": "Folio", "visible": true },
+      { "field_name": "LT_Multiple", "alias": "LT Multiple", "visible": true },
+      { "field_name": "r_number", "alias": "R Number", "visible": true },
+      { "field_name": "dp_number", "alias": "DP Number", "visible": true },
+      { "field_name": "lot_number", "alias": "Lot Number", "visible": true },
+      { "field_name": "street_address", "alias": "Street Address", "visible": true },
+      { "field_name": "scheme_address", "alias": "Scheme Address", "visible": true },
+      { "field_name": "Location", "alias": "Location", "visible": true },
+      { "field_name": "District", "alias": "District", "visible": true },
+      { "field_name": "parish", "alias": "Parish", "visible": true }
+    ]
+  },
+  "compute_attachment_source_types": [
+    {
+      "source_type": "st_surveyplan",
+      "workflow_role": "plan_map_reference",
+      "display_name": "Survey plan / map reference",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_surveysheet",
+      "workflow_role": "computation_sheet",
+      "display_name": "Survey / computation sheet",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_survey_plan_pdf",
+      "workflow_role": "survey_plan_pdf",
+      "display_name": "Survey plan PDF",
+      "required": false,
+      "internal_only": false,
+      "extensions": [".pdf", ".tif", ".tiff", ".png", ".jpg", ".jpeg"]
+    },
+    {
+      "source_type": "st_plan_annexation_pdf",
+      "workflow_role": "plan_annexation_pdf",
+      "display_name": "Plan annexation PDF",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_survey_diagram",
+      "workflow_role": "survey_diagram_pdf",
+      "display_name": "Survey diagram PDF",
+      "required": true,
+      "internal_only": false,
+      "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_survey_diagram_png",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA_B survey diagram selection PNG",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".png"]
+    },
+    {
+      "source_type": "st_plan_annex_image",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA_B plan annexation image crop",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".png"]
+    },
+    {
+      "source_type": "pla_b_recovery",
+      "workflow_role": "pla_b_recovery",
+      "display_name": "PLA_B recovery plan",
+      "required": false,
+      "internal_only": true,
+      "extensions": []
+    },
+    {
+      "source_type": "st_survey_points",
+      "workflow_role": "coordinate_text_source",
+      "display_name": "Structured survey points",
+      "required": false,
+      "internal_only": false,
+      "extensions": [".txt", ".csv"]
+    },
+    {
+      "source_type": "st_autocad_file",
+      "workflow_role": "dwg_source",
+      "display_name": "AutoCAD survey source",
+      "required": false,
+      "internal_only": false,
+      "extensions": [".dwg"]
+    },
+    {
+      "source_type": "st_survey_zip",
+      "workflow_role": "workflow_resume_package",
+      "display_name": "Internal workflow package",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".zip"]
+    },
+    {
+      "source_type": "st_compute_report",
+      "workflow_role": "compute_report",
+      "display_name": "Compute report",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf"]
+    },
+    {
+      "source_type": "st_plan_annex_output",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 1",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
+    },
+    {
+      "source_type": "st_plan_annex_output2",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 2",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
+    },
+    {
+      "source_type": "st_plan_annex_output3",
+      "workflow_role": "pla_generated_output",
+      "display_name": "PLA generated output 3",
+      "required": false,
+      "internal_only": true,
+      "extensions": [".pdf", ".png"]
+    }
+  ],
+  "compute_transaction_type_profiles": [
+    {
+      "profile_id": "pe_computation_review",
+      "enabled": true,
+      "transaction_type_codes": ["PE"],
+      "transaction_type_names": [
+        "Plan Examination",
+        "Cadastral Plan Examination",
+        "Compute Survey Plan",
+        "Assign Computation Task",
+        "Computation Check"
+      ],
+      "workflow_profile": "pe_computation_sheet_review",
+      "required_source_roles": [
+        "computation_sheet",
+        "plan_map_reference"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "computation_sheet",
+      "document_profile": "computation_sheet_multi_or_single_parcel"
+    },
+    {
+      "profile_id": "pxa_single_parcel_survey_plan",
+      "enabled": true,
+      "transaction_type_codes": ["PXA"],
+      "transaction_type_names": [
+        "PXA",
+        "Plan Examination by Area"
+      ],
+      "workflow_profile": "pxa_single_parcel_survey_plan",
+      "required_source_roles": [
+        "survey_plan_pdf"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "survey_plan_pdf",
+      "document_profile": "scanned_single_parcel_survey_plan_pdf"
+    },
+    {
+      "profile_id": "pla_plan_annexation",
+      "enabled": true,
+      "transaction_type_codes": ["PLA"],
+      "transaction_type_names": [
+        "PLA",
+        "Plan Annexation"
+      ],
+      "workflow_profile": "pla_plan_annexation",
+      "required_source_roles": [
+        "plan_annexation_pdf"
+      ],
+      "optional_source_roles": [
+        "coordinate_text_source",
+        "dwg_source"
+      ],
+      "primary_extraction_role": "plan_annexation_pdf",
+      "document_profile": "pla_plan_annexation_pdf"
+    },
+    {
+      "profile_id": "pla_b_plan_annexation_from_pe",
+      "enabled": true,
+      "transaction_type_codes": ["PLA_B"],
+      "transaction_type_names": [
+        "PLA_B",
+        "Plan Annexation From PE"
+      ],
+      "workflow_profile": "pla_b_plan_annexation_from_pe",
+      "required_source_roles": [],
+      "optional_source_roles": [],
+      "primary_extraction_role": "pla_b_recovery",
+      "document_profile": "pla_b_recovery"
+    }
+  ],
+  "innola_attachment_upload_route": "source/sources/attach",
+  "innola_attachment_upload_binding_mode": "query_only",
+  "innola_attachment_upload_mode": "attach_then_register_source",
+  "innola_attachment_upload_auth_mode": "access_token_then_bearer",
+  "innola_resume_attachment_source_type": "sidwell_resume_package",
+  "innola_completed_attachment_source_type": "sidwell_completed_package",
+  "innola_resume_attachment_registered_type": "st_surveyplan",
+  "innola_completed_attachment_registered_type": "st_surveyplan",
+  "innola_attachment_registered_spatial_unit_id": "",
+  "innola_client_certificate_enabled": true,
+  "innola_client_certificate_store_location": "CurrentUser",
+  "innola_client_certificate_store_name": "My",
+  "innola_client_certificate_subject": "Jamaica eTitles Project Team",
+  "innola_client_certificate_thumbprint": "DEA7F06F3917AA2E6AF817FF5B20587C28EB6215",
+  "innola_allow_invalid_server_certificate": true,
+  "innola_check_certificate_revocation_list": false,
+  "ocr_engine": "openai",
+  "openai_enabled": true,
+  "openai_extraction_profile": "balanced",
+  "openai_model": "gpt-4.1-mini",
+  "openai_api_key_environment_variable": "OPENAI_API_KEY",
+  "pdf_viewer_mode": "embedded_browser",
+  "structure_rules_path": "StructureRules.json",
+  "preflight_rules_path": "PreflightRules.json",
+  "output_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\output_adapter.py",
+  "output_template_project_path": "",
+  "output_template_gdb_path": "",
+  "spatial_output_add_cogo_attributes": true,
+  "spatial_output_add_cogo_labels": true,
+  "spatial_output_cogo_source_mode": "prefer_computed",
+  "validation_adapter_script_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\adapters\\validation_adapter.py",
+  "validation_rules_path": "D:\\Code\\BMad-Method\\dev\\pe-jamaica\\src\\ProcessingTools\\rules\\rules.yaml",
+  "output_adapter_timeout_seconds": 600,
+  "case_folder_output_root": ""
+}

@@ -7,6 +7,7 @@ using ParcelWorkflowAddIn.Tests.ParcelSearch;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Tests.Settings;
 using ParcelWorkflowAddIn.Tests.Workflow;
+using ParcelWorkflowAddIn.Tests.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Tests.WorkflowRules;
 
 var tests = new (string Name, Action Run)[]
@@ -266,6 +267,10 @@ var tests = new (string Name, Action Run)[]
     ("pla b related pe finder reports no and multiple matches", () => PlaBWorkflowServiceTests.RelatedPeFinderReportsNoAndMultipleMatches().GetAwaiter().GetResult()),
     ("pla b package downloader stores survey plan zip", () => PlaBWorkflowServiceTests.PackageDownloaderStoresSurveyPlanZipInsideCaseFolder().GetAwaiter().GetResult()),
     ("pla b current source downloader skips failed attachments", () => PlaBWorkflowServiceTests.CurrentSourceDownloaderSkipsFailedAttachmentsAndKeepsUsableFiles().GetAwaiter().GetResult()),
+    ("pla b current source downloader allows unsupported-only attachments", () => PlaBWorkflowServiceTests.CurrentSourceDownloaderAllowsUnsupportedOnlyAttachmentsAsZeroFiles().GetAwaiter().GetResult()),
+    ("pla b current source downloader fails when only viewable download fails", () => PlaBWorkflowServiceTests.CurrentSourceDownloaderFailsWhenOnlyViewableAttachmentDownloadFails().GetAwaiter().GetResult()),
+    ("pla b current source downloader rejects stale source files after current failure", () => PlaBWorkflowServiceTests.CurrentSourceDownloaderDoesNotUseStaleSourceFilesWhenCurrentDownloadFails().GetAwaiter().GetResult()),
+    ("pla b process status uses attachment count", PlaBWorkflowServiceTests.ProcessStatusUsesAttachmentCountWithoutSkippedWarningText),
     ("pla b enterprise working layer lookup planner uses transaction number", PlaBWorkflowServiceTests.EnterpriseWorkingLayerLookupPlannerUsesConfiguredTransactionNumberField),
     ("pla b package resolver extracts matching gdb", PlaBWorkflowServiceTests.PackageResolverExtractsMatchingPeOutputGdbOnly),
     ("pla b pe mgeo loads with seventy percent transparency", PlaBWorkflowServiceTests.SourceInspectionShowsPeMGeoLoadsWithSeventyPercentTransparency),
@@ -275,6 +280,7 @@ var tests = new (string Name, Action Run)[]
     ("pla b map loader applies requested labels and polygon transparency", PlaBWorkflowServiceTests.MapLoaderAppliesRequestedLabelsAndPolygonTransparency),
     ("pla b test emulation input uses pe normalizer", PlaBWorkflowServiceTests.TestEmulationInputUsesSamePeNormalizer),
     ("pla b test input window uses plan annexation task labels", PlaBWorkflowServiceTests.TestInputWindowUsesPlanAnnexationTaskLabels),
+    ("pla b test input window uses pe number colon label", PlaBWorkflowServiceTests.TestInputWindowUsesPeNumberColonLabel),
     ("pla b plan annexation task gate requires workflow context", PlaBWorkflowServiceTests.PlanAnnexationTaskGateRequiresConfiguredWorkflowContext),
     ("pla b dockpane does not expose workflow test emulation", PlaBWorkflowServiceTests.DockpaneDoesNotExposePlaBWorkflowTestEmulation),
     ("pla b innola detail maps pe number source inspection", PlaBWorkflowServiceTests.SourceInspectionShowsInnolaDetailMapsPeNumber),
@@ -715,6 +721,24 @@ var tests = new (string Name, Action Run)[]
     ("innola plan check service fails when checklist missing", () => InnolaPlanCheckServiceTests.FailsWhenChecklistIsMissing().GetAwaiter().GetResult()),
     ("innola plan check service blocks unauthorized session", () => InnolaPlanCheckServiceTests.FailsBeforeHttpWhenUnauthorized().GetAwaiter().GetResult()),
     ("innola plan check service retries cookie-only auth", () => InnolaPlanCheckServiceTests.RetriesCookieOnlyWhenAccessTokenRejected().GetAwaiter().GetResult()),
+    ("fabric maintenance routing gate requires configured subworkflow and stage", FabricMaintenancePromotionTests.RoutingGateRequiresConfiguredSubworkflowAndStage),
+    ("fabric maintenance settings load promotion block", FabricMaintenancePromotionTests.SettingsLoadFabricMaintenancePromotionBlock),
+    ("fabric maintenance target selection rejects null and both targets", FabricMaintenancePromotionTests.TargetSelectionRejectsNullAndBothTargets),
+    ("fabric maintenance context resolution blocks without active transaction or pe", FabricMaintenancePromotionTests.ContextResolutionBlocksWithoutActiveTransactionOrPeNumber),
+    ("fabric maintenance working review plan scopes parcel in review only", FabricMaintenancePromotionTests.WorkingReviewPlanUsesParcelInReviewScopeOnly),
+    ("fabric maintenance review load plan uses spatial query transparency and neighbor mode", FabricMaintenancePromotionTests.ReviewLoadPlanUsesSpatialQueryTransparencyAndNeighborMode),
+    ("fabric maintenance final target query plan uses canonical pid rules", FabricMaintenancePromotionTests.FinalTargetQueryPlanUsesCanonicalPidRules),
+    ("fabric maintenance review checks gate approval and notes", FabricMaintenancePromotionTests.ReviewChecksGateApprovalAndRequireNotesForBlockingFindings),
+    ("fabric maintenance not implemented options remain visible but blocked", FabricMaintenancePromotionTests.NotImplementedDecisionOptionsRemainVisibleButBlocked),
+    ("fabric maintenance workspace xaml exposes review and final write screens", FabricMaintenancePromotionTests.WorkspaceXamlExposesReviewAndFinalWriteScreens),
+    ("fabric maintenance missing pe number keeps workspace editable", FabricMaintenancePromotionTests.MissingPeNumberKeepsWorkspaceEditable),
+    ("fabric maintenance load parcel populates compact results and evidence", () => FabricMaintenancePromotionTests.LoadParcelPopulatesCompactResultsAndEvidence().GetAwaiter().GetResult()),
+    ("fabric maintenance load parcel disables after success and reenables on context change", () => FabricMaintenancePromotionTests.LoadParcelDisablesAfterSuccessAndReenablesWhenContextChanges().GetAwaiter().GetResult()),
+    ("fabric maintenance cancel cleans review context and closes", () => FabricMaintenancePromotionTests.CancelCleansReviewContextAndRequestsWindowClose().GetAwaiter().GetResult()),
+    ("fabric maintenance load parcel exception stays in workspace status", () => FabricMaintenancePromotionTests.LoadParcelExceptionStaysInWorkspaceStatus().GetAwaiter().GetResult()),
+    ("fabric maintenance artifacts round trip", FabricMaintenancePromotionTests.PersistenceRoundTripsDraftDecisionTopologyAndSummaryArtifacts),
+    ("fabric maintenance terminal actions update working review and require attachment", FabricMaintenancePromotionTests.TerminalActionsUpdateWorkingReviewAndRequireSummaryAttachmentBeforeCompletion),
+    ("fabric maintenance summary attachment uploads json artifact", () => FabricMaintenancePromotionTests.SummaryAttachmentServiceUploadsJsonArtifact().GetAwaiter().GetResult()),
     ("transaction panel logged out does not call transaction service", () => TransactionPanelStateTests.LoggedOutPanelDoesNotCallTransactionService().GetAwaiter().GetResult()),
     ("transaction panel PLA_B test input requires login", TransactionPanelStateTests.PlaBTestInputRequiresLogin),
     ("transaction panel logged in refresh uses session query and shows rows", () => TransactionPanelStateTests.LoggedInRefreshUsesSessionQueryAndShowsRows().GetAwaiter().GetResult()),
@@ -722,6 +746,8 @@ var tests = new (string Name, Action Run)[]
     ("transaction panel PLA_B task requires started active transaction", () => TransactionPanelStateTests.PlaBTaskRequiresStartedActiveTransaction().GetAwaiter().GetResult()),
     ("transaction panel PLA_B task requires active plan annexation row for duplicate transaction", () => TransactionPanelStateTests.PlaBTaskRequiresActivePlanAnnexationTaskWhenTransactionHasMultipleRows().GetAwaiter().GetResult()),
     ("transaction panel PLA_B start opens task form for first registration preparation", () => TransactionPanelStateTests.PlaBStartAllowsFirstRegistrationPreparationAndOpensTaskForm().GetAwaiter().GetResult()),
+    ("transaction panel fabric maintenance start uses selected duplicate transaction task", () => TransactionPanelStateTests.FabricMaintenanceStartUsesSelectedTaskWhenTransactionHasMultipleRows().GetAwaiter().GetResult()),
+    ("transaction panel fabric maintenance start opens editable pe when missing", () => TransactionPanelStateTests.FabricMaintenanceStartOpensWorkspaceWithEditablePeWhenSpatialUnitPeIsMissing().GetAwaiter().GetResult()),
     ("transaction panel PLA_B form removes old open viewer action", () => TransactionPanelStateTests.PlaBTestOpenViewerDownloadsCurrentTransactionSources().GetAwaiter().GetResult()),
     ("transaction panel PLA_B test prepare builds recovery plan without starting workflow", () => TransactionPanelStateTests.PlaBTestPrepareBuildsRecoveryPlanWithoutStartingWorkflow().GetAwaiter().GetResult()),
     ("transaction panel PLA_B complete uses configured transition and cleanup", () => TransactionPanelStateTests.PlaBCompleteUsesConfiguredTransitionAndCleansProcessGroups().GetAwaiter().GetResult()),
@@ -731,6 +757,7 @@ var tests = new (string Name, Action Run)[]
     ("transaction panel group tasks filter matches logged in groups", () => TransactionPanelStateTests.GroupTasksFilterMatchesLoggedInGroupsOnly().GetAwaiter().GetResult()),
     ("transaction panel search text refreshes from server for missing transaction number", () => TransactionPanelStateTests.SearchTextRefreshesFromServerForMissingTransactionNumber().GetAwaiter().GetResult()),
     ("transaction panel load selected transaction clears stale search text", () => TransactionPanelStateTests.LoadSelectedTransactionClearsStaleSearchText().GetAwaiter().GetResult()),
+    ("transaction panel load selected transaction preserves duplicate task row", () => TransactionPanelStateTests.LoadSelectedTransactionPreservesSelectedTaskWhenDuplicateTransactionRowsExist().GetAwaiter().GetResult()),
     ("transaction panel load action loads transaction and keeps workflow disabled", () => TransactionPanelStateTests.LoadActionLoadsTransactionAndKeepsParcelWorkflowDisabledUntilStart().GetAwaiter().GetResult()),
     ("transaction panel unsupported transaction type blocks workflow load", () => TransactionPanelStateTests.UnsupportedTransactionTypeBlocksWorkflowLoadBeforeCaseFolderCreation().GetAwaiter().GetResult()),
     ("transaction panel unsupported workflow stage blocks compute workflow launch", () => TransactionPanelStateTests.UnsupportedWorkflowStageBlocksComputeWorkflowLaunch().GetAwaiter().GetResult()),

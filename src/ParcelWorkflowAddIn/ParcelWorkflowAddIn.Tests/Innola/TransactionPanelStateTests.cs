@@ -4,6 +4,7 @@ using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Workflow.Disposition;
+using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.WorkflowRules;
 
@@ -263,16 +264,137 @@ internal static class TransactionPanelStateTests
 
         var cancelResult = await cancel!(new PlaBTestEmulationInputViewModel
         {
-            CurrentTransactionNumber = "TR100001349",
+            CurrentTransactionNumber = "100001349",
             PeNumber = "100000631",
             ProcessSucceeded = true,
             ProcessMapGroupNames = new[] { "PLA TR100001349 - Current Transaction", "PE 100000631 - Approved PE Output" }
         });
 
-        TestAssert.True(cancelResult.Success, cancelResult.Message);
+        TestAssert.True(cancelResult.Success, $"PLA_B cancel should accept the numeric form transaction when the active transaction has a TR prefix. {cancelResult.Message}");
         TestAssert.Equal(2, cleanupGroups?.Count ?? 0, "PLA_B cancel should clean tracked Process map groups.");
         TestAssert.True(!manager.HasActiveTransaction, "PLA_B cancel should release the active transaction list lock.");
         TestAssert.True(!manager.IsTransactionLoaded, "PLA_B cancel should clear the loaded transaction.");
+    }
+
+    public static async Task FabricMaintenanceStartUsesSelectedTaskWhenTransactionHasMultipleRows()
+    {
+        using var temp = new TempDirectory();
+        string? launchedTransactionNumber = null;
+        string? launchedPeNumber = null;
+        var annotateRow = Row(
+            "task-annotate",
+            "100000859",
+            "Annotate R# & Photocopy Final Survey Plan",
+            "survey",
+            "2026-08-31T09:00:00-05:00",
+            "Plan Examination by Area",
+            "TEST_6, GIS",
+            null,
+            new[] { "TEST_6, GIS" });
+        var fabricRow = Row(
+            "task-fabric",
+            "100000859",
+            "In Parcel Fabric Update",
+            "survey",
+            "2026-08-31T09:05:00-05:00",
+            "Plan Examination by Area",
+            "TEST_6, GIS",
+            null,
+            new[] { "TEST_6, GIS" });
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { annotateRow, fabricRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 31, 10, 5, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            lifecycleCoordinator: LifecycleCoordinator(manager, clock),
+            clock: clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService("100000814"),
+            fabricMaintenancePromotionSettings: FabricMaintenancePromotionSettings.Default,
+            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, _) =>
+            {
+                launchedTransactionNumber = transactionNumber;
+                launchedPeNumber = peNumber;
+            },
+            plaBCaseFolderPreparer: (transactionNumber, username) => new CaseFolderStore(clock, () => "run-fabric-maintenance-start")
+                .CreateCase(temp.Path, transactionNumber, username));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = fabricRow;
+        await panel.StartSelectedTransactionAsync();
+
+        for (var attempt = 0; attempt < 25 && launchedTransactionNumber is null; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        TestAssert.True(manager.HasActiveTransaction, "Starting Fabric Maintenance should claim the selected Innola task.");
+        TestAssert.Equal("task-fabric", manager.SelectedTransaction?.TaskId, "Fabric Maintenance start should preserve the exact selected task id.");
+        TestAssert.Equal("In Parcel Fabric Update", manager.SelectedTransaction?.TaskName, "Fabric Maintenance start should not bind to the first same-TR task.");
+        TestAssert.Equal("100000859", launchedTransactionNumber, "Fabric Maintenance workspace should open for the selected transaction number.");
+        TestAssert.Equal("100000814", launchedPeNumber, "Fabric Maintenance workspace should receive PE from SpatialUnitExt.examinationNumber.");
+    }
+
+    public static async Task FabricMaintenanceStartOpensWorkspaceWithEditablePeWhenSpatialUnitPeIsMissing()
+    {
+        using var temp = new TempDirectory();
+        string? launchedTransactionNumber = null;
+        string? launchedPeNumber = null;
+        string? launchedStatus = null;
+        var fabricRow = Row(
+            "task-fabric",
+            "100000859",
+            "In Parcel Fabric Update",
+            "survey",
+            "2026-08-31T09:05:00-05:00",
+            "Plan Examination by Area",
+            "TEST_6, GIS",
+            null,
+            new[] { "TEST_6, GIS" });
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { fabricRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 31, 10, 5, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            lifecycleCoordinator: LifecycleCoordinator(manager, clock),
+            clock: clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService(null),
+            fabricMaintenancePromotionSettings: FabricMaintenancePromotionSettings.Default,
+            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, status) =>
+            {
+                launchedTransactionNumber = transactionNumber;
+                launchedPeNumber = peNumber;
+                launchedStatus = status;
+            },
+            plaBCaseFolderPreparer: (transactionNumber, username) => new CaseFolderStore(clock, () => "run-fabric-missing-pe")
+                .CreateCase(temp.Path, transactionNumber, username));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = fabricRow;
+        await panel.StartSelectedTransactionAsync();
+
+        for (var attempt = 0; attempt < 25 && launchedTransactionNumber is null; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        TestAssert.Equal("100000859", launchedTransactionNumber, "Missing PE should not block opening Fabric Maintenance workspace.");
+        TestAssert.Equal(string.Empty, launchedPeNumber, "Missing PE should launch with a blank editable PE field.");
+        TestAssert.True(launchedStatus?.Contains("Enter the PE number manually", StringComparison.Ordinal) == true, "Missing PE launch status should instruct manual entry.");
+        TestAssert.Equal(launchedStatus, panel.StatusText, "Panel status should match the missing-PE manual-entry instruction.");
     }
 
     public static async Task PlaBTestOpenViewerDownloadsCurrentTransactionSources()
@@ -548,6 +670,56 @@ internal static class TransactionPanelStateTests
 
         TestAssert.Equal(string.Empty, panel.SearchText, "Successful load should clear stale transaction search text.");
         TestAssert.Equal("TR100000400", panel.SelectedRow?.TransactionNumber, "Loaded transaction row should remain selected.");
+    }
+
+    public static async Task LoadSelectedTransactionPreservesSelectedTaskWhenDuplicateTransactionRowsExist()
+    {
+        using var tempRoot = new TempDirectory();
+        var annotateRow = Row(
+            "task-annotate",
+            "100000859",
+            "Annotate R# & Photocopy Final Survey Plan",
+            "survey",
+            "2026-08-31T09:00:00-05:00",
+            "Plan Examination by Area",
+            "TEST_6, GIS",
+            null,
+            new[] { "TEST_6, GIS" });
+        var fabricRow = Row(
+            "task-fabric",
+            "100000859",
+            "In Parcel Fabric Update",
+            "survey",
+            "2026-08-31T09:05:00-05:00",
+            "Plan Examination by Area",
+            "TEST_6, GIS",
+            null,
+            new[] { "TEST_6, GIS" });
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { annotateRow, fabricRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 8, 31, 10, 5, 0, TimeSpan.Zero);
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            transactionLoadService: null,
+            lifecycleCoordinator: LifecycleCoordinator(manager, clock),
+            clock: clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            fabricMaintenancePromotionSettings: FabricMaintenancePromotionSettings.Default);
+
+        await panel.RefreshAsync();
+        panel.SearchText = "859";
+        panel.SelectedRow = fabricRow;
+        await panel.LoadSelectedTransactionAsync();
+
+        TestAssert.Equal(string.Empty, panel.SearchText, "Load should clear the duplicate transaction search text.");
+        TestAssert.Equal("task-fabric", manager.SelectedTransaction?.TaskId, "Load should select the exact Fabric Maintenance task in session state.");
+        TestAssert.Equal("task-fabric", panel.SelectedRow?.TaskId, "Load should keep the Fabric Maintenance row selected after clearing search.");
+        TestAssert.Equal("In Parcel Fabric Update", panel.SelectedRow?.TaskName, "Load should not jump to the first same-number transaction row.");
     }
 
     public static async Task LoadActionLoadsTransactionAndKeepsParcelWorkflowDisabledUntilStart()

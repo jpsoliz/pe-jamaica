@@ -473,6 +473,50 @@ def _normalize_points(review_data: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
+def _field_text_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("value", "normalized_value", "raw_value", "text", "name"):
+            text = _field_text_value(value.get(key))
+            if text:
+                return text
+        return ""
+    if isinstance(value, list):
+        for item in value:
+            text = _field_text_value(item)
+            if text:
+                return text
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"none", "null", "not provided", "not present", "missing", "present", "true", "false"}:
+        return ""
+    return text
+
+
+def _resolve_property_name(review_data: dict[str, Any]) -> str:
+    survey_metadata = review_data.get("survey_metadata") if isinstance(review_data.get("survey_metadata"), dict) else {}
+    for candidate in (
+        survey_metadata.get("property_name"),
+        review_data.get("property_name"),
+        review_data.get("surveyed_property_names"),
+        survey_metadata.get("surveyed_property_name"),
+    ):
+        value = _field_text_value(candidate)
+        if value:
+            return _normalize_text(value, 128)
+    return ""
+
+
+def _apply_property_name_to_polygons(polygons: list[dict[str, Any]], property_name: str) -> None:
+    normalized = _normalize_text(property_name, 128)
+    if not normalized:
+        return
+    for polygon in polygons:
+        polygon["property_name"] = normalized
+        polygon["propertyName"] = normalized
+
+
 def _parse_int(value: Any) -> int | None:
     if value is None:
         return None
@@ -1497,6 +1541,8 @@ def _build_geojson(points: list[dict[str, Any]], segments: list[dict[str, Any]],
                     "parcel_id": polygon.get("parcel_id") or f"parcel-{polygon['polygon_index']:03d}",
                     "parcel_name": polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}",
                     "name": polygon.get("parcel_name") or f"parcel_polygon_{polygon['polygon_index']}",
+                    "property_name": polygon.get("property_name") or polygon.get("propertyName") or "",
+                    "propertyName": polygon.get("propertyName") or polygon.get("property_name") or "",
                     "parcel_group_id": polygon.get("parcel_group_id") or "",
                     "polygon_order": polygon.get("polygon_order"),
                     "point_count": polygon.get("point_count"),
@@ -2316,6 +2362,8 @@ def _create_outputs_with_arcpy(
             arcpy.management.AddField(str(polygon_fc), "parcel_id", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "parcel_name", "TEXT", field_length=128)
             arcpy.management.AddField(str(polygon_fc), "name", "TEXT", field_length=128)
+            arcpy.management.AddField(str(polygon_fc), "property_name", "TEXT", field_length=128)
+            arcpy.management.AddField(str(polygon_fc), "propertyName", "TEXT", field_length=128)
             arcpy.management.AddField(str(polygon_fc), "parcel_group_id", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "parcel_grp", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "polygon_order", "LONG")
@@ -2331,7 +2379,7 @@ def _create_outputs_with_arcpy(
             arcpy.management.AddField(str(polygon_fc), "status_txt", "TEXT", field_length=64)
             arcpy.management.AddField(str(polygon_fc), "source_txt", "TEXT", field_length=1024)
 
-            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "transaction_number", "transaction_id", "workflow_name", "workflow_stage", "transaction_type", "review_state", "source_mode", "parcel_id", "parcel_name", "name", "parcel_group_id", "parcel_grp", "polygon_order", "point_cnt", "point_count", "perimeter_m", "area_sq_m", "closure_status", "doc_type_id", "source_doc", "is_manual", "is_edited", "status_txt", "source_txt"]) as cursor:
+            with arcpy.da.InsertCursor(str(polygon_fc), ["SHAPE@", "transaction_number", "transaction_id", "workflow_name", "workflow_stage", "transaction_type", "review_state", "source_mode", "parcel_id", "parcel_name", "name", "property_name", "propertyName", "parcel_group_id", "parcel_grp", "polygon_order", "point_cnt", "point_count", "perimeter_m", "area_sq_m", "closure_status", "doc_type_id", "source_doc", "is_manual", "is_edited", "status_txt", "source_txt"]) as cursor:
                 for polygon in polygons:
                     array = arcpy.Array([arcpy.Point(*coord) for coord in polygon["coordinates"]])
                     polygon_geometry = arcpy.Polygon(array, spatial_reference)
@@ -2344,6 +2392,8 @@ def _create_outputs_with_arcpy(
                             _normalize_text(polygon.get("parcel_id") or f"parcel-{polygon['polygon_index']:03d}", 64),
                             _normalize_text(polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}", 128),
                             _normalize_text(polygon.get("name") or polygon.get("parcel_name") or f"parcel-{polygon['polygon_index']:03d}", 128),
+                            _normalize_text(polygon.get("property_name") or polygon.get("propertyName") or "", 128),
+                            _normalize_text(polygon.get("propertyName") or polygon.get("property_name") or "", 128),
                             _normalize_text(polygon.get("parcel_group_id") or "", 64),
                             _normalize_text(polygon.get("parcel_group_id") or "", 64),
                             polygon.get("polygon_order"),
@@ -2587,6 +2637,7 @@ def _build_summary(
     built_parcel_count: int,
     built_line_count: int,
     built_point_count: int,
+    property_name: str | None,
     generated_artifact_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     artifact_paths = [str(geojson_path)]
@@ -2649,6 +2700,8 @@ def _build_summary(
         "parcel_record_name": parcel_record_name,
         "parcel_record_id": parcel_record_id,
         "parcel_type": parcel_type,
+        "property_name": property_name or None,
+        "propertyName": property_name or None,
         "built_parcel_count": built_parcel_count,
         "built_line_count": built_line_count,
         "built_point_count": built_point_count,
@@ -2747,6 +2800,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("Approved review hash does not match current review data.")
 
     points = _normalize_points(review_data)
+    property_name = _resolve_property_name(review_data)
     if not points and review_result_owner != REVIEW_RESULT_OWNER_MANUAL:
         raise RuntimeError("Approved review data does not contain any usable point rows for output generation.")
 
@@ -2763,6 +2817,7 @@ def main(argv: list[str] | None = None) -> int:
             reviewed_segments = _reviewed_boundary_segments(review_data, point_groups)
     segments = reviewed_segments or _polyline_segments(point_groups)
     polygons = _polygon_rings_from_segments(reviewed_segments, normalize_orientation_mode) if reviewed_segments else _polygon_rings(point_groups, normalize_orientation_mode)
+    _apply_property_name_to_polygons(polygons, property_name)
     points, segments, polygons = _prepare_optional_output_cogo(
         points,
         segments,
@@ -2887,6 +2942,7 @@ def main(argv: list[str] | None = None) -> int:
         int(review_paths.get("built_parcel_count") or 0),
         int(review_paths.get("built_line_count") or 0),
         int(review_paths.get("built_point_count") or 0),
+        property_name,
         generated_artifact_paths,
     )
     _write_json(output_summary_path, summary)

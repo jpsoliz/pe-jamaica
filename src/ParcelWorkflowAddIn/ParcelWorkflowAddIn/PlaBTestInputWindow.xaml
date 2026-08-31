@@ -33,7 +33,7 @@
 
     <TextBlock Grid.Row="1"
                Grid.Column="0"
-               Text="PE Number"
+               Text="PE Number:"
                FontWeight="SemiBold"
                VerticalAlignment="Center" />
     <TextBox Grid.Row="1"

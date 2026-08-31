@@ -116,7 +116,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - When changing ArcGIS Pro SDK behavior, verify build locally and document any manual ArcGIS Pro smoke test that cannot be automated.
 - Never persist Innola access tokens or passwords. Innola credentials stay session-only unless a story explicitly introduces secure credential storage.
 - Keep `project-context.md` current when a story establishes a new durable rule or changes a core architecture boundary.
-- Latest tracked implementation context: Story 4.11 added PXA memorandum detection, catalog-driven memorandum review rules, grouped review UX, disposition gating, reportable memorandum findings, and review patches for table layouts, combined instrument checks, scale-bar text, explicit no-appearance evidence, visible-text detection override, and root-level OCR recovery.
+- Latest tracked implementation context: Story 7.15 adds Fabric Maintenance promotion review for `Parcel Fabric Maintenance` / `In Parcel Fabric Update`; it loads the working parcel by `SpatialUnitExt.examinationNumber` / `Parcel in Review`, loads exactly one selected final target (`Legal` or `Cadastral`) into the map with transparency, surfaces topology/attribute/candidate evidence for examiner decision, attaches the final promotion summary, and keeps final-write expansion guarded. Final target candidate discovery must be spatial-overlap-first (`1=1`) so visible overlaps are not hidden by PID/status filters; configured source field mappings still drive identity/evidence display, including Fiscal/Cadastral `Lv_number`.
 
 ### Critical Don't-Miss Rules
 
@@ -134,6 +134,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Do not log raw HTTP authorization failures, bearer tokens, API keys, passwords, or certificate details beyond safe diagnostics.
 - Do not assume Fiscal Cadastre is Legal Cadastre. Fiscal/Cadastral context and Legal ownership authority must remain labeled separately.
 - Do not assume source layers share identical schemas. Field mappings are per source and missing fields must produce clear warnings.
+- Do not let Fabric Maintenance final-candidate discovery depend on identity/status SQL before spatial evidence is found. The examiner must see Legal/Cadastral parcels that spatially intersect the working parcel; PID, active-status, and configured key checks are review evidence, not a prefilter that can hide overlaps.
 - Do not remove local transaction GDB behavior when adding per-user or Enterprise working functionality; these solve different workflow needs.
 - Do not mark workflow completion, Innola completion, or sync readiness unless the configured gate actually passed.
 - Do not infer parcel orientation from the first bearing. Orientation is computed from the full ordered closed ring and may be `clockwise`, `counterclockwise`, or `indeterminate`.
