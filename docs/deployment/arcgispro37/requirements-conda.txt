@@ -1,4 +1,3 @@
 # The target environment is cloned from ArcGIS Pro's pinned arcgispro-py3 environment.
 # Keep conda requirements empty unless a package is known to solve against ArcGIS Pro 3.7 pins.
 # AI extraction dependencies are installed with pip from requirements-pip.txt.
-pypdf=4.3.1

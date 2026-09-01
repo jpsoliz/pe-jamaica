@@ -180,7 +180,7 @@ $targetContracts = Join-Path $resolvedInstallRoot 'Contracts'
 $targetAddInDir = Join-Path $resolvedInstallRoot 'AddIn'
 $configuredAddInPath = Join-Path $targetAddInDir 'ParcelWorkflowAddIn.configured.esriAddInX'
 $targetCaseFolderRoot = Join-Path $resolvedInstallRoot 'ParcelWorkflowCases'
-$targetPythonEnv = Join-Path $resolvedInstallRoot 'python-env\arcgispro-survey-ai'
+$targetPythonEnv = Join-Path $resolvedInstallRoot 'envs\arcgispro-survey-ai'
 $targetPythonExe = Join-Path $targetPythonEnv 'python.exe'
 
 New-Item -ItemType Directory -Path $resolvedInstallRoot -Force | Out-Null
@@ -205,7 +205,7 @@ elseif ([string]::IsNullOrWhiteSpace($PythonExe)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    throw "ArcGIS Pro Python was not found. Copy the ArcGIS Pro Python clone to '$targetPythonEnv', install ArcGIS Pro, provide -PythonExe with an ArcGIS Pro Python path, or provide -SourcePythonEnvRoot for an ArcGIS Pro cloned environment."
+    throw "ArcGIS Pro Python was not found. Run installer/scripts/setup_arcgispro37_environment.ps1 to create '$targetPythonEnv', install ArcGIS Pro, provide -PythonExe with an ArcGIS Pro Python path, or provide -SourcePythonEnvRoot for an ArcGIS Pro cloned environment."
 }
 
 if (-not (Test-Path -LiteralPath $PythonExe)) {

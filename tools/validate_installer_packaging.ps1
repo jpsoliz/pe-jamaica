@@ -57,6 +57,11 @@ Assert-Path $summaryScriptPath
 Assert-Path $condaRequirementsPath
 Assert-Path $pipRequirementsPath
 
+$condaRequirementNames = @(Get-Content -LiteralPath $condaRequirementsPath | ForEach-Object { ($_.Trim() -split '[=<>~! ]', 2)[0] } | Where-Object { $_ -and -not $_.StartsWith('#') })
+Assert-True `
+    -Condition (-not ($condaRequirementNames -contains 'pypdf')) `
+    -Message 'Conda requirements must not pin pypdf because ArcGIS Pro 3.7 already pins it.'
+
 $pipRequirementNames = @(Get-Content -LiteralPath $pipRequirementsPath | ForEach-Object { ($_.Trim() -split '[=<>~! ]', 2)[0] } | Where-Object { $_ -and -not $_.StartsWith('#') })
 foreach ($requiredPipPackage in @('openai', 'openai-clip', 'open-clip-torch')) {
     Assert-True `
@@ -169,5 +174,11 @@ $installScript = Get-Content -LiteralPath (Join-Path $Root 'deployment\target-co
 Assert-True -Condition $installScript.Contains('arcgis_python_executable') -Message 'Target install script does not rewrite arcgis_python_executable.'
 Assert-True -Condition $installScript.Contains('case_folder_output_root') -Message 'Target install script does not rewrite case_folder_output_root.'
 Assert-True -Condition $installScript.Contains('output_adapter_script_path') -Message 'Target install script does not rewrite output_adapter_script_path.'
+Assert-True -Condition $installScript.Contains("'envs\arcgispro-survey-ai'") -Message 'Target install PowerShell script does not use the install-root envs folder.'
+Assert-True -Condition (-not $installScript.Contains("'python-env\arcgispro-survey-ai'")) -Message 'Target install PowerShell script still uses the old python-env target folder.'
+
+$installBat = Get-Content -LiteralPath (Join-Path $Root 'deployment\target-computer-tools\scripts\install_target_tools.bat') -Raw
+Assert-True -Condition $installBat.Contains('%INSTALL_ROOT%\envs\arcgispro-survey-ai') -Message 'Target install batch script does not use the install-root envs folder.'
+Assert-True -Condition (-not $installBat.Contains('%INSTALL_ROOT%\python-env\arcgispro-survey-ai')) -Message 'Target install batch script still uses the old python-env target folder.'
 
 Write-Host 'Installer packaging validation passed.'

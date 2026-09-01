@@ -71,7 +71,7 @@ set "SOURCE_CONTRACTS=%PACKAGE_ROOT%\Contracts"
 set "BUNDLED_PYTHON_ENV=%PACKAGE_ROOT%\python-env"
 set "DEFAULT_ARCGIS_PYTHON=%ProgramFiles%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
 set "DEFAULT_ARCGIS_PYTHON_X86=%ProgramFiles(x86)%\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
-set "TARGET_PYTHON_ENV=%INSTALL_ROOT%\python-env\arcgispro-survey-ai"
+set "TARGET_PYTHON_ENV=%INSTALL_ROOT%\envs\arcgispro-survey-ai"
 set "TARGET_PYTHON_EXE=%TARGET_PYTHON_ENV%\python.exe"
 set "TARGET_PROCESSING_TOOLS=%INSTALL_ROOT%\ProcessingTools"
 set "TARGET_CONTRACTS=%INSTALL_ROOT%\Contracts"
@@ -147,7 +147,7 @@ if not "%SOURCE_PYTHON_ENV_ROOT%"=="" (
 
 if "%PYTHON_EXE%"=="" (
   echo ERROR: ArcGIS Pro Python was not found.
-  echo Copy the ArcGIS Pro Python clone to "%TARGET_PYTHON_ENV%", install ArcGIS Pro, run with /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe", or use /SourcePythonEnvRoot for an ArcGIS Pro cloned environment.
+  echo Run package\installer\scripts\setup_arcgispro37_environment.bat to create "%TARGET_PYTHON_ENV%", install ArcGIS Pro, run with /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe", or use /SourcePythonEnvRoot for an ArcGIS Pro cloned environment.
   exit /b 1
 )
 
@@ -302,7 +302,7 @@ if not "%CHECK_RESULT%"=="0" (
   echo ERROR: The configured Python cannot import ArcPy.
   echo Python executable: "%CHECK_PYTHON_EXE%"
   echo This usually means the python-env was copied from a different ArcGIS Pro/Python version.
-  echo Use the target computer's ArcGIS Pro Python, or recreate python-env from that same ArcGIS Pro install.
+  echo Use the target computer's ArcGIS Pro Python, or recreate envs\arcgispro-survey-ai from that same ArcGIS Pro install.
   echo Example:
   echo   scripts\install_target_tools.bat /PythonExe "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe"
   exit /b 1
