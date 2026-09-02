@@ -11,6 +11,7 @@ using ParcelWorkflowAddIn.Workflow.Output;
 using ParcelWorkflowAddIn.Workflow.Pla;
 using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.SpatialReview;
+using ParcelWorkflowAddIn.Workflow.Validation;
 using ParcelWorkflowAddIn.Contracts;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -32,6 +33,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 {
     internal const string DockPaneId = "ParcelWorkflow_Dockpane";
     private readonly WorkflowSession workflowSession = new(new CaseFolderStore());
+    private readonly ValidationFindingDispositionPersistenceService validationFindingDispositionPersistenceService = new();
     private readonly PreflightRuleCatalog preflightRuleCatalog = new PreflightRuleCatalogLoader().Load();
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly PlaPlanEvidenceSelectionService plaPlanEvidenceSelectionService = new();
@@ -134,6 +136,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private string? supportingDocumentTextLoadError;
     private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
     private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
+    private readonly ObservableCollection<ValidationFindingDispositionRow> validationFindingRows = [];
     private bool importStructuredSurveyPoints;
     private bool importAutoCadSurveySource;
 
@@ -1621,6 +1624,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         }
     }
 
+    public ObservableCollection<ValidationFindingDispositionRow> ValidationFindingRows => validationFindingRows;
+
+    public bool HasValidationFindingRows => validationFindingRows.Count > 0;
+
     public string ValidationHelpText =>
         workflowSession.CurrentState switch
         {
@@ -1635,6 +1642,69 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             WorkflowState.ReviewApproved => "Run Create Spatial Units checks on the approved point-review data before spatial creation.",
             _ => "Create Spatial Units becomes available after Validate Points is approved."
         };
+
+    private void RefreshValidationFindingRows()
+    {
+        ValidationFindingDispositionDocument? disposition = null;
+        if (HasActiveCase)
+        {
+            try
+            {
+                var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath!);
+                disposition = validationFindingDispositionPersistenceService.Load(layout);
+            }
+            catch (IOException)
+            {
+                disposition = null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                disposition = null;
+            }
+        }
+
+        var rows = ValidationFindingDispositionProjector.BuildRows(workflowSession.CurrentValidationSummary, disposition);
+        validationFindingRows.Clear();
+        foreach (var row in rows)
+        {
+            validationFindingRows.Add(row);
+        }
+    }
+
+    private bool CanRecordValidationFindingDisposition(object? parameter)
+    {
+        return HasActiveCase
+            && workflowSession.CurrentValidationSummary is not null
+            && parameter is ValidationFindingDispositionRow;
+    }
+
+    private void RecordValidationFindingDisposition(object? parameter, string decision)
+    {
+        if (parameter is not ValidationFindingDispositionRow row || !HasActiveCase)
+        {
+            return;
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath!);
+        var decidedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        validationFindingDispositionPersistenceService.Upsert(
+            layout,
+            workflowSession.TransactionId ?? string.Empty,
+            new ValidationFindingDispositionItem(
+                row.FindingKey,
+                row.RuleId,
+                row.Title,
+                row.Severity,
+                row.Status,
+                decision,
+                string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment.Trim(),
+                Environment.UserName,
+                decidedAt,
+                row.Evidence));
+        workflowSession.SetValidationFailure($"Validation finding '{row.RuleId}' marked {decision.Replace('_', ' ')}.");
+        RefreshWorkflowProperties();
+    }
+
 
     private string BuildValidationBlockedHelpText()
     {
@@ -5646,3 +5716,6 @@ internal sealed record PreflightResultListItem(string Severity, PreflightCheck C
         return string.Join(" ", words.Select(word => char.ToUpperInvariant(word[0]) + word[1..]));
     }
 }
+
+
+

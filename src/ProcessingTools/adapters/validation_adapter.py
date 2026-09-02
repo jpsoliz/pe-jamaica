@@ -47,6 +47,43 @@ def _read_rules_metadata(path: Path | None) -> tuple[str, str]:
     return (rule_profile, rule_version)
 
 
+def _read_named_rule_sections(path: Path | None, section_names: set[str]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {name: {} for name in section_names}
+    if path is None or not path.exists():
+        return result
+
+    active_section: str | None = None
+    skip_nested_indent: int | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent == 0:
+            section_name = stripped[:-1] if stripped.endswith(":") else ""
+            active_section = section_name if section_name in section_names else None
+            skip_nested_indent = None
+            continue
+
+        if active_section is None:
+            continue
+        if skip_nested_indent is not None and indent > skip_nested_indent:
+            continue
+        if skip_nested_indent is not None and indent <= skip_nested_indent:
+            skip_nested_indent = None
+
+        if ":" not in stripped:
+            continue
+        key, raw_value = [part.strip() for part in stripped.split(":", 1)]
+        if not raw_value:
+            skip_nested_indent = indent
+            continue
+        result[active_section][key] = _parse_scalar(raw_value)
+
+    return result
+
+
 def _parse_scalar(raw_value: str) -> Any:
     value = raw_value.strip().strip("'\"")
     lowered = value.lower()
@@ -409,7 +446,7 @@ def _normalize_point_id(value: Any) -> str:
 
 
 def _parse_coordinate_value(value: Any) -> float | None:
-    text = str(value or "").strip()
+    text = str(value).strip() if value is not None else ""
     if not text:
         return None
     try:
@@ -1161,6 +1198,376 @@ def _compute_orientation_results(
     return results
 
 
+def _normalize_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _metadata_value(container: dict[str, Any], key: str) -> str:
+    value = (container.get("survey_metadata") or {}).get(key)
+    if isinstance(value, dict):
+        return str(value.get("value") or "").strip()
+    return str(value or "").strip()
+
+
+def _review_points(review_data: dict[str, Any]) -> list[tuple[str, float, float]]:
+    points: list[tuple[str, float, float]] = []
+    for index, row in enumerate(review_data.get("rows") or []):
+        if not isinstance(row, dict):
+            continue
+        easting = _parse_coordinate_value(row.get("easting"))
+        northing = _parse_coordinate_value(row.get("northing"))
+        if easting is None or northing is None:
+            continue
+        label = str(row.get("point_identifier") or row.get("point_id") or row.get("row_id") or f"row-{index + 1}")
+        points.append((label, easting, northing))
+    return points
+
+
+def _configured_parish_layer(settings: dict[str, Any]) -> dict[str, Any] | None:
+    layers = ((settings.get("working_map") or {}).get("reference_layers") or [])
+    for layer in layers:
+        if not isinstance(layer, dict):
+            continue
+        if layer.get("use_for_validation") is True or str(layer.get("name") or "").strip().lower() in {"jm parishes", "parishes"}:
+            return layer
+    return None
+
+
+def _configured_parish_boundary(settings: dict[str, Any], parish_name: str) -> dict[str, Any] | None:
+    normalized = _normalize_name(parish_name)
+    boundaries = (settings.get("parish_validation") or {}).get("boundaries") or []
+    for boundary in boundaries:
+        if not isinstance(boundary, dict):
+            continue
+        names = [boundary.get("name"), boundary.get("parish"), boundary.get("PARISH")]
+        if any(_normalize_name(name) == normalized for name in names):
+            return boundary
+    return None
+
+
+def _point_inside_box(point: tuple[str, float, float], boundary: dict[str, Any], tolerance: float) -> bool:
+    _, x, y = point
+    xmin = _parse_coordinate_value(boundary.get("xmin"))
+    ymin = _parse_coordinate_value(boundary.get("ymin"))
+    xmax = _parse_coordinate_value(boundary.get("xmax"))
+    ymax = _parse_coordinate_value(boundary.get("ymax"))
+    if xmin is None or ymin is None or xmax is None or ymax is None:
+        return False
+    return xmin - tolerance <= x <= xmax + tolerance and ymin - tolerance <= y <= ymax + tolerance
+
+
+def _rule_section_settings(settings: dict[str, Any], section_name: str) -> dict[str, Any]:
+    configured = settings.get(section_name)
+    return configured if isinstance(configured, dict) else {}
+
+
+def _status_severity(status: str, blocking_severity: str = "high") -> str:
+    if status == "passed":
+        return "passed"
+    if status == "not_available":
+        return "info"
+    if status == "needs_review":
+        return "warning"
+    return blocking_severity
+
+
+def _numeric_field_mismatches(
+    point_id: str,
+    plan_row: dict[str, Any],
+    sheet_row: dict[str, Any],
+    fields: tuple[str, ...],
+    tolerance: float,
+    unit: str,
+) -> tuple[int, list[str]]:
+    matches = 0
+    mismatches: list[str] = []
+    for field in fields:
+        plan_value = _parse_coordinate_value(plan_row.get(field))
+        sheet_value = _parse_coordinate_value(sheet_row.get(field))
+        if plan_value is None or sheet_value is None:
+            continue
+        delta = abs(plan_value - sheet_value)
+        if delta > tolerance:
+            mismatches.append(f"{point_id}.{field} delta {delta:.3f}{unit}")
+        else:
+            matches += 1
+    return matches, mismatches
+
+
+def _string_field_mismatches(point_id: str, plan_row: dict[str, Any], sheet_row: dict[str, Any], fields: tuple[str, ...]) -> tuple[int, list[str]]:
+    matches = 0
+    mismatches: list[str] = []
+    for field in fields:
+        plan_value = str(plan_row.get(field) or "").strip()
+        sheet_value = str(sheet_row.get(field) or "").strip()
+        if not plan_value or not sheet_value:
+            continue
+        if _normalize_name(plan_value) != _normalize_name(sheet_value):
+            mismatches.append(f"{point_id}.{field} differs")
+        else:
+            matches += 1
+    return matches, mismatches
+
+
+def _compute_parish_validation_results(review_data: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
+    layer = _configured_parish_layer(settings)
+    if layer is None:
+        return [{
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": "not_available",
+            "severity": "info",
+            "message": "No working map reference layer is configured for parish validation.",
+            "evidence": "use_for_validation=true layer missing",
+        }]
+
+    parish = _metadata_value(review_data, "parish")
+    if not parish:
+        return [{
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": "not_available",
+            "severity": "info",
+            "message": "Source document parish is not available for boundary validation.",
+            "evidence": f"layer={layer.get('name')}; field={layer.get('parish_name_field') or layer.get('name_field') or 'unknown'}",
+        }]
+
+    points = _review_points(review_data)
+    if not points:
+        return [{
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": "not_available",
+            "severity": "info",
+            "message": "Reviewed point geometry is not available for parish validation.",
+            "evidence": f"parish={parish}; layer={layer.get('name')}",
+        }]
+
+    if review_data.get("local_origin") is True or str(review_data.get("coordinate_system") or "").lower() == "local_origin":
+        return [{
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": "needs_review",
+            "severity": "warning",
+            "message": "Reviewed geometry uses a local origin and cannot be projected safely to the parish layer.",
+            "evidence": f"parish={parish}; layer={layer.get('name')}",
+        }]
+
+    boundary = _configured_parish_boundary(settings, parish)
+    if boundary is None:
+        return [{
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": "not_available",
+            "severity": "info",
+            "message": "Configured parish layer is available, but no local parish boundary geometry was supplied to this validation adapter.",
+            "evidence": f"parish={parish}; layer={layer.get('name')}; url={layer.get('url')}",
+        }]
+
+    tolerance = float(_rule_section_settings(settings, "parish_validation").get("tolerance_m") or 0.0)
+    outside = [label for point in points for label in [point[0]] if not _point_inside_box(point, boundary, tolerance)]
+    point_status = "passed" if not outside else "blocker"
+    polygon_status = point_status if len(points) >= 3 else "not_available"
+    return [
+        {
+            "rule_id": "georeference.parish_point_within_boundary",
+            "stage": "georeference_check",
+            "status": point_status,
+            "severity": "passed" if point_status == "passed" else "high",
+            "message": "Reviewed points are inside the extracted parish boundary." if not outside else "Reviewed points fall outside the extracted parish boundary.",
+            "evidence": f"parish={parish}; checked_points={len(points)}; outside_points={','.join(outside) or 'none'}",
+        },
+        {
+            "rule_id": "spatial_units.parish_polygon_within_boundary",
+            "stage": "create_spatial_units",
+            "status": polygon_status,
+            "severity": _status_severity(polygon_status),
+            "message": "Reviewed polygon points are inside the extracted parish boundary." if polygon_status == "passed" else "Reviewed polygon boundary cannot be confirmed against the extracted parish boundary." if polygon_status == "not_available" else "Reviewed polygon points do not all fit the extracted parish boundary.",
+            "evidence": f"parish={parish}; vertex_count={len(points)}; outside_points={','.join(outside) or 'none'}",
+        },
+    ]
+
+
+def _row_by_point(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if isinstance(row, dict):
+            key = str(row.get("point_identifier") or row.get("point_id") or "").strip().upper()
+            if key:
+                result[key] = row
+    return result
+
+
+def _compute_plan_compute_sheet_consistency_results(review_data: dict[str, Any], settings: dict[str, Any]) -> list[dict[str, Any]]:
+    sheet = review_data.get("embedded_compute_sheet") or {}
+    if not isinstance(sheet, dict) or sheet.get("detected") is False or sheet.get("status") in {None, "not_detected"}:
+        return [{
+            "rule_id": "pxa.embedded_compute_sheet_detected",
+            "stage": "data_extraction",
+            "status": "not_available",
+            "severity": "info",
+            "message": "No embedded computation sheet was detected in the source document.",
+            "evidence": "embedded_compute_sheet=not_detected",
+        }]
+
+    config = _rule_section_settings(settings, "plan_compute_sheet_consistency")
+    coordinate_tolerance = float(config.get("coordinate_tolerance_m") or 0.05)
+    distance_tolerance = float(config.get("distance_tolerance_m") or coordinate_tolerance)
+    bearing_tolerance = float(config.get("bearing_tolerance_degrees") or 0.01)
+    area_tolerance_percent = float(config.get("area_tolerance_percent") or 0.1)
+    plan_rows = _row_by_point(review_data.get("rows") or [])
+    sheet_rows = _row_by_point(sheet.get("rows") or [])
+    missing_in_sheet = sorted(point_id for point_id in plan_rows if point_id not in sheet_rows)
+    extra_in_sheet = sorted(point_id for point_id in sheet_rows if point_id not in plan_rows)
+    mismatches: list[str] = []
+    matches = 0
+
+    if missing_in_sheet:
+        mismatches.append(f"points missing from compute sheet: {','.join(missing_in_sheet)}")
+    if extra_in_sheet:
+        mismatches.append(f"extra compute-sheet points: {','.join(extra_in_sheet)}")
+
+    for point_id in sorted(set(plan_rows).intersection(sheet_rows)):
+        plan_row = plan_rows[point_id]
+        sheet_row = sheet_rows[point_id]
+        field_matches, field_mismatches = _numeric_field_mismatches(
+            point_id,
+            plan_row,
+            sheet_row,
+            ("easting", "northing"),
+            coordinate_tolerance,
+            "m",
+        )
+        matches += field_matches
+        mismatches.extend(field_mismatches)
+
+        field_matches, field_mismatches = _numeric_field_mismatches(
+            point_id,
+            plan_row,
+            sheet_row,
+            ("distance", "distance_m", "length", "length_m"),
+            distance_tolerance,
+            "m",
+        )
+        matches += field_matches
+        mismatches.extend(field_mismatches)
+
+        field_matches, field_mismatches = _numeric_field_mismatches(
+            point_id,
+            plan_row,
+            sheet_row,
+            ("bearing_degrees", "azimuth_degrees"),
+            bearing_tolerance,
+            "deg",
+        )
+        matches += field_matches
+        mismatches.extend(field_mismatches)
+
+        field_matches, field_mismatches = _string_field_mismatches(
+            point_id,
+            plan_row,
+            sheet_row,
+            ("parcel_group_id", "parcel_id", "parcel_name", "from_point", "to_point"),
+        )
+        matches += field_matches
+        mismatches.extend(field_mismatches)
+
+    for field in ("area", "area_m2", "computed_area_m2"):
+        plan_value = _parse_coordinate_value(review_data.get(field))
+        sheet_value = _parse_coordinate_value(sheet.get(field))
+        if plan_value is None or sheet_value is None:
+            continue
+        baseline = abs(plan_value) if plan_value else 1.0
+        delta_percent = abs(plan_value - sheet_value) / baseline * 100.0
+        if delta_percent > area_tolerance_percent:
+            mismatches.append(f"{field} delta {delta_percent:.3f}%")
+        else:
+            matches += 1
+
+    if matches == 0 and not mismatches:
+        return [{
+            "rule_id": "pxa.plan_compute_sheet_consistency",
+            "stage": "dimension_check",
+            "status": "needs_review",
+            "severity": "warning",
+            "message": "An embedded computation sheet was detected, but no comparable values were available.",
+            "evidence": f"pages={','.join(str(page) for page in sheet.get('page_numbers') or []) or 'unknown'}; plan_points={len(plan_rows)}; sheet_points={len(sheet_rows)}",
+            "mismatches": [],
+        }]
+
+    status = "blocker" if mismatches else "passed"
+    return [{
+        "rule_id": "pxa.plan_compute_sheet_consistency",
+        "stage": "dimension_check",
+        "status": status,
+        "severity": "high" if status == "blocker" else "passed",
+        "message": "Plan values and embedded computation-sheet values do not match." if mismatches else "Plan values match embedded computation-sheet values within tolerance.",
+        "evidence": f"pages={','.join(str(page) for page in sheet.get('page_numbers') or []) or 'unknown'}; matches={matches}; mismatches={len(mismatches)}",
+        "mismatches": mismatches,
+    }]
+
+
+def _compute_printed_text_size_result(review_data: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    config = _rule_section_settings(settings, "printed_text_size")
+    threshold = float(config.get("threshold_mm") or 2.0)
+    comparison = str(config.get("comparison") or "minimum").strip().lower()
+    pages = ((review_data.get("document_text_metrics") or {}).get("pages") or [])
+    if not pages:
+        return {
+            "rule_id": "document.printed_text_height",
+            "stage": "data_extraction",
+            "status": "not_available",
+            "severity": "info",
+            "message": "Printed text-size metrics are not available for this document.",
+            "evidence": "document_text_metrics=missing; page_standard=A4_fallback",
+        }
+
+    heights: list[float] = []
+    uncertain_pages: list[str] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        if page.get("raster_only") is True or page.get("dpi_unknown") is True:
+            uncertain_pages.append(str(page.get("page_number") or len(uncertain_pages) + 1))
+            continue
+        for run in page.get("text_runs") or []:
+            if not isinstance(run, dict):
+                continue
+            height = _parse_coordinate_value(run.get("height_mm"))
+            if height is not None:
+                heights.append(height)
+
+    if uncertain_pages and not heights:
+        return {
+            "rule_id": "document.printed_text_height",
+            "stage": "data_extraction",
+            "status": "needs_review",
+            "severity": "warning",
+            "message": "Printed text size cannot be measured reliably for raster-only or unknown-DPI pages.",
+            "evidence": f"uncertain_pages={','.join(uncertain_pages)}; threshold_mm={threshold}",
+        }
+
+    if not heights:
+        return {
+            "rule_id": "document.printed_text_height",
+            "stage": "data_extraction",
+            "status": "not_available",
+            "severity": "info",
+            "message": "No measurable text runs were available for printed text-size validation.",
+            "evidence": f"threshold_mm={threshold}; comparison={comparison}; page_standard=A4_fallback",
+        }
+
+    observed = min(heights) if comparison != "maximum" else max(heights)
+    failed = observed < threshold if comparison != "maximum" else observed > threshold
+    return {
+        "rule_id": "document.printed_text_height",
+        "stage": "data_extraction",
+        "status": "blocker" if failed else "passed",
+        "severity": "high" if failed else "passed",
+        "message": "Printed text height is outside the configured threshold." if failed else "Printed text height satisfies the configured threshold.",
+        "evidence": f"observed_mm={observed:.3f}; threshold_mm={threshold}; comparison={comparison}; page_standard=A4_fallback",
+    }
+
 def _review_hash(document: dict[str, Any]) -> str | None:
     return document.get("review_hash") or document.get("review_data_hash")
 
@@ -1205,6 +1612,25 @@ def build_summary(
 ) -> dict[str, Any]:
     rule_profile, rule_version = _read_rules_metadata(rules_path)
     settings = _load_settings(settings_path)
+    rule_section_defaults = _read_named_rule_sections(
+        rules_path,
+        {"parish_validation", "plan_compute_sheet_consistency", "printed_text_size"},
+    )
+    settings = {
+        **settings,
+        "parish_validation": {
+            **rule_section_defaults.get("parish_validation", {}),
+            **(settings.get("parish_validation") or {}),
+        },
+        "plan_compute_sheet_consistency": {
+            **rule_section_defaults.get("plan_compute_sheet_consistency", {}),
+            **(settings.get("plan_compute_sheet_consistency") or {}),
+        },
+        "printed_text_size": {
+            **rule_section_defaults.get("printed_text_size", {}),
+            **(settings.get("printed_text_size") or {}),
+        },
+    }
     closure_rule_config = _apply_profile_overrides(_read_closure_profiles(rules_path), settings)
     readiness_rule_config = _apply_readiness_profile_overrides(_read_readiness_profiles(rules_path), settings)
     orientation_rule_config = _apply_orientation_profile_overrides(_read_orientation_profiles(rules_path), settings)
@@ -1446,6 +1872,9 @@ def build_summary(
     closure_results = _compute_closure_results(review_data, source_files, closure_rule_config)
     readiness_results = _compute_readiness_results(review_data, source_files, readiness_rule_config)
     orientation_results = _compute_orientation_results(review_data, source_files, orientation_rule_config)
+    parish_validation_results = _compute_parish_validation_results(review_data, settings)
+    plan_compute_sheet_consistency_results = _compute_plan_compute_sheet_consistency_results(review_data, settings)
+    printed_text_size_result = _compute_printed_text_size_result(review_data, settings)
     closure_blockers = 0
     closure_warnings = 0
     closure_passed = 0
@@ -1575,6 +2004,43 @@ def build_summary(
                 )
             )
 
+    for parish_result in parish_validation_results:
+        status = parish_result["status"]
+        findings.append(
+            _finding(
+                str(parish_result["rule_id"]),
+                str(parish_result["message"]),
+                str(parish_result["severity"]),
+                "failed" if status in {"blocker", "needs_review"} else "passed" if status == "passed" else str(status),
+                str(parish_result.get("evidence") or ""),
+                "Review the parish named in the source document and the configured parish boundary layer." if status in {"blocker", "needs_review"} else None,
+            )
+        )
+
+    for consistency_result in plan_compute_sheet_consistency_results:
+        status = consistency_result["status"]
+        findings.append(
+            _finding(
+                str(consistency_result["rule_id"]),
+                str(consistency_result["message"]),
+                str(consistency_result["severity"]),
+                "failed" if status == "blocker" else "passed" if status == "passed" else str(status),
+                str(consistency_result.get("evidence") or ""),
+                "Disposition the plan versus computation-sheet mismatch before downstream approval." if status == "blocker" else None,
+            )
+        )
+
+    findings.append(
+        _finding(
+            str(printed_text_size_result["rule_id"]),
+            str(printed_text_size_result["message"]),
+            str(printed_text_size_result["severity"]),
+            "failed" if printed_text_size_result["status"] in {"blocker", "needs_review"} else "passed" if printed_text_size_result["status"] == "passed" else str(printed_text_size_result["status"]),
+            str(printed_text_size_result.get("evidence") or ""),
+            "Review source document legibility/scaling before approval." if printed_text_size_result["status"] in {"blocker", "needs_review"} else None,
+        )
+    )
+
     for orientation_result in orientation_results:
         status = orientation_result["status"]
         if status == "blocker":
@@ -1689,6 +2155,9 @@ def build_summary(
                 "skipped": orientation_skipped,
             },
             "orientation_results": orientation_results,
+            "parish_validation_results": parish_validation_results,
+            "plan_compute_sheet_consistency_results": plan_compute_sheet_consistency_results,
+            "printed_text_size_result": printed_text_size_result,
             "findings": findings,
         },
         "warnings": warnings,

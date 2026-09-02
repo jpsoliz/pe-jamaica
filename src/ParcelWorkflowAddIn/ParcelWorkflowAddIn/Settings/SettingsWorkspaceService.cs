@@ -1133,12 +1133,39 @@ public sealed class SettingsWorkspaceService
                 node["source_type"] = layer.SourceType.Trim();
                 node["url"] = layer.Url.Trim();
                 node["group"] = layer.Group.Trim();
+                node["required"] = layer.Required;
                 node["visible"] = layer.Visible;
+                node["order"] = layer.Order;
+                node["opacity"] = ClampOpacity(layer.Opacity);
+                SetOptionalString(node, "parish_name_field", layer.ParishNameField);
+                node["use_for_zoom"] = layer.UseForZoom;
+                node["use_for_validation"] = layer.UseForValidation;
                 return (JsonNode?)node;
             })
             .ToArray();
 
         return new JsonArray(nodes);
+    }
+
+    private static double ClampOpacity(double opacity)
+    {
+        if (opacity < 0)
+        {
+            return 0;
+        }
+
+        return opacity > 1 ? 1 : opacity;
+    }
+
+    private static void SetOptionalString(JsonObject node, string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            node.Remove(name);
+            return;
+        }
+
+        node[name] = value.Trim();
     }
 
     private static Dictionary<string, JsonObject> ReadExistingWorkingMapLayers(JsonObject? existingWorkingMapRoot)

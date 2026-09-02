@@ -663,6 +663,158 @@ class ValidationAdapterTests(unittest.TestCase):
             self.assertEqual("passed", summary["payload"]["status"])
             self.assertEqual("reviewed_boundary_segments", summary["payload"]["closure_results"][0]["geometry_source"])
 
+    def test_parish_validation_passes_when_points_are_inside_configured_boundary(self):
+        review_data = {
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [
+                {"point_identifier": "P1", "easting": "100", "northing": "100"},
+                {"point_identifier": "P2", "easting": "120", "northing": "110"},
+                {"point_identifier": "P3", "easting": "110", "northing": "120"},
+            ],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [
+                    {
+                        "name": "JM Parishes",
+                        "url": "https://example.local/FeatureServer/0",
+                        "parish_name_field": "PARISH",
+                        "use_for_validation": True,
+                    }
+                ]
+            },
+            "parish_validation": {
+                "boundaries": [{"name": "CLARENDON", "xmin": 0, "ymin": 0, "xmax": 200, "ymax": 200}],
+            },
+        }
 
+        results = validation_adapter._compute_parish_validation_results(review_data, settings)
+
+        self.assertEqual("passed", results[0]["status"])
+        self.assertEqual("georeference.parish_point_within_boundary", results[0]["rule_id"])
+        self.assertEqual("passed", results[1]["status"])
+        self.assertEqual("spatial_units.parish_polygon_within_boundary", results[1]["rule_id"])
+
+    def test_parish_validation_returns_not_available_when_layer_is_missing(self):
+        review_data = {"survey_metadata": {"parish": {"value": "Clarendon"}}, "rows": []}
+
+        results = validation_adapter._compute_parish_validation_results(review_data, {"working_map": {"reference_layers": []}})
+
+        self.assertEqual(1, len(results))
+        self.assertEqual("not_available", results[0]["status"])
+        self.assertIn("No working map reference layer", results[0]["message"])
+
+    def test_plan_compute_sheet_comparison_blocks_coordinate_mismatch(self):
+        review_data = {
+            "rows": [{"point_identifier": "P1", "easting": "100.00", "northing": "200.00"}],
+            "embedded_compute_sheet": {
+                "status": "detected",
+                "page_numbers": [2],
+                "rows": [{"point_identifier": "P1", "easting": "101.50", "northing": "200.00"}],
+            },
+        }
+
+        results = validation_adapter._compute_plan_compute_sheet_consistency_results(
+            review_data,
+            {"plan_compute_sheet_consistency": {"coordinate_tolerance_m": 0.1}},
+        )
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertIn("P1", results[0]["mismatches"][0])
+
+    def test_printed_text_size_supports_minimum_and_unavailable_metrics(self):
+        failing = validation_adapter._compute_printed_text_size_result(
+            {"document_text_metrics": {"pages": [{"page_number": 1, "width_mm": 210, "height_mm": 297, "text_runs": [{"height_mm": 1.8, "text": "small"}]}]}},
+            {"printed_text_size": {"threshold_mm": 2.0, "comparison": "minimum"}},
+        )
+        unavailable = validation_adapter._compute_printed_text_size_result({}, {"printed_text_size": {}})
+
+        self.assertEqual("blocker", failing["status"])
+        self.assertEqual("not_available", unavailable["status"])
+
+    def test_plan_compute_sheet_comparison_checks_distance_bearing_and_missing_points(self):
+        review_data = {
+            "rows": [
+                {
+                    "point_identifier": "P1",
+                    "parcel_group_id": "parcel-001",
+                    "from_point": "P0",
+                    "to_point": "P1",
+                    "easting": "100.00",
+                    "northing": "200.00",
+                    "distance_m": "10.00",
+                    "bearing_degrees": "45.00",
+                },
+                {"point_identifier": "P2", "easting": "110.00", "northing": "200.00"},
+            ],
+            "area_m2": "100.0",
+            "embedded_compute_sheet": {
+                "status": "detected",
+                "page_numbers": [3],
+                "area_m2": "101.0",
+                "rows": [
+                    {
+                        "point_identifier": "P1",
+                        "parcel_group_id": "parcel-002",
+                        "from_point": "P0",
+                        "to_point": "P1",
+                        "easting": "100.00",
+                        "northing": "200.00",
+                        "distance_m": "10.50",
+                        "bearing_degrees": "45.50",
+                    },
+                    {"point_identifier": "P3", "easting": "120.00", "northing": "200.00"},
+                ],
+            },
+        }
+
+        results = validation_adapter._compute_plan_compute_sheet_consistency_results(
+            review_data,
+            {
+                "plan_compute_sheet_consistency": {
+                    "coordinate_tolerance_m": 0.1,
+                    "distance_tolerance_m": 0.1,
+                    "bearing_tolerance_degrees": 0.1,
+                    "area_tolerance_percent": 0.5,
+                }
+            },
+        )
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertTrue(any("missing from compute sheet" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("extra compute-sheet points" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("distance_m" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("bearing_degrees" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("parcel_group_id" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("area_m2" in mismatch for mismatch in results[0]["mismatches"]))
+
+    def test_named_rule_sections_read_top_level_validation_defaults(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rules_path = Path(temp_dir) / "rules.yaml"
+            rules_path.write_text(
+                "\n".join(
+                    [
+                        "rule_profile: sidwell_validation_v1",
+                        "parish_validation:",
+                        "  tolerance_m: 1.5",
+                        "plan_compute_sheet_consistency:",
+                        "  coordinate_tolerance_m: 0.25",
+                        "  bearing_tolerance_degrees: 0.02",
+                        "printed_text_size:",
+                        "  threshold_mm: 2.0",
+                        "  comparison: minimum",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            sections = validation_adapter._read_named_rule_sections(
+                rules_path,
+                {"parish_validation", "plan_compute_sheet_consistency", "printed_text_size"},
+            )
+
+            self.assertEqual(1.5, sections["parish_validation"]["tolerance_m"])
+            self.assertEqual(0.25, sections["plan_compute_sheet_consistency"]["coordinate_tolerance_m"])
+            self.assertEqual("minimum", sections["printed_text_size"]["comparison"])
 if __name__ == "__main__":
     unittest.main()

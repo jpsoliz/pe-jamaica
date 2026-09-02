@@ -1,5 +1,5 @@
 # generated: 2026-06-09
-# last_updated: 2026-08-31
+# last_updated: 2026-09-02
 # project: Sid-jamaica
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-08-31
+last_updated: 2026-09-02
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -109,6 +109,7 @@ development_status:
   4-10-add-configurable-compute-rule-catalog-by-stage: review
   4-11-add-pxa-memorandum-detection-and-review-rules: review
   4-12-improve-pe-pxa-memorandum-extraction-semantic-review-rules: done
+  4-13-add-parish-boundary-and-document-consistency-validation-rules: in-progress
   epic-4-retrospective: optional
 
   epic-5: in-progress

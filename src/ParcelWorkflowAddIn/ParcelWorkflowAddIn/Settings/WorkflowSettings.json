@@ -81,8 +81,8 @@
     "zoom_to_transaction_parish": true,
     "parish_lookup": {
       "enabled": true,
-      "layer_name": "Parishes",
-      "name_field": "parish",
+      "layer_name": "JM Parishes",
+      "name_field": "PARISH",
       "required": false,
       "known_extents": {}
     },
@@ -159,6 +159,19 @@
         "visible": false,
         "order": 30,
         "opacity": 1.0
+      },
+      {
+        "name": "JM Parishes",
+        "source_type": "feature_service_url",
+        "url": "https://services6.arcgis.com/3R3y1KXaPJ9BFnsU/ArcGIS/rest/services/Jamaica_Parishes_SDC_Communities/FeatureServer/0",
+        "group": "Administrative Boundaries",
+        "required": false,
+        "visible": true,
+        "order": 40,
+        "opacity": 0.45,
+        "parish_name_field": "PARISH",
+        "use_for_zoom": true,
+        "use_for_validation": true
       }
     ]
   },

@@ -150,6 +150,26 @@ orientation_validation_profiles:
     expected_orientation: any
     enforce_bearing_consistency: false
     max_bearing_delta_degrees: 10.0
+parish_validation:
+  enabled: true
+  severity: warning
+  tolerance_m: 0.0
+  unavailable_status: not_available
+
+plan_compute_sheet_consistency:
+  enabled: true
+  severity: blocker
+  coordinate_tolerance_m: 0.05
+  distance_tolerance_m: 0.01
+  bearing_tolerance_degrees: 0.01
+  area_tolerance_percent: 0.1
+
+printed_text_size:
+  enabled: true
+  severity: blocker
+  threshold_mm: 2.0
+  comparison: minimum
+  unavailable_status: not_available
 
 rules:
   - id: approved_review_snapshot_current
@@ -164,6 +184,16 @@ rules:
     severity: high
   - id: unique_point_identifiers
     severity: warning
+  - id: georeference.parish_point_within_boundary
+    severity: warning
+  - id: spatial_units.parish_polygon_within_boundary
+    severity: warning
+  - id: pxa.embedded_compute_sheet_detected
+    severity: info
+  - id: pxa.plan_compute_sheet_consistency
+    severity: high
+  - id: document.printed_text_height
+    severity: high
 
 parcel_construction_readiness_defaults:
   parcel_type: standard_closed

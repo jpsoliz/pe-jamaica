@@ -477,7 +477,10 @@ public sealed record WorkingMapReferenceLayerSettings(
     double Opacity,
     string? BasemapRole,
     double? MinScale,
-    double? MaxScale)
+    double? MaxScale,
+    string? ParishNameField = null,
+    bool UseForZoom = false,
+    bool UseForValidation = false)
 {
     public static WorkingMapReferenceLayerSettings Default { get; } = new(
         string.Empty,
@@ -505,7 +508,10 @@ public sealed record WorkingMapReferenceLayerSettings(
             ClampOpacity(ReadDouble(value, "opacity") ?? Default.Opacity),
             ReadString(value, "basemap_role"),
             ReadDouble(value, "min_scale"),
-            ReadDouble(value, "max_scale"));
+            ReadDouble(value, "max_scale"),
+            ReadString(value, "parish_name_field"),
+            ReadBool(value, "use_for_zoom") ?? false,
+            ReadBool(value, "use_for_validation") ?? false);
     }
 
     private static double ClampOpacity(double opacity)

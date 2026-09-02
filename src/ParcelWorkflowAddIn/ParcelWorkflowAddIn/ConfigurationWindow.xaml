@@ -1272,7 +1272,7 @@
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
-          <TextBlock Text="Configure the reference and basemap layers prepared when a transaction opens. Layer planner metadata such as required, order, opacity, and basemap role is preserved when existing rows are edited."
+          <TextBlock Text="Configure the reference and basemap layers prepared when a transaction opens. Layer planner metadata such as required, order, opacity, parish field, and validation flags can be reviewed and edited here; hidden basemap role metadata is preserved when existing rows are edited."
                      Foreground="#53636A"
                      Margin="0,0,0,12"
                      TextWrapping="Wrap" />
@@ -1298,8 +1298,26 @@
               <DataGridTextColumn Header="Group"
                                   Binding="{Binding Group, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                   Width="150" />
+              <DataGridCheckBoxColumn Header="Required"
+                                      Binding="{Binding Required, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="80" />
               <DataGridCheckBoxColumn Header="Visible"
                                       Binding="{Binding Visible, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="80" />
+              <DataGridTextColumn Header="Order"
+                                  Binding="{Binding Order, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="70" />
+              <DataGridTextColumn Header="Opacity"
+                                  Binding="{Binding Opacity, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="80" />
+              <DataGridTextColumn Header="Parish field"
+                                  Binding="{Binding ParishNameField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  Width="110" />
+              <DataGridCheckBoxColumn Header="Zoom"
+                                      Binding="{Binding UseForZoom, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="70" />
+              <DataGridCheckBoxColumn Header="Validate"
+                                      Binding="{Binding UseForValidation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                       Width="80" />
             </DataGrid.Columns>
           </DataGrid>

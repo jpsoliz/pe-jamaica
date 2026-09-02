@@ -444,10 +444,16 @@ internal static class SettingsWorkspaceServiceTests
         document.WorkingMapLayers.Add(new EditableWorkingMapLayer
         {
             Name = "Custom Parish Reference",
-            SourceType = "map_service_url",
-            Url = "https://example.local/server/rest/services/Parishes/MapServer",
+            SourceType = "feature_service_url",
+            Url = "https://example.local/server/rest/services/Parishes/FeatureServer/0",
             Group = "Administrative Reference",
-            Visible = false
+            Required = true,
+            Visible = false,
+            Order = 42,
+            Opacity = 0.45,
+            ParishNameField = "PARISH",
+            UseForZoom = true,
+            UseForValidation = true
         });
         var editedRule = document.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
         editedRule.Enabled = false;
@@ -497,13 +503,27 @@ internal static class SettingsWorkspaceServiceTests
         var reloadedOpenBasemapLayer = reloaded.WorkingMapLayers.Single(layer => layer.Name == "Open Basemap Streets");
         TestAssert.True(reloadedOpenBasemapLayer.Visible, "Open basemap visibility should save from settings.");
         TestAssert.Equal("Basemap Options", reloadedOpenBasemapLayer.Group, "Open basemap group should save from settings.");
-        TestAssert.True(reloaded.WorkingMapLayers.Any(layer => layer.Name == "Custom Parish Reference"), "New working map layers should save from settings.");
+        var reloadedParishLayer = reloaded.WorkingMapLayers.Single(layer => layer.Name == "Custom Parish Reference");
+        TestAssert.Equal("feature_service_url", reloadedParishLayer.SourceType, "Parish layer source type should save from settings.");
+        TestAssert.Equal("https://example.local/server/rest/services/Parishes/FeatureServer/0", reloadedParishLayer.Url, "Parish layer URL should save from settings.");
+        TestAssert.True(reloadedParishLayer.Required, "Parish layer required flag should save from settings.");
+        TestAssert.Equal(42, reloadedParishLayer.Order, "Parish layer order should save from settings.");
+        TestAssert.Equal(0.45, reloadedParishLayer.Opacity, "Parish layer opacity should save from settings.");
+        TestAssert.Equal("PARISH", reloadedParishLayer.ParishNameField, "Parish name field should save from settings.");
+        TestAssert.True(reloadedParishLayer.UseForZoom, "Parish zoom flag should save from settings.");
+        TestAssert.True(reloadedParishLayer.UseForValidation, "Parish validation flag should save from settings.");
         using var savedJson = JsonDocument.Parse(File.ReadAllText(settingsPath));
         var savedOpenBasemap = savedJson.RootElement.GetProperty("working_map").GetProperty("reference_layers")
             .EnumerateArray()
             .Single(layer => layer.GetProperty("name").GetString() == "Open Basemap Streets");
         TestAssert.Equal("streets", savedOpenBasemap.GetProperty("basemap_role").GetString(), "Settings save should preserve existing hidden basemap metadata.");
         TestAssert.Equal(1, savedOpenBasemap.GetProperty("order").GetInt32(), "Settings save should preserve existing layer order metadata.");
+        var savedParishLayer = savedJson.RootElement.GetProperty("working_map").GetProperty("reference_layers")
+            .EnumerateArray()
+            .Single(layer => layer.GetProperty("name").GetString() == "Custom Parish Reference");
+        TestAssert.Equal("PARISH", savedParishLayer.GetProperty("parish_name_field").GetString(), "Parish name field should persist to JSON.");
+        TestAssert.True(savedParishLayer.GetProperty("use_for_zoom").GetBoolean(), "Parish zoom flag should persist to JSON.");
+        TestAssert.True(savedParishLayer.GetProperty("use_for_validation").GetBoolean(), "Parish validation flag should persist to JSON.");
         var savedRule = reloaded.PreflightRules.Single(rule => rule.RuleId == "dwg_readiness_probe");
         TestAssert.True(!savedRule.Enabled, "Preflight rule enabled state save mismatch.");
         TestAssert.Equal("warning", savedRule.Severity, "Preflight rule severity save mismatch.");

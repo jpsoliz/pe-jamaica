@@ -148,7 +148,13 @@ public sealed class EditableWorkingMapLayer
     public string SourceType { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
     public string Group { get; set; } = string.Empty;
+    public bool Required { get; set; }
     public bool Visible { get; set; }
+    public int Order { get; set; }
+    public double Opacity { get; set; } = 1.0;
+    public string ParishNameField { get; set; } = string.Empty;
+    public bool UseForZoom { get; set; }
+    public bool UseForValidation { get; set; }
 
     public static EditableWorkingMapLayer FromSettings(Innola.WorkingMapReferenceLayerSettings settings)
     {
@@ -158,7 +164,13 @@ public sealed class EditableWorkingMapLayer
             SourceType = settings.SourceType,
             Url = settings.Url,
             Group = settings.Group,
-            Visible = settings.Visible
+            Required = settings.Required,
+            Visible = settings.Visible,
+            Order = settings.Order,
+            Opacity = settings.Opacity,
+            ParishNameField = settings.ParishNameField ?? string.Empty,
+            UseForZoom = settings.UseForZoom,
+            UseForValidation = settings.UseForValidation
         };
     }
 
@@ -170,7 +182,13 @@ public sealed class EditableWorkingMapLayer
             SourceType = SourceType,
             Url = Url,
             Group = Group,
-            Visible = Visible
+            Required = Required,
+            Visible = Visible,
+            Order = Order,
+            Opacity = Opacity,
+            ParishNameField = ParishNameField,
+            UseForZoom = UseForZoom,
+            UseForValidation = UseForValidation
         };
     }
 }

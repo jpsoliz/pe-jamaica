@@ -2102,6 +2102,81 @@
                          FontSize="11"
                          Foreground="#52616B"
                          TextWrapping="Wrap" />
+              <ItemsControl Margin="0,8,0,0"
+                            ItemsSource="{Binding ValidationFindingRows}"
+                            Visibility="{Binding HasValidationFindingRows, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Margin="0,0,0,6"
+                            Padding="6"
+                            BorderBrush="#CBD2D9"
+                            BorderThickness="1"
+                            Background="#FFFFFF">
+                      <StackPanel>
+                        <DockPanel LastChildFill="True">
+                          <TextBlock DockPanel.Dock="Right"
+                                     Text="{Binding DecisionLabel}"
+                                     FontSize="10"
+                                     Foreground="#52616B"
+                                     Margin="8,0,0,0" />
+                          <TextBlock Text="{Binding Title}"
+                                     FontSize="11"
+                                     FontWeight="SemiBold"
+                                     Foreground="#1F2933"
+                                     TextWrapping="Wrap" />
+                        </DockPanel>
+                        <TextBlock Margin="0,2,0,0"
+                                   FontSize="10"
+                                   Foreground="#52616B"
+                                   TextWrapping="Wrap">
+                          <Run Text="{Binding RuleId}" />
+                          <Run Text=" | " />
+                          <Run Text="{Binding Severity}" />
+                          <Run Text=" | " />
+                          <Run Text="{Binding Status}" />
+                        </TextBlock>
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding Evidence}"
+                                   FontSize="10"
+                                   Foreground="#1F2933"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Margin="0,2,0,0"
+                                   Text="{Binding RecommendedAction}"
+                                   FontSize="10"
+                                   Foreground="#52616B"
+                                   TextWrapping="Wrap" />
+                        <TextBox Margin="0,6,0,0"
+                                 MinHeight="44"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}" />
+                        <WrapPanel Margin="0,6,0,0">
+                          <Button Content="Accept"
+                                  Margin="0,0,4,0"
+                                  Padding="6,2"
+                                  Command="{Binding DataContext.AcceptValidationFindingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}" />
+                          <Button Content="Reject"
+                                  Margin="0,0,4,0"
+                                  Padding="6,2"
+                                  Command="{Binding DataContext.RejectValidationFindingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}" />
+                          <Button Content="Override"
+                                  Margin="0,0,4,0"
+                                  Padding="6,2"
+                                  Command="{Binding DataContext.OverrideValidationFindingCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}" />
+                          <Button Content="Manual Review"
+                                  Padding="6,2"
+                                  Command="{Binding DataContext.SendValidationFindingToManualReviewCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                  CommandParameter="{Binding}" />
+                        </WrapPanel>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Expander>
         </Border>
@@ -2133,3 +2208,5 @@
     </ScrollViewer>
   </DockPanel>
 </UserControl>
+
+
