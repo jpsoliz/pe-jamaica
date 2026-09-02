@@ -25,6 +25,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ArcGIS.Desktop.Framework.Controls;
 using System.Threading;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace ParcelWorkflowAddIn;
@@ -34,6 +35,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     internal const string DockPaneId = "ParcelWorkflow_Dockpane";
     private readonly WorkflowSession workflowSession = new(new CaseFolderStore());
     private readonly ValidationFindingDispositionPersistenceService validationFindingDispositionPersistenceService = new();
+    private readonly ValidationPreviewExecutionService validationPreviewExecutionService = new();
     private readonly PreflightRuleCatalog preflightRuleCatalog = new PreflightRuleCatalogLoader().Load();
     private readonly ExtractionReviewPersistenceService extractionReviewService = new();
     private readonly PlaPlanEvidenceSelectionService plaPlanEvidenceSelectionService = new();
@@ -64,6 +66,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private readonly RelayCommand openSpatialOverlapReviewCommand;
     private readonly RelayCommand openCogoReaderCommand;
     private readonly RelayCommand approveSpatialReviewCommand;
+    private readonly RelayCommand acceptValidationFindingCommand;
+    private readonly RelayCommand rejectValidationFindingCommand;
+    private readonly RelayCommand overrideValidationFindingCommand;
+    private readonly RelayCommand sendValidationFindingToManualReviewCommand;
     private readonly RelayCommand addManualPointCommand;
     private readonly RelayCommand editReviewPointCommand;
     private readonly RelayCommand addReviewSegmentCommand;
@@ -137,6 +143,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private JamaicaReviewWorkspaceWindow? experimentalReviewWorkspaceWindow;
     private IReadOnlyList<SourceFileListItem> sourceFileItems = Array.Empty<SourceFileListItem>();
     private readonly ObservableCollection<ValidationFindingDispositionRow> validationFindingRows = [];
+    private ValidationSummaryDocument? currentValidationPreviewSummary;
     private bool importStructuredSurveyPoints;
     private bool importAutoCadSurveySource;
 
@@ -163,6 +170,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         openSpatialOverlapReviewCommand = new RelayCommand(OpenSpatialOverlapReview, () => CanOpenSpatialOverlapReview);
         openCogoReaderCommand = new RelayCommand(async () => await OpenCogoReaderAsync(), () => CanOpenCogoReader);
         approveSpatialReviewCommand = new RelayCommand(ApproveSpatialReview, () => CanApproveSpatialReview);
+        acceptValidationFindingCommand = new RelayCommand(parameter => RecordValidationFindingDisposition(parameter, ValidationFindingDispositionDecision.Accepted), CanRecordValidationFindingDisposition);
+        rejectValidationFindingCommand = new RelayCommand(parameter => RecordValidationFindingDisposition(parameter, ValidationFindingDispositionDecision.Rejected), CanRecordValidationFindingDisposition);
+        overrideValidationFindingCommand = new RelayCommand(parameter => RecordValidationFindingDisposition(parameter, ValidationFindingDispositionDecision.Override), CanRecordValidationFindingDisposition);
+        sendValidationFindingToManualReviewCommand = new RelayCommand(parameter => RecordValidationFindingDisposition(parameter, ValidationFindingDispositionDecision.ManualReview), CanRecordValidationFindingDisposition);
         addManualPointCommand = new RelayCommand(AddManualPoint, () => HasLoadedReviewData && !IsReviewLocked && !IsManualReviewEditMode && !pointEditorOpen);
         editReviewPointCommand = new RelayCommand(EditSelectedReviewPoint, () => HasLoadedReviewData && !IsReviewLocked && SelectedReviewRow is not null && !IsManualReviewEditMode && !pointEditorOpen);
         addReviewSegmentCommand = new RelayCommand(AddReviewSegment, () => HasLoadedReviewData && !IsReviewLocked && IsPxaSurveyPlanReview && !pointEditorOpen);
@@ -574,6 +585,14 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public ICommand OpenCogoReaderCommand => openCogoReaderCommand;
 
     public ICommand ApproveSpatialReviewCommand => approveSpatialReviewCommand;
+
+    public ICommand AcceptValidationFindingCommand => acceptValidationFindingCommand;
+
+    public ICommand RejectValidationFindingCommand => rejectValidationFindingCommand;
+
+    public ICommand OverrideValidationFindingCommand => overrideValidationFindingCommand;
+
+    public ICommand SendValidationFindingToManualReviewCommand => sendValidationFindingToManualReviewCommand;
 
     public ICommand AddManualPointCommand => addManualPointCommand;
 
@@ -1663,18 +1682,53 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             }
         }
 
-        var rows = ValidationFindingDispositionProjector.BuildRows(workflowSession.CurrentValidationSummary, disposition);
+        var rows = ValidationFindingDispositionProjector.BuildRows(workflowSession.CurrentValidationSummary ?? currentValidationPreviewSummary, disposition);
         validationFindingRows.Clear();
         foreach (var row in rows)
         {
             validationFindingRows.Add(row);
         }
+
+        NotifyPropertyChanged(nameof(ValidationFindingRows));
+        NotifyPropertyChanged(nameof(HasValidationFindingRows));
+        acceptValidationFindingCommand.RaiseCanExecuteChanged();
+        rejectValidationFindingCommand.RaiseCanExecuteChanged();
+        overrideValidationFindingCommand.RaiseCanExecuteChanged();
+        sendValidationFindingToManualReviewCommand.RaiseCanExecuteChanged();
     }
 
+    private async Task RefreshValidationFindingRowsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!HasActiveCase || !IsPxaSurveyPlanReview || workflowSession.CurrentValidationSummary is not null)
+        {
+            currentValidationPreviewSummary = null;
+            RefreshValidationFindingRows();
+            return;
+        }
+
+        try
+        {
+            var layout = CaseFolderLayout.FromRootDirectory(workflowSession.CaseFolderPath!);
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            var result = await validationPreviewExecutionService.RunAsync(layout, manifest, Environment.UserName, cancellationToken).ConfigureAwait(true);
+            currentValidationPreviewSummary = result.Success ? result.Summary : null;
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or JsonException
+            or ArgumentException)
+        {
+            currentValidationPreviewSummary = null;
+        }
+
+        RefreshValidationFindingRows();
+    }
     private bool CanRecordValidationFindingDisposition(object? parameter)
     {
         return HasActiveCase
-            && workflowSession.CurrentValidationSummary is not null
+            && (workflowSession.CurrentValidationSummary is not null || currentValidationPreviewSummary is not null)
             && parameter is ValidationFindingDispositionRow;
     }
 
@@ -2006,6 +2060,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         IsPlaPlanAnnexationReview = PxaSurveyPlanReviewRouting.IsPlaPlanAnnexationDocument(document);
         IsPxaOnlySurveyPlanReview = PxaSurveyPlanReviewRouting.IsPxaOnlySurveyPlanDocument(document);
         IsPxaSurveyPlanReview = IsPxaOnlySurveyPlanReview || IsPlaPlanAnnexationReview;
+        RefreshValidationFindingRows();
         SelectedReviewRow = ReviewRows.FirstOrDefault();
     }
 
@@ -3181,6 +3236,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         var validationTask = workflowSession.RunValidationAsync(Environment.UserName);
         RefreshWorkflowProperties();
         await validationTask.ConfigureAwait(true);
+        currentValidationPreviewSummary = null;
+        RefreshValidationFindingRows();
         RefreshWorkflowProperties();
     }
 
@@ -3529,6 +3586,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
+        await RefreshValidationFindingRowsAsync().ConfigureAwait(true);
         var viewModel = new JamaicaReviewWorkspaceViewModel(this);
         experimentalReviewWorkspaceWindow = new JamaicaReviewWorkspaceWindow(viewModel)
         {
@@ -4998,6 +5056,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(ValidationSummaryText));
         NotifyPropertyChanged(nameof(ValidationHelpText));
         NotifyPropertyChanged(nameof(ValidationSummaryExpanded));
+        NotifyPropertyChanged(nameof(ValidationFindingRows));
+        NotifyPropertyChanged(nameof(HasValidationFindingRows));
         NotifyPropertyChanged(nameof(OutputBadge));
         NotifyPropertyChanged(nameof(SpatialReviewBadge));
         NotifyPropertyChanged(nameof(SpatialReviewSummaryText));
@@ -5030,6 +5090,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         runSpatialOverlapReviewCommand.RaiseCanExecuteChanged();
         openSpatialOverlapReviewCommand.RaiseCanExecuteChanged();
         approveSpatialReviewCommand.RaiseCanExecuteChanged();
+        acceptValidationFindingCommand.RaiseCanExecuteChanged();
+        rejectValidationFindingCommand.RaiseCanExecuteChanged();
+        overrideValidationFindingCommand.RaiseCanExecuteChanged();
+        sendValidationFindingToManualReviewCommand.RaiseCanExecuteChanged();
         addManualPointCommand.RaiseCanExecuteChanged();
         editReviewPointCommand.RaiseCanExecuteChanged();
         addReviewSegmentCommand.RaiseCanExecuteChanged();
@@ -5716,6 +5780,3 @@ internal sealed record PreflightResultListItem(string Severity, PreflightCheck C
         return string.Join(" ", words.Select(word => char.ToUpperInvariant(word[0]) + word[1..]));
     }
 }
-
-
-

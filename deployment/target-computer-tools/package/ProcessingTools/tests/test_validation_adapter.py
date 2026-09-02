@@ -663,6 +663,411 @@ class ValidationAdapterTests(unittest.TestCase):
             self.assertEqual("passed", summary["payload"]["status"])
             self.assertEqual("reviewed_boundary_segments", summary["payload"]["closure_results"][0]["geometry_source"])
 
+    def test_parish_validation_passes_when_points_are_inside_configured_boundary(self):
+        review_data = {
+            "spatial_reference_wkid": 3448,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [
+                {"point_identifier": "P1", "easting": "100", "northing": "100"},
+                {"point_identifier": "P2", "easting": "120", "northing": "110"},
+                {"point_identifier": "P3", "easting": "110", "northing": "120"},
+            ],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [
+                    {
+                        "name": "JM Parishes",
+                        "url": "https://example.local/FeatureServer/0",
+                        "parish_name_field": "PARISH",
+                        "use_for_validation": True,
+                    }
+                ]
+            },
+            "parish_validation": {
+                "boundaries": [{"name": "CLARENDON", "spatial_reference": {"wkid": 3448}, "xmin": 0, "ymin": 0, "xmax": 200, "ymax": 200}],
+            },
+        }
 
+        results = validation_adapter._compute_parish_validation_results(review_data, settings)
+
+        self.assertEqual("passed", results[0]["status"])
+        self.assertEqual("georeference.parish_point_within_boundary", results[0]["rule_id"])
+        self.assertEqual("passed", results[1]["status"])
+        self.assertEqual("spatial_units.parish_polygon_within_boundary", results[1]["rule_id"])
+
+    def test_parish_validation_queries_feature_service_boundary_when_local_boundary_is_missing(self):
+        review_data = {
+            "spatial_reference_wkid": 3448,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [
+                {"point_identifier": "P1", "easting": "100", "northing": "100"},
+                {"point_identifier": "P2", "easting": "120", "northing": "100"},
+                {"point_identifier": "P3", "easting": "120", "northing": "120"},
+            ],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [
+                    {
+                        "name": "JM Parishes",
+                        "source_type": "feature_service_url",
+                        "url": "https://services6.arcgis.com/3R3y1KXaPJ9BFnsU/ArcGIS/rest/services/Jamaica_Parishes_SDC_Communities/FeatureServer/0",
+                        "parish_name_field": "PARISH",
+                        "use_for_validation": True,
+                    }
+                ]
+            }
+        }
+
+        original_query = validation_adapter._query_arcgis_parish_boundary
+        try:
+            validation_adapter._query_arcgis_parish_boundary = lambda layer, parish, out_wkid=None: (
+                {
+                    "name": parish,
+                    "source": "feature_service_query",
+                    "spatial_reference": {"wkid": 3448},
+                    "rings": [[[0, 0], [200, 0], [200, 200], [0, 200], [0, 0]]],
+                },
+                None,
+            )
+            results = validation_adapter._compute_parish_validation_results(review_data, settings)
+        finally:
+            validation_adapter._query_arcgis_parish_boundary = original_query
+
+        self.assertEqual("passed", results[0]["status"])
+        self.assertEqual("passed", results[1]["status"])
+        self.assertIn("boundary_source=feature_service_query", results[1]["evidence"])
+
+    def test_parish_validation_requests_feature_service_geometry_in_review_spatial_reference(self):
+        review_data = {
+            "spatial_reference_wkid": 4326,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [{"point_identifier": "P1", "easting": "-77.3", "northing": "18.1"}],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [
+                    {
+                        "name": "JM Parishes",
+                        "source_type": "feature_service_url",
+                        "url": "https://services6.arcgis.com/3R3y1KXaPJ9BFnsU/ArcGIS/rest/services/Jamaica_Parishes_SDC_Communities/FeatureServer/0",
+                        "parish_name_field": "PARISH",
+                        "use_for_validation": True,
+                    }
+                ]
+            }
+        }
+        requested_wkids = []
+        original_query = validation_adapter._query_arcgis_parish_boundary
+        try:
+            def fake_query(layer, parish, out_wkid=None):
+                requested_wkids.append(out_wkid)
+                return (
+                    {
+                        "name": parish,
+                        "source": "feature_service_query",
+                        "spatial_reference": {"wkid": out_wkid},
+                        "rings": [[[-78, 17], [-76, 17], [-76, 19], [-78, 19], [-78, 17]]],
+                    },
+                    None,
+                )
+
+            validation_adapter._query_arcgis_parish_boundary = fake_query
+            results = validation_adapter._compute_parish_validation_results(review_data, settings)
+        finally:
+            validation_adapter._query_arcgis_parish_boundary = original_query
+
+        self.assertEqual([4326], requested_wkids)
+        self.assertEqual("passed", results[0]["status"])
+
+    def test_feature_service_query_uses_normalized_parish_matching_after_broad_query(self):
+        calls = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "spatialReference": {"wkid": 102095, "latestWkid": 3448},
+                        "features": [
+                            {
+                                "attributes": {"PARISH": "SAINT CATHERINE"},
+                                "geometry": {"rings": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+
+        original_urlopen = validation_adapter.urlopen
+        try:
+            def fake_urlopen(url, timeout):
+                calls.append(url)
+                return FakeResponse()
+
+            validation_adapter.urlopen = fake_urlopen
+            boundary, reason = validation_adapter._query_arcgis_parish_boundary(
+                {"url": "https://example.local/FeatureServer/0", "parish_name_field": "PARISH"},
+                "Saint Catherine",
+                3448,
+            )
+        finally:
+            validation_adapter.urlopen = original_urlopen
+
+        self.assertIsNone(reason)
+        self.assertEqual("SAINT CATHERINE", boundary["name"])
+        self.assertIn("where=1%3D1", calls[0])
+        self.assertIn("outSR=3448", calls[0])
+
+    def test_spatial_reference_prefers_latest_wkid_alias(self):
+        self.assertEqual(3448, validation_adapter._spatial_reference_wkid({"wkid": 102095, "latestWkid": 3448}))
+
+    def test_ring_holes_are_not_treated_as_valid_parish_area(self):
+        boundary = {
+            "rings": [
+                [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+                [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]],
+            ]
+        }
+
+        self.assertTrue(validation_adapter._point_inside_boundary(("outer", 2, 2), boundary, 0))
+        self.assertFalse(validation_adapter._point_inside_boundary(("hole", 5, 5), boundary, 0))
+
+    def test_parish_validation_reports_overlap_when_polygon_edges_cross_without_inside_vertices(self):
+        review_data = {
+            "spatial_reference_wkid": 3448,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [
+                {"point_identifier": "P1", "easting": "-10", "northing": "5"},
+                {"point_identifier": "P2", "easting": "20", "northing": "5"},
+                {"point_identifier": "P3", "easting": "20", "northing": "6"},
+                {"point_identifier": "P4", "easting": "-10", "northing": "6"},
+            ],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [{"name": "JM Parishes", "parish_name_field": "PARISH", "use_for_validation": True}]
+            },
+            "parish_validation": {
+                "boundaries": [{"name": "Clarendon", "spatial_reference": {"wkid": 3448}, "xmin": 0, "ymin": 0, "xmax": 10, "ymax": 10}]
+            },
+        }
+
+        results = validation_adapter._compute_parish_validation_results(review_data, settings)
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertEqual("needs_review", results[1]["status"])
+
+    def test_parish_validation_needs_review_when_spatial_reference_projection_is_required(self):
+        review_data = {
+            "spatial_reference_wkid": 4326,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [{"point_identifier": "P1", "easting": "100", "northing": "100"}],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [{"name": "JM Parishes", "parish_name_field": "PARISH", "use_for_validation": True}]
+            },
+            "parish_validation": {
+                "boundaries": [{"name": "Clarendon", "spatial_reference": {"wkid": 3448}, "xmin": 0, "ymin": 0, "xmax": 200, "ymax": 200}]
+            },
+        }
+
+        results = validation_adapter._compute_parish_validation_results(review_data, settings)
+
+        self.assertEqual("needs_review", results[0]["status"])
+        self.assertIn("projection=not_available", results[0]["evidence"])
+
+    def test_parish_validation_reports_overlap_when_polygon_partially_intersects_boundary(self):
+        review_data = {
+            "spatial_reference_wkid": 3448,
+            "survey_metadata": {"parish": {"value": "Clarendon"}},
+            "rows": [
+                {"point_identifier": "P1", "easting": "50", "northing": "50"},
+                {"point_identifier": "P2", "easting": "250", "northing": "50"},
+                {"point_identifier": "P3", "easting": "250", "northing": "250"},
+            ],
+        }
+        settings = {
+            "working_map": {
+                "reference_layers": [{"name": "JM Parishes", "parish_name_field": "PARISH", "use_for_validation": True}]
+            },
+            "parish_validation": {
+                "boundaries": [{"name": "Clarendon", "spatial_reference": {"wkid": 3448}, "xmin": 0, "ymin": 0, "xmax": 200, "ymax": 200}]
+            },
+        }
+
+        results = validation_adapter._compute_parish_validation_results(review_data, settings)
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertEqual("needs_review", results[1]["status"])
+        self.assertIn("intersects", results[1]["message"])
+
+    def test_parish_validation_returns_not_available_when_layer_is_missing(self):
+        review_data = {"survey_metadata": {"parish": {"value": "Clarendon"}}, "rows": []}
+
+        results = validation_adapter._compute_parish_validation_results(review_data, {"working_map": {"reference_layers": []}})
+
+        self.assertEqual(1, len(results))
+        self.assertEqual("not_available", results[0]["status"])
+        self.assertIn("No working map reference layer", results[0]["message"])
+
+    def test_plan_compute_sheet_comparison_reports_unavailable_when_sheet_rows_are_missing(self):
+        results = validation_adapter._compute_plan_compute_sheet_consistency_results(
+            {"rows": [{"point_identifier": "P1", "easting": "100.00", "northing": "200.00"}]},
+            {"plan_compute_sheet_consistency": {}},
+        )
+
+        self.assertEqual(2, len(results))
+        self.assertEqual("pxa.embedded_compute_sheet_detected", results[0]["rule_id"])
+        self.assertEqual("not_available", results[0]["status"])
+        self.assertEqual("pxa.plan_compute_sheet_consistency", results[1]["rule_id"])
+        self.assertEqual("not_available", results[1]["status"])
+        self.assertIn("plan_points=1", results[1]["evidence"])
+        self.assertIn("sheet_points=0", results[1]["evidence"])
+    def test_plan_compute_sheet_comparison_blocks_coordinate_mismatch(self):
+        review_data = {
+            "rows": [{"point_identifier": "P1", "easting": "100.00", "northing": "200.00"}],
+            "embedded_compute_sheet": {
+                "status": "detected",
+                "page_numbers": [2],
+                "rows": [{"point_identifier": "P1", "easting": "101.50", "northing": "200.00"}],
+            },
+        }
+
+        results = validation_adapter._compute_plan_compute_sheet_consistency_results(
+            review_data,
+            {"plan_compute_sheet_consistency": {"coordinate_tolerance_m": 0.1}},
+        )
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertIn("P1", results[0]["mismatches"][0])
+
+    def test_printed_text_size_supports_minimum_and_unavailable_metrics(self):
+        failing = validation_adapter._compute_printed_text_size_result(
+            {"document_text_metrics": {"pages": [{"page_number": 1, "width_mm": 210, "height_mm": 297, "page_standard": "pdf_metadata", "text_runs": [{"height_mm": 1.8, "text": "small"}]}]}},
+            {"printed_text_size": {"threshold_mm": 2.0, "comparison": "minimum"}},
+        )
+        unavailable = validation_adapter._compute_printed_text_size_result({}, {"printed_text_size": {}})
+
+        self.assertEqual("blocker", failing["status"])
+        self.assertIn("ordinary_plan_text_excludes_titles_subtitles", failing["evidence"])
+        self.assertEqual("not_available", unavailable["status"])
+
+    def test_printed_text_size_excludes_title_and_subtitle_runs(self):
+        result = validation_adapter._compute_printed_text_size_result(
+            {
+                "document_text_metrics": {
+                    "pages": [
+                        {
+                            "page_number": 1,
+                            "width_mm": 420,
+                            "height_mm": 297,
+                            "page_standard": "pdf_metadata",
+                            "text_runs": [
+                                {"height_mm": 12.0, "text": "SURVEY PLAN", "bbox": [10, 10, 180, 42]},
+                                {"height_mm": 6.5, "text": "ROXBURY PLANTATION", "bbox": [10, 45, 200, 66]},
+                                {"height_mm": 2.2, "text": "Boundary bearing label", "bbox": [80, 120, 160, 128]},
+                                {"height_mm": 2.1, "text": "Coordinate table value", "bbox": [80, 140, 170, 148]},
+                            ],
+                        }
+                    ]
+                }
+            },
+            {"printed_text_size": {"threshold_mm": 2.0, "comparison": "minimum"}},
+        )
+
+        self.assertEqual("passed", result["status"])
+        self.assertIn("observed_mm=2.100", result["evidence"])
+        self.assertIn("excluded_title_subtitle_runs=2", result["evidence"])
+    def test_plan_compute_sheet_comparison_checks_distance_bearing_and_missing_points(self):
+        review_data = {
+            "rows": [
+                {
+                    "point_identifier": "P1",
+                    "parcel_group_id": "parcel-001",
+                    "from_point": "P0",
+                    "to_point": "P1",
+                    "easting": "100.00",
+                    "northing": "200.00",
+                    "distance_m": "10.00",
+                    "bearing_degrees": "45.00",
+                },
+                {"point_identifier": "P2", "easting": "110.00", "northing": "200.00"},
+            ],
+            "area_m2": "100.0",
+            "embedded_compute_sheet": {
+                "status": "detected",
+                "page_numbers": [3],
+                "area_m2": "101.0",
+                "rows": [
+                    {
+                        "point_identifier": "P1",
+                        "parcel_group_id": "parcel-002",
+                        "from_point": "P0",
+                        "to_point": "P1",
+                        "easting": "100.00",
+                        "northing": "200.00",
+                        "distance_m": "10.50",
+                        "bearing_degrees": "45.50",
+                    },
+                    {"point_identifier": "P3", "easting": "120.00", "northing": "200.00"},
+                ],
+            },
+        }
+
+        results = validation_adapter._compute_plan_compute_sheet_consistency_results(
+            review_data,
+            {
+                "plan_compute_sheet_consistency": {
+                    "coordinate_tolerance_m": 0.1,
+                    "distance_tolerance_m": 0.1,
+                    "bearing_tolerance_degrees": 0.1,
+                    "area_tolerance_percent": 0.5,
+                }
+            },
+        )
+
+        self.assertEqual("blocker", results[0]["status"])
+        self.assertTrue(any("missing from compute sheet" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("extra compute-sheet points" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("distance_m" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("bearing_degrees" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("parcel_group_id" in mismatch for mismatch in results[0]["mismatches"]))
+        self.assertTrue(any("area_m2" in mismatch for mismatch in results[0]["mismatches"]))
+
+    def test_named_rule_sections_read_top_level_validation_defaults(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rules_path = Path(temp_dir) / "rules.yaml"
+            rules_path.write_text(
+                "\n".join(
+                    [
+                        "rule_profile: sidwell_validation_v1",
+                        "parish_validation:",
+                        "  tolerance_m: 1.5",
+                        "plan_compute_sheet_consistency:",
+                        "  coordinate_tolerance_m: 0.25",
+                        "  bearing_tolerance_degrees: 0.02",
+                        "printed_text_size:",
+                        "  threshold_mm: 2.0",
+                        "  comparison: minimum",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            sections = validation_adapter._read_named_rule_sections(
+                rules_path,
+                {"parish_validation", "plan_compute_sheet_consistency", "printed_text_size"},
+            )
+
+            self.assertEqual(1.5, sections["parish_validation"]["tolerance_m"])
+            self.assertEqual(0.25, sections["plan_compute_sheet_consistency"]["coordinate_tolerance_m"])
+            self.assertEqual("minimum", sections["printed_text_size"]["comparison"])
 if __name__ == "__main__":
     unittest.main()

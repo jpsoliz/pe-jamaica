@@ -121,6 +121,50 @@ class PdfTextStructuredExtractionTests(unittest.TestCase):
         self.assertEqual("856", volume_folio["folio"])
         self.assertIn("Volume/Folio", volume_folio["raw_text"])
 
+    def test_document_text_metrics_uses_page_dimensions_and_span_heights(self):
+        page = pdf_text_structured_extraction._PdfTextMetricPage(
+            width_pt=612,
+            height_pt=792,
+            spans=[
+                pdf_text_structured_extraction._PdfTextMetricSpan("Lot 12", (72, 72, 110, 78)),
+                pdf_text_structured_extraction._PdfTextMetricSpan("Boundary", (72, 90, 128, 99)),
+            ],
+        )
+
+        result = pdf_text_structured_extraction._build_document_text_metrics_from_pages([page])
+
+        self.assertEqual("measured", result["status"])
+        self.assertAlmostEqual(215.9, result["pages"][0]["width_mm"], places=1)
+        self.assertAlmostEqual(279.4, result["pages"][0]["height_mm"], places=1)
+        self.assertEqual(2, len(result["pages"][0]["text_runs"]))
+        self.assertGreater(result["pages"][0]["text_runs"][1]["height_mm"], result["pages"][0]["text_runs"][0]["height_mm"])
+
+    def test_document_text_metrics_falls_back_to_a4_for_missing_page_size(self):
+        page = pdf_text_structured_extraction._PdfTextMetricPage(
+            width_pt=0,
+            height_pt=0,
+            spans=[pdf_text_structured_extraction._PdfTextMetricSpan("small", (0, 0, 20, 5))],
+        )
+
+        result = pdf_text_structured_extraction._build_document_text_metrics_from_pages([page])
+
+        self.assertEqual("measured", result["status"])
+        self.assertTrue(result["pages"][0]["page_size_fallback"])
+        self.assertTrue(result["pages"][0]["dpi_unknown"])
+        self.assertEqual(210.0, result["pages"][0]["width_mm"])
+        self.assertEqual(297.0, result["pages"][0]["height_mm"])
+    def test_embedded_compute_sheet_detection_records_pages_and_evidence(self):
+        pages = [
+            "SURVEY PLAN\nDiagram details only",
+            "COMPUTATION SHEET\nParcel Name: 110900201\nLine Course: N 04 -07-50 E Length: 10.107\nNorth: 644221.7717 East: 670077.0220",
+        ]
+
+        detection = pdf_text_structured_extraction._detect_embedded_compute_sheet_pages(pages)
+
+        self.assertTrue(detection["detected"])
+        self.assertEqual([2], detection["page_numbers"])
+        self.assertGreaterEqual(detection["confidence"], 0.75)
+        self.assertIn("COMPUTATION SHEET", detection["evidence"][0])
 
 if __name__ == "__main__":
     unittest.main()

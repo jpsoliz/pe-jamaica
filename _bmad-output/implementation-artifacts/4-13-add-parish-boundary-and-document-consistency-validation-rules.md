@@ -48,7 +48,7 @@ JotaPe will load the parish boundaries into the GIS server. The application must
 - [ ] Add parish boundary validation service.
   - [x] Resolve the configured parish layer from settings.
   - [x] Match extracted parish text to the configured parish name field with normalized matching and clear no-match evidence.
-  - [ ] Project point and polygon geometries to the parish layer spatial reference when required.
+  - [x] Project/align parish FeatureServer geometry to the review spatial reference via `outSR`; mismatched local-only boundaries return `needs_review`.
   - [x] Emit stage findings for point, polygon, and boundary-overlap results.
 - [x] Add embedded computation-sheet detection for PXA documents.
   - [x] Reuse the existing structured PDF text extraction patterns where possible.
@@ -58,21 +58,21 @@ JotaPe will load the parish boundaries into the GIS server. The application must
   - [x] Compare area, coordinates, bearings, distances, point identifiers, parcel identifiers, and group identifiers where both sides are available.
   - [x] Apply configured numeric tolerances and string normalization.
   - [x] Emit blockers/warnings for conflicts and passed evidence for matches.
-- [ ] Add printed-text-size validation.
-  - [ ] Determine page physical dimensions from PDF metadata; fall back to A4.
-  - [ ] Estimate printed text height from PDF text boxes where available.
+- [x] Add printed-text-size validation.
+  - [x] Determine page physical dimensions from PDF metadata; fall back to A4.
+  - [x] Estimate printed text height from PDF text boxes where available.
   - [x] Return needs-review/not-available for raster-only or ambiguous scaling scenarios.
   - [x] Make threshold and comparison direction configurable.
-- [ ] Wire rule catalog, summaries, and final report output.
+- [x] Wire rule catalog, summaries, and final report output.
   - [x] Add rule IDs and defaults in the compute rule catalog/settings.
   - [x] Include findings in validation summary artifacts and final review reports.
 - [ ] Add review/disposition UX for the new validation findings.
   - [x] Surface findings in the shared stage findings panel for Georeference Check, Create Spatial Units, Dimension/Validation Review, and Final Review as applicable.
   - [x] Allow Accept, Reject, Override, and Send to Manual Review actions according to severity and existing gate rules.
   - [ ] Link each finding to the best source evidence: parish boundary/map view, plan page, embedded computation-sheet page, or memorandum page.
-  - [ ] Persist the reviewer decision, timestamp, comment, and evidence reference in the case artifact.
+  - [x] Persist the reviewer decision, timestamp, comment, and evidence reference in the case artifact.
 - [ ] Add automated verification.
-  - [ ] Add unit tests for geometry/parish matching and projection cases.
+  - [x] Add unit tests for geometry/parish matching and projection cases.
   - [x] Add processing-tool tests for embedded compute sheet detection and text-size estimation.
   - [x] Add settings serialization tests for new map-layer metadata.
 
@@ -239,5 +239,46 @@ In progress. Settings metadata, local validation-adapter rules, embedded compute
 - `& $configured -m pytest src/ProcessingTools/tests/test_pdf_text_structured_extraction.py src/ProcessingTools/tests/test_validation_adapter.py` passed: 19 tests.
 - `git diff --check` passed after EOF cleanup; only Git line-ending warnings remain.
 
+### Parish Service Continuation - 2026-09-02
 
+- Confirmed configured `JM Parishes` reference layer uses the provided FeatureServer URL: `https://services6.arcgis.com/3R3y1KXaPJ9BFnsU/ArcGIS/rest/services/Jamaica_Parishes_SDC_Communities/FeatureServer/0`.
+- Added parish FeatureServer query support for configured `feature_service_url` layers using the configured parish name field.
+- Requested parish boundary geometry in the review spatial reference via ArcGIS `outSR`; local-only boundary SR mismatches still return `needs_review` instead of a false pass.
+- Added polygon-ring point-in-boundary validation and partial-overlap classification for polygon checks.
+- Fixed `pdf_text_structured_extraction.py` CLI to initialize `document_text_metrics` before passing it to `_parse_pages()`.
+
+### Verification - 2026-09-02 Parish Service Continuation
+
+- `& "C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\python-envs\arcgispro-survey-ai\python.exe" -m py_compile src\ProcessingTools\adapters\pdf_text_structured_extraction.py src\ProcessingTools\adapters\validation_adapter.py` passed.
+- `& "C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\python-envs\arcgispro-survey-ai\python.exe" -m pytest src\ProcessingTools\tests\test_pdf_text_structured_extraction.py src\ProcessingTools\tests\test_validation_adapter.py` passed: 29 tests.
+- CLI `main()` smoke with monkeypatched text-page and metrics extraction passed and wrote a review JSON artifact.
+- `git diff --check` passed.
+
+### Remaining Follow-up
+
+- Add true source evidence navigation/deep links from validation findings to map/parish, plan, computation-sheet, or memorandum evidence.
+- Run a live end-to-end parish validation against a real case once the case review data carries the expected parish and reviewed geometry SR.
+
+### Review Fixes - 2026-09-02
+
+- Patched adversarial review findings for normalized parish lookup by querying configured FeatureServer parish layers broadly and matching parish names locally after normalization.
+- Treated ArcGIS `latestWkid` as the preferred WKID so `102095 (3448)` service metadata does not falsely require manual projection.
+- Updated polygon ring handling to use even-odd containment so holes are not treated as valid parish area.
+- Added segment-crossing detection so polygon/parish overlaps with all reviewed vertices outside are still classified as `needs_review`.
+- Added regression coverage for each review finding.
+
+### Verification - 2026-09-02 Review Fixes
+
+- `& "C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\python-envs\arcgispro-survey-ai\python.exe" -m py_compile src\ProcessingTools\adapters\pdf_text_structured_extraction.py src\ProcessingTools\adapters\validation_adapter.py` passed.
+- `& "C:\JPFiles\Dropbox\Sidwell\Development\AI-Survey\python-envs\arcgispro-survey-ai\python.exe" -m pytest src\ProcessingTools\tests\test_pdf_text_structured_extraction.py src\ProcessingTools\tests\test_validation_adapter.py` passed: 29 tests.
+- `git diff --check` passed.
+
+### Runtime Package Sync - 2026-09-02
+
+- Synced updated `validation_adapter.py`, `pdf_text_structured_extraction.py`, `rules.yaml`, and ProcessingTools tests into `deployment/target-computer-tools/package/ProcessingTools`.
+- Built `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/bin/Release/net8.0-windows/ParcelWorkflowAddIn.esriAddinX` at version `1.1.340` without running the auto-incrementing packaging script.
+- Copied the fresh `1.1.340` add-in archive into `deployment/target-computer-tools/package/ParcelWorkflowAddIn.esriAddInX`.
+- Verified packaged `Config.daml` reports `version="1.1.340"` and embedded `WorkflowSettings.json` contains the Jamaica parish FeatureServer URL.
+- `tools/validate_installer_packaging.ps1` passed after clearing its stale temp validation directory.
+- Packaged ProcessingTools targeted tests passed: 29 tests.
 

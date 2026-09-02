@@ -693,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload))
         return 0
 
+    document_text_metrics = _extract_document_text_metrics(source_pdf)
     payload = _parse_pages(pages, args.transaction_number, document_text_metrics)
     if payload.get("status") == "success":
         output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -705,7 +706,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
 

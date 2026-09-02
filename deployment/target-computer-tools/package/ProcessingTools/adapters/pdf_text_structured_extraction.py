@@ -14,8 +14,26 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
+
+A4_WIDTH_MM = 210.0
+A4_HEIGHT_MM = 297.0
+POINT_TO_MM = 25.4 / 72.0
+
+
+@dataclass(frozen=True)
+class _PdfTextMetricSpan:
+    text: str
+    bbox: tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class _PdfTextMetricPage:
+    width_pt: float
+    height_pt: float
+    spans: list[_PdfTextMetricSpan]
 
 NUMBER_TOKEN = r"\d[\d ]*(?:\.[\d ]+)?"
 
@@ -59,6 +77,104 @@ VOLUME_FOLIO_PATTERNS = [
     ),
 ]
 
+
+def _build_document_text_metrics_from_pages(pages: list[_PdfTextMetricPage]) -> dict:
+    metric_pages: list[dict] = []
+    measured_runs = 0
+    uncertain_pages = 0
+
+    for page_number, page in enumerate(pages, start=1):
+        has_page_size = page.width_pt > 0 and page.height_pt > 0
+        width_mm = round(page.width_pt * POINT_TO_MM, 3) if has_page_size else A4_WIDTH_MM
+        height_mm = round(page.height_pt * POINT_TO_MM, 3) if has_page_size else A4_HEIGHT_MM
+        scale_y = height_mm / page.height_pt if page.height_pt > 0 else 1.0
+        text_runs: list[dict] = []
+
+        for span in page.spans:
+            raw_text = " ".join((span.text or "").split())
+            if not raw_text:
+                continue
+            x0, y0, x1, y1 = span.bbox
+            height = max(0.0, float(y1) - float(y0)) * scale_y
+            if height <= 0:
+                continue
+            text_runs.append(
+                {
+                    "text": raw_text[:80],
+                    "height_mm": round(height, 3),
+                    "bbox": [round(float(x0), 3), round(float(y0), 3), round(float(x1), 3), round(float(y1), 3)],
+                }
+            )
+
+        measured_runs += len(text_runs)
+        if not has_page_size or not text_runs:
+            uncertain_pages += 1
+
+        metric_pages.append(
+            {
+                "page_number": page_number,
+                "width_mm": width_mm,
+                "height_mm": height_mm,
+                "page_standard": "pdf_metadata" if has_page_size else "A4_fallback",
+                "page_size_fallback": not has_page_size,
+                "raster_only": not text_runs,
+                "dpi_unknown": not has_page_size,
+                "text_runs": text_runs[:250],
+            }
+        )
+
+    return {
+        "status": "measured" if measured_runs else "not_available",
+        "page_standard": "pdf_metadata_or_A4_fallback",
+        "page_count": len(metric_pages),
+        "measured_text_run_count": measured_runs,
+        "uncertain_page_count": uncertain_pages,
+        "pages": metric_pages,
+    }
+
+
+def _extract_document_text_metrics(pdf_path: Path) -> dict:
+    try:
+        import fitz  # type: ignore
+    except ImportError:
+        return {
+            "status": "not_available",
+            "reason": "fitz_unavailable",
+            "page_standard": "A4_fallback",
+            "pages": [],
+        }
+
+    document = fitz.open(pdf_path)
+    try:
+        metric_pages: list[_PdfTextMetricPage] = []
+        for page in document:
+            rect = getattr(page, "rect", None)
+            width_pt = float(getattr(rect, "width", 0.0) or 0.0)
+            height_pt = float(getattr(rect, "height", 0.0) or 0.0)
+            spans: list[_PdfTextMetricSpan] = []
+            text_dict = page.get_text("dict") or {}
+            for block in text_dict.get("blocks", []):
+                if not isinstance(block, dict):
+                    continue
+                for line in block.get("lines", []):
+                    if not isinstance(line, dict):
+                        continue
+                    for span in line.get("spans", []):
+                        if not isinstance(span, dict):
+                            continue
+                        bbox = span.get("bbox") or []
+                        if len(bbox) != 4:
+                            continue
+                        spans.append(
+                            _PdfTextMetricSpan(
+                                str(span.get("text") or ""),
+                                (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+                            )
+                        )
+            metric_pages.append(_PdfTextMetricPage(width_pt, height_pt, spans))
+        return _build_document_text_metrics_from_pages(metric_pages)
+    finally:
+        document.close()
 
 def _load_pages(pdf_path: Path) -> list[str]:
     try:
@@ -262,11 +378,54 @@ def _extract_volume_folios(pages: list[str]) -> list[dict]:
                     )
     return volume_folios
 
+COMPUTE_SHEET_KEYWORDS = (
+    "COMPUTATION SHEET",
+    "COMPUTE SHEET",
+    "SURVEY COMPUTATION",
+    "LINE COURSE",
+    "SEGMENT #",
+    "FROM PNT",
+    "NORTHING EASTING",
+)
 
-def _parse_pages(pages: list[str], transaction_number: str) -> dict:
+
+def _detect_embedded_compute_sheet_pages(pages: list[str]) -> dict:
+    page_numbers: list[int] = []
+    evidence: list[str] = []
+    score = 0
+
+    for page_index, page_text in enumerate(pages, start=1):
+        normalized = " ".join((page_text or "").upper().split())
+        if not normalized:
+            continue
+
+        hits = [keyword for keyword in COMPUTE_SHEET_KEYWORDS if keyword in normalized]
+        has_coordinate_pattern = bool(re.search(r"\bNORTH\s*:?\s*\d", normalized)) and bool(re.search(r"\bEAST\s*:?\s*\d", normalized))
+        has_bearing_distance = "COURSE" in normalized and "LENGTH" in normalized
+        page_score = len(hits) + (2 if has_coordinate_pattern else 0) + (2 if has_bearing_distance else 0)
+        if page_score < 3:
+            continue
+
+        page_numbers.append(page_index)
+        score += page_score
+        first_line = next((line.strip() for line in page_text.splitlines() if line.strip()), "compute sheet evidence")
+        evidence.append(first_line[:160])
+
+    confidence = 0.0 if not page_numbers else min(0.95, 0.55 + (score * 0.05))
+    return {
+        "detected": bool(page_numbers),
+        "status": "detected" if page_numbers else "not_detected",
+        "page_numbers": page_numbers,
+        "confidence": round(confidence, 2),
+        "evidence": evidence[:5],
+    }
+
+def _parse_pages(pages: list[str], transaction_number: str, document_text_metrics: dict | None = None) -> dict:
     rows: list[dict] = []
     parcel_names: list[str] = []
     volume_folios = _extract_volume_folios(pages)
+    embedded_compute_sheet = _detect_embedded_compute_sheet_pages(pages)
+    document_text_metrics = document_text_metrics or {"status": "not_available", "pages": []}
     current_parcel_name: str | None = None
     current_group: str | None = None
     point_order = 0
@@ -466,6 +625,8 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
             "parsed_parcel_count": 0,
             "parsed_row_count": 0,
             "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
+            "embedded_compute_sheet": embedded_compute_sheet,
+            "document_text_metrics": document_text_metrics,
         }
 
     normalized_rows = []
@@ -490,6 +651,8 @@ def _parse_pages(pages: list[str], transaction_number: str) -> dict:
         "row_count": len(normalized_rows),
         "extraction_source": "embedded_text_pdf",
         "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
+        "embedded_compute_sheet": {**embedded_compute_sheet, "rows": normalized_rows if embedded_compute_sheet.get("detected") else []},
+        "document_text_metrics": document_text_metrics,
         "rows": normalized_rows,
     }
 
@@ -530,7 +693,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload))
         return 0
 
-    payload = _parse_pages(pages, args.transaction_number)
+    document_text_metrics = _extract_document_text_metrics(source_pdf)
+    payload = _parse_pages(pages, args.transaction_number, document_text_metrics)
     if payload.get("status") == "success":
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(json.dumps({**payload, "outputs": {"review_json": str(output_json)}}, indent=2), encoding="utf-8")

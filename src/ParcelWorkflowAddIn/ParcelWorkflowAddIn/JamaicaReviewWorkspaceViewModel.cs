@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using ParcelWorkflowAddIn.Workflow.Review;
+using ParcelWorkflowAddIn.Workflow.Validation;
 
 namespace ParcelWorkflowAddIn;
 
@@ -34,6 +35,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.ReviewNamedParties.CollectionChanged += OnReviewMetadataCollectionChanged;
         parent.ReviewVolumeFolios.CollectionChanged += OnReviewMetadataCollectionChanged;
         parent.ReviewMemorandumGroups.CollectionChanged += OnReviewMetadataCollectionChanged;
+        parent.ValidationFindingRows.CollectionChanged += OnValidationFindingRowsCollectionChanged;
         VisibleRows = [];
         VisibleSegments = [];
         VisibleMetadataFields = [];
@@ -62,6 +64,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<ExtractionReviewVolumeFolioViewModel> VisibleVolumeFolios { get; }
 
     public ObservableCollection<ExtractionReviewMemorandumGroupViewModel> VisibleMemorandumGroups { get; }
+
+    public ObservableCollection<ValidationFindingDispositionRow> ValidationFindingRows => parent.ValidationFindingRows;
+
+    public IReadOnlyList<string> OwnerNeighborRoleOptions { get; } =
+    [
+        "Instigator",
+        "Owner",
+        "Neighbor",
+        "Other"
+    ];
 
     public string WindowTitle => "Points Validation Tool";
 
@@ -204,6 +216,41 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public string PxaMemorandumSummary => VisibleMemorandumGroups.Count > 0
         ? string.Join(" | ", VisibleMemorandumGroups.Select(group => $"{group.DisplayName}: {group.Summary}"))
         : "No memorandum-specific rules are available for this review artifact.";
+
+    public bool ShowValidationFindingsTab => IsPxaSurveyPlanReview;
+
+    public bool HasValidationFindingRows => parent.HasValidationFindingRows;
+
+    public string ValidationFindingsSummary
+    {
+        get
+        {
+            if (!parent.HasValidationFindingRows)
+            {
+                return "No Create Spatial Units validation findings are loaded for this case yet.";
+            }
+
+            var pending = parent.ValidationFindingRows.Count(row => !row.HasDisposition);
+            var actualFindings = parent.ValidationFindingRows.Count(row => !string.Equals(row.Status, "N/A", StringComparison.OrdinalIgnoreCase));
+            var blockers = parent.ValidationFindingRows.Count(row => string.Equals(row.Severity, "critical", StringComparison.OrdinalIgnoreCase) || string.Equals(row.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            if (actualFindings == 0)
+            {
+                return $"{parent.ValidationFindingRows.Count} validation point(s) listed. Current result values are N/A until Create Spatial Units validation runs.";
+            }
+
+            return $"{parent.ValidationFindingRows.Count} validation point(s), {actualFindings} loaded finding/result row(s), {pending} pending disposition, {blockers} critical/high item(s). Review the evidence and record a decision before moving forward.";
+        }
+    }
+
+    public string ValidationFindingsHelpText => parent.ValidationHelpText;
+
+    public ICommand AcceptValidationFindingCommand => parent.AcceptValidationFindingCommand;
+
+    public ICommand RejectValidationFindingCommand => parent.RejectValidationFindingCommand;
+
+    public ICommand OverrideValidationFindingCommand => parent.OverrideValidationFindingCommand;
+
+    public ICommand SendValidationFindingToManualReviewCommand => parent.SendValidationFindingToManualReviewCommand;
 
     public string ViewerFileTitle => parent.ReviewViewerFileTitle;
 
@@ -679,6 +726,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         parent.ReviewNamedParties.CollectionChanged -= OnReviewMetadataCollectionChanged;
         parent.ReviewVolumeFolios.CollectionChanged -= OnReviewMetadataCollectionChanged;
         parent.ReviewMemorandumGroups.CollectionChanged -= OnReviewMetadataCollectionChanged;
+        parent.ValidationFindingRows.CollectionChanged -= OnValidationFindingRowsCollectionChanged;
     }
 
     public bool SaveReviewChanges()
@@ -818,6 +866,15 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PxaMemorandumSummary));
     }
 
+    private void OnValidationFindingRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(ValidationFindingRows));
+        OnPropertyChanged(nameof(ShowValidationFindingsTab));
+        OnPropertyChanged(nameof(HasValidationFindingRows));
+        OnPropertyChanged(nameof(ValidationFindingsSummary));
+        OnPropertyChanged(nameof(ValidationFindingsHelpText));
+    }
+
     private void OnParentPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -863,6 +920,9 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewNamedParties):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewVolumeFolios):
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewMemorandumGroups):
+            case nameof(ParcelWorkflowDockpaneViewModel.ValidationFindingRows):
+            case nameof(ParcelWorkflowDockpaneViewModel.HasValidationFindingRows):
+            case nameof(ParcelWorkflowDockpaneViewModel.ValidationHelpText):
             case nameof(ParcelWorkflowDockpaneViewModel.IsPxaSurveyPlanReview):
             case nameof(ParcelWorkflowDockpaneViewModel.IsPlaPlanAnnexationReview):
             case nameof(ParcelWorkflowDockpaneViewModel.HasLoadedReviewData):
@@ -883,6 +943,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
                 OnPropertyChanged(nameof(ShowSaveReviewAction));
+                OnPropertyChanged(nameof(ShowValidationFindingsTab));
+                OnPropertyChanged(nameof(HasValidationFindingRows));
+                OnPropertyChanged(nameof(ValidationFindingsSummary));
+                OnPropertyChanged(nameof(ValidationFindingsHelpText));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewGateText):
                 OnPropertyChanged(nameof(ApprovalGuidance));

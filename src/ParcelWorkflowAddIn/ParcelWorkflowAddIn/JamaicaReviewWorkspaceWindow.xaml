@@ -828,6 +828,78 @@
                 </ScrollViewer>
               </Grid>
             </TabItem>
+            <TabItem Header="Validation Findings"
+                     Visibility="{Binding ShowValidationFindingsTab, Converter={StaticResource BooleanToVisibilityConverter}}">
+              <Grid Margin="10">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0"
+                           Text="{Binding ValidationFindingsSummary}"
+                           FontSize="11"
+                           Foreground="#1F2933"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,4" />
+                <TextBlock Grid.Row="1"
+                           Text="{Binding ValidationFindingsHelpText}"
+                           FontSize="11"
+                           Foreground="#52616B"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8" />
+                <DataGrid Grid.Row="2"
+                          ItemsSource="{Binding ValidationFindingRows}"
+                          IsReadOnly="False"
+                          AutoGenerateColumns="False"
+                          HeadersVisibility="Column"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          FontSize="11"
+                          RowHeight="96"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          EnableRowVirtualization="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Rule"
+                                        Binding="{Binding DisplayRuleName}"
+                                        Width="190"
+                                        IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="Finding"
+                                            Width="2*"
+                                            IsReadOnly="True">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <TextBlock Margin="4,2"
+                                     Text="{Binding DisplayFinding}"
+                                     Foreground="#1F2933"
+                                     TextWrapping="Wrap"
+                                     ToolTip="{Binding DisplayFinding}" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Status"
+                                        Binding="{Binding DisplayStatus}"
+                                        Width="130"
+                                        IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="Reviewer Comment"
+                                            Width="260">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <TextBox Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
+                                   TextWrapping="Wrap"
+                                   AcceptsReturn="True"
+                                   MinHeight="60"
+                                   VerticalScrollBarVisibility="Auto" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </TabItem>
             <TabItem Header="Owners / Neighbors">
               <Grid Margin="10">
                 <Grid.RowDefinitions>
@@ -860,18 +932,23 @@
                                         Width="110"
                                         IsReadOnly="True" />
                     <DataGridTextColumn Header="Name"
-                                        Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                        Binding="{Binding Name, UpdateSourceTrigger=LostFocus}"
                                         Width="*" />
-                    <DataGridTextColumn Header="Role"
-                                        Binding="{Binding Role, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="120" />
+                    <DataGridTemplateColumn Header="Role"
+                                            Width="130">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <ComboBox ItemsSource="{Binding DataContext.OwnerNeighborRoleOptions, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                    Text="{Binding Role, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    IsEditable="True"
+                                    MinWidth="112" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Source"
                                         Binding="{Binding SourceLabel}"
                                         Width="110"
                                         IsReadOnly="True" />
-                    <DataGridTextColumn Header="Status"
-                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
                   </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock Grid.Row="2"
@@ -895,26 +972,25 @@
                           FontSize="11">
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="Name"
-                                        Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                        Binding="{Binding Name, UpdateSourceTrigger=LostFocus}"
                                         Width="*" />
-                    <DataGridTextColumn Header="Role"
-                                        Binding="{Binding Role, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
-                    <DataGridTextColumn Header="From"
-                                        Binding="{Binding RelatedSegmentFrom, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="60" />
-                    <DataGridTextColumn Header="To"
-                                        Binding="{Binding RelatedSegmentTo, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="60" />
-                    <DataGridTextColumn Header="Vol."
-                                        Binding="{Binding Volume, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="70" />
+                    <DataGridTemplateColumn Header="Role"
+                                            Width="130">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                          <ComboBox ItemsSource="{Binding DataContext.OwnerNeighborRoleOptions, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                    Text="{Binding Role, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    IsEditable="True"
+                                    MinWidth="112" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Volume"
+                                        Binding="{Binding Volume, UpdateSourceTrigger=LostFocus}"
+                                        Width="82" />
                     <DataGridTextColumn Header="Folio"
-                                        Binding="{Binding Folio, UpdateSourceTrigger=PropertyChanged}"
+                                        Binding="{Binding Folio, UpdateSourceTrigger=LostFocus}"
                                         Width="70" />
-                    <DataGridTextColumn Header="Status"
-                                        Binding="{Binding ReviewStatus, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90" />
                   </DataGrid.Columns>
                 </DataGrid>
               </Grid>
