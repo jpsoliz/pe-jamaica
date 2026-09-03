@@ -72,6 +72,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         "Instigator",
         "Owner",
         "Neighbor",
+        "Representative",
         "Other"
     ];
 

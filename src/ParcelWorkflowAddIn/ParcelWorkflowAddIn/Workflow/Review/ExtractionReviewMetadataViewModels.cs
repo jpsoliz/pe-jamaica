@@ -113,6 +113,10 @@ public sealed class ExtractionReviewAdjacentOwnerViewModel : INotifyPropertyChan
     private readonly Action onOwnerChanged;
     private string name;
     private string role;
+    private string lotNumber;
+    private string address;
+    private string landValuationNumber;
+    private string examinationNumber;
     private string relatedSegmentFrom;
     private string relatedSegmentTo;
     private string volume;
@@ -126,6 +130,10 @@ public sealed class ExtractionReviewAdjacentOwnerViewModel : INotifyPropertyChan
         this.onOwnerChanged = onOwnerChanged;
         name = model.Name;
         role = model.Role;
+        lotNumber = model.LotNumber;
+        address = model.Address;
+        landValuationNumber = model.LandValuationNumber;
+        examinationNumber = model.ExaminationNumber;
         relatedSegmentFrom = model.RelatedSegmentFrom;
         relatedSegmentTo = model.RelatedSegmentTo;
         volume = model.Volume;
@@ -148,6 +156,30 @@ public sealed class ExtractionReviewAdjacentOwnerViewModel : INotifyPropertyChan
     {
         get => role;
         set => UpdateValue(ref role, value, model => model.Role = value?.Trim() ?? string.Empty);
+    }
+
+    public string LotNumber
+    {
+        get => lotNumber;
+        set => UpdateValue(ref lotNumber, value, model => model.LotNumber = value?.Trim() ?? string.Empty);
+    }
+
+    public string Address
+    {
+        get => address;
+        set => UpdateValue(ref address, value, model => model.Address = value?.Trim() ?? string.Empty);
+    }
+
+    public string LandValuationNumber
+    {
+        get => landValuationNumber;
+        set => UpdateValue(ref landValuationNumber, value, model => model.LandValuationNumber = value?.Trim() ?? string.Empty);
+    }
+
+    public string ExaminationNumber
+    {
+        get => examinationNumber;
+        set => UpdateValue(ref examinationNumber, value, model => model.ExaminationNumber = value?.Trim() ?? string.Empty);
     }
 
     public string RelatedSegmentFrom
@@ -194,6 +226,10 @@ public sealed class ExtractionReviewAdjacentOwnerViewModel : INotifyPropertyChan
     {
         Model.Name = name.Trim();
         Model.Role = role.Trim();
+        Model.LotNumber = lotNumber.Trim();
+        Model.Address = address.Trim();
+        Model.LandValuationNumber = landValuationNumber.Trim();
+        Model.ExaminationNumber = examinationNumber.Trim();
         Model.RelatedSegmentFrom = relatedSegmentFrom.Trim();
         Model.RelatedSegmentTo = relatedSegmentTo.Trim();
         Model.Volume = volume.Trim();

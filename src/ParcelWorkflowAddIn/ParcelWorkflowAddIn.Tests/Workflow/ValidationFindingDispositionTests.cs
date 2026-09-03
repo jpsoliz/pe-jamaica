@@ -248,9 +248,18 @@ internal static class ValidationFindingDispositionTests
         TestAssert.True(workspaceViewModel.Contains("\"Instigator\"", StringComparison.Ordinal), "Role choices should include Instigator.");
         TestAssert.True(workspaceViewModel.Contains("\"Owner\"", StringComparison.Ordinal), "Role choices should include Owner.");
         TestAssert.True(workspaceViewModel.Contains("\"Neighbor\"", StringComparison.Ordinal), "Role choices should include Neighbor.");
+        TestAssert.True(workspaceViewModel.Contains("\"Representative\"", StringComparison.Ordinal), "Role choices should include Representative.");
         TestAssert.True(workspaceViewModel.Contains("\"Other\"", StringComparison.Ordinal), "Role choices should include Other.");
         TestAssert.False(ownersTab.Contains("Header=\"From\"", StringComparison.Ordinal), "Owners / Neighbors tab should not show From columns.");
         TestAssert.False(ownersTab.Contains("Header=\"To\"", StringComparison.Ordinal), "Owners / Neighbors tab should not show To columns.");
+        TestAssert.True(ownersTab.Contains("Header=\"Lot Number\"", StringComparison.Ordinal), "Adjacent owner grid should expose Lot Number.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LotNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Lot Number edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"Address\"", StringComparison.Ordinal), "Adjacent owner grid should expose Address.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Address, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Address edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"LandVal No.\"", StringComparison.Ordinal), "Adjacent owner grid should expose LandVal No.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LandValuationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner LandVal No. edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"Exam No\"", StringComparison.Ordinal), "Adjacent owner grid should expose Exam No.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding ExaminationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Exam No edits should commit when the cell edit finishes.");
         TestAssert.True(ownersTab.Contains("Header=\"Volume\"", StringComparison.Ordinal), "Adjacent owner grid should use the full Volume header.");
         TestAssert.False(ownersTab.Contains("Header=\"Vol.\"", StringComparison.Ordinal), "Adjacent owner grid should not abbreviate Volume as Vol.");
         TestAssert.True(ownersTab.Contains("Binding=\"{Binding Volume, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Volume edits should commit when the cell edit finishes.");

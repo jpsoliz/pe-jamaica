@@ -256,6 +256,10 @@ internal static class ExtractionReviewPersistenceServiceTests
                 {
                   "name": "Rayon Smith",
                   "role": "Occ.",
+                  "lot_number": "Lot 12",
+                  "address": "12 King Street",
+                  "land_valuation_number": "16505005179",
+                  "examination_number": "100000562",
                   "related_segment_from": "16",
                   "related_segment_to": "17",
                   "volume": "313",
@@ -292,6 +296,10 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("71", document.VolumeFolios[0].Folio, "Folio row should load.");
         TestAssert.Equal("Rayon Smith", document.AdjacentOwners[0].Name, "Adjacent owner should load.");
         TestAssert.Equal("Occupant", document.AdjacentOwners[0].Role, "Occ. adjacent-owner role should expand to Occupant.");
+        TestAssert.Equal("Lot 12", document.AdjacentOwners[0].LotNumber, "Adjacent owner lot number should load.");
+        TestAssert.Equal("12 King Street", document.AdjacentOwners[0].Address, "Adjacent owner address should load.");
+        TestAssert.Equal("16505005179", document.AdjacentOwners[0].LandValuationNumber, "Adjacent owner LandVal No. should load.");
+        TestAssert.Equal("100000562", document.AdjacentOwners[0].ExaminationNumber, "Adjacent owner exam number should load.");
         TestAssert.Equal("Rayon Smith", document.Segments[0].AdjacentOwner, "Segment adjacent owner should load.");
 
         document.SurveyMetadataFields.First(field => field.Key == "parish").Value = "St Andrew";
@@ -299,6 +307,10 @@ internal static class ExtractionReviewPersistenceServiceTests
         document.Parties[0].ReviewStatus = "accepted";
         document.Representatives[0].ReviewNotes = "Confirmed from plan title block.";
         document.VolumeFolios[0].ReviewStatus = "accepted";
+        document.AdjacentOwners[0].LotNumber = "Lot 12A";
+        document.AdjacentOwners[0].Address = "12A King Street";
+        document.AdjacentOwners[0].LandValuationNumber = "16505005180";
+        document.AdjacentOwners[0].ExaminationNumber = "100000563";
         document.AdjacentOwners[0].RelatedSegmentFrom = "17";
         document.AdjacentOwners[0].RelatedSegmentTo = "18";
         document.AdjacentOwners[0].ReviewStatus = "accepted";
@@ -313,6 +325,10 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("accepted", reloaded.Parties[0].ReviewStatus, "Party review status should persist.");
         TestAssert.Equal("Confirmed from plan title block.", reloaded.Representatives[0].ReviewNotes, "Representative review notes should persist.");
         TestAssert.Equal("accepted", reloaded.VolumeFolios[0].ReviewStatus, "Volume / folio review status should persist.");
+        TestAssert.Equal("Lot 12A", reloaded.AdjacentOwners[0].LotNumber, "Edited owner lot number should persist.");
+        TestAssert.Equal("12A King Street", reloaded.AdjacentOwners[0].Address, "Edited owner address should persist.");
+        TestAssert.Equal("16505005180", reloaded.AdjacentOwners[0].LandValuationNumber, "Edited owner LandVal No. should persist.");
+        TestAssert.Equal("100000563", reloaded.AdjacentOwners[0].ExaminationNumber, "Edited owner exam number should persist.");
         TestAssert.Equal("17", reloaded.AdjacentOwners[0].RelatedSegmentFrom, "Edited owner segment start should persist.");
         TestAssert.Equal("18", reloaded.AdjacentOwners[0].RelatedSegmentTo, "Edited owner segment end should persist.");
         TestAssert.Equal("Rayon Smith (occ.)", reloaded.Segments[0].AdjacentOwner, "Edited segment adjacent owner should persist.");

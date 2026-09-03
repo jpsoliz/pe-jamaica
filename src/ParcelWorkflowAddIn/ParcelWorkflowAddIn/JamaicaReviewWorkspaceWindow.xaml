@@ -973,7 +973,7 @@
                   <DataGrid.Columns>
                     <DataGridTextColumn Header="Name"
                                         Binding="{Binding Name, UpdateSourceTrigger=LostFocus}"
-                                        Width="*" />
+                                        Width="1.3*" />
                     <DataGridTemplateColumn Header="Role"
                                             Width="130">
                       <DataGridTemplateColumn.CellTemplate>
@@ -985,6 +985,18 @@
                         </DataTemplate>
                       </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Lot Number"
+                                        Binding="{Binding LotNumber, UpdateSourceTrigger=LostFocus}"
+                                        Width="95" />
+                    <DataGridTextColumn Header="Address"
+                                        Binding="{Binding Address, UpdateSourceTrigger=LostFocus}"
+                                        Width="1.4*" />
+                    <DataGridTextColumn Header="LandVal No."
+                                        Binding="{Binding LandValuationNumber, UpdateSourceTrigger=LostFocus}"
+                                        Width="105" />
+                    <DataGridTextColumn Header="Exam No"
+                                        Binding="{Binding ExaminationNumber, UpdateSourceTrigger=LostFocus}"
+                                        Width="90" />
                     <DataGridTextColumn Header="Volume"
                                         Binding="{Binding Volume, UpdateSourceTrigger=LostFocus}"
                                         Width="82" />

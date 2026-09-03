@@ -281,4 +281,18 @@ In progress. Settings metadata, local validation-adapter rules, embedded compute
 - Verified packaged `Config.daml` reports `version="1.1.340"` and embedded `WorkflowSettings.json` contains the Jamaica parish FeatureServer URL.
 - `tools/validate_installer_packaging.ps1` passed after clearing its stale temp validation directory.
 - Packaged ProcessingTools targeted tests passed: 29 tests.
+### Owners / Neighbors Metadata Enhancement - 2026-09-03
 
+- Added editable adjacent owner / neighbor columns in the PXA Owners / Neighbors tab: Lot Number, Address, LandVal No., and Exam No.
+- Added `Representative` to the shared owner/neighbor role combo list while preserving editable free-text role entry.
+- Persisted the new adjacent-owner metadata fields in `adjacent_owners` as `lot_number`, `address`, `land_valuation_number`, and `examination_number`, with tolerant read aliases for existing/new extraction artifacts.
+- Extended UI and review-persistence tests to cover the new role option, editable column bindings, and save/reload behavior.
+
+### Verification - 2026-09-03 Owners / Neighbors Metadata Enhancement
+
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj /p:UseSharedCompilation=false` passed.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj /p:UseSharedCompilation=false /p:BuildProjectReferences=false /p:GenerateAssemblyInfo=false /p:GenerateTargetFrameworkAttribute=false /p:GenerateTargetPlatformAttribute=false` passed with existing warning `CS8629` in `SurveyPlanBoundarySolverTests.cs`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --no-build -- validation finding` passed: 33 tests.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj --no-build -- pxa metadata adjacent owners` passed: 30 tests.
+- A broader `review persistence` test filter reached the target adjacent-owner test and passed it, then stopped on an ArcGIS runtime assembly load error for `ArcGIS.Desktop.Mapping` in an unrelated spatial-overlap test outside ArcGIS Pro.
+- `git diff --check` passed; only Git line-ending warnings were reported.

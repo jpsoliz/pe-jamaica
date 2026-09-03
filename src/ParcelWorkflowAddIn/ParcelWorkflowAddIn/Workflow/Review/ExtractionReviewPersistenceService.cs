@@ -837,6 +837,10 @@ public sealed class ExtractionReviewPersistenceService
         {
             Name = ReadFirstString(item, "name", "value", "owner", "adjacent_owner", "occupant") ?? string.Empty,
             Role = NormalizePartyRole(ReadFirstString(item, "role", "type")),
+            LotNumber = ReadFirstString(item, "lot_number", "lot", "lot_no", "lotNumber", "Lot Number") ?? string.Empty,
+            Address = ReadFirstString(item, "address", "property_address", "location", "Address") ?? string.Empty,
+            LandValuationNumber = ReadFirstString(item, "land_valuation_number", "landval_number", "landval_no", "landvalnumber", "landValuationNumber", "LandVal No.") ?? string.Empty,
+            ExaminationNumber = ReadFirstString(item, "examination_number", "exam_number", "exam_no", "examinationNumber", "Exam No") ?? string.Empty,
             RelatedSegmentFrom = ReadFirstString(item, "related_segment_from", "segment_from", "from_point") ?? string.Empty,
             RelatedSegmentTo = ReadFirstString(item, "related_segment_to", "segment_to", "to_point") ?? string.Empty,
             Volume = ReadFirstString(item, "volume", "vol", "Volume", "Vol.") ?? string.Empty,
@@ -982,6 +986,10 @@ public sealed class ExtractionReviewPersistenceService
             var node = CloneObject(item.RawOwner);
             node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
             node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["lot_number"] = string.IsNullOrWhiteSpace(item.LotNumber) ? null : item.LotNumber;
+            node["address"] = string.IsNullOrWhiteSpace(item.Address) ? null : item.Address;
+            node["land_valuation_number"] = string.IsNullOrWhiteSpace(item.LandValuationNumber) ? null : item.LandValuationNumber;
+            node["examination_number"] = string.IsNullOrWhiteSpace(item.ExaminationNumber) ? null : item.ExaminationNumber;
             node["related_segment_from"] = string.IsNullOrWhiteSpace(item.RelatedSegmentFrom) ? null : item.RelatedSegmentFrom;
             node["related_segment_to"] = string.IsNullOrWhiteSpace(item.RelatedSegmentTo) ? null : item.RelatedSegmentTo;
             node["volume"] = string.IsNullOrWhiteSpace(item.Volume) ? null : item.Volume;

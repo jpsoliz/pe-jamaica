@@ -103,6 +103,14 @@ public sealed class ExtractionReviewAdjacentOwner
 
     public string Role { get; set; } = string.Empty;
 
+    public string LotNumber { get; set; } = string.Empty;
+
+    public string Address { get; set; } = string.Empty;
+
+    public string LandValuationNumber { get; set; } = string.Empty;
+
+    public string ExaminationNumber { get; set; } = string.Empty;
+
     public string RelatedSegmentFrom { get; set; } = string.Empty;
 
     public string RelatedSegmentTo { get; set; } = string.Empty;
