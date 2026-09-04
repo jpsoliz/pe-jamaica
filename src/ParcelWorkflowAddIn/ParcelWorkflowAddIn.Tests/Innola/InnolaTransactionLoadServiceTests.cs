@@ -224,6 +224,33 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after adapter exception.");
     }
 
+    public static async Task AbsoluteAttachmentPathCopiesByLeafFileName()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000854", "100000854", "100000854", "In RT Examination"), FixedNow());
+        var pathAttachment = new InnolaAttachmentMetadata(
+            "att-path",
+            @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\source\FirstRegistration.pdf",
+            ".pdf",
+            "application/pdf",
+            SourceRole.PlanMapReference,
+            "plan",
+            4,
+            null,
+            "mock-attachment:att-path",
+            true);
+        var service = LoadService(manager, new CountingDetailService(Detail("task-100000854", "100000854", "100000854", "In RT Examination", new[] { pathAttachment })), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"Absolute/path-shaped attachment metadata should copy by leaf name. Error: {result.ErrorMessage}");
+        var copiedPath = Path.Combine(result.Layout!.SourceDirectory, "FirstRegistration.pdf");
+        TestAssert.True(File.Exists(copiedPath), "Attachment should be copied inside the Case Folder source directory by leaf file name.");
+        var manifest = ManifestSerializer.Read(result.Layout.ManifestPath);
+        TestAssert.Equal("FirstRegistration.pdf", manifest.Payload.AttachmentProvenance![0].FileName, "Provenance should persist the sanitized leaf file name.");
+    }
+
     public static async Task AttachmentFileNameTraversalBlocksLoad()
     {
         using var tempRoot = new TempDirectory();

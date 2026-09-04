@@ -3,6 +3,7 @@ using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Workflow.Maps;
+using ParcelWorkflowAddIn.Workflow.RtExamination;
 using ParcelWorkflowAddIn.WorkflowRules;
 using System.Net.Http;
 
@@ -100,6 +101,15 @@ internal static class ShellState
     public static PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask { get; } = Settings.PlaBPlanAnnexationTask;
 
     public static FabricMaintenancePromotionSettings FabricMaintenancePromotion { get; } = FabricMaintenancePromotionSettings.FromTransactionSettings(Settings);
+
+    public static RtExaminationSettings RtExamination { get; } = Settings.RtExamination;
+
+    public static InnolaRtExaminationService RtExaminations { get; } = new(
+        SharedInnolaHttpClient,
+        () => Session.CurrentSession,
+        () => RtExamination,
+        TransactionLifecycle,
+        new ArcGisCompareMapIntegrationService());
 
     public static bool CanOpenComputeWorkflow => Session.CanOpenParcelWorkflow && IsSelectedTransactionComputeWorkflow;
 
@@ -221,6 +231,75 @@ internal static class ShellState
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Warning);
         }
+    }
+
+    public static void OpenRtExaminationWorkspace(string transactionNumber, string? statusText)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(() => OpenRtExaminationWorkspace(transactionNumber, statusText));
+            return;
+        }
+
+        try
+        {
+            if (Session.SelectedTransaction is null)
+            {
+                ShowRtExaminationOpenWarning(transactionNumber, "No selected Innola transaction is available. Select the In RT Examination row and try again.");
+                return;
+            }
+
+            var selectedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(Session.SelectedTransaction.TransactionNumber);
+            var requestedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber);
+            if (!selectedTransactionNumber.Equals(requestedTransactionNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                ShowRtExaminationOpenWarning(
+                    transactionNumber,
+                    $"Selected transaction {Session.SelectedTransaction.TransactionNumber} does not match requested transaction {transactionNumber}. Select the In RT Examination row and try again.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(Session.LoadedCaseFolderPath))
+            {
+                ShowRtExaminationOpenWarning(transactionNumber, "The RT Examination case folder is not loaded. Start the selected transaction again.");
+                return;
+            }
+
+            var viewModel = new RtExaminationViewModel(
+                Session.SelectedTransaction,
+                Session.LoadedCaseFolderPath,
+                RtExaminations,
+                RtExaminations,
+                message => System.Windows.MessageBox.Show(
+                    message,
+                    "Confirm RT Examination",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes,
+                message => System.Windows.MessageBox.Show(
+                    message,
+                    "RT Examination",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information),
+                () => { });
+            RtExaminationWindow.ShowOrActivate(viewModel);
+        }
+        catch (Exception exception)
+        {
+            System.Windows.MessageBox.Show(
+                $"RT Examination workspace could not be opened for transaction {transactionNumber}. {exception.Message}",
+                "RT Examination",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Warning);
+        }
+    }
+    private static void ShowRtExaminationOpenWarning(string transactionNumber, string message)
+    {
+        System.Windows.MessageBox.Show(
+            message,
+            $"RT Examination - {transactionNumber}",
+            System.Windows.MessageBoxButton.OK,
+            System.Windows.MessageBoxImage.Warning);
     }
 
     private static void OpenCompareWorkspaceCore(string transactionNumber, ICompareTaskLifecycleService? taskLifecycleService)

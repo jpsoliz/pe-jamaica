@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.IO;
 using System.Linq;
 using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
+using ParcelWorkflowAddIn.Workflow.RtExamination;
 
 namespace ParcelWorkflowAddIn.Innola;
 
@@ -25,6 +26,7 @@ public sealed record InnolaTransactionSettings(
     string? CompareWorkflowStagesWarning,
     PlaBPlanAnnexationTaskSettings PlaBPlanAnnexationTask,
     FabricMaintenancePromotionSettings FabricMaintenancePromotion,
+    RtExaminationSettings RtExamination,
     IReadOnlyList<ComputeAttachmentSourceTypeDefinition> ComputeAttachmentSourceTypes,
     string? ComputeAttachmentSourceTypesWarning,
     IReadOnlyList<ComputeTransactionTypeProfileDefinition> ComputeTransactionTypeProfiles,
@@ -88,6 +90,7 @@ public sealed record InnolaTransactionSettings(
         "Compare workflow stages are not configured. Set compare_workflow_stages before enabling Compare transactions.",
         PlaBPlanAnnexationTaskSettings.Default,
         FabricMaintenancePromotionSettings.Default,
+        RtExaminationSettings.Default,
         ComputeAttachmentSourceTypeCatalog.SafeDefaults,
         null,
         ComputeTransactionTypeProfileCatalog.SafeDefaults,
@@ -139,6 +142,7 @@ public sealed record InnolaTransactionSettings(
             var computeWorkflowStages = ResolveComputeWorkflowStages(root);
             var compareWorkflowStages = ResolveCompareWorkflowStages(root);
             var plaBPlanAnnexationTask = PlaBPlanAnnexationTaskSettings.FromJson(root);
+            var rtExamination = RtExaminationSettings.FromJson(root);
             var computeAttachmentSourceTypes = ResolveComputeAttachmentSourceTypes(root);
             var computeTransactionTypeProfiles = ResolveComputeTransactionTypeProfiles(root);
             var serverUrl = ReadString(root, "innola_server_url") ?? Default.ServerUrl;
@@ -182,6 +186,7 @@ public sealed record InnolaTransactionSettings(
                 compareWorkflowStages.Warning,
                 plaBPlanAnnexationTask,
                 fabricMaintenancePromotion,
+                rtExamination,
                 computeAttachmentSourceTypes.Values,
                 computeAttachmentSourceTypes.Warning,
                 computeTransactionTypeProfiles.Values,

@@ -454,6 +454,49 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.Equal("100000206", detail.Detail?.TransactionNumber, "Selected transaction number should not be replaced by application number.");
     }
 
+    public static async Task AttachmentDownloadStripsPathFromDocumentName()
+    {
+        var handler = new SequenceHandler(new Response("PDF!", "application/pdf"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var detail = new InnolaTransactionDetail(
+            "tx-1",
+            "100000854",
+            "task-1",
+            "In RT Examination",
+            "In RT Examination",
+            "First Registration",
+            "RT",
+            "tester",
+            "survey",
+            null,
+            null,
+            new[]
+            {
+                new InnolaAttachmentMetadata(
+                    "source-1",
+                    @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\source\FirstRegistration.pdf",
+                    ".pdf",
+                    "application/pdf",
+                    SourceRole.PlanMapReference,
+                    "plan",
+                    4,
+                    null,
+                    "body-id:body-1",
+                    true)
+            },
+            "Kingston",
+            null);
+
+        var content = await service.GetAttachmentContentAsync(Session(), detail, detail.Attachments[0]);
+
+        TestAssert.True(content.Success, "Attachment content should download.");
+        TestAssert.Equal(1, handler.Requests.Count, "Only the download endpoint should be called.");
+        var uri = handler.Requests[0].Uri.AbsoluteUri;
+        TestAssert.True(uri.Contains("documentName=FirstRegistration.pdf", StringComparison.Ordinal), "Download documentName should use only the leaf file name.");
+        TestAssert.True(!uri.Contains("ParcelWorkflowCases", StringComparison.OrdinalIgnoreCase), "Download documentName must not include local path segments.");
+        TestAssert.True(!uri.Contains("%5C", StringComparison.OrdinalIgnoreCase), "Download documentName must not include encoded backslashes.");
+    }
+
     public static async Task LiveDetailWithoutSourceIdentifiersFailsSafely()
     {
         var handler = new SequenceHandler(

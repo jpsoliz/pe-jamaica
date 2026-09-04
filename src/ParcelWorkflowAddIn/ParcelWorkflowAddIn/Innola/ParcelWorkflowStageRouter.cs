@@ -1,3 +1,5 @@
+using ParcelWorkflowAddIn.Workflow.RtExamination;
+
 namespace ParcelWorkflowAddIn.Innola;
 
 internal enum ParcelWorkflowStageRoute
@@ -6,7 +8,8 @@ internal enum ParcelWorkflowStageRoute
     Compute,
     Compare,
     PlaBPlanAnnexation,
-    FabricMaintenancePromotion
+    FabricMaintenancePromotion,
+    RtExamination
 }
 
 internal static class ParcelWorkflowStageRouter
@@ -14,7 +17,8 @@ internal static class ParcelWorkflowStageRouter
     public static ParcelWorkflowStageRoute Resolve(
         string? taskName,
         IReadOnlyCollection<string> computeWorkflowStages,
-        IReadOnlyCollection<string> compareWorkflowStages)
+        IReadOnlyCollection<string> compareWorkflowStages,
+        RtExaminationSettings? rtExaminationSettings = null)
     {
         var normalizedStage = taskName?.Trim();
         if (string.IsNullOrWhiteSpace(normalizedStage))
@@ -30,6 +34,11 @@ internal static class ParcelWorkflowStageRouter
         if (compareWorkflowStages.Contains(normalizedStage, StringComparer.OrdinalIgnoreCase))
         {
             return ParcelWorkflowStageRoute.Compare;
+        }
+
+        if ((rtExaminationSettings ?? RtExaminationSettings.Default).MatchesStage(normalizedStage))
+        {
+            return ParcelWorkflowStageRoute.RtExamination;
         }
 
         return ParcelWorkflowStageRoute.Unsupported;

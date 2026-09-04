@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Workflow.Pla;
+using ParcelWorkflowAddIn.Workflow.RtExamination;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
@@ -824,7 +825,9 @@ internal static class TransactionPanelStateTests
 
         TestAssert.Equal(null, manager.SelectedTransaction, "Unsupported workflow stage should not become selected in session state.");
         TestAssert.True(!manager.IsTransactionLoaded, "Unsupported workflow stage should not load a case folder.");
-        TestAssert.Equal("Transaction TR100000004 cannot be opened because task 'Compare Survey Plan' is not configured for Parcel Workflow [Compute]. Supported tasks: Assign Computation Task, Computation Check, Compute Survey Plan.", panel.StatusText, "Unsupported workflow stage status mismatch.");
+        TestAssert.True(panel.StatusText.Contains("task 'Compare Survey Plan' is not configured", StringComparison.OrdinalIgnoreCase), "Unsupported workflow stage status should name the blocked selected task.");
+        TestAssert.True(panel.StatusText.Contains("Compute Survey Plan", StringComparison.OrdinalIgnoreCase), "Unsupported workflow stage status should include compute support guidance.");
+        TestAssert.True(panel.StatusText.Contains("In RT Examination", StringComparison.OrdinalIgnoreCase), "Unsupported workflow stage status should include RT support guidance when configured.");
         TestAssert.Equal(panel.StatusText, panel.ErrorText, "Unsupported workflow stage should surface a matching blocking error.");
     }
 
@@ -905,6 +908,53 @@ internal static class TransactionPanelStateTests
         TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed Compare transaction should keep active transaction gates enabled.");
     }
 
+
+    public static async Task RtExaminationStageStartsAndLaunchesWorkspaceForAnyTransactionType()
+    {
+        using var tempRoot = new TempDirectory();
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-100000004", "TR100000004", "In RT Examination", "tester", "2026-09-04T09:24:00-05:00", "First Registration")
+            })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var launched = new List<(string TransactionNumber, string? StatusText)>();
+        var supportingDocumentLaunchCount = 0;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan" },
+            compareWorkflowStages: new[] { "Compare Survey Plan" },
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, new AppRtExaminationDetailService()),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            },
+            rtExaminationSettings: RtExaminationSettings.Default,
+            rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows[0];
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "RT Examination start should claim the transaction before launch.");
+        TestAssert.Equal("TR100000004", manager.SelectedTransaction?.TransactionNumber, "RT Examination should load the selected transaction.");
+        TestAssert.Equal(1, launched.Count, "RT Examination workspace should launch once.");
+        TestAssert.Equal("TR100000004", launched[0].TransactionNumber, "RT Examination workspace launch transaction mismatch.");
+        TestAssert.True(launched[0].StatusText?.Contains("RT Examination", StringComparison.OrdinalIgnoreCase) == true, "RT launch should include a stage-aware status message.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "RT Examination start should open Supporting Documents once.");
+        TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed RT Examination transaction should keep active transaction gates enabled.");
+    }
     public static async Task ActiveCompareTaskCanReopenWithoutClaimingAgainAndSuspend()
     {
         using var tempRoot = new TempDirectory();
@@ -1683,11 +1733,12 @@ internal static class TransactionPanelStateTests
     private static InnolaTransactionLoadService Loader(
         InnolaSessionManager manager,
         string outputRoot,
-        Func<DateTimeOffset> clock)
+        Func<DateTimeOffset> clock,
+        IInnolaTransactionDetailService? detailService = null)
     {
         return new InnolaTransactionLoadService(
             manager,
-            new MockInnolaTransactionDetailService(),
+            detailService ?? new MockInnolaTransactionDetailService(),
             new CaseFolderStore(clock, () => "run-panel-load"),
             new AttachmentSourceFileWriter(clock),
             new SourceInputProfileDetector(clock),
@@ -2032,6 +2083,50 @@ internal static class TransactionPanelStateTests
         {
             await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
             return InnolaTransactionListResult.Succeeded(Array.Empty<InnolaTransactionRow>());
+        }
+    }
+
+    private sealed class AppRtExaminationDetailService : IInnolaTransactionDetailService
+    {
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionDetailResult.Succeeded(new InnolaTransactionDetail(
+                selectedTransaction.TransactionId,
+                selectedTransaction.TransactionNumber,
+                selectedTransaction.TaskId,
+                selectedTransaction.TaskName,
+                selectedTransaction.ProcessStep,
+                "APP",
+                "APP",
+                selectedTransaction.AssignedUser,
+                selectedTransaction.AssignedGroup,
+                null,
+                "in_progress",
+                Array.Empty<InnolaAttachmentMetadata>())));
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentContentResult.Failure("No attachment expected for RT Examination profile.", "unexpected"));
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaAttachmentUploadResult.Succeeded());
         }
     }
 

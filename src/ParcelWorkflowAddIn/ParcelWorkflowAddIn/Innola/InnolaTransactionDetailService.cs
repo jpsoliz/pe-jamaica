@@ -107,13 +107,19 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
 
         try
         {
+            var safeFileName = NormalizeAttachmentFileName(attachment.FileName);
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                return InnolaAttachmentContentResult.Failure("Attachment metadata has an invalid file name.", "invalid_file_name");
+            }
+
             var path = queryName.Equals("bodyId", StringComparison.OrdinalIgnoreCase)
-                ? $"{InnolaSettings.V4RestPath}source/download?bodyId={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}"
+                ? $"{InnolaSettings.V4RestPath}source/download?bodyId={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(safeFileName)}"
                 : queryName.Equals("scanSourceId", StringComparison.OrdinalIgnoreCase)
                     ? $"{InnolaSettings.RestPath}scanning/source/{Uri.EscapeDataString(queryValue)}/body"
-                : $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(attachment.FileName)}";
+                : $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(safeFileName)}";
             var uri = InnolaHttp.BuildUri(session.ServerUrl, path);
-            Debug.WriteLine($"Innola attachment download starting. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Reference={attachment.ServiceReference}; Path={path}.");
+            Debug.WriteLine($"Innola attachment download starting. TransactionNumber={detail.TransactionNumber}; Attachment={safeFileName}; Reference={attachment.ServiceReference}; Path={path}.");
 
             using var response = await InnolaApiResilience.SendAsync(
                 httpClient,
@@ -160,6 +166,12 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return InnolaAttachmentUploadResult.Failure("Could not upload attachment. Try again.", "unauthorized");
         }
 
+        var safeFileName = NormalizeAttachmentFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName))
+        {
+            return InnolaAttachmentUploadResult.Failure("Could not upload attachment because the file name is invalid.", "invalid_file_name");
+        }
+
         var route = NormalizeUploadRoute(ShellState.AttachmentUploadRoute);
         var bindingMode = NormalizeBindingMode(ShellState.AttachmentUploadBindingMode);
         var uploadMode = NormalizeUploadMode(ShellState.AttachmentUploadMode);
@@ -175,12 +187,12 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         try
         {
             Debug.WriteLine(
-                $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={fileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; AuthMode={authMode}; SourceType={sourceType}; Path={requestPath}.");
+                $"Innola attachment upload starting. TaskId={selectedTransaction.TaskId}; File={safeFileName}; Bytes={content.Length}; Route={route}; BindingMode={bindingMode}; UploadMode={uploadMode}; AuthMode={authMode}; SourceType={sourceType}; Path={requestPath}.");
 
             var uploadAttempt = await SendUploadAttemptWithFallbackAsync(
                 session,
                 selectedTransaction,
-                fileName,
+                safeFileName,
                 contentType,
                 content,
                 sourceType,
@@ -203,7 +215,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
                     using var bearerResponse = await SendUploadAttemptAsync(
                         session,
                         selectedTransaction,
-                        fileName,
+                        safeFileName,
                         contentType,
                         content,
                         sourceType,
@@ -256,12 +268,28 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidOperationException or UriFormatException)
         {
             var safeDiagnostic = BuildSafeUploadExceptionDiagnostic(exception);
-            Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={fileName}; Error={safeDiagnostic}.");
+            Debug.WriteLine($"Innola attachment upload failed. TaskId={selectedTransaction.TaskId}; File={safeFileName}; Error={safeDiagnostic}.");
             return InnolaAttachmentUploadResult.Failure(
                 $"Could not upload attachment. {safeDiagnostic}",
                 exception.GetType().Name,
                 BuildUploadDiagnostics(route, bindingMode, uploadMode, responseAuth, taskValue, contentType, content.Length));
         }
+    }
+
+    private static string NormalizeAttachmentFileName(string fileName)
+    {
+        var trimmed = fileName.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        var normalizedSeparators = trimmed.Replace('\\', '/');
+        var lastSeparator = normalizedSeparators.LastIndexOf('/');
+        var leafName = lastSeparator >= 0
+            ? normalizedSeparators[(lastSeparator + 1)..]
+            : Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(leafName) ? string.Empty : leafName;
     }
 
     private async Task<(HttpResponseMessage Response, AttachmentUploadAuthAttempt AuthAttempt)> SendUploadAttemptWithFallbackAsync(

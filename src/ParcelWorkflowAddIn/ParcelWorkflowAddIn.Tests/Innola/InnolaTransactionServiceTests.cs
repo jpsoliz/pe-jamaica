@@ -531,6 +531,49 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!handler.Requests[2].Body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Compare report must not be rewritten to the survey plan registered type.");
     }
 
+
+    public static async Task AttachmentUploadStripsLocalPathFromMultipartFileName()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 41,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 42 },
+                  "link": { "@id": 43 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-1",
+            "transaction-1",
+            "TR100000674",
+            "Compare Survey Plan",
+            "Compare",
+            DateTimeOffset.Parse("2026-07-22T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\output\reports\compare_review_report.pdf",
+            "application/pdf",
+            Encoding.UTF8.GetBytes("%PDF-1.4 test"),
+            "st_compare_report");
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Attachment upload should accept local paths and send only the file name.");
+        TestAssert.True(handler.Requests[0].Body.Contains("compare_review_report.pdf", StringComparison.Ordinal), "Multipart upload must include the base file name.");
+        TestAssert.True(!handler.Requests[0].Body.Contains("ParcelWorkflowCases", StringComparison.Ordinal), "Multipart upload must not leak the local path in the file name.");
+    }
     public static async Task AttachmentUploadRegistersFabricSummaryUsingConfiguredInternalType()
     {
         var handler = new SequencedHttpMessageHandler(

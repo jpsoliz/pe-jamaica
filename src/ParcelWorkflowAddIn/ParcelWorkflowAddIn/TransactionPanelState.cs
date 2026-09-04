@@ -11,6 +11,7 @@ using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Workflow.Pla;
+using ParcelWorkflowAddIn.Workflow.RtExamination;
 
 namespace ParcelWorkflowAddIn;
 
@@ -38,6 +39,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly PlaBPlanAnnexationTaskSettings plaBPlanAnnexationTaskSettings;
     private readonly FabricMaintenancePromotionSettings fabricMaintenancePromotionSettings;
     private readonly Action<string, string, string?> fabricMaintenanceWorkspaceLauncher;
+    private readonly RtExaminationSettings rtExaminationSettings;
+    private readonly Action<string, string?> rtExaminationWorkspaceLauncher;
     private readonly Func<IReadOnlyList<string>, CancellationToken, Task<PlaBMapCleanupResult>> plaBMapCleanup;
     private readonly Func<string, string, CaseFolderCreationResult> plaBCaseFolderPreparer;
     private readonly Func<bool> isCompareWorkspaceOpen;
@@ -117,7 +120,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         FabricMaintenancePromotionSettings? fabricMaintenancePromotionSettings = null,
         Action<string, string, string?>? fabricMaintenanceWorkspaceLauncher = null,
         Func<IReadOnlyList<string>, CancellationToken, Task<PlaBMapCleanupResult>>? plaBMapCleanup = null,
-        Func<string, string, CaseFolderCreationResult>? plaBCaseFolderPreparer = null)
+        Func<string, string, CaseFolderCreationResult>? plaBCaseFolderPreparer = null,
+        RtExaminationSettings? rtExaminationSettings = null,
+        Action<string, string?>? rtExaminationWorkspaceLauncher = null)
     {
         this.session = session;
         this.transactionService = transactionService;
@@ -148,6 +153,8 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         this.plaBPlanAnnexationTaskSettings = plaBPlanAnnexationTaskSettings ?? ShellState.PlaBPlanAnnexationTask;
         this.fabricMaintenancePromotionSettings = fabricMaintenancePromotionSettings ?? ShellState.FabricMaintenancePromotion;
         this.fabricMaintenanceWorkspaceLauncher = fabricMaintenanceWorkspaceLauncher ?? ShellState.OpenFabricMaintenanceWorkspace;
+        this.rtExaminationSettings = rtExaminationSettings ?? ShellState.RtExamination;
+        this.rtExaminationWorkspaceLauncher = rtExaminationWorkspaceLauncher ?? ShellState.OpenRtExaminationWorkspace;
         this.plaBMapCleanup = plaBMapCleanup ?? ArcGisPlaBMapCleanupService.RemoveAsync;
         this.plaBCaseFolderPreparer = plaBCaseFolderPreparer ?? ((transactionNumber, username) =>
             PreparePlaBCaseFolder(InnolaTransactionSettings.Load(), transactionNumber, username));
@@ -835,6 +842,14 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             || session.SelectedTransaction is null
             || !session.SelectedTransaction.TransactionNumber.Equals(requestedTransactionNumber, StringComparison.OrdinalIgnoreCase))
         {
+            if (workflowRoute == ParcelWorkflowStageRoute.RtExamination)
+            {
+                var message = string.IsNullOrWhiteSpace(ErrorText)
+                    ? $"RT Examination transaction {requestedTransactionNumber} could not be loaded. {StatusText}"
+                    : ErrorText;
+                ShowRtExaminationStartWarning(requestedTransactionNumber, message);
+            }
+
             return;
         }
 
@@ -845,6 +860,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             var result = await lifecycleCoordinator.StartOrClaimAsync(cancellationToken);
             ApplyLifecycleResult(result, $"Transaction {requestedTransactionNumber} is in progress.");
+            if (!result.Success && workflowRoute == ParcelWorkflowStageRoute.RtExamination)
+            {
+                ShowRtExaminationStartWarning(
+                    requestedTransactionNumber,
+                    result.ErrorMessage ?? ErrorText ?? StatusText ?? "RT Examination transaction could not be started.");
+            }
+
             if (result.Success)
             {
                 SavedTransactionNumber = null;
@@ -884,12 +906,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     private Task LoadSelectedTransactionAsync(ParcelWorkflowStageRoute workflowRoute, CancellationToken cancellationToken)
     {
-        if (workflowRoute != ParcelWorkflowStageRoute.Compare || compareTransactionLoadService is null)
+        if ((workflowRoute == ParcelWorkflowStageRoute.Compare || workflowRoute == ParcelWorkflowStageRoute.RtExamination)
+            && compareTransactionLoadService is not null)
         {
-            return LoadSelectedTransactionAsync(cancellationToken);
+            return LoadSelectedTransactionAsync(compareTransactionLoadService, cancellationToken);
         }
 
-        return LoadSelectedTransactionAsync(compareTransactionLoadService, cancellationToken);
+        return LoadSelectedTransactionAsync(cancellationToken);
     }
 
     private bool LoadPlaBPlanAnnexationTaskForStart(InnolaTransactionRow requestedRow)
@@ -972,9 +995,29 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
+        if (workflowRoute == ParcelWorkflowStageRoute.RtExamination)
+        {
+            OpenRtExaminationWorkspace(requestedTransactionNumber);
+            return;
+        }
+
         OpenParcelWorkflowDockpane(requestedTransactionNumber);
     }
 
+    private void OpenRtExaminationWorkspace(string requestedTransactionNumber)
+    {
+        rtExaminationWorkspaceLauncher(requestedTransactionNumber, $"Transaction {requestedTransactionNumber} is in RT Examination.");
+        StatusText = $"Opened RT Examination workspace for {requestedTransactionNumber}.";
+    }
+
+    private static void ShowRtExaminationStartWarning(string transactionNumber, string message)
+    {
+        System.Windows.MessageBox.Show(
+            message,
+            $"RT Examination - {transactionNumber}",
+            System.Windows.MessageBoxButton.OK,
+            System.Windows.MessageBoxImage.Warning);
+    }
     private void OpenCompareWorkspace(string requestedTransactionNumber)
     {
         if (CompareWorkspaceWindowLifecycle.TryActivateExisting())
@@ -2888,6 +2931,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return true;
         }
 
+        if (rtExaminationSettings.MatchesStage(row.TaskName))
+        {
+            return true;
+        }
+
         var visibleType = string.IsNullOrWhiteSpace(normalizedType) ? "(blank)" : normalizedType;
         var supported = supportedTransactionTypes.Count == 0
             ? "none configured"
@@ -2923,13 +2971,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             ? ParcelWorkflowStageRoute.PlaBPlanAnnexation
             : FabricMaintenancePromotionGate.Evaluate(row, fabricMaintenancePromotionSettings).IsEligible
                 ? ParcelWorkflowStageRoute.FabricMaintenancePromotion
-                : ParcelWorkflowStageRouter.Resolve(row.TaskName, computeWorkflowStages, compareWorkflowStages);
+                : ParcelWorkflowStageRouter.Resolve(row.TaskName, computeWorkflowStages, compareWorkflowStages, rtExaminationSettings);
 
     private string BuildSupportedWorkflowStageMessage()
     {
         var supportedStages = computeWorkflowStages
             .Concat(compareWorkflowStages)
-            .Concat(new[] { fabricMaintenancePromotionSettings.StageName })
+            .Concat(new[] { fabricMaintenancePromotionSettings.StageName, rtExaminationSettings.StageName })
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(stage => stage, StringComparer.OrdinalIgnoreCase)
             .ToArray();

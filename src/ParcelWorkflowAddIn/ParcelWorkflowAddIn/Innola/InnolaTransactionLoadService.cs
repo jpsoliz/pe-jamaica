@@ -6,6 +6,7 @@ using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Workflow.Maps;
+using ParcelWorkflowAddIn.Workflow.RtExamination;
 using ParcelWorkflowAddIn.WorkflowRules;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -115,7 +116,8 @@ public sealed class InnolaTransactionLoadService
         }
 
         var transactionSettings = InnolaTransactionSettings.Load();
-        var transactionProfile = ResolveTransactionProfile(transactionSettings, detail, selected);
+        var transactionProfile = ResolveRtExaminationProfile(transactionSettings, selected)
+            ?? ResolveTransactionProfile(transactionSettings, detail, selected);
         if (transactionProfile is null)
         {
             sessionManager.ClearLoadedTransaction();
@@ -123,6 +125,7 @@ public sealed class InnolaTransactionLoadService
                 $"Unsupported transaction profile: no enabled compute transaction type profile matches '{detail.CaseType ?? selected.TransactionType ?? detail.TaskName}'.");
         }
 
+        var isRtExaminationLoad = IsRtExaminationProfile(transactionProfile);
         var resumeAttachments = detail.Attachments
             .Where(attachment => InnolaResumePackageConventions.IsResumePackageAttachment(attachment, detail.TransactionNumber))
             .ToArray();
@@ -138,7 +141,7 @@ public sealed class InnolaTransactionLoadService
         }
 
         var hasExistingCaseFolder = Directory.Exists(CaseFolderLayout.For(outputRoot, detail.TransactionNumber).RootDirectory);
-        if ((sourceAttachments.Length == 0 && resumeAttachment is null && !hasExistingCaseFolder)
+        if ((sourceAttachments.Length == 0 && resumeAttachment is null && !hasExistingCaseFolder && !isRtExaminationLoad)
             || sourceAttachments.Any(attachment => attachment.IsRequired && string.IsNullOrWhiteSpace(attachment.AttachmentId)))
         {
             sessionManager.ClearLoadedTransaction();
@@ -200,7 +203,8 @@ public sealed class InnolaTransactionLoadService
             }
 
             var serviceReference = $"innola-attachment:{attachment.AttachmentId}";
-            var written = attachmentWriter.Write(layout, serviceReference, attachment.FileName, content.Content, attachment.SourceRole, attachment.SourceType);
+            var safeFileName = SafeAttachmentFileName(attachment.FileName);
+            var written = attachmentWriter.Write(layout, serviceReference, safeFileName, content.Content, attachment.SourceRole, attachment.SourceType);
             if (!written.Success || written.ManifestSourceFile is null)
             {
                 CleanupNewlyWrittenFiles(newlyWrittenFiles);
@@ -212,7 +216,7 @@ public sealed class InnolaTransactionLoadService
             sourceFiles.Add(written.ManifestSourceFile);
             provenance.Add(new ManifestAttachmentProvenance(
                 attachment.AttachmentId,
-                attachment.FileName,
+                safeFileName,
                 NormalizeExtension(attachment),
                 attachment.MimeType,
                 attachment.SourceRole,
@@ -333,6 +337,38 @@ public sealed class InnolaTransactionLoadService
         }
 
         return null;
+    }
+
+    private static bool IsRtExaminationProfile(ComputeTransactionTypeProfileDefinition transactionProfile)
+    {
+        return string.Equals(transactionProfile.ProfileId, "rt_examination_review", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ComputeTransactionTypeProfileDefinition? ResolveRtExaminationProfile(
+        InnolaTransactionSettings settings,
+        SelectedInnolaTransaction selected)
+    {
+        var rtSettings = settings.RtExamination ?? RtExaminationSettings.Default;
+        if (!rtSettings.MatchesStage(selected.TaskName))
+        {
+            return null;
+        }
+
+        var transactionTypeNames = new[] { selected.TransactionType, rtSettings.StageName }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .ToArray();
+
+        return new ComputeTransactionTypeProfileDefinition(
+            "rt_examination_review",
+            true,
+            Array.Empty<string>(),
+            transactionTypeNames,
+            "rt_examination_review",
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            SourceRole.PlanMapReference,
+            "rt_examination_review");
     }
 
     private void RestoreAlreadyInProgressLifecycle(
@@ -741,6 +777,31 @@ public sealed class InnolaTransactionLoadService
         return DateTimeOffset.TryParse(value, out var parsed)
             ? parsed
             : DateTimeOffset.MinValue;
+    }
+
+    private static string SafeAttachmentFileName(string fileName)
+    {
+        var trimmed = fileName.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return "attachment";
+        }
+
+        var hasDirectorySeparator = trimmed.Contains('\\', StringComparison.Ordinal) || trimmed.Contains('/', StringComparison.Ordinal);
+        if (hasDirectorySeparator && trimmed.Contains("..", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        if (hasDirectorySeparator || Path.IsPathRooted(trimmed) || trimmed.Contains(':', StringComparison.Ordinal))
+        {
+            var normalized = trimmed.Replace('\\', '/');
+            var lastSeparator = normalized.LastIndexOf('/');
+            var leafName = lastSeparator >= 0 ? normalized[(lastSeparator + 1)..] : Path.GetFileName(trimmed);
+            return string.IsNullOrWhiteSpace(leafName) ? "attachment" : leafName;
+        }
+
+        return trimmed;
     }
 
     private static string NormalizeExtension(InnolaAttachmentMetadata attachment)

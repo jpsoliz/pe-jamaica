@@ -176,6 +176,7 @@ development_status:
   8-5-persist-compare-decision-and-unlock-commit-stage: review
   8-6-wire-commit-stage-readiness-to-compare-approval-and-authoritative-promotion: ready-for-dev
   8-7-add-parcel-search-dockpane-tab: done
+  8-8-add-rt-examination-linked-pe-review-and-writeback: review
   epic-8-retrospective: optional
 
   epic-9: in-progress
