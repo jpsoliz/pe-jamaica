@@ -163,6 +163,17 @@ internal static class ShellState
         }
     }
 
+    private static void RunOnDispatcher(Action action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(action);
+            return;
+        }
+
+        action();
+    }
     public static void OpenFabricMaintenanceWorkspace(string transactionNumber, string peNumber, string? statusText)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -184,7 +195,22 @@ internal static class ShellState
                     "Fabric Maintenance",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information),
-                new ArcGisFabricMaintenanceReviewLoadService());
+                message => System.Windows.MessageBox.Show(
+                    message,
+                    "Confirm Fabric Maintenance Final Write",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes,
+                new ArcGisFabricMaintenanceReviewLoadService(),
+                new FabricMaintenanceFinalWriteCompletionService(
+                    () => Session.CurrentSession,
+                    () => Session.SelectedTransaction,
+                    () => Session.LoadedCaseFolderPath,
+                    () => Session.CurrentUser?.Username,
+                    TransactionLifecycle,
+                    new FabricMaintenanceSummaryAttachmentService(() => Session.CurrentSession, TransactionDetails),
+                    new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
+                    (completedAt, message) => RunOnDispatcher(() => Session.MarkTransactionCompleted(completedAt, message)),
+                    message => RunOnDispatcher(() => Session.MarkLifecycleError(message))));
             FabricMaintenancePromotionWindow.ShowOrActivate(viewModel);
         }
         catch (Exception exception)

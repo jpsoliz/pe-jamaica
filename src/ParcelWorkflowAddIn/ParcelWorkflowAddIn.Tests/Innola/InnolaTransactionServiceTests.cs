@@ -531,6 +531,49 @@ internal static class InnolaTransactionServiceTests
         TestAssert.True(!handler.Requests[2].Body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Compare report must not be rewritten to the survey plan registered type.");
     }
 
+    public static async Task AttachmentUploadRegistersFabricSummaryUsingConfiguredInternalType()
+    {
+        var handler = new SequencedHttpMessageHandler(
+            new SequencedResponse(HttpStatusCode.OK, """
+                {
+                  "@id": 11,
+                  "type": "uploaded_placeholder",
+                  "body": { "@id": 12 },
+                  "link": { "@id": 13 }
+                }
+                """),
+            new SequencedResponse(HttpStatusCode.OK, "[]"),
+            new SequencedResponse(HttpStatusCode.OK, "[]"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var session = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs-dev.innola-solutions.com/",
+            "jpablo",
+            "secret-password",
+            "token-abc",
+            new InnolaUserContext("jpablo", "Juan Pablo", new[] { "Super Group" }, Array.Empty<string>()),
+            null);
+        var transaction = new SelectedInnolaTransaction(
+            "task-fabric-1",
+            "transaction-fabric-1",
+            "TR100000623",
+            "In Parcel Fabric Update",
+            "Parcel Fabric Maintenance",
+            DateTimeOffset.Parse("2026-09-04T00:00:00Z"));
+
+        var result = await service.UploadAttachmentAsync(
+            session,
+            transaction,
+            "final_cadastre_promotion_summary.json",
+            "application/json",
+            Encoding.UTF8.GetBytes("{\"schema_version\":\"final_cadastre_promotion_summary_v1\"}"),
+            "st_fabric_promotion_summary");
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Fabric summary upload and registration should succeed.");
+        TestAssert.True(handler.Requests[0].Uri.AbsoluteUri.Contains("sourceType=st_fabric_promotion_summary", StringComparison.Ordinal), "Attachment upload query should retain the Fabric summary source type.");
+        TestAssert.True(handler.Requests[2].Body.Contains("\"type\":\"st_surveyplan\"", StringComparison.Ordinal), "Fabric summary should register with the configured Innola administrative source type.");
+        TestAssert.True(!handler.Requests[2].Body.Contains("\"type\":\"st_fabric_promotion_summary\"", StringComparison.Ordinal), "Fabric summary custom source type must not be sent as the administrative registered type.");
+    }
     public static async Task AttachmentUploadReplacesExistingComputeReportSourceType()
     {
         var handler = new SequencedHttpMessageHandler(

@@ -356,6 +356,17 @@ GPT-5 Codex
 - `dotnet run --project src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/ParcelWorkflowAddIn.Tests.csproj -c Release -- "fabric maintenance"` passed 20 focused Fabric Maintenance and related transaction-panel tests after changing final candidates to spatial-overlap-first discovery.
 - `dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/ParcelWorkflowAddIn.csproj -c Release` passed with 0 warnings and 0 errors after the final-candidate query fix.
 - `tools/package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX` and bumped add-in patch version to `1.1.330`; auto-register did not run because `RegisterAddIn.exe` was not on PATH.
+- Inspected live case repo `C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000623`; Plan writeback artifacts are present and current lifecycle task is `c17e9a39-a7fd-11f1-8772-96a4173ae162`, so the Fabric Maintenance symptom is downstream of Compute/Plan writeback.
+- Root cause for the `Confirm Final Write` no-op: `FabricMaintenancePromotionViewModel.ConfirmFinalWrite()` only updated status text and never executed summary write/upload, Innola task completion, cleanup, or close.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "fabric maintenance"` passed 23 focused Fabric Maintenance and related transaction-panel tests after final-write completion wiring. The assembly-generation flags avoid the local generated `obj/.artifacts` duplicate attribute issue.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj -c Release -p:UseSharedCompilation=false` passed with 0 warnings and 0 errors.
+- `tools/package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX`, auto-registered through `RegisterAddIn.exe`, and bumped add-in patch version to `1.1.374`.
+- Live retry produced a WPF dispatcher-thread failure after Innola final-write completion: `CollectionView does not support changes to its SourceCollection from a thread different from the Dispatcher thread`; local session completion/error callbacks now marshal back to the UI dispatcher.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "fabric maintenance"` passed 23 focused Fabric Maintenance and related transaction-panel tests after the dispatcher-thread and target-transition fix.
+- `tools/package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX`, auto-registered through `RegisterAddIn.exe`, and bumped add-in patch version to `1.1.375`.
+- Live retry produced `Could not register uploaded source (BadRequest). Try again.` during Fabric summary attachment registration. The local case repo already had `final_cadastre_promotion_summary.json` and disposition artifacts written, confirming the failure was the Innola administrative source registration contract, not summary generation or lifecycle transition selection.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "fabric maintenance" "fabric summary"` passed 25 focused tests after adding the final-write confirmation dialog path and registering Fabric summary uploads through the configured internal Innola administrative source type.
+- `tools/package_addin.ps1 -Configuration Release` produced `src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\bin\Release\net8.0-windows\ParcelWorkflowAddIn.esriAddInX`, auto-registered through `RegisterAddIn.exe`, and bumped add-in patch version to `1.1.377`.
 
 ### Completion Notes
 
@@ -384,6 +395,10 @@ GPT-5 Codex
 - Fixed Fabric Maintenance final-candidate discovery to query Legal/Cadastral parcels by spatial overlap first (`1=1`) and keep configured PID/status SQL as review evidence, so visible overlaps are not hidden by identity/status filters.
 - Fixed Cadastral candidate identity mapping to use the configured Fiscal key (`Lv_number`) instead of assuming a `PID` field exists on the Fiscal layer.
 - Root-cause note from map review: the full `Fiscal_Cadastre` reference layer could show overlaps while the generated `Cadastral candidates` layer stayed empty because the candidate layer is definition-filtered to the object ids returned by the add-in query. The previous query could return zero when the hardcoded Fiscal `PID`/`parcel_status` evidence filter did not match the live layer schema/value set.
+- Wired `Confirm Final Write` to a Fabric Maintenance-specific terminal completion path: save final promotion summary, upload it to Innola as `st_fabric_promotion_summary`, complete the selected Fabric Maintenance task through the Innola lifecycle API, show a completion message, clean the transaction-scoped Fabric review layers, and close the workspace.
+- Corrected Fabric Maintenance completion to prefer the `Review & Approve Parcel Fabric Update` transition instead of treating `Confirm Final Write` as the Innola transition name.
+- Fixed local completion/error state updates to run on the WPF dispatcher so successful Innola writes no longer fail while updating UI-bound session collections.
+- Preserved retry context on failure: if summary upload or Innola task completion fails, the workspace remains open and loaded layers are not cleared.
 
 ### File List
 
@@ -397,6 +412,7 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionSettings.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ParcelWorkflowStageRouter.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionDetailService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Settings/WorkflowSettings.json`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
@@ -409,6 +425,9 @@ GPT-5 Codex
 
 | Date | Version | Description | Author |
 | --- | --- | --- | --- |
+| 2026-09-04 | 1.15 | Fixed live Fabric summary source-registration BadRequest, added final-write Yes/No confirmation, and packaged add-in `1.1.377`. | Amelia / Codex |
+| 2026-09-04 | 1.14 | Fixed live Fabric Maintenance final-write follow-up failure by dispatching session updates to the WPF UI thread and targeting the `Review & Approve Parcel Fabric Update` transition. | Amelia / Codex |
+| 2026-09-04 | 1.13 | Implemented Fabric Maintenance Confirm Final Write completion: summary upload, Innola task transition, examiner message, layer cleanup, and retry-safe failure handling. | Amelia / Codex |
 | 2026-08-31 | 1.12 | Marked story as partially implemented pending return work for live ArcGIS Pro validation and final-write expansion decisions. | Amelia |
 | 2026-08-31 | 1.11 | Fixed Fabric Maintenance final target candidate discovery to use spatial overlap first and configured Fiscal identity fields, preserving status/PID checks as evidence instead of suppressing visible overlaps. | Amelia |
 | 2026-08-31 | 1.10 | Added final Legal/Cadastral overlap candidate details and zoom-to-working-parcel behavior for Fabric Maintenance Load Parcel. | Amelia |

@@ -1321,7 +1321,8 @@ public sealed class FabricMaintenancePromotionFinalActionService
         CaseFolderLayout layout,
         FabricMaintenanceReviewState review,
         string? examiner,
-        bool summaryAttachmentSucceeded)
+        bool summaryAttachmentSucceeded,
+        string? attachmentStatusOverride = null)
     {
         var readiness = FabricMaintenanceFinalWriteReadinessService.Evaluate(review);
         if (!readiness.IsReady)
@@ -1344,7 +1345,7 @@ public sealed class FabricMaintenancePromotionFinalActionService
             layout,
             review,
             examiner,
-            summaryAttachmentSucceeded ? "uploaded" : "failed");
+            attachmentStatusOverride ?? (summaryAttachmentSucceeded ? "uploaded" : "failed"));
         WriteWorkingReviewDisposition(layout, review, status, paths.SummaryPath);
 
         return summaryAttachmentSucceeded
@@ -1412,6 +1413,134 @@ public static class FabricMaintenanceCompletionReadinessService
     }
 }
 
+public sealed record FabricMaintenanceFinalWriteCompletionResult(bool Success, string Message);
+
+public interface IFabricMaintenanceFinalWriteCompletionService
+{
+    Task<FabricMaintenanceFinalWriteCompletionResult> CompleteAsync(
+        FabricMaintenanceReviewState review,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class DeferredFabricMaintenanceFinalWriteCompletionService : IFabricMaintenanceFinalWriteCompletionService
+{
+    public Task<FabricMaintenanceFinalWriteCompletionResult> CompleteAsync(
+        FabricMaintenanceReviewState review,
+        CancellationToken cancellationToken = default)
+    {
+        _ = review;
+        _ = cancellationToken;
+        return Task.FromResult(new FabricMaintenanceFinalWriteCompletionResult(
+            false,
+            "Fabric Maintenance final write completion is not available in this host context."));
+    }
+}
+
+public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMaintenanceFinalWriteCompletionService
+{
+    public const string DesiredCompletionTransitionName = "Review & Approve Parcel Fabric Update";
+
+    private const string CompletedMessage = "Fabric Maintenance final write completed and moved to the next Innola stage.";
+
+    private readonly Func<InnolaSession?> getSession;
+    private readonly Func<SelectedInnolaTransaction?> getTransaction;
+    private readonly Func<string?> getCaseFolderPath;
+    private readonly Func<string?> getExaminer;
+    private readonly IInnolaTransactionLifecycleService lifecycleService;
+    private readonly IFabricMaintenanceSummaryAttachmentService summaryAttachmentService;
+    private readonly FabricMaintenancePromotionFinalActionService finalActionService;
+    private readonly Action<string, string>? markCompleted;
+    private readonly Action<string>? markError;
+
+    public FabricMaintenanceFinalWriteCompletionService(
+        Func<InnolaSession?> getSession,
+        Func<SelectedInnolaTransaction?> getTransaction,
+        Func<string?> getCaseFolderPath,
+        Func<string?> getExaminer,
+        IInnolaTransactionLifecycleService lifecycleService,
+        IFabricMaintenanceSummaryAttachmentService summaryAttachmentService,
+        FabricMaintenancePromotionFinalActionService finalActionService,
+        Action<string, string>? markCompleted = null,
+        Action<string>? markError = null)
+    {
+        this.getSession = getSession;
+        this.getTransaction = getTransaction;
+        this.getCaseFolderPath = getCaseFolderPath;
+        this.getExaminer = getExaminer;
+        this.lifecycleService = lifecycleService;
+        this.summaryAttachmentService = summaryAttachmentService;
+        this.finalActionService = finalActionService;
+        this.markCompleted = markCompleted;
+        this.markError = markError;
+    }
+
+    public async Task<FabricMaintenanceFinalWriteCompletionResult> CompleteAsync(
+        FabricMaintenanceReviewState review,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(review);
+        var session = getSession();
+        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return Failure("Fabric Maintenance final write requires an active Innola session.");
+        }
+
+        var transaction = getTransaction();
+        if (transaction is null || string.IsNullOrWhiteSpace(transaction.TaskId))
+        {
+            return Failure("Fabric Maintenance final write requires the active Innola task.");
+        }
+
+        var caseFolderPath = getCaseFolderPath();
+        if (string.IsNullOrWhiteSpace(caseFolderPath) || !Directory.Exists(caseFolderPath))
+        {
+            return Failure("Fabric Maintenance final write requires the loaded case folder.");
+        }
+
+        var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
+        var initial = finalActionService.Execute(layout, review, getExaminer(), summaryAttachmentSucceeded: false, attachmentStatusOverride: "pending");
+        if (string.IsNullOrWhiteSpace(initial.SummaryPath) || !File.Exists(initial.SummaryPath))
+        {
+            return Failure(initial.Message);
+        }
+
+        var attachment = await summaryAttachmentService.UploadAsync(transaction, initial.SummaryPath, cancellationToken).ConfigureAwait(false);
+        if (!attachment.Success)
+        {
+            return Failure(attachment.Message);
+        }
+
+        var finalAction = finalActionService.Execute(layout, review, getExaminer(), summaryAttachmentSucceeded: true);
+        var readiness = FabricMaintenanceCompletionReadinessService.Evaluate(finalAction);
+        if (!readiness.IsReady)
+        {
+            return Failure(readiness.Message);
+        }
+
+        var lifecycle = await lifecycleService.CompleteAsync(
+            new InnolaTransactionLifecycleRequest(
+                session,
+                transaction,
+                caseFolderPath,
+                "in_progress",
+                "fabric_maintenance_final_write",
+                DesiredCompletionTransitionName),
+            cancellationToken).ConfigureAwait(false);
+        if (!lifecycle.Success)
+        {
+            return Failure(lifecycle.Message ?? "Could not complete transaction. Try again.");
+        }
+
+        markCompleted?.Invoke(DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), CompletedMessage);
+        return new FabricMaintenanceFinalWriteCompletionResult(true, CompletedMessage);
+    }
+
+    private FabricMaintenanceFinalWriteCompletionResult Failure(string message)
+    {
+        markError?.Invoke(message);
+        return new FabricMaintenanceFinalWriteCompletionResult(false, message);
+    }
+}
 public interface IFabricMaintenanceSummaryAttachmentService
 {
     Task<FabricMaintenanceSummaryAttachmentResult> UploadAsync(

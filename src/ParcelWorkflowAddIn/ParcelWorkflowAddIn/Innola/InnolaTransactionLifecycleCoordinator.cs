@@ -510,9 +510,9 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 if (!string.Equals(disposition.PlanCheckApiStatus, "saved", StringComparison.OrdinalIgnoreCase))
                 {
                     UpdateManifestAndAudit(
-                        "compute_plan_check_writeback_started",
+                        "compute_plan_examination_writeback_started",
                         "started",
-                        "Starting Innola Plan Check writeback.",
+                        "Starting Innola Plan Examination writeback.",
                         null,
                         LifecycleStatusForManifest(),
                         completionReady: true,
@@ -528,10 +528,10 @@ public sealed class InnolaTransactionLifecycleCoordinator
                         cancellationToken).ConfigureAwait(false);
                     if (!planCheckResult.Success)
                     {
-                        var message = SafeRetryMessage(planCheckResult.Message, "Innola Plan Check writeback failed. Try again.");
+                        var message = SafeRetryMessage(planCheckResult.Message, "Innola Plan Examination writeback failed. Try again.");
                         sessionManager.MarkLifecycleError(message);
                         UpdateManifestAndAudit(
-                            "compute_plan_check_writeback_failed",
+                            "compute_plan_examination_writeback_failed",
                             "failed",
                             message,
                             planCheckResult.ErrorCategory,
@@ -547,13 +547,13 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     disposition = disposition with
                     {
                         PlanCheckApiStatus = "saved",
-                        PlanCheckApiRef = Path.Combine(layout.WorkingDirectory, "plan_check_api_response.json")
+                        PlanCheckApiRef = Path.Combine(layout.WorkingDirectory, "plan_examination_api_response.json")
                     };
                     dispositionPersistenceService.Save(layout, disposition);
                     UpdateManifestAndAudit(
-                        "compute_plan_check_writeback_saved",
+                        "compute_plan_examination_writeback_saved",
                         "succeeded",
-                        "Innola Plan Check values saved.",
+                        "Innola Plan Examination details saved.",
                         null,
                         LifecycleStatusForManifest(),
                         completionReady: true,

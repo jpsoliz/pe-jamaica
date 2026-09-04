@@ -318,7 +318,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.Equal(ComputeReportAttachmentService.SourceType, disposition?.ComputeReportAttachmentSourceType, "Disposition should persist Compute report attachment source type.");
         TestAssert.Equal("uploaded", disposition?.ComputeReportAttachmentUploadStatus, "Disposition should persist Compute report upload status.");
         TestAssert.Equal("saved", disposition?.PlanCheckApiStatus, "Disposition should persist Plan Check API status before package upload.");
-        TestAssert.True(disposition?.PlanCheckApiRef?.EndsWith("plan_check_api_response.json", StringComparison.OrdinalIgnoreCase) == true, "Disposition should persist Plan Check response evidence reference.");
+        TestAssert.True(disposition?.PlanCheckApiRef?.EndsWith("plan_examination_api_response.json", StringComparison.OrdinalIgnoreCase) == true, "Disposition should persist Plan Examination response evidence reference.");
         var detail = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, selected);
         var completedFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004");
         var attachment = detail.Detail!.Attachments.FirstOrDefault(attachment =>
@@ -345,7 +345,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
         TestAssert.True(audit.Contains("compute_examination_report_generated", StringComparison.OrdinalIgnoreCase), "Audit should record report generation.");
         TestAssert.True(audit.Contains("compute_report_attached", StringComparison.OrdinalIgnoreCase), "Audit should record Compute report attachment.");
-        TestAssert.True(audit.Contains("compute_plan_check_writeback_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check writeback success.");
+        TestAssert.True(audit.Contains("compute_plan_examination_writeback_saved", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Examination writeback success.");
     }
 
     public static async Task CompleteStopsBeforePackageUploadWhenComputeReportAttachmentFails()
@@ -429,7 +429,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         var lifecycleService = new CountingLifecycleService();
         var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
         var reportService = new FakeReportService(success: true);
-        var planChecks = new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Failed("Innola Plan Check writeback failed. Try again.", "plan_check_failed"));
+        var planChecks = new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Failed("Innola Plan Examination writeback failed. Try again.", "plan_check_failed"));
         var manager = await LoadedManager(tempRoot.Path);
         var coordinator = new InnolaTransactionLifecycleCoordinator(
             manager,
@@ -451,27 +451,27 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         var result = await coordinator.CompleteAsync();
 
-        TestAssert.True(!result.Success, "Complete should fail when Plan Check writeback fails.");
-        TestAssert.Equal(1, planChecks.CallCount, "Plan Check service should be called once.");
-        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after Plan Check failure.");
+        TestAssert.True(!result.Success, "Complete should fail when Plan Examination writeback fails.");
+        TestAssert.Equal(1, planChecks.CallCount, "Plan Examination service should be called once.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after Plan Examination failure.");
         var after = await detailService.GetTransactionDetailAsync(manager.CurrentSession!, manager.SelectedTransaction!);
-        TestAssert.Equal(beforeCount + 1, after.Detail!.Attachments.Count, "Only the compute report attachment should upload before Plan Check failure.");
+        TestAssert.Equal(beforeCount + 1, after.Detail!.Attachments.Count, "Only the compute report attachment should upload before Plan Examination failure.");
         var completedFileName = InnolaResumePackageConventions.BuildCompletedAttachmentFileName("TR100000004");
         TestAssert.True(
             !after.Detail!.Attachments.Any(attachment =>
                 string.Equals(attachment.FileName, completedFileName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(attachment.Category, ShellState.CompletedAttachmentSourceType, StringComparison.OrdinalIgnoreCase)),
-            "Completed package must not upload after Plan Check failure.");
+            "Completed package must not upload after Plan Examination failure.");
         TestAssert.True(
             after.Detail!.Attachments.Any(attachment =>
                 string.Equals(attachment.FileName, ComputeExaminationReportService.PdfReportFileName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(attachment.Category, ComputeReportAttachmentService.SourceType, StringComparison.OrdinalIgnoreCase)),
-            "Compute report should upload before Plan Check failure.");
+            "Compute report should upload before Plan Examination failure.");
         var disposition = new ComputeReviewDispositionPersistenceService().Load(layout);
-        TestAssert.Equal(null, disposition?.PlanCheckApiStatus, "Failed Plan Check writeback must not be recorded as saved.");
+        TestAssert.Equal(null, disposition?.PlanCheckApiStatus, "Failed Plan Examination writeback must not be recorded as saved.");
         var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
-        TestAssert.True(audit.Contains("compute_plan_check_writeback_started", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check start.");
-        TestAssert.True(audit.Contains("compute_plan_check_writeback_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Check failure.");
+        TestAssert.True(audit.Contains("compute_plan_examination_writeback_started", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Examination start.");
+        TestAssert.True(audit.Contains("compute_plan_examination_writeback_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Examination failure.");
     }
 
     public static async Task LifecycleFailuresPreserveStateAndRedactSecrets()

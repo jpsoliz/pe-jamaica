@@ -7,7 +7,9 @@ namespace ParcelWorkflowAddIn.Workflow.FabricMaintenance;
 public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
 {
     private readonly Action<string> showMessage;
+    private readonly Func<string, bool> confirmAction;
     private readonly IFabricMaintenanceReviewLoadService reviewLoadService;
+    private readonly IFabricMaintenanceFinalWriteCompletionService finalWriteCompletionService;
     private FabricMaintenanceTarget selectedTarget;
     private FabricMaintenancePromotionDecision selectedDecision;
     private string peNumber;
@@ -17,6 +19,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
     private bool isLoadParcelRunning;
     private bool isReviewLoaded;
     private bool isCancelRunning;
+    private bool isConfirmFinalWriteRunning;
     private FabricMaintenanceFinalCandidate? selectedFinalCandidate;
 
     public FabricMaintenancePromotionViewModel(
@@ -25,13 +28,17 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         FabricMaintenancePromotionSettings settings,
         string? initialStatusText = null,
         Action<string>? showMessage = null,
-        IFabricMaintenanceReviewLoadService? reviewLoadService = null)
+        Func<string, bool>? confirmAction = null,
+        IFabricMaintenanceReviewLoadService? reviewLoadService = null,
+        IFabricMaintenanceFinalWriteCompletionService? finalWriteCompletionService = null)
     {
         CurrentTransactionNumber = currentTransactionNumber;
         this.peNumber = peNumber;
         IsPeNumberEditable = string.IsNullOrWhiteSpace(peNumber);
         this.showMessage = showMessage ?? (_ => { });
+        this.confirmAction = confirmAction ?? (_ => true);
         this.reviewLoadService = reviewLoadService ?? new DeferredFabricMaintenanceReviewLoadService();
+        this.finalWriteCompletionService = finalWriteCompletionService ?? new DeferredFabricMaintenanceFinalWriteCompletionService();
         Settings = settings;
         WorkingReviewPlan = FabricMaintenanceWorkingReviewPlanner.BuildPlan(settings, currentTransactionNumber, peNumber);
         StatusText = string.IsNullOrWhiteSpace(initialStatusText) ? WorkingReviewPlan.Message : initialStatusText;
@@ -46,7 +53,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         MergeUpdateAttributesOnlyCommand = new RelayCommand(() => SelectDecision(FabricMaintenancePromotionDecision.MergeUpdateAttributesOnly));
         SendBackForReviewCommand = new RelayCommand(() => SelectDecision(FabricMaintenancePromotionDecision.SendBackForReview));
         ApproveForFinalWriteCommand = new RelayCommand(ApproveForFinalWrite, () => CanApproveForFinalWrite);
-        ConfirmFinalWriteCommand = new RelayCommand(ConfirmFinalWrite, () => CanConfirmFinalWrite);
+        ConfirmFinalWriteCommand = new RelayCommand(async () => await ConfirmFinalWriteAsync().ConfigureAwait(true), () => CanConfirmFinalWrite);
         CancelCommand = new RelayCommand(async () => await CancelAsync().ConfigureAwait(true), () => CanCancel);
         ResetEvidenceChecks(0, 0);
         WorkingFeatureCounts = new FabricMaintenanceFeatureCounts(0, 0, 0, 0);
@@ -260,6 +267,17 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
             RaiseCommandState();
         }
     }
+    public bool IsConfirmFinalWriteRunning
+    {
+        get => isConfirmFinalWriteRunning;
+        private set
+        {
+            isConfirmFinalWriteRunning = value;
+            NotifyPropertyChanged(nameof(IsConfirmFinalWriteRunning));
+            NotifyPropertyChanged(nameof(CanConfirmFinalWrite));
+            RaiseCommandState();
+        }
+    }
 
     public bool CanLoadParcel => !IsLoadParcelRunning && !IsReviewLoaded;
 
@@ -267,7 +285,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
 
     public bool CanApproveForFinalWrite => readiness.IsReady;
 
-    public bool CanConfirmFinalWrite => FinalWriteApproved;
+    public bool CanConfirmFinalWrite => FinalWriteApproved && !IsConfirmFinalWriteRunning;
 
     public string TargetLabel => SelectedTarget switch
     {
@@ -478,9 +496,52 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         StatusText = "Final write approved. Confirm final action on the Final Layer Write screen.";
     }
 
-    private void ConfirmFinalWrite()
+    private async Task ConfirmFinalWriteAsync()
     {
-        StatusText = "Final write confirmation captured. Terminal action service will write summary and attach it to Innola.";
+        if (IsConfirmFinalWriteRunning)
+        {
+            return;
+        }
+
+        if (!confirmAction($"Confirm final write for {ConfirmationSummary}"))
+        {
+            StatusText = "Fabric Maintenance final write confirmation cancelled.";
+            return;
+        }
+
+        try
+        {
+            IsConfirmFinalWriteRunning = true;
+            StatusText = "Confirming Fabric Maintenance final write and completing the Innola task...";
+            var result = await finalWriteCompletionService.CompleteAsync(BuildReviewState()).ConfigureAwait(true);
+            StatusText = result.Message;
+            if (!result.Success)
+            {
+                showMessage(result.Message);
+                return;
+            }
+
+            var cleanup = await reviewLoadService.CleanupAsync(CurrentTransactionNumber).ConfigureAwait(true);
+            if (!cleanup.Success)
+            {
+                StatusText = cleanup.Message;
+                showMessage(cleanup.Message);
+                return;
+            }
+
+            StatusText = result.Message;
+            showMessage(result.Message);
+            RequestClose?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            StatusText = $"Fabric Maintenance final write could not be completed: {exception.Message}";
+            showMessage(StatusText);
+        }
+        finally
+        {
+            IsConfirmFinalWriteRunning = false;
+        }
     }
 
     private void RefreshReadiness()

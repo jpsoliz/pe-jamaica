@@ -912,6 +912,11 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             return ShellState.CompletedAttachmentRegisteredType;
         }
 
+        if (string.Equals(sourceType, "st_fabric_promotion_summary", StringComparison.OrdinalIgnoreCase))
+        {
+            return ShellState.CompletedAttachmentRegisteredType;
+        }
+
         return sourceType;
     }
 

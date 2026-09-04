@@ -329,6 +329,100 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(closeRequested, "Cancel should request the Fabric Maintenance window to close after cleanup.");
     }
 
+    public static async Task ConfirmFinalWriteCompletesInnolaCleansLayersAndCloses()
+    {
+        var loadService = new CapturingReviewLoadService();
+        var completionService = new CapturingFinalWriteCompletionService(true, "Fabric Maintenance final write completed and moved to the next Innola stage.");
+        var messages = new List<string>();
+        var viewModel = new FabricMaintenancePromotionViewModel(
+            "100000859",
+            "100000814",
+            ConfiguredSettings(),
+            showMessage: messages.Add,
+            reviewLoadService: loadService,
+            finalWriteCompletionService: completionService);
+        var closeRequested = false;
+        viewModel.RequestClose += (_, _) => closeRequested = true;
+
+        viewModel.IsCadastralTargetSelected = true;
+        viewModel.LoadParcelCommand.Execute(null);
+        await loadService.Completed.Task;
+        viewModel.SelectedFinalCandidate = viewModel.FinalCandidates[0];
+        viewModel.DecisionNotes = "Confirmed final write after visual review.";
+        viewModel.SendBackForReviewCommand.Execute(null);
+        viewModel.ApproveForFinalWriteCommand.Execute(null);
+
+        viewModel.ConfirmFinalWriteCommand.Execute(null);
+        await completionService.Completed.Task;
+        await loadService.CleanupCompleted.Task;
+
+        TestAssert.Equal("100000859", completionService.Review?.CurrentTransactionNumber, "Confirm should pass the current transaction into final write completion.");
+        TestAssert.Equal("100000859", loadService.CleanupTransactionNumber, "Confirm cleanup should be scoped to the current transaction.");
+        TestAssert.True(closeRequested, "Confirm should close the Fabric Maintenance workspace after successful completion and cleanup.");
+        TestAssert.True(messages.Any(message => message.Contains("moved to the next Innola stage", StringComparison.OrdinalIgnoreCase)), "Confirm should show a completion message after Innola advances.");
+    }
+
+    public static async Task ConfirmFinalWriteCancelledDoesNotCompleteOrCleanLayers()
+    {
+        var loadService = new CapturingReviewLoadService();
+        var completionService = new CapturingFinalWriteCompletionService(true, "Should not run.");
+        var viewModel = new FabricMaintenancePromotionViewModel(
+            "100000859",
+            "100000814",
+            ConfiguredSettings(),
+            confirmAction: _ => false,
+            reviewLoadService: loadService,
+            finalWriteCompletionService: completionService);
+        var closeRequested = false;
+        viewModel.RequestClose += (_, _) => closeRequested = true;
+
+        viewModel.IsCadastralTargetSelected = true;
+        viewModel.LoadParcelCommand.Execute(null);
+        await loadService.Completed.Task;
+        viewModel.SelectedFinalCandidate = viewModel.FinalCandidates[0];
+        viewModel.DecisionNotes = "Confirmed final write after visual review.";
+        viewModel.SendBackForReviewCommand.Execute(null);
+        viewModel.ApproveForFinalWriteCommand.Execute(null);
+
+        viewModel.ConfirmFinalWriteCommand.Execute(null);
+        await Task.Delay(25);
+
+        TestAssert.True(completionService.Review is null, "Cancelled confirmation should not call Innola final-write completion.");
+        TestAssert.True(loadService.CleanupTransactionNumber is null, "Cancelled confirmation should not clear review layers.");
+        TestAssert.False(closeRequested, "Cancelled confirmation should keep the workspace open.");
+        TestAssert.True(viewModel.StatusText.Contains("cancelled", StringComparison.OrdinalIgnoreCase), "Cancelled confirmation should be visible in status.");
+    }
+    public static async Task ConfirmFinalWriteFailureDoesNotCleanLayersOrClose()
+    {
+        var loadService = new CapturingReviewLoadService();
+        var completionService = new CapturingFinalWriteCompletionService(false, "Could not complete transaction. Try again.");
+        var messages = new List<string>();
+        var viewModel = new FabricMaintenancePromotionViewModel(
+            "100000859",
+            "100000814",
+            ConfiguredSettings(),
+            showMessage: messages.Add,
+            reviewLoadService: loadService,
+            finalWriteCompletionService: completionService);
+        var closeRequested = false;
+        viewModel.RequestClose += (_, _) => closeRequested = true;
+
+        viewModel.IsCadastralTargetSelected = true;
+        viewModel.LoadParcelCommand.Execute(null);
+        await loadService.Completed.Task;
+        viewModel.SelectedFinalCandidate = viewModel.FinalCandidates[0];
+        viewModel.DecisionNotes = "Confirmed final write after visual review.";
+        viewModel.SendBackForReviewCommand.Execute(null);
+        viewModel.ApproveForFinalWriteCommand.Execute(null);
+
+        viewModel.ConfirmFinalWriteCommand.Execute(null);
+        await completionService.Completed.Task;
+        await Task.Delay(25);
+
+        TestAssert.False(closeRequested, "Failed Innola completion should keep the Fabric Maintenance workspace open.");
+        TestAssert.True(loadService.CleanupTransactionNumber is null, "Failed Innola completion should not clear review layers needed for retry.");
+        TestAssert.True(messages.Any(message => message.Contains("Could not complete transaction", StringComparison.OrdinalIgnoreCase)), "Confirm failure should be visible to the examiner.");
+    }
     public static async Task LoadParcelExceptionStaysInWorkspaceStatus()
     {
         var loadService = new ThrowingReviewLoadService();
@@ -401,6 +495,54 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.False(FabricMaintenanceCompletionReadinessService.Evaluate(failedAttachment).IsReady, "Missing summary attachment must block Innola completion.");
     }
 
+    public static async Task FinalWriteCompletionServiceUploadsSummaryAndCompletesInnolaTask()
+    {
+        using var tempRoot = new TempDirectory();
+        var attachmentService = new CapturingSummaryAttachmentService();
+        var lifecycleService = new CapturingLifecycleService();
+        string? completedAt = null;
+        string? completedMessage = null;
+        string? errorMessage = null;
+        var transaction = new SelectedInnolaTransaction(
+            "task-fabric-1",
+            "tx-1",
+            "100000859",
+            "In Parcel Fabric Update",
+            "parcel_workflow",
+            DateTimeOffset.UtcNow);
+        var service = new FabricMaintenanceFinalWriteCompletionService(
+            () => TestSession(),
+            () => transaction,
+            () => tempRoot.Path,
+            () => "jp.examiner",
+            lifecycleService,
+            attachmentService,
+            new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
+            (at, message) => { completedAt = at; completedMessage = message; },
+            message => errorMessage = message);
+        var review = FabricMaintenanceReviewState.Create(
+            "100000859",
+            "100000814",
+            FabricMaintenanceTarget.Fiscal,
+            new FabricMaintenanceFeatureCounts(1, 1, 1, 1),
+            candidateCount: 0);
+        review.SelectDecision(FabricMaintenancePromotionDecision.SendBackForReview);
+        review.DecisionNotes = "Returned for topology correction.";
+
+        var result = await service.CompleteAsync(review);
+        var summaryPath = Path.Combine(tempRoot.Path, "working", "final_cadastre_promotion_summary.json");
+        var summaryText = File.ReadAllText(summaryPath);
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.Equal(summaryPath, attachmentService.SummaryPath, "Completion should upload the generated Fabric summary.");
+        TestAssert.Equal("task-fabric-1", lifecycleService.Request?.Transaction.TaskId, "Completion should use the selected Fabric task id.");
+        TestAssert.Equal("Review & Approve Parcel Fabric Update", lifecycleService.Request?.DesiredTransitionName, "Completion should prefer the Fabric Maintenance review/approval transition when Innola exposes it.");
+        TestAssert.True(attachmentService.UploadedContent?.Contains("\"attachment_status\": \"pending\"", StringComparison.Ordinal) == true, "Uploaded summary should not claim failure before the upload is attempted.");
+        TestAssert.True(summaryText.Contains("\"attachment_status\": \"uploaded\"", StringComparison.Ordinal), "Final summary should be rewritten with uploaded attachment status before task completion.");
+        TestAssert.True(completedAt is not null, "Completion should mark the local session completed.");
+        TestAssert.True(completedMessage?.Contains("next Innola stage", StringComparison.OrdinalIgnoreCase) == true, "Completion message should say Innola moved to the next stage.");
+        TestAssert.True(errorMessage is null, "Successful Fabric completion should not mark a lifecycle error.");
+    }
     public static async Task SummaryAttachmentServiceUploadsJsonArtifact()
     {
         using var tempRoot = new TempDirectory();
@@ -435,6 +577,17 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(detailService.ContentLength > 0, "Fabric summary upload should include file content.");
     }
 
+    private static InnolaSession TestSession()
+    {
+        return new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://example.test/",
+            "jp.examiner",
+            null,
+            "token",
+            new InnolaUserContext("jp.examiner", "JP Examiner", Array.Empty<string>(), Array.Empty<string>()),
+            null);
+    }
     private static InnolaTransactionRow Row(string number, string type, string task, string? subworkflow)
     {
         return new InnolaTransactionRow(
@@ -622,6 +775,31 @@ internal static class FabricMaintenancePromotionTests
         }
     }
 
+    private sealed class CapturingFinalWriteCompletionService : IFabricMaintenanceFinalWriteCompletionService
+    {
+        private readonly bool success;
+        private readonly string message;
+
+        public CapturingFinalWriteCompletionService(bool success, string message)
+        {
+            this.success = success;
+            this.message = message;
+        }
+
+        public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public FabricMaintenanceReviewState? Review { get; private set; }
+
+        public Task<FabricMaintenanceFinalWriteCompletionResult> CompleteAsync(
+            FabricMaintenanceReviewState review,
+            CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken;
+            Review = review;
+            Completed.TrySetResult();
+            return Task.FromResult(new FabricMaintenanceFinalWriteCompletionResult(success, message));
+        }
+    }
     private sealed class ThrowingReviewLoadService : IFabricMaintenanceReviewLoadService
     {
         public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -646,6 +824,50 @@ internal static class FabricMaintenancePromotionTests
         }
     }
 
+    private sealed class CapturingSummaryAttachmentService : IFabricMaintenanceSummaryAttachmentService
+    {
+        public string? SummaryPath { get; private set; }
+
+        public string? UploadedContent { get; private set; }
+
+        public Task<FabricMaintenanceSummaryAttachmentResult> UploadAsync(
+            SelectedInnolaTransaction transaction,
+            string summaryPath,
+            CancellationToken cancellationToken = default)
+        {
+            _ = transaction;
+            _ = cancellationToken;
+            SummaryPath = summaryPath;
+            UploadedContent = File.ReadAllText(summaryPath);
+            return Task.FromResult(FabricMaintenanceSummaryAttachmentResult.Succeeded(FabricMaintenanceSummaryAttachmentService.SourceType, summaryPath));
+        }
+    }
+
+    private sealed class CapturingLifecycleService : IInnolaTransactionLifecycleService
+    {
+        public InnolaTransactionLifecycleRequest? Request { get; private set; }
+
+        public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            _ = request;
+            _ = cancellationToken;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("in_progress", "jp.examiner", "JP Examiner", "Claimed."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            _ = request;
+            _ = cancellationToken;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("in_progress", "jp.examiner", "JP Examiner", "Saved."));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken;
+            Request = request;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("completed", "jp.examiner", "JP Examiner", "Completed."));
+        }
+    }
     private sealed class CapturingTransactionDetailService : IInnolaTransactionDetailService
     {
         public string? FileName { get; private set; }

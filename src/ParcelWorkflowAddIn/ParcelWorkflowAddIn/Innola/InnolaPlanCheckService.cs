@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Workflow.Disposition;
 using ParcelWorkflowAddIn.Workflow.Output;
+using ParcelWorkflowAddIn.Workflow.Review;
 using ParcelWorkflowAddIn.Workflow.Reports;
 
 namespace ParcelWorkflowAddIn.Innola;
@@ -17,6 +18,11 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
     private const string RequestEvidenceFileName = "plan_check_api_request.json";
     private const string ResponseEvidenceFileName = "plan_check_api_response.json";
     private const string FailureEvidenceFileName = "plan_check_api_failure.json";
+    private const string PlanExaminationRequestEvidenceFileName = "plan_examination_api_request.json";
+    private const string PlanExaminationResponseEvidenceFileName = "plan_examination_api_response.json";
+    private const string PlanExaminationFailureEvidenceFileName = "plan_examination_api_failure.json";
+    private const string NeighborClassName = "Neighbor";
+    private const string DefaultNeighborType = "neighbor_type_owner";
 
     private static readonly JsonSerializerOptions TraceJsonOptions = new()
     {
@@ -57,7 +63,8 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         {
             var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
             var evidence = LoadEvidence(layout, disposition);
-            var plans = await FetchPlansAsync(session, transaction.TransactionId, cancellationToken).ConfigureAwait(false);
+            var planFetch = await FetchPlansAsync(session, transaction, cancellationToken).ConfigureAwait(false);
+            var plans = planFetch.Plans;
             if (plans.Count == 0)
             {
                 WriteFailure(layout, transaction, "plan_missing", "Plan API returned no Plan objects.");
@@ -77,9 +84,16 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
                 return InnolaPlanCheckWritebackResult.Failed("Innola Plan Check writeback failed because no supported Plan checklist rows were returned.", "checklist_no_supported_rows");
             }
 
-            WriteRequestEvidence(layout, transaction, disposition, evidence.ReportPath, mutation);
-            var saved = await SavePlansAsync(session, transaction.TransactionId, plans, cancellationToken).ConfigureAwait(false);
-            WriteResponseEvidence(layout, transaction, mutation, saved.Count);
+            var neighborMutation = await ApplyNeighborUpdatesAsync(
+                session,
+                transaction.TransactionId,
+                plans,
+                evidence.ReviewDocument,
+                cancellationToken).ConfigureAwait(false);
+
+            WriteRequestEvidence(layout, transaction, disposition, evidence.ReportPath, mutation, neighborMutation);
+            var saved = await SavePlansAsync(session, planFetch.LookupTransactionId, planFetch, cancellationToken).ConfigureAwait(false);
+            WriteResponseEvidence(layout, transaction, mutation, neighborMutation, saved.Count);
             return InnolaPlanCheckWritebackResult.Succeeded(updates: mutation.Updates);
         }
         catch (Exception exception) when (exception is HttpRequestException
@@ -96,13 +110,62 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         }
     }
 
-    private async Task<IReadOnlyList<JsonObject>> FetchPlansAsync(InnolaSession session, string transactionId, CancellationToken cancellationToken)
+    private async Task<PlanFetchResult> FetchPlansAsync(InnolaSession session, SelectedInnolaTransaction transaction, CancellationToken cancellationToken)
     {
-        var uri = BuildPlanUri(session, transactionId);
+        var canFallbackToTransactionNumber = !string.IsNullOrWhiteSpace(transaction.TransactionNumber)
+            && !string.Equals(transaction.TransactionId, transaction.TransactionNumber, StringComparison.OrdinalIgnoreCase);
+        var attempts = new List<PlanLookupAttempt>
+        {
+            new(transaction.TransactionId, PlanApiRoute.DataObjects, canFallbackToTransactionNumber ? 1 : null),
+            new(transaction.TransactionId, PlanApiRoute.AdministrativeLadmObjects, canFallbackToTransactionNumber ? 1 : null)
+        };
+        if (canFallbackToTransactionNumber)
+        {
+            attempts.Add(new PlanLookupAttempt(transaction.TransactionNumber, PlanApiRoute.DataObjects, null));
+            attempts.Add(new PlanLookupAttempt(transaction.TransactionNumber, PlanApiRoute.AdministrativeLadmObjects, null));
+        }
+
+        var failures = new List<string>();
+        HttpRequestException? lastException = null;
+        foreach (var attempt in attempts)
+        {
+            try
+            {
+                var result = await FetchPlansByLookupIdAsync(session, attempt.LookupId, attempt.Route, cancellationToken, attempt.MaxAttempts).ConfigureAwait(false);
+                if (result.Plans.Count > 0)
+                {
+                    return result;
+                }
+
+                failures.Add($"{attempt.Route} lookup '{attempt.LookupId}' returned no Plan objects");
+            }
+            catch (HttpRequestException exception)
+            {
+                lastException = exception;
+                failures.Add(exception.Message);
+            }
+        }
+
+        var transactionNumberMessage = canFallbackToTransactionNumber
+            ? $"transaction-number lookup='{transaction.TransactionNumber}'"
+            : "transaction-number lookup unavailable";
+        throw new HttpRequestException(
+            $"Plan Check GET failed for all lookup keys and Plan routes. UUID lookup='{transaction.TransactionId}'; {transactionNumberMessage}. Attempts: {string.Join("; ", failures)}",
+            lastException);
+    }
+
+    private async Task<PlanFetchResult> FetchPlansByLookupIdAsync(
+        InnolaSession session,
+        string transactionId,
+        PlanApiRoute route,
+        CancellationToken cancellationToken,
+        int? maxAttempts = null)
+    {
+        var uri = BuildPlanUri(session, transactionId, route);
 
         using var response = await InnolaApiResilience.SendAsync(
             httpClient,
-            new InnolaApiOperation("plan check fetch", TransactionNumber: transactionId),
+            new InnolaApiOperation($"plan check fetch {route}", TransactionNumber: transactionId, MaxAttempts: maxAttempts),
             () => CreateRequest(HttpMethod.Get, uri, session.AccessToken),
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -111,39 +174,32 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             {
                 using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
                     httpClient,
-                    new InnolaApiOperation("plan check fetch cookie-only", TransactionNumber: transactionId),
+                    new InnolaApiOperation($"plan check fetch {route} cookie-only", TransactionNumber: transactionId),
                     () => CreateRequest(HttpMethod.Get, uri, InnolaHttp.SessionCookieAccessToken),
                     cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    return ResolveArray(JsonNode.Parse(cookieOnlyBody))
-                        .Select(node => node as JsonObject)
-                        .Where(node => node is not null)
-                        .Cast<JsonObject>()
-                        .ToArray();
+                    return ResolvePlans(JsonNode.Parse(cookieOnlyBody), transactionId, route);
                 }
             }
 
-            throw new HttpRequestException($"Plan Check GET failed: {response.StatusCode}");
+            throw new HttpRequestException($"Plan Check GET failed for lookup '{transactionId}' on {route}: {(int)response.StatusCode} {response.StatusCode}");
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return ResolveArray(JsonNode.Parse(body))
-            .Select(node => node as JsonObject)
-            .Where(node => node is not null)
-            .Cast<JsonObject>()
-            .ToArray();
+        return ResolvePlans(JsonNode.Parse(body), transactionId, route);
     }
 
     private async Task<IReadOnlyList<JsonObject>> SavePlansAsync(
         InnolaSession session,
         string transactionId,
-        IReadOnlyList<JsonObject> plans,
+        PlanFetchResult planFetch,
         CancellationToken cancellationToken)
     {
-        var payload = new JsonArray(plans.Select(plan => plan.DeepClone()).ToArray());
-        var uri = BuildPlanUri(session, transactionId);
+        var plans = planFetch.Plans;
+        var payload = BuildSavePayload(planFetch);
+        var uri = BuildPlanUri(session, transactionId, planFetch.Route);
         var payloadJson = payload.ToJsonString();
 
         using var response = await InnolaApiResilience.SendAsync(
@@ -153,7 +209,7 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
                 InnolaApiRetryMode.VerifyBeforeRetry,
                 transactionId,
                 MaxAttempts: 1),
-            () => CreateRequest(HttpMethod.Post, uri, session.AccessToken, payloadJson),
+            () => CreateRequest(SaveMethodFor(planFetch.Route), uri, session.AccessToken, payloadJson),
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
@@ -166,28 +222,20 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
                         InnolaApiRetryMode.VerifyBeforeRetry,
                         transactionId,
                         MaxAttempts: 1),
-                    () => CreateRequest(HttpMethod.Post, uri, InnolaHttp.SessionCookieAccessToken, payloadJson),
+                    () => CreateRequest(SaveMethodFor(planFetch.Route), uri, InnolaHttp.SessionCookieAccessToken, payloadJson),
                     cancellationToken).ConfigureAwait(false);
                 if (cookieOnlyResponse.IsSuccessStatusCode)
                 {
                     var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    return ResolveArray(JsonNode.Parse(cookieOnlyBody))
-                        .Select(node => node as JsonObject)
-                        .Where(node => node is not null)
-                        .Cast<JsonObject>()
-                        .ToArray();
+                    return ResolvePlans(JsonNode.Parse(cookieOnlyBody), transactionId, planFetch.Route).Plans;
                 }
             }
 
-            throw new HttpRequestException($"Plan Check POST failed: {response.StatusCode}");
+            throw new HttpRequestException($"Plan Examination PUT failed: {response.StatusCode}");
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return ResolveArray(JsonNode.Parse(body))
-            .Select(node => node as JsonObject)
-            .Where(node => node is not null)
-            .Cast<JsonObject>()
-            .ToArray();
+        return ResolvePlans(JsonNode.Parse(body), transactionId, planFetch.Route).Plans;
     }
 
     private static HttpRequestMessage CreateRequest(HttpMethod method, Uri uri, string? accessToken, string? json = null)
@@ -210,11 +258,17 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             && InnolaHttpClientFactory.HasCookie(serverUrl, "INNOLAID");
     }
 
-    private static Uri BuildPlanUri(InnolaSession session, string transactionId)
+    private static Uri BuildPlanUri(InnolaSession session, string transactionId, PlanApiRoute route)
     {
-        return InnolaHttp.BuildUri(
-            session.ServerUrl,
-            $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={PlanTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}");
+        var relativePath = route == PlanApiRoute.AdministrativeLadmObjects
+            ? $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={PlanTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}"
+            : $"{InnolaSettings.V4RestPath}data/objects?typeKeyId={PlanTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}";
+        return InnolaHttp.BuildUri(session.ServerUrl, relativePath);
+    }
+
+    private static HttpMethod SaveMethodFor(PlanApiRoute route)
+    {
+        return route == PlanApiRoute.AdministrativeLadmObjects ? HttpMethod.Post : HttpMethod.Put;
     }
 
     private PlanCheckEvidence LoadEvidence(CaseFolderLayout layout, ComputeReviewDispositionDocument disposition)
@@ -232,7 +286,8 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             TryLoadJson(Path.Combine(layout.OutputDirectory, "output_summary.json")),
             TryLoadJson(Path.Combine(layout.OutputDirectory, "enterprise_working_publish.json")),
             TryLoadJson(Path.Combine(layout.WorkingDirectory, "enterprise_working_disposition.json")),
-            outputSummaryPersistenceService.Load(layout));
+            outputSummaryPersistenceService.Load(layout),
+            new ExtractionReviewPersistenceService().Load(layout));
     }
 
     private static string ResolveReportPath(CaseFolderLayout layout, ComputeReviewDispositionDocument disposition)
@@ -316,6 +371,254 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         }
 
         return new PlanCheckMutationResult(updates, preservedUnsupported, checklistRowCount);
+    }
+
+
+    private async Task<NeighborMutationResult> ApplyNeighborUpdatesAsync(
+        InnolaSession session,
+        string transactionId,
+        IReadOnlyList<JsonObject> plans,
+        ExtractionReviewDocument? reviewDocument,
+        CancellationToken cancellationToken)
+    {
+        var reviewedRows = reviewDocument?.AdjacentOwners
+            .Where(IsReviewedNeighborRole)
+            .Where(HasNeighborValue)
+            .ToArray() ?? Array.Empty<ExtractionReviewAdjacentOwner>();
+        if (reviewedRows.Length == 0)
+        {
+            var skipped = reviewDocument?.AdjacentOwners.Count(row => IsReviewedNeighborRole(row) && !HasNeighborValue(row)) ?? 0;
+            return NeighborMutationResult.Empty(skipped);
+        }
+
+        var plan = ResolveNeighborPlan(plans);
+        if (plan is null)
+        {
+            return NeighborMutationResult.Empty(reviewedRows.Length);
+        }
+
+        if (plan["neighbors"] is not JsonArray neighbors)
+        {
+            neighbors = new JsonArray();
+            plan["neighbors"] = neighbors;
+        }
+
+        var updates = new List<InnolaNeighborUpdate>();
+        var createdCount = 0;
+        var updatedCount = 0;
+        var skippedCount = 0;
+        foreach (var reviewedRow in reviewedRows)
+        {
+            var existing = FindNeighbor(neighbors, reviewedRow);
+            var action = "updated";
+            if (existing is null)
+            {
+                existing = await CreateDefaultNeighborAsync(session, transactionId, cancellationToken).ConfigureAwait(false);
+                neighbors.Add(existing);
+                createdCount++;
+                action = "created";
+            }
+            else
+            {
+                updatedCount++;
+            }
+
+            PopulateNeighbor(existing, reviewedRow);
+            updates.Add(new InnolaNeighborUpdate(
+                TrimOrEmpty(reviewedRow.Name),
+                NormalizeOptional(reviewedRow.Volume),
+                NormalizeOptional(reviewedRow.Folio),
+                NormalizeOptional(reviewedRow.LotNumber),
+                NormalizeOptional(reviewedRow.LandValuationNumber),
+                NormalizeOptional(reviewedRow.ExaminationNumber),
+                action));
+        }
+
+        return new NeighborMutationResult(reviewedRows.Length, createdCount, updatedCount, skippedCount, updates);
+    }
+
+    private async Task<JsonObject> CreateDefaultNeighborAsync(InnolaSession session, string transactionId, CancellationToken cancellationToken)
+    {
+        var uri = BuildCreateObjectUri(session);
+        const string payloadJson = "{\"@c\":\"Neighbor\"}";
+        using var response = await InnolaApiResilience.SendAsync(
+            httpClient,
+            new InnolaApiOperation(
+                "plan examination neighbor create-template",
+                InnolaApiRetryMode.VerifyBeforeRetry,
+                transactionId,
+                MaxAttempts: 1),
+            () => CreateRequest(HttpMethod.Post, uri, session.AccessToken, payloadJson),
+            cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            if (ShouldRetryWithCookieOnly(response.StatusCode, session.ServerUrl, session.AccessToken))
+            {
+                using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
+                    httpClient,
+                    new InnolaApiOperation(
+                        "plan examination neighbor create-template cookie-only",
+                        InnolaApiRetryMode.VerifyBeforeRetry,
+                        transactionId,
+                        MaxAttempts: 1),
+                    () => CreateRequest(HttpMethod.Post, uri, InnolaHttp.SessionCookieAccessToken, payloadJson),
+                    cancellationToken).ConfigureAwait(false);
+                if (cookieOnlyResponse.IsSuccessStatusCode)
+                {
+                    var cookieOnlyBody = await cookieOnlyResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    return ResolveNeighborTemplate(JsonNode.Parse(cookieOnlyBody));
+                }
+            }
+
+            return CreateLocalNeighborTemplate();
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return ResolveNeighborTemplate(JsonNode.Parse(body));
+    }
+
+    private static JsonObject CreateLocalNeighborTemplate()
+    {
+        return new JsonObject
+        {
+            ["@c"] = NeighborClassName,
+            ["neighborType"] = DefaultNeighborType,
+            ["name"] = null,
+            ["address"] = null,
+            ["volume"] = null,
+            ["folio"] = null,
+            ["lot"] = null,
+            ["landValNumber"] = null,
+            ["examNumber"] = null,
+            ["allowRead"] = true,
+            ["allowWrite"] = true
+        };
+    }
+
+    private static Uri BuildCreateObjectUri(InnolaSession session)
+    {
+        return InnolaHttp.BuildUri(session.ServerUrl, $"{InnolaSettings.V4RestPath}data/objects/create");
+    }
+
+
+    private static JsonObject? ResolveObject(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["data"] is JsonArray dataArray)
+            {
+                return dataArray.OfType<JsonObject>().FirstOrDefault();
+            }
+
+            if (obj["data"] is JsonObject dataObject)
+            {
+                return dataObject;
+            }
+
+            return obj;
+        }
+
+        if (node is JsonArray array)
+        {
+            return array.OfType<JsonObject>().FirstOrDefault();
+        }
+
+        return null;
+    }
+
+    private static JsonObject? FindNeighbor(JsonArray neighbors, ExtractionReviewAdjacentOwner row)
+    {
+        return neighbors.OfType<JsonObject>().FirstOrDefault(neighbor => IsSameNeighbor(neighbor, row));
+    }
+
+    private static bool IsSameNeighbor(JsonObject neighbor, ExtractionReviewAdjacentOwner row)
+    {
+        var rowName = NormalizeForKey(row.Name);
+        var neighborName = NormalizeForKey(ReadString(neighbor, "name"));
+        if (!string.IsNullOrWhiteSpace(rowName))
+        {
+            return string.Equals(neighborName, rowName, StringComparison.Ordinal);
+        }
+
+        var rowTitleKey = BuildNeighborKey(row.Volume, row.Folio);
+        if (!string.IsNullOrWhiteSpace(rowTitleKey)
+            && string.IsNullOrWhiteSpace(neighborName)
+            && string.Equals(
+                BuildNeighborKey(ReadString(neighbor, "volume"), ReadString(neighbor, "folio")),
+                rowTitleKey,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var rowExtendedKey = BuildNeighborKey(row.LotNumber, row.LandValuationNumber, row.ExaminationNumber);
+        return !string.IsNullOrWhiteSpace(rowExtendedKey)
+            && string.IsNullOrWhiteSpace(neighborName)
+            && string.Equals(
+                BuildNeighborKey(ReadString(neighbor, "lot"), ReadString(neighbor, "landValNumber"), ReadString(neighbor, "examNumber")),
+                rowExtendedKey,
+                StringComparison.Ordinal);
+    }
+
+    private static void PopulateNeighbor(JsonObject neighbor, ExtractionReviewAdjacentOwner row)
+    {
+        if (ReadString(neighbor, "@c") is null)
+        {
+            neighbor["@c"] = NeighborClassName;
+        }
+
+        if (string.IsNullOrWhiteSpace(ReadString(neighbor, "neighborType")))
+        {
+            neighbor["neighborType"] = DefaultNeighborType;
+        }
+
+        SetStringWhenPresent(neighbor, "name", row.Name);
+        SetStringWhenPresent(neighbor, "address", row.Address);
+        SetStringWhenPresent(neighbor, "volume", row.Volume);
+        SetStringWhenPresent(neighbor, "folio", row.Folio);
+        SetStringWhenPresent(neighbor, "lot", row.LotNumber);
+        SetStringWhenPresent(neighbor, "landValNumber", row.LandValuationNumber);
+        SetStringWhenPresent(neighbor, "examNumber", row.ExaminationNumber);
+    }
+
+    private static bool HasNeighborValue(ExtractionReviewAdjacentOwner row)
+    {
+        return !string.IsNullOrWhiteSpace(row.Name)
+            || !string.IsNullOrWhiteSpace(row.Address)
+            || !string.IsNullOrWhiteSpace(row.Volume)
+            || !string.IsNullOrWhiteSpace(row.Folio)
+            || !string.IsNullOrWhiteSpace(row.LotNumber)
+            || !string.IsNullOrWhiteSpace(row.LandValuationNumber)
+            || !string.IsNullOrWhiteSpace(row.ExaminationNumber);
+    }
+
+    private static string BuildNeighborKey(params string?[] values)
+    {
+        return string.Join("|", values.Select(value => NormalizeForKey(value))).Trim('|');
+    }
+
+    private static string NormalizeForKey(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
+    }
+
+    private static string TrimOrEmpty(string? value)
+    {
+        return value?.Trim() ?? string.Empty;
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static void SetStringWhenPresent(JsonObject obj, string propertyName, string? value)
+    {
+        var normalized = NormalizeOptional(value);
+        if (normalized is not null)
+        {
+            obj[propertyName] = JsonValue.Create(normalized);
+        }
     }
 
     private static PlanCheckDecision? ResolveDecision(string checkType, PlanCheckEvidence evidence)
@@ -541,12 +844,77 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             return array.OfType<JsonNode>().ToArray();
         }
 
-        if (node is JsonObject obj && obj["data"] is JsonArray data)
+        if (node is JsonObject obj)
         {
-            return data.OfType<JsonNode>().ToArray();
+            if (obj["data"] is JsonArray data)
+            {
+                return data.OfType<JsonNode>().ToArray();
+            }
+
+            if (obj["data"] is JsonObject dataObject)
+            {
+                return new[] { dataObject };
+            }
+
+            return new[] { obj };
         }
 
         return Array.Empty<JsonNode>();
+    }
+
+
+    private static PlanFetchResult ResolvePlans(JsonNode? node, string lookupTransactionId, PlanApiRoute route)
+    {
+        var saveAsArray = node is JsonArray;
+        var plans = ResolveArray(node)
+            .Select(item => item as JsonObject)
+            .Where(item => item is not null)
+            .Cast<JsonObject>()
+            .ToArray();
+        return new PlanFetchResult(plans, saveAsArray, lookupTransactionId, route);
+    }
+
+    private static JsonNode BuildSavePayload(PlanFetchResult planFetch)
+    {
+        if (!planFetch.SaveAsArray && planFetch.Plans.Count == 1)
+        {
+            return planFetch.Plans[0].DeepClone();
+        }
+
+        return new JsonArray(planFetch.Plans.Select(plan => plan.DeepClone()).ToArray());
+    }
+
+    private static JsonObject? ResolveNeighborPlan(IReadOnlyList<JsonObject> plans)
+    {
+        var withNeighbors = plans.Where(plan => plan["neighbors"] is JsonArray).ToArray();
+        if (withNeighbors.Length == 1)
+        {
+            return withNeighbors[0];
+        }
+
+        if (plans.Count == 1)
+        {
+            return plans[0];
+        }
+
+        throw new InvalidOperationException("Plan Examination Neighbor writeback could not choose a single Plan object for neighbors.");
+    }
+
+    private static JsonObject ResolveNeighborTemplate(JsonNode? node)
+    {
+        var template = ResolveObject(node);
+        if (template is null || !string.Equals(ReadString(template, "@c"), NeighborClassName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Plan Examination Neighbor create-template response did not contain a Neighbor object.");
+        }
+
+        return template.DeepClone() as JsonObject
+            ?? throw new InvalidOperationException("Plan Examination Neighbor create-template response could not be cloned.");
+    }
+
+    private static bool IsReviewedNeighborRole(ExtractionReviewAdjacentOwner row)
+    {
+        return string.Equals(row.Role?.Trim(), "Neighbor", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void WriteRequestEvidence(
@@ -554,7 +922,8 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         SelectedInnolaTransaction transaction,
         ComputeReviewDispositionDocument disposition,
         string reportPath,
-        PlanCheckMutationResult mutation)
+        PlanCheckMutationResult mutation,
+        NeighborMutationResult neighborMutation)
     {
         Directory.CreateDirectory(layout.WorkingDirectory);
         var evidence = new
@@ -569,17 +938,22 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             updated_check_types = mutation.Updates.Select(update => update.CheckType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             preserved_unsupported_check_types = mutation.PreservedUnsupported.Select(row => row.CheckType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             preserved_unsupported_rows = mutation.PreservedUnsupported,
-            updates = mutation.Updates
+            updates = mutation.Updates,
+            neighbor_rows_reviewed = neighborMutation.ReviewedCount,
+            neighbor_rows_created = neighborMutation.CreatedCount,
+            neighbor_rows_updated = neighborMutation.UpdatedCount,
+            neighbor_rows_skipped = neighborMutation.SkippedCount,
+            neighbor_updates = neighborMutation.Rows
         };
-        File.WriteAllText(
-            Path.Combine(layout.WorkingDirectory, RequestEvidenceFileName),
-            JsonSerializer.Serialize(evidence, TraceJsonOptions));
+        WriteEvidenceFile(layout, RequestEvidenceFileName, evidence);
+        WriteEvidenceFile(layout, PlanExaminationRequestEvidenceFileName, evidence);
     }
 
     private static void WriteResponseEvidence(
         CaseFolderLayout layout,
         SelectedInnolaTransaction transaction,
         PlanCheckMutationResult mutation,
+        NeighborMutationResult neighborMutation,
         int savedPlanCount)
     {
         Directory.CreateDirectory(layout.WorkingDirectory);
@@ -594,11 +968,15 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             saved_plan_count = savedPlanCount,
             updated_count = mutation.Updates.Count,
             updated_check_types = mutation.Updates.Select(update => update.CheckType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            preserved_unsupported_check_types = mutation.PreservedUnsupported.Select(row => row.CheckType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            preserved_unsupported_check_types = mutation.PreservedUnsupported.Select(row => row.CheckType).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            neighbor_rows_reviewed = neighborMutation.ReviewedCount,
+            neighbor_rows_created = neighborMutation.CreatedCount,
+            neighbor_rows_updated = neighborMutation.UpdatedCount,
+            neighbor_rows_skipped = neighborMutation.SkippedCount,
+            neighbor_updates = neighborMutation.Rows
         };
-        File.WriteAllText(
-            Path.Combine(layout.WorkingDirectory, ResponseEvidenceFileName),
-            JsonSerializer.Serialize(evidence, TraceJsonOptions));
+        WriteEvidenceFile(layout, ResponseEvidenceFileName, evidence);
+        WriteEvidenceFile(layout, PlanExaminationResponseEvidenceFileName, evidence);
     }
 
     private static void TryWriteFailure(string caseFolderPath, SelectedInnolaTransaction transaction, Exception exception)
@@ -631,8 +1009,14 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             error_category = errorCategory,
             error_message = SanitizeDiagnostic(message)
         };
+        WriteEvidenceFile(layout, FailureEvidenceFileName, evidence);
+        WriteEvidenceFile(layout, PlanExaminationFailureEvidenceFileName, evidence);
+    }
+
+    private static void WriteEvidenceFile(CaseFolderLayout layout, string fileName, object evidence)
+    {
         File.WriteAllText(
-            Path.Combine(layout.WorkingDirectory, FailureEvidenceFileName),
+            Path.Combine(layout.WorkingDirectory, fileName),
             JsonSerializer.Serialize(evidence, TraceJsonOptions));
     }
 
@@ -642,7 +1026,7 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             || message.Contains("password", StringComparison.OrdinalIgnoreCase)
             || message.Contains("{", StringComparison.Ordinal)
             || message.Contains("}", StringComparison.Ordinal)
-                ? "Innola Plan Check writeback failed. Sensitive diagnostic was redacted."
+                ? "Innola Plan Examination writeback failed. Sensitive diagnostic was redacted."
                 : message;
     }
 
@@ -653,18 +1037,55 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
             : path.Replace('\\', '/');
     }
 
+    private enum PlanApiRoute
+    {
+        DataObjects,
+        AdministrativeLadmObjects
+    }
+
+    private sealed record PlanLookupAttempt(string LookupId, PlanApiRoute Route, int? MaxAttempts);
+
+    private sealed record PlanFetchResult(
+        IReadOnlyList<JsonObject> Plans,
+        bool SaveAsArray,
+        string LookupTransactionId,
+        PlanApiRoute Route);
+
     private sealed record PlanCheckEvidence(
         string ReportPath,
         JsonObject Report,
         JsonObject? OutputSummary,
         JsonObject? EnterprisePublish,
         JsonObject? EnterpriseDisposition,
-        OutputSummaryDocument? OutputSummaryDocument);
+        OutputSummaryDocument? OutputSummaryDocument,
+        ExtractionReviewDocument? ReviewDocument);
 
     private sealed record PlanCheckMutationResult(
         IReadOnlyList<InnolaPlanCheckUpdate> Updates,
         IReadOnlyList<InnolaPlanCheckPreservedRow> PreservedUnsupported,
         int ChecklistRowCount);
+
+    private sealed record NeighborMutationResult(
+        int ReviewedCount,
+        int CreatedCount,
+        int UpdatedCount,
+        int SkippedCount,
+        IReadOnlyList<InnolaNeighborUpdate> Rows)
+    {
+        public static NeighborMutationResult Empty(int skippedCount = 0)
+        {
+            return new NeighborMutationResult(0, 0, 0, skippedCount, Array.Empty<InnolaNeighborUpdate>());
+        }
+    }
+
+    private sealed record InnolaNeighborUpdate(
+        string Name,
+        string? Volume,
+        string? Folio,
+        string? Lot,
+        string? LandValNumber,
+        string? ExamNumber,
+        string Action);
 
     private sealed record InnolaPlanCheckPreservedRow(
         string CheckType,
