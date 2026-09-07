@@ -45,14 +45,17 @@ public sealed class AttachmentSourceFileWriter
                 return AttachmentSourceFileWriteResult.Failed("Attachment file name is required.");
             }
 
-            var safeFileName = Path.GetFileName(fileName);
-            if (!string.Equals(safeFileName, fileName, StringComparison.Ordinal)
-                || safeFileName.Contains("..", StringComparison.Ordinal)
-                || safeFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            var normalizedFileName = fileName.Trim().Replace('\\', '/');
+            var lastSeparator = normalizedFileName.LastIndexOf('/');
+            var safeFileName = lastSeparator >= 0
+                ? normalizedFileName[(lastSeparator + 1)..]
+                : Path.GetFileName(normalizedFileName);
+            safeFileName = string.Concat(safeFileName.Select(character =>
+                Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim();
+            if (string.IsNullOrWhiteSpace(safeFileName) || safeFileName is "." or "..")
             {
-                return AttachmentSourceFileWriteResult.Failed("Attachment file name must not contain a path.");
+                return AttachmentSourceFileWriteResult.Failed("Attachment file name is invalid.");
             }
-
             var extension = Path.GetExtension(safeFileName).ToLowerInvariant();
             if (!SupportedExtensions.Contains(extension))
             {

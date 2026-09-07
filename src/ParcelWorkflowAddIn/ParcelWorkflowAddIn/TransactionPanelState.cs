@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows.Input;
 using ArcGIS.Desktop.Framework;
 using Microsoft.Win32;
@@ -274,7 +275,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public bool CanSearchTransactions => IsLoggedIn && !IsTransactionPanelLocked;
 
-    public bool CanUseListControls => IsLoggedIn && !IsLoading && allRows.Count > 0 && !IsTransactionPanelLocked;
+    public bool CanUseListControls => IsLoggedIn
+        && !IsLoading
+        && allRows.Count > 0;
 
     public bool HasRows => Rows.Count > 0;
 
@@ -544,7 +547,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         && !IsLoading
         && lifecycleCoordinator is not null
         && SelectedRow is { IsLoadable: true }
-        && !session.HasActiveTransaction;
+        && (!session.HasActiveTransaction || CanStartActiveRtExaminationRow(SelectedRow));
 
     public bool CanStopTask => IsLoggedIn && !IsLoading && lifecycleCoordinator is not null && session.CanSaveProgress;
 
@@ -580,6 +583,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         computeWorkflowStages,
         compareWorkflowStages) == ParcelWorkflowStageRoute.Compare;
 
+    public async Task ReturnFromRtExaminationAsync(CancellationToken cancellationToken = default)
+    {
+        session.ClearSelectedTransaction();
+        SelectedRow = null;
+        NotifyListState();
+        await RefreshAsync(cancellationToken).ConfigureAwait(true);
+    }
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         if (IsTransactionPanelLocked)
@@ -817,6 +827,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         var requestedRow = SelectedRow;
         var requestedTransactionNumber = requestedRow.TransactionNumber;
+        var shouldOpenAlreadyInProgressRt = false;
         var openPlaBTaskAfterStart = false;
         var openFabricMaintenanceAfterStart = false;
         if (workflowRoute == ParcelWorkflowStageRoute.PlaBPlanAnnexation)
@@ -829,6 +840,14 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         else if (workflowRoute == ParcelWorkflowStageRoute.FabricMaintenancePromotion)
         {
             if (!LoadFabricMaintenancePromotionForStart(requestedRow))
+            {
+                return;
+            }
+        }
+        else if (workflowRoute == ParcelWorkflowStageRoute.RtExamination)
+        {
+            shouldOpenAlreadyInProgressRt = ShouldOpenAlreadyInProgressRtExamination(requestedRow);
+            if (!await LoadRtExaminationSupportingDocumentsForStartAsync(requestedRow, cancellationToken).ConfigureAwait(true))
             {
                 return;
             }
@@ -850,6 +869,15 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 ShowRtExaminationStartWarning(requestedTransactionNumber, message);
             }
 
+            return;
+        }
+
+        if (shouldOpenAlreadyInProgressRt)
+        {
+            MarkSelectedRtExaminationAlreadyInProgress(requestedRow);
+            RestoreSelectedRow(session.SelectedTransaction);
+            OpenWorkflowWorkspace(requestedTransactionNumber, workflowRoute);
+            TryShowSupportingDocumentsWindow(requestedTransactionNumber);
             return;
         }
 
@@ -904,6 +932,57 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 
+    private bool CanReopenActiveRtExaminationRow(InnolaTransactionRow row)
+    {
+        if (!session.HasActiveTransaction || session.SelectedTransaction is null)
+        {
+            return false;
+        }
+
+        return IsSelectedTransactionRow(row, session.SelectedTransaction)
+            && ParcelWorkflowStageRouter.Resolve(row.TaskName, computeWorkflowStages, compareWorkflowStages, rtExaminationSettings) == ParcelWorkflowStageRoute.RtExamination;
+    }
+    private bool CanStartActiveRtExaminationRow(InnolaTransactionRow row)
+    {
+        if (!session.HasActiveTransaction || session.SelectedTransaction is null)
+        {
+            return false;
+        }
+
+        var sameTransaction = string.Equals(
+            InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber),
+            InnolaTransactionNumbers.NormalizeWorkflowKey(session.SelectedTransaction.TransactionNumber),
+            StringComparison.OrdinalIgnoreCase);
+        return sameTransaction
+            && ParcelWorkflowStageRouter.Resolve(row.TaskName, computeWorkflowStages, compareWorkflowStages, rtExaminationSettings) == ParcelWorkflowStageRoute.RtExamination;
+    }
+
+    private bool HasActiveRtExaminationCandidate()
+    {
+        return session.SelectedTransaction is not null
+            && allRows.Any(row => CanStartActiveRtExaminationRow(row));
+    }
+
+    private bool ShouldOpenAlreadyInProgressRtExamination(InnolaTransactionRow row)
+    {
+        return row.Status == InnolaTransactionStatus.InProgress
+            && (MatchesCurrentUser(row.AssignedUser) || MatchesCurrentGroup(row.AssignedGroup));
+    }
+
+    private void MarkSelectedRtExaminationAlreadyInProgress(InnolaTransactionRow row)
+    {
+        if (session.CurrentUser is null)
+        {
+            return;
+        }
+
+        session.MarkTransactionClaimed(
+            session.CurrentUser.Username,
+            session.CurrentUser.DisplayName,
+            clock().UtcDateTime.ToString("O"),
+            $"Reopened active RT Examination transaction {row.TransactionNumber}.");
+        StatusText = $"Reopened active RT Examination transaction {row.TransactionNumber}.";
+    }
     private Task LoadSelectedTransactionAsync(ParcelWorkflowStageRoute workflowRoute, CancellationToken cancellationToken)
     {
         if ((workflowRoute == ParcelWorkflowStageRoute.Compare || workflowRoute == ParcelWorkflowStageRoute.RtExamination)
@@ -915,13 +994,173 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return LoadSelectedTransactionAsync(cancellationToken);
     }
 
+    private async Task<bool> LoadRtExaminationSupportingDocumentsForStartAsync(
+        InnolaTransactionRow requestedRtRow,
+        CancellationToken cancellationToken)
+    {
+        if (compareTransactionLoadService is null)
+        {
+            ErrorText = "RT Examination supporting document loading is not configured.";
+            StatusText = ErrorText;
+            WriteRtExaminationStartTrace(requestedRtRow, null, "loader_not_configured", ErrorText, null);
+            return false;
+        }
+
+        var mainRow = FindRtExaminationMainTransactionRow(requestedRtRow);
+        if (mainRow is null)
+        {
+            ErrorText = $"RT Examination transaction {requestedRtRow.TransactionNumber} requires a non-RT main transaction row so supporting documents can be loaded.";
+            StatusText = ErrorText;
+            SelectedRow = requestedRtRow;
+            WriteRtExaminationStartTrace(requestedRtRow, null, "main_row_missing", ErrorText, null);
+            return false;
+        }
+
+        WriteRtExaminationStartTrace(requestedRtRow, mainRow, "supporting_document_load_start", null, null);
+
+        var previousTransactionState = session.CaptureTransactionState();
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = $"Loading supporting documents from main transaction: {mainRow.TransactionNumber}.";
+        try
+        {
+            SelectedRow = mainRow;
+            var rtSourceLoadRow = mainRow with
+            {
+                TaskName = requestedRtRow.TaskName,
+                TransactionType = requestedRtRow.TransactionType
+            };
+            session.SelectTransaction(rtSourceLoadRow, clock());
+            ClearSearchText(mainRow);
+
+            var result = await compareTransactionLoadService.LoadSelectedTransactionAsync(cancellationToken).ConfigureAwait(true);
+            if (!result.Success || result.Layout is null || string.IsNullOrWhiteSpace(session.LoadedCaseFolderPath))
+            {
+                session.RestoreTransactionState(previousTransactionState);
+                SelectedRow = requestedRtRow;
+                ErrorText = result.ErrorMessage ?? "RT Examination supporting documents could not be loaded from the main transaction.";
+                StatusText = ErrorText;
+                WriteRtExaminationStartTrace(requestedRtRow, mainRow, "supporting_document_load_failed", ErrorText, session.LoadedCaseFolderPath);
+                return false;
+            }
+
+            var loadedTransactionNumber = session.LoadedTransactionNumber ?? mainRow.TransactionNumber;
+            var loadedCaseFolderPath = session.LoadedCaseFolderPath;
+            var loadedAt = session.LoadedAt ?? clock().UtcDateTime.ToString("O");
+            var wasRestoredFromResumePackage = session.WasRestoredFromResumePackage;
+            var restoredLastSavedAt = session.LastSavedAt;
+
+            SelectedRow = requestedRtRow;
+            session.SelectTransaction(requestedRtRow, clock());
+            session.MarkTransactionLoaded(
+                loadedTransactionNumber,
+                loadedCaseFolderPath,
+                loadedAt,
+                wasRestoredFromResumePackage,
+                restoredLastSavedAt);
+            ClearSearchText(requestedRtRow);
+            StatusText = $"Loaded supporting documents from main transaction {loadedTransactionNumber} for RT Examination {requestedRtRow.TransactionNumber}.";
+            WriteRtExaminationStartTrace(requestedRtRow, mainRow, "supporting_document_load_succeeded", null, loadedCaseFolderPath);
+            NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+            return true;
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+        }
+    }
+
+    private void WriteRtExaminationStartTrace(
+        InnolaTransactionRow requestedRtRow,
+        InnolaTransactionRow? mainRow,
+        string step,
+        string? message,
+        string? loadedCaseFolderPath)
+    {
+        try
+        {
+            var outputRoot = InnolaTransactionSettings.Load().CaseFolderOutputRoot;
+            if (string.IsNullOrWhiteSpace(outputRoot))
+            {
+                return;
+            }
+
+            var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(requestedRtRow.TransactionNumber);
+            var layout = string.IsNullOrWhiteSpace(loadedCaseFolderPath)
+                ? CaseFolderLayout.For(outputRoot, normalizedTransactionNumber)
+                : CaseFolderLayout.FromRootDirectory(loadedCaseFolderPath);
+            Directory.CreateDirectory(layout.WorkingDirectory);
+            var trace = new
+            {
+                schema_version = "rt_examination_start_trace_v1",
+                traced_at_utc = clock().UtcDateTime.ToString("O"),
+                step,
+                message,
+                selected_rt_transaction = ToTraceRow(requestedRtRow),
+                main_supporting_document_transaction = mainRow is null ? null : ToTraceRow(mainRow),
+                expected_document_source = "main_supporting_document_transaction",
+                expected_rt_data_source = "selected_rt_transaction_and_linked_plan",
+                linked_transaction_lookup = new
+                {
+                    status = "pending_until_rt_workspace_load",
+                    plan_endpoint = "/api/v4/rest/data/objects?typeKeyId=plan&transactionId={selected_rt_transaction.transaction_id}",
+                    plan_number_field = "Plan.planNumber",
+                    originating_pe_search = "POST /api/v4/rest/portal/searches by Plan.planNumber",
+                    latest_sources_endpoint = "/api/v4/rest/plan/sources/latest",
+                    working_review_query_field = rtExaminationSettings.WorkingReviewPeNumberField
+                }
+            };
+            File.WriteAllText(
+                Path.Combine(layout.WorkingDirectory, "rt_examination_start_trace.json"),
+                JsonSerializer.Serialize(trace, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            Debug.WriteLine($"RT Examination start trace could not be written. Transaction={requestedRtRow.TransactionNumber}; Error={exception.GetType().Name}.");
+        }
+    }
+
+    private static object ToTraceRow(InnolaTransactionRow row)
+    {
+        return new
+        {
+            task_id = row.TaskId,
+            transaction_id = row.TransactionId,
+            transaction_number = row.TransactionNumber,
+            task_name = row.TaskName,
+            process_step = row.ProcessStep,
+            transaction_type = row.TransactionType,
+            applicant = row.Applicant,
+            assigned_user = row.AssignedUser,
+            assigned_group = row.AssignedGroup,
+            owner_or_responsible_party = row.OwnerOrResponsibleParty,
+            status = row.Status.ToString(),
+            received_at = row.ReceivedAt?.ToString("O")
+        };
+    }
+    private InnolaTransactionRow? FindRtExaminationMainTransactionRow(InnolaTransactionRow requestedRtRow)
+    {
+        var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(requestedRtRow.TransactionNumber);
+        return allRows
+            .Where(row => !IsSameTransactionTaskRow(row, requestedRtRow))
+            .Where(row => !rtExaminationSettings.MatchesStage(row.TaskName))
+            .Where(row => IsDefaultActiveQueueRow(row))
+            .Where(row => string.Equals(
+                InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber),
+                normalizedTransactionNumber,
+                StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(row => row.Status == InnolaTransactionStatus.InProgress)
+            .ThenByDescending(row => row.ReceivedAt ?? DateTimeOffset.MinValue)
+            .FirstOrDefault();
+    }
     private bool LoadPlaBPlanAnnexationTaskForStart(InnolaTransactionRow requestedRow)
     {
         if (session.CurrentSession is null)
         {
             ErrorText = "Plan Annexation Task requires an active Innola session.";
             StatusText = ErrorText;
-            return false;
+                return false;
         }
 
         var caseFolder = plaBCaseFolderPreparer(
@@ -931,7 +1170,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             ErrorText = caseFolder.ErrorMessage ?? "Plan Annexation Task could not prepare the transaction case folder.";
             StatusText = ErrorText;
-            return false;
+                return false;
         }
 
         session.SelectTransaction(requestedRow, clock());
@@ -951,7 +1190,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             ErrorText = "Fabric Maintenance requires an active Innola session.";
             StatusText = ErrorText;
-            return false;
+                return false;
         }
 
         var caseFolder = plaBCaseFolderPreparer(
@@ -961,7 +1200,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             ErrorText = caseFolder.ErrorMessage ?? "Fabric Maintenance could not prepare the transaction case folder.";
             StatusText = ErrorText;
-            return false;
+                return false;
         }
 
         session.SelectTransaction(requestedRow, clock());
@@ -2595,6 +2834,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         if (session.HasActiveTransaction)
         {
+            if (SelectedRow is not null && CanStartActiveRtExaminationRow(SelectedRow))
+            {
+                return "Open the RT Examination task for the active transaction.";
+            }
+
             return $"Transaction {ActiveTransactionNumber} is already active.";
         }
 
@@ -3012,3 +3256,6 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
     }
 }
+
+
+

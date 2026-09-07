@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Collections.Specialized;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -21,7 +22,7 @@ public sealed record RtExaminationSettings(
         "In RT Examination",
         "RT Examination",
         null,
-        "PE_number");
+        "transaction_number");
 
     public static RtExaminationSettings FromJson(JsonElement root)
     {
@@ -72,10 +73,8 @@ public sealed record RtExaminationPartyRow(
 {
     public static IReadOnlyList<string> AllowedRoles { get; } = new[]
     {
-        "Neighbor",
         "Owner",
-        "Occupier",
-        "Representative"
+        "Occupier"
     };
 
     public string DeduplicationKey => string.Join("|", new[]
@@ -97,7 +96,7 @@ public sealed record RtExaminationPartyRow(
 
     public static string NormalizeRole(string? role)
     {
-        return AllowedRoles.FirstOrDefault(allowed => allowed.Equals(role?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? "Neighbor";
+        return AllowedRoles.FirstOrDefault(allowed => allowed.Equals(role?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? "Owner";
     }
 
     private static string Normalize(string? value)
@@ -339,7 +338,7 @@ public sealed class DeferredRtExaminationLoadService : IRtExaminationLoadService
 {
     public Task<RtExaminationLoadResult> LoadAsync(SelectedInnolaTransaction transaction, string caseFolderPath, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(RtExaminationLoadResult.Failed("RT Examination linked PE data is not loaded yet. Use Load Linked PE Data after opening the workspace."));
+        return Task.FromResult(RtExaminationLoadResult.Failed("RT Examination linked transaction data is not loaded yet. Use Load Linked TR Data after opening the workspace."));
     }
 
     public Task CleanupAsync(IReadOnlyList<string> loadedMapGroups, CancellationToken cancellationToken = default)
@@ -363,6 +362,9 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     private string? observations;
     private bool isBusy;
     private bool isLoaded;
+    private bool isDirty;
+    private bool isHydrating;
+    private bool hasSaved;
     private IReadOnlyList<string> loadedMapGroups = Array.Empty<string>();
 
     public RtExaminationViewModel(
@@ -381,12 +383,13 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         this.confirmAction = confirmAction ?? (_ => true);
         this.showMessage = showMessage ?? (_ => { });
         this.refreshTransactions = refreshTransactions;
-        statusText = "Load linked PE data to begin RT Examination.";
+        statusText = "Load linked transaction data to begin RT Examination.";
+        PartyRows.CollectionChanged += OnPartyRowsChanged;
+        SpatialUnitAttributes.CollectionChanged += OnSpatialUnitAttributesChanged;
         LoadLinkedPeDataCommand = new RelayCommand(async () => await LoadAsync().ConfigureAwait(true), () => !IsBusy);
         SaveCommand = new RelayCommand(async () => await SaveAsync(false).ConfigureAwait(true), () => CanSave);
         CompleteCommand = new RelayCommand(async () => await SaveAsync(true).ConfigureAwait(true), () => CanComplete);
-        SuspendCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
-        CancelCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
+        CancelCommand = new RelayCommand(async () => await CloseAsync().ConfigureAwait(true), () => CanClose);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -396,15 +399,18 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     public string TransactionNumber => transaction.TransactionNumber;
     public string TransactionType => string.IsNullOrWhiteSpace(transaction.TransactionType) ? "Transaction" : transaction.TransactionType!;
     public string StageName => transaction.TaskName;
+    public string CloseActionText => hasSaved ? "Close" : "Cancel";
     public string StatusText { get => statusText; private set { statusText = value; Notify(nameof(StatusText)); } }
     public string? PePlanNumber { get => pePlanNumber; private set { pePlanNumber = value; Notify(nameof(PePlanNumber)); Notify(nameof(PePlanNumberText)); } }
     public string PePlanNumberText => string.IsNullOrWhiteSpace(PePlanNumber) ? "Not loaded" : PePlanNumber!;
     public string? OriginatingPeText { get => originatingPeText; private set { originatingPeText = value; Notify(nameof(OriginatingPeText)); } }
-    public string? Observations { get => observations; set { observations = value; Notify(nameof(Observations)); } }
+    public string? Observations { get => observations; set { if (string.Equals(observations, value, StringComparison.Ordinal)) return; observations = value; MarkDirty(); Notify(nameof(Observations)); } }
     public bool IsBusy { get => isBusy; private set { isBusy = value; Notify(nameof(IsBusy)); RefreshCommands(); } }
     public bool IsLoaded { get => isLoaded; private set { isLoaded = value; Notify(nameof(IsLoaded)); RefreshCommands(); } }
-    public bool CanSave => IsLoaded && !IsBusy;
+    public bool IsDirty => isDirty;
+    public bool CanSave => IsLoaded && !IsBusy && IsDirty;
     public bool CanComplete => IsLoaded && !IsBusy;
+    public bool CanClose => !IsBusy;
 
     public ObservableCollection<RtExaminationPartyRowViewModel> PartyRows { get; } = [];
     public ObservableCollection<RtExaminationSpatialUnitAttributeViewModel> SpatialUnitAttributes { get; } = [];
@@ -414,7 +420,6 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     public ICommand LoadLinkedPeDataCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand CompleteCommand { get; }
-    public ICommand SuspendCommand { get; }
     public ICommand CancelCommand { get; }
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
@@ -425,7 +430,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         }
 
         IsBusy = true;
-        StatusText = "Loading RT Examination linked PE data...";
+        StatusText = "Loading RT Examination linked transaction data...";
         try
         {
             var result = await loadService.LoadAsync(transaction, caseFolderPath, cancellationToken).ConfigureAwait(true);
@@ -436,6 +441,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                 return;
             }
 
+            isHydrating = true;
             PartyRows.Clear();
             foreach (var row in result.PartyRows)
             {
@@ -448,6 +454,11 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                 SpatialUnitAttributes.Add(item);
             }
 
+            isHydrating = false;
+            isDirty = false;
+            hasSaved = false;
+            Notify(nameof(IsDirty));
+            Notify(nameof(CloseActionText));
             loadedMapGroups = result.LoadedMapGroups;
 
             SourceLabels.Clear();
@@ -476,7 +487,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
             or TaskCanceledException)
         {
             IsLoaded = false;
-            StatusText = $"RT Examination linked PE data could not be loaded. {exception.Message}";
+            StatusText = $"RT Examination linked transaction data could not be loaded. {exception.Message}";
         }
         finally
         {
@@ -486,9 +497,14 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
 
     private async Task SaveAsync(bool completeAfterSave)
     {
-        if (completeAfterSave && !confirmAction("Save RT Examination data and complete this Innola task?"))
+        if (!completeAfterSave && !confirmAction("Save RT Examination changes to Innola?"))
         {
-            StatusText = "RT Examination completion cancelled.";
+            StatusText = "RT Examination save cancelled.";
+            return;
+        }
+        if (completeAfterSave && !confirmAction("Save RT Examination data, complete this Innola task, and close the workspace?"))
+        {
+            StatusText = "RT Examination save/complete cancelled.";
             return;
         }
 
@@ -505,6 +521,14 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                     Observations,
                     completeAfterSave)).ConfigureAwait(true);
             StatusText = result.Message;
+            if (result.Success && !completeAfterSave)
+            {
+                isDirty = false;
+                hasSaved = true;
+                Notify(nameof(IsDirty));
+                Notify(nameof(CloseActionText));
+                RefreshCommands();
+            }
             if (result.Success && completeAfterSave)
             {
                 await loadService.CleanupAsync(loadedMapGroups).ConfigureAwait(true);
@@ -528,6 +552,101 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task CloseAsync()
+    {
+        if (!confirmAction(hasSaved
+            ? "Close the RT Examination workspace and clear its context and map layers?"
+            : "Cancel RT Examination and discard unsaved changes?"))
+        {
+            StatusText = hasSaved ? "RT Examination close cancelled." : "RT Examination cancel cancelled.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            await loadService.CleanupAsync(loadedMapGroups).ConfigureAwait(true);
+            loadedMapGroups = Array.Empty<string>();
+            PartyRows.Clear();
+            SpatialUnitAttributes.Clear();
+            SourceLabels.Clear();
+            Warnings.Clear();
+            PePlanNumber = null;
+            OriginatingPeText = null;
+            observations = null;
+            isLoaded = false;
+            isDirty = false;
+            hasSaved = false;
+            Notify(nameof(IsLoaded));
+            Notify(nameof(IsDirty));
+            Notify(nameof(CloseActionText));
+            StatusText = "RT Examination context and map layers cleared.";
+            refreshTransactions?.Invoke();
+            RequestClose?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void OnPartyRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+        {
+            foreach (RtExaminationPartyRowViewModel row in e.OldItems)
+            {
+                row.PropertyChanged -= OnPartyRowPropertyChanged;
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (RtExaminationPartyRowViewModel row in e.NewItems)
+            {
+                row.PropertyChanged += OnPartyRowPropertyChanged;
+            }
+        }
+
+        MarkDirty();
+    }
+
+    private void OnSpatialUnitAttributesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems is not null)
+        {
+            foreach (RtExaminationSpatialUnitAttributeViewModel item in e.OldItems)
+            {
+                item.PropertyChanged -= OnSpatialUnitPropertyChanged;
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (RtExaminationSpatialUnitAttributeViewModel item in e.NewItems)
+            {
+                item.PropertyChanged += OnSpatialUnitPropertyChanged;
+            }
+        }
+
+        MarkDirty();
+    }
+
+    private void OnPartyRowPropertyChanged(object? sender, PropertyChangedEventArgs e) => MarkDirty();
+
+    private void OnSpatialUnitPropertyChanged(object? sender, PropertyChangedEventArgs e) => MarkDirty();
+
+    private void MarkDirty()
+    {
+        if (isHydrating || !isLoaded || isDirty)
+        {
+            return;
+        }
+
+        isDirty = true;
+        Notify(nameof(IsDirty));
+        RefreshCommands();
+    }
     private void RefreshCommands()
     {
         foreach (var command in new[] { LoadLinkedPeDataCommand, SaveCommand, CompleteCommand })
@@ -549,3 +668,12 @@ public sealed class DeferredRtExaminationWritebackService : IRtExaminationWriteb
         return Task.FromResult(RtExaminationSaveResult.Failed("RT Examination writeback service is not configured."));
     }
 }
+
+
+
+
+
+
+
+
+

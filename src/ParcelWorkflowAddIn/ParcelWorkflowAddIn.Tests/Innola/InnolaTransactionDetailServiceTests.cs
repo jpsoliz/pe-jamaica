@@ -497,6 +497,49 @@ internal static class InnolaTransactionDetailServiceTests
         TestAssert.True(!uri.Contains("%5C", StringComparison.OrdinalIgnoreCase), "Download documentName must not include encoded backslashes.");
     }
 
+    public static async Task ScanningSourceAttachmentDownloadStripsPathFromDocumentName()
+    {
+        var handler = new SequenceHandler(new Response("PDF!", "application/pdf"));
+        var service = new InnolaTransactionDetailService(new HttpClient(handler));
+        var detail = new InnolaTransactionDetail(
+            "tx-1",
+            "100000854",
+            "task-1",
+            "In RT Examination",
+            "In RT Examination",
+            "First Registration",
+            "RT",
+            "tester",
+            "survey",
+            null,
+            null,
+            new[]
+            {
+                new InnolaAttachmentMetadata(
+                    "scan-source-1",
+                    @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\source\FirstRegistration.pdf",
+                    ".pdf",
+                    "application/pdf",
+                    SourceRole.PlanMapReference,
+                    "plan",
+                    4,
+                    null,
+                    "scan-source-id:source-1",
+                    true)
+            },
+            "Kingston",
+            null);
+
+        var content = await service.GetAttachmentContentAsync(Session(), detail, detail.Attachments[0]);
+
+        TestAssert.True(content.Success, "Scanning source attachment content should download.");
+        TestAssert.Equal(1, handler.Requests.Count, "Only the scanning source body endpoint should be called.");
+        var uri = handler.Requests[0].Uri.AbsoluteUri;
+        TestAssert.True(uri.Contains("/api/rest/scanning/source/source-1/body", StringComparison.Ordinal), "Scanning source body endpoint mismatch.");
+        TestAssert.True(uri.Contains("documentName=FirstRegistration.pdf", StringComparison.Ordinal), "Scanning source body download should send only the leaf documentName.");
+        TestAssert.True(!uri.Contains("ParcelWorkflowCases", StringComparison.OrdinalIgnoreCase), "Scanning source body documentName must not include local path segments.");
+        TestAssert.True(!uri.Contains("%5C", StringComparison.OrdinalIgnoreCase), "Scanning source body documentName must not include encoded backslashes.");
+    }
     public static async Task LiveDetailWithoutSourceIdentifiersFailsSafely()
     {
         var handler = new SequenceHandler(

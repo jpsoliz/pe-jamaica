@@ -190,14 +190,14 @@ public sealed class InnolaTransactionLoadService
             }
             catch (Exception exception) when (IsExpectedAdapterFailure(exception))
             {
-                CleanupNewlyWrittenFiles(newlyWrittenFiles);
+                CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure("Could not load transaction. Try again.");
             }
 
             if (!content.Success)
             {
-                CleanupNewlyWrittenFiles(newlyWrittenFiles);
+                CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(SafeRetryMessage(content.ErrorMessage));
             }
@@ -207,7 +207,7 @@ public sealed class InnolaTransactionLoadService
             var written = attachmentWriter.Write(layout, serviceReference, safeFileName, content.Content, attachment.SourceRole, attachment.SourceType);
             if (!written.Success || written.ManifestSourceFile is null)
             {
-                CleanupNewlyWrittenFiles(newlyWrittenFiles);
+                CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(written.ErrorMessage ?? "Attachment could not be copied to the Case Folder.");
             }
@@ -287,7 +287,7 @@ public sealed class InnolaTransactionLoadService
             or NotSupportedException
             or ArgumentException)
         {
-            CleanupNewlyWrittenFiles(newlyWrittenFiles);
+            CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
             sessionManager.ClearLoadedTransaction();
             return InnolaTransactionLoadResult.Failure($"Case Folder manifest could not be updated: {exception.Message}");
         }
@@ -787,23 +787,18 @@ public sealed class InnolaTransactionLoadService
             return "attachment";
         }
 
-        var hasDirectorySeparator = trimmed.Contains('\\', StringComparison.Ordinal) || trimmed.Contains('/', StringComparison.Ordinal);
-        if (hasDirectorySeparator && trimmed.Contains("..", StringComparison.Ordinal))
+        // Keep only the final component of any path returned by Innola.
+        var normalized = trimmed.Replace('\\', '/');
+        var lastSeparator = normalized.LastIndexOf('/');
+        var leafName = lastSeparator >= 0 ? normalized[(lastSeparator + 1)..] : Path.GetFileName(trimmed);
+        if (string.IsNullOrWhiteSpace(leafName) || leafName is "." or "..")
         {
-            return trimmed;
+            return "attachment";
         }
 
-        if (hasDirectorySeparator || Path.IsPathRooted(trimmed) || trimmed.Contains(':', StringComparison.Ordinal))
-        {
-            var normalized = trimmed.Replace('\\', '/');
-            var lastSeparator = normalized.LastIndexOf('/');
-            var leafName = lastSeparator >= 0 ? normalized[(lastSeparator + 1)..] : Path.GetFileName(trimmed);
-            return string.IsNullOrWhiteSpace(leafName) ? "attachment" : leafName;
-        }
-
-        return trimmed;
+        return string.Concat(leafName.Select(character =>
+            Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim();
     }
-
     private static string NormalizeExtension(InnolaAttachmentMetadata attachment)
     {
         if (!string.IsNullOrWhiteSpace(attachment.Extension))
@@ -841,8 +836,12 @@ public sealed class InnolaTransactionLoadService
             or TaskCanceledException;
     }
 
-    private static void CleanupNewlyWrittenFiles(IEnumerable<string> paths)
+    private static void CleanupNewlyWrittenFiles(IEnumerable<string> paths, bool preserveFiles = false)
     {
+        if (preserveFiles)
+        {
+            return;
+        }
         foreach (var path in paths)
         {
             try
@@ -912,3 +911,5 @@ public sealed class InnolaTransactionLoadService
         }
     }
 }
+
+

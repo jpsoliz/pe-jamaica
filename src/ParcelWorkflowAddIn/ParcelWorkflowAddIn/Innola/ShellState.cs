@@ -233,6 +233,17 @@ internal static class ShellState
         }
     }
 
+    private static void ReturnFromRtExaminationAsync()
+    {
+        if (ArcGIS.Desktop.Framework.FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId) is TransactionPanelDockpaneViewModel transactionPane)
+        {
+            transactionPane.Activate();
+            _ = transactionPane.State.ReturnFromRtExaminationAsync();
+            return;
+        }
+
+        Session.ClearSelectedTransaction();
+    }
     public static void OpenRtExaminationWorkspace(string transactionNumber, string? statusText)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -281,7 +292,7 @@ internal static class ShellState
                     "RT Examination",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information),
-                () => { });
+                () => ReturnFromRtExaminationAsync());
             RtExaminationWindow.ShowOrActivate(viewModel);
         }
         catch (Exception exception)
@@ -396,3 +407,4 @@ internal static class ShellState
         }
     }
 }
+

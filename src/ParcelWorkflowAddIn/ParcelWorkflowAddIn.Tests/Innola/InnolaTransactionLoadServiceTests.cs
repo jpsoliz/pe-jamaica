@@ -251,7 +251,7 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.Equal("FirstRegistration.pdf", manifest.Payload.AttachmentProvenance![0].FileName, "Provenance should persist the sanitized leaf file name.");
     }
 
-    public static async Task AttachmentFileNameTraversalBlocksLoad()
+    public static async Task AttachmentFileNameTraversalIsCopiedByLeafName()
     {
         using var tempRoot = new TempDirectory();
         var manager = LoggedInManager();
@@ -261,9 +261,9 @@ internal static class InnolaTransactionLoadServiceTests
 
         var result = await service.LoadSelectedTransactionAsync();
 
-        TestAssert.True(!result.Success, "Path traversal attachment should block load.");
-        TestAssert.True(!File.Exists(Path.Combine(tempRoot.Path, "escape.pdf")), "Path traversal should not write outside the Case Folder.");
-        TestAssert.True(!manager.CanOpenParcelWorkflow, "Parcel Workflow should remain disabled after unsafe file name.");
+        TestAssert.True(result.Success, $"Path-shaped attachment should load by leaf name. Error: {result.ErrorMessage}");
+        TestAssert.True(File.Exists(Path.Combine(result.Layout!.SourceDirectory, "escape.pdf")), "Path-shaped attachment should be copied inside the Case Folder.");
+        TestAssert.True(!File.Exists(Path.Combine(tempRoot.Path, "escape.pdf")), "Path-shaped attachment must not write outside the Case Folder.");
     }
 
     public static async Task DuplicateAttachmentNamesDoNotOverwriteExistingFiles()

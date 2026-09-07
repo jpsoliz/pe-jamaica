@@ -116,7 +116,7 @@ public sealed class InnolaTransactionDetailService : IInnolaTransactionDetailSer
             var path = queryName.Equals("bodyId", StringComparison.OrdinalIgnoreCase)
                 ? $"{InnolaSettings.V4RestPath}source/download?bodyId={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(safeFileName)}"
                 : queryName.Equals("scanSourceId", StringComparison.OrdinalIgnoreCase)
-                    ? $"{InnolaSettings.RestPath}scanning/source/{Uri.EscapeDataString(queryValue)}/body"
+                    ? $"{InnolaSettings.RestPath}scanning/source/{Uri.EscapeDataString(queryValue)}/body?documentName={Uri.EscapeDataString(safeFileName)}"
                 : $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false&documentName={Uri.EscapeDataString(safeFileName)}";
             var uri = InnolaHttp.BuildUri(session.ServerUrl, path);
             Debug.WriteLine($"Innola attachment download starting. TransactionNumber={detail.TransactionNumber}; Attachment={safeFileName}; Reference={attachment.ServiceReference}; Path={path}.");

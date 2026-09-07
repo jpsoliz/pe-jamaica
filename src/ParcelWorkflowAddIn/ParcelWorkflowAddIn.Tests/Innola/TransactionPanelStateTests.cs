@@ -912,17 +912,53 @@ internal static class TransactionPanelStateTests
     public static async Task RtExaminationStageStartsAndLaunchesWorkspaceForAnyTransactionType()
     {
         using var tempRoot = new TempDirectory();
+        var mainRow = Row("task-main-100000004", "TR100000004", "Assign Legal Officer", "tester", "2026-09-04T09:00:00-05:00", "First Registration");
+        var rtRow = Row("task-rt-100000004", "TR100000004", "In RT Examination", "tester", "2026-09-04T09:24:00-05:00", "First Registration");
         var service = new FakeTransactionService
         {
-            Result = InnolaTransactionListResult.Succeeded(new[]
-            {
-                Row("task-100000004", "TR100000004", "In RT Examination", "tester", "2026-09-04T09:24:00-05:00", "First Registration")
-            })
+            Result = InnolaTransactionListResult.Succeeded(new[] { mainRow, rtRow })
         };
         var manager = LoggedInManager();
         var clock = () => new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
         var launched = new List<(string TransactionNumber, string? StatusText)>();
         var supportingDocumentLaunchCount = 0;
+        var detailService = new MockInnolaTransactionDetailService(
+            new[]
+            {
+                new InnolaTransactionDetail(
+                    "100000004",
+                    "100000004",
+                    "task-main-100000004",
+                    "Assign Legal Officer",
+                    "parcel_workflow",
+                    "First Registration",
+                    "scenario_b",
+                    "tester",
+                    "survey",
+                    null,
+                    "available",
+                    new[]
+                    {
+                        new InnolaAttachmentMetadata("att-main-plan", "plan_map.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-main-plan", true)
+                    }),
+                new InnolaTransactionDetail(
+                    "rt-transaction-100000004",
+                    "100000004",
+                    "task-rt-100000004",
+                    "In RT Examination",
+                    "parcel_workflow",
+                    "APP",
+                    "APP",
+                    "tester",
+                    "survey",
+                    null,
+                    "available",
+                    Array.Empty<InnolaAttachmentMetadata>())
+            },
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["att-main-plan"] = new byte[] { 1, 2, 3, 4 }
+            });
         var panel = new TransactionPanelState(
             manager,
             service,
@@ -934,7 +970,7 @@ internal static class TransactionPanelStateTests
             supportedTransactionTypes: new[] { "Plan Examination" },
             computeWorkflowStages: new[] { "Compute Survey Plan" },
             compareWorkflowStages: new[] { "Compare Survey Plan" },
-            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, new AppRtExaminationDetailService()),
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, detailService),
             supportingDocumentsLauncher: () =>
             {
                 supportingDocumentLaunchCount++;
@@ -944,16 +980,235 @@ internal static class TransactionPanelStateTests
             rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
 
         await panel.RefreshAsync();
-        panel.SelectedRow = panel.Rows[0];
+        panel.SelectedRow = panel.Rows.First(row => row.TaskId.Equals("task-rt-100000004", StringComparison.OrdinalIgnoreCase));
         await panel.StartSelectedTransactionAsync();
 
-        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "RT Examination start should claim the transaction before launch.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, $"RT Examination start should claim the transaction before launch. Status={panel.StatusText}; Error={panel.ErrorText}");
         TestAssert.Equal("TR100000004", manager.SelectedTransaction?.TransactionNumber, "RT Examination should load the selected transaction.");
+        TestAssert.Equal("task-rt-100000004", manager.SelectedTransaction?.TaskId, "RT Examination should leave the selected RT task active.");
         TestAssert.Equal(1, launched.Count, "RT Examination workspace should launch once.");
         TestAssert.Equal("TR100000004", launched[0].TransactionNumber, "RT Examination workspace launch transaction mismatch.");
         TestAssert.True(launched[0].StatusText?.Contains("RT Examination", StringComparison.OrdinalIgnoreCase) == true, "RT launch should include a stage-aware status message.");
         TestAssert.Equal(1, supportingDocumentLaunchCount, "RT Examination start should open Supporting Documents once.");
         TestAssert.True(manager.CanOpenParcelWorkflow, "Claimed RT Examination transaction should keep active transaction gates enabled.");
+    }
+    public static async Task RtExaminationStartDownloadsSupportingDocumentsFromMainTransactionRow()
+    {
+        using var tempRoot = new TempDirectory();
+        var mainRow = Row(
+            "task-main-100000854",
+            "100000854",
+            "Assign Legal Officer",
+            "tester",
+            "2026-09-04T09:00:00-05:00",
+            "First Registration");
+        var rtRow = Row(
+            "task-rt-100000854",
+            "100000854",
+            "In RT Examination",
+            "tester",
+            "2026-09-04T09:24:00-05:00",
+            "First Registration");
+        var sourceAttachment = new InnolaAttachmentMetadata(
+            "att-main-plan",
+            @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\source\FirstRegistration.pdf",
+            ".pdf",
+            "application/pdf",
+            SourceRole.PlanMapReference,
+            "plan",
+            4,
+            null,
+            "mock-attachment:att-main-plan",
+            true);
+        var detailService = new MockInnolaTransactionDetailService(
+            new[]
+            {
+                new InnolaTransactionDetail(
+                    "100000854",
+                    "100000854",
+                    "task-main-100000854",
+                    "Assign Legal Officer",
+                    "parcel_workflow",
+                    "First Registration",
+                    "scenario_b",
+                    "tester",
+                    "survey",
+                    null,
+                    "available",
+                    new[] { sourceAttachment }),
+                new InnolaTransactionDetail(
+                    "rt-transaction-100000854",
+                    "100000854",
+                    "task-rt-100000854",
+                    "In RT Examination",
+                    "parcel_workflow",
+                    "APP",
+                    "APP",
+                    "tester",
+                    "survey",
+                    null,
+                    "available",
+                    Array.Empty<InnolaAttachmentMetadata>())
+            },
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["att-main-plan"] = new byte[] { 1, 2, 3, 4 }
+            });
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { mainRow, rtRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var launched = new List<(string TransactionNumber, string? StatusText)>();
+        var supportingDocumentLaunchCount = 0;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock, detailService),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan" },
+            compareWorkflowStages: new[] { "Compare Survey Plan" },
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, detailService),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            },
+            rtExaminationSettings: RtExaminationSettings.Default,
+            rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = rtRow;
+        await panel.StartSelectedTransactionAsync();
+
+        var caseFolder = Path.Combine(tempRoot.Path, "100000854");
+        var manifest = ManifestSerializer.Read(Path.Combine(caseFolder, "manifest.json"));
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "RT Examination start should claim the RT task after main documents are loaded.");
+        TestAssert.Equal("task-rt-100000854", manager.SelectedTransaction?.TaskId, "RT Examination should leave the linked RT task selected for lifecycle and RT data.");
+        TestAssert.Equal("In RT Examination", manager.SelectedTransaction?.TaskName, "RT Examination should not leave the main transaction selected.");
+        TestAssert.True(File.Exists(Path.Combine(caseFolder, "source", "FirstRegistration.pdf")), "Supporting document should be downloaded from the main transaction row by leaf file name.");
+        TestAssert.Equal("task-main-100000854", manifest.Payload.InnolaTransaction?.TaskId, "Manifest source provenance should identify the main transaction task that supplied attachments.");
+        TestAssert.Equal("task-rt-100000854", manifest.Payload.InnolaLifecycle?.TaskId, "Manifest lifecycle should identify the selected RT task.");
+        TestAssert.Equal("FirstRegistration.pdf", manifest.Payload.AttachmentProvenance![0].FileName, "Attachment provenance should persist the sanitized main source file name.");
+        TestAssert.Equal(1, launched.Count, "RT Examination workspace should launch once.");
+        TestAssert.Equal("100000854", launched[0].TransactionNumber, "RT Examination workspace should open for the selected RT transaction number.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "RT Examination start should open Supporting Documents once.");
+    }
+
+    public static async Task RtExaminationAlreadyInProgressSecondRowDownloadsMainDocumentsAndOpensWorkspace()
+    {
+        using var tempRoot = new TempDirectory();
+        var mainRow = Row(
+            "task-main-100000854",
+            "100000854",
+            "Assign Legal Officer",
+            "tester",
+            "2026-09-04T09:00:00-05:00",
+            "First Registration") with { Status = InnolaTransactionStatus.InProgress };
+        var rtRow = Row(
+            "task-rt-100000854",
+            "100000854",
+            "In RT Examination",
+            "tester",
+            "2026-09-04T09:24:00-05:00",
+            "First Registration") with { Status = InnolaTransactionStatus.InProgress };
+        var sourceAttachment = new InnolaAttachmentMetadata(
+            "att-main-plan",
+            @"C:\Users\js91482\Documents\SidwellCo\ParcelWorkflowCases\100000854\source\FirstRegistration.pdf",
+            ".pdf",
+            "application/pdf",
+            SourceRole.PlanMapReference,
+            "plan",
+            4,
+            null,
+            "mock-attachment:att-main-plan",
+            true);
+        var detailService = new MockInnolaTransactionDetailService(
+            new[]
+            {
+                new InnolaTransactionDetail(
+                    "100000854",
+                    "100000854",
+                    "task-main-100000854",
+                    "Assign Legal Officer",
+                    "parcel_workflow",
+                    "First Registration",
+                    "scenario_b",
+                    "tester",
+                    "tester",
+                    null,
+                    "in_progress",
+                    new[] { sourceAttachment }),
+                new InnolaTransactionDetail(
+                    "rt-transaction-100000854",
+                    "100000854",
+                    "task-rt-100000854",
+                    "In RT Examination",
+                    "parcel_workflow",
+                    "APP",
+                    "APP",
+                    "tester",
+                    "tester",
+                    null,
+                    "in_progress",
+                    Array.Empty<InnolaAttachmentMetadata>())
+            },
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["att-main-plan"] = new byte[] { 1, 2, 3, 4 }
+            });
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[] { mainRow, rtRow })
+        };
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var launched = new List<(string TransactionNumber, string? StatusText)>();
+        var supportingDocumentLaunchCount = 0;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock, detailService),
+            LifecycleCoordinator(manager, clock, lifecycleService: new FailingClaimLifecycleService()),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan" },
+            compareWorkflowStages: new[] { "Compare Survey Plan" },
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, detailService),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            },
+            rtExaminationSettings: RtExaminationSettings.Default,
+            rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
+
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows.First(row => row.TaskId.Equals("task-rt-100000854", StringComparison.OrdinalIgnoreCase));
+        await panel.StartSelectedTransactionAsync();
+
+        var caseFolder = Path.Combine(tempRoot.Path, "100000854");
+        TestAssert.True(File.Exists(Path.Combine(caseFolder, "source", "FirstRegistration.pdf")), "Selected in-progress RT row should download supporting documents from the main transaction row.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Selected in-progress RT row should reopen as the active transaction without a second claim.");
+        TestAssert.Equal("task-rt-100000854", manager.SelectedTransaction?.TaskId, "Selected in-progress RT row should remain active for RT UX/writeback.");        TestAssert.Equal(1, launched.Count, "Selected in-progress RT row should launch the RT Examination UX.");
+        TestAssert.Equal("100000854", launched[0].TransactionNumber, "RT UX should open for the selected RT transaction number.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Selected in-progress RT row should open Supporting Documents after main attachment load.");
+        TestAssert.True(File.Exists(Path.Combine(caseFolder, "working", "rt_examination_start_trace.json")), "RT start should write an early case-folder trace before linked UX loading.");
+
+        launched.Clear();
+        supportingDocumentLaunchCount = 0;
+        TestAssert.True(panel.CanStartTransaction, "Same active RT row should remain startable so a missing UX can be reopened instead of doing nothing.");
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(1, launched.Count, "Clicking OpenTask again on the same active RT row should reopen the RT Examination UX.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Clicking OpenTask again on the same active RT row should reopen Supporting Documents.");
     }
     public static async Task ActiveCompareTaskCanReopenWithoutClaimingAgainAndSuspend()
     {

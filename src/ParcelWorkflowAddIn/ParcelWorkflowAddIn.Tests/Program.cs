@@ -57,6 +57,7 @@ var tests = new (string Name, Action Run)[]
     ("rt examination spatial unit fields exclude geometry", RtExaminationTests.SpatialUnitEditableFieldsExcludeGeometry),
     ("rt examination duplicate parties use deterministic key", RtExaminationTests.DuplicatePartyRowsUseDeterministicRtKey),
     ("rt examination window exposes review tabs editable columns and actions", RtExaminationTests.WindowXamlExposesReviewTabsEditableColumnsAndActions),
+    ("rt examination save command completes linked transaction and closes", () => RtExaminationTests.SaveKeepsLinkedRtTransactionOpenUntilComplete().GetAwaiter().GetResult()),
     ("compare geometry transaction number scope builds normalized query", CompareWorkingGeometryServiceTests.TransactionNumberScopeBuildsNormalizedQuery),
     ("compare geometry numeric transaction number scope remains numeric", CompareWorkingGeometryServiceTests.NumericTransactionNumberScopeUsesNumericValue),
     ("compare geometry transaction id scope uses published transaction number value", CompareWorkingGeometryServiceTests.TransactionIdScopeUsesPublishedTransactionNumberValue),
@@ -666,6 +667,7 @@ var tests = new (string Name, Action Run)[]
     ("innola live detail classifies compute report as internal", () => InnolaTransactionDetailServiceTests.LiveDetailClassifiesComputeReportAsInternalBeforeComputationHeuristic().GetAwaiter().GetResult()),
     ("innola live detail classifies pla plan annexation pdf", () => InnolaTransactionDetailServiceTests.LiveDetailClassifiesPlanAnnexationPdfBySourceType().GetAwaiter().GetResult()),
     ("innola attachment download strips path from document name", () => InnolaTransactionDetailServiceTests.AttachmentDownloadStripsPathFromDocumentName().GetAwaiter().GetResult()),
+    ("innola scanning source attachment download strips path from document name", () => InnolaTransactionDetailServiceTests.ScanningSourceAttachmentDownloadStripsPathFromDocumentName().GetAwaiter().GetResult()),
     ("innola live detail without source identifiers fails safely", () => InnolaTransactionDetailServiceTests.LiveDetailWithoutSourceIdentifiersFailsSafely().GetAwaiter().GetResult()),
     ("innola transaction load creates case folder and keeps parcel workflow disabled until claim", () => InnolaTransactionLoadServiceTests.SuccessfulMockLoadCreatesCaseFolderAndKeepsParcelWorkflowDisabledUntilClaim().GetAwaiter().GetResult()),
     ("innola transaction load normalizes prefixed transaction number for case folder", () => InnolaTransactionLoadServiceTests.LoadNormalizesPrefixedInnolaTransactionNumberForCaseFolder().GetAwaiter().GetResult()),
@@ -679,7 +681,7 @@ var tests = new (string Name, Action Run)[]
     ("innola transaction load cleans partial attachment files", () => InnolaTransactionLoadServiceTests.LaterAttachmentFailureCleansPreviouslyWrittenFiles().GetAwaiter().GetResult()),
     ("innola transaction load converts adapter exception", () => InnolaTransactionLoadServiceTests.DetailAdapterExceptionReturnsRetryableNonSecretError().GetAwaiter().GetResult()),
     ("innola transaction load copies absolute attachment path by leaf name", () => InnolaTransactionLoadServiceTests.AbsoluteAttachmentPathCopiesByLeafFileName().GetAwaiter().GetResult()),
-    ("innola transaction load blocks attachment traversal", () => InnolaTransactionLoadServiceTests.AttachmentFileNameTraversalBlocksLoad().GetAwaiter().GetResult()),
+    ("innola transaction load blocks attachment traversal", () => InnolaTransactionLoadServiceTests.AttachmentFileNameTraversalIsCopiedByLeafName().GetAwaiter().GetResult()),
     ("innola transaction load avoids duplicate attachment overwrite", () => InnolaTransactionLoadServiceTests.DuplicateAttachmentNamesDoNotOverwriteExistingFiles().GetAwaiter().GetResult()),
     ("innola transaction load restores resume package state", () => InnolaTransactionLoadServiceTests.ResumePackageRestoresSavedWorkflowState().GetAwaiter().GetResult()),
     ("innola resume package excludes heavy output artifacts", () => InnolaTransactionLoadServiceTests.ResumePackageExcludesHeavyOutputArtifactsButKeepsWorkingState().GetAwaiter().GetResult()),
@@ -796,6 +798,8 @@ var tests = new (string Name, Action Run)[]
     ("transaction panel compare workflow stage loads selected transaction", () => TransactionPanelStateTests.CompareWorkflowStageLoadsSelectedTransaction().GetAwaiter().GetResult()),
     ("transaction panel compare workflow stage starts and launches compare workspace", () => TransactionPanelStateTests.CompareWorkflowStageStartsAndLaunchesCompareWorkspace().GetAwaiter().GetResult()),
     ("transaction panel rt examination stage starts and launches workspace", () => TransactionPanelStateTests.RtExaminationStageStartsAndLaunchesWorkspaceForAnyTransactionType().GetAwaiter().GetResult()),
+    ("transaction panel rt examination start downloads documents from main transaction", () => TransactionPanelStateTests.RtExaminationStartDownloadsSupportingDocumentsFromMainTransactionRow().GetAwaiter().GetResult()),
+    ("transaction panel rt examination in-progress second row downloads documents and opens", () => TransactionPanelStateTests.RtExaminationAlreadyInProgressSecondRowDownloadsMainDocumentsAndOpensWorkspace().GetAwaiter().GetResult()),
     ("transaction panel active compare task reopens without claiming", () => TransactionPanelStateTests.ActiveCompareTaskCanReopenWithoutClaimingAgainAndSuspend().GetAwaiter().GetResult()),
     ("transaction panel active compare task disables cmp while open", () => TransactionPanelStateTests.ActiveCompareTaskDisablesCmpWhenCompareWorkspaceIsOpen().GetAwaiter().GetResult()),
     ("transaction panel compare workflow stage does not resolve as compute workspace", TransactionPanelStateTests.CompareWorkflowStageDoesNotResolveAsComputeWorkspace),
@@ -834,3 +838,4 @@ foreach (var test in selectedTests)
 }
 
 Console.WriteLine($"PASS {selectedTests.Length} tests");
+

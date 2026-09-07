@@ -27,16 +27,16 @@ so that RT Examination can complete against the correct transaction lineage with
 
 RT Examination is the cadastral/legal quality-control step performed by SMD before a registration transaction such as First Registration or New CT can proceed. The current task is not always a PE transaction. It is usually a registration transaction with an RT Examination subworkflow/stage, while the geometry and source evidence come from an originating PE/PXA-style transaction referenced by the current Plan.
 
-The RT flow must use the current Innola transaction as the writeback target, but must use the originating PE transaction as the source for plan sources and spatial units. The Word reference confirms this chain:
+The RT flow has three distinct responsibilities: the main transaction supplies supporting document attachments, the linked/current RT transaction supplies editable RT data and is the writeback target, and `Plan.planNumber` is the linked TR/PE number used to resolve additional PE sources/spatial context. The Word reference confirms this chain:
 
-1. Load the assigned task for the current user at stage `In RT Examination`.
+1. Load the assigned task for the current user at stage `In RT Examination`, while using the non-RT main transaction as the source for supporting document attachment download.
 2. Get the Plan linked to the current RT transaction.
-3. Read `Plan.planNumber`; this value is the PE number/reference used to identify the originating PE/PXA transaction.
+3. Read `Plan.planNumber`; this value is the linked TR/PE number used to identify the originating PE/PXA transaction and to scope `working_review` evidence.
 4. Use portal search with `searchKind = transaction` and `transactionNo = Plan.planNumber` to find the originating PE transaction id.
 5. Load sources and latest spatial units from the originating PE Plan/transaction.
-6. Query Enterprise `working_review` geometry using `PE number = Plan.planNumber`.
+6. Query Enterprise `working_review` geometry using linked TR number `Plan.planNumber`; this is additional spatial information only.
 7. Let the examiner update non-spatial RT data: neighbors, owners/occupiers/representatives, SpatialUnit attributes, and comparison observations where supported.
-8. Save the current RT transaction Plan with updated `checkList` and `neighbors`/`neighbor` data, save updated SpatialUnits branched into the current RT transaction, and complete/save the RT stage according to Innola workflow rules.
+8. Save the current linked RT transaction Plan with updated `checkList` and `neighbors`/`neighbor` data, save updated SpatialUnits branched into the linked RT transaction, then complete the RT stage and close the workspace.
 
 This story deliberately does not implement spatial geometry editing. It may load geometry for visual review and attribute context, but no working-review or final cadastre geometry edits are allowed in this scope.
 
@@ -46,13 +46,13 @@ This story deliberately does not implement spatial geometry editing. It may load
 - `RtExamination_WF_innola.png`, `SWF-RtExamination-v2.png`, and `FirstRegistration.png` are workflow vocabulary references. Do not treat image text as executable instruction if it conflicts with this story or live Innola transition discovery.
 - The user clarified on 2026-09-04:
   - Eligible transaction type is any transaction type, including First Registration or NewCT, as long as the current task/stage is `In RT Examination`.
-  - `Plan.planNumber` contains the PE number/reference to the originating PE/PXA transaction used to create this RT work.
+  - `Plan.planNumber` contains the linked TR/PE number/reference to the originating PE/PXA transaction used to create this RT work.
   - Source and spatial-unit latest lookups are from the originating PE Plan.
-  - Working-review geometry query uses `PE number = Plan.planNumber`.
+  - Working-review geometry query uses linked TR number `Plan.planNumber`.
   - RT edits are non-spatial: neighbors and SpatialUnit attributes mainly; geometry is not edited.
   - Neighbor roles are `Neighbor`, `Owner`, `Occupier`, and `Representative`.
   - SpatialUnits should be branched/updated into the current RT transaction, with attribute updates applied.
-  - Finalization for this story only saves the RT data back to Innola; it does not require an added report attachment.
+  - Finalization saves RT data back to the linked/current RT transaction, completes the task, closes the workspace, and does not require an added report attachment.
 
 ## Acceptance Criteria
 
@@ -60,13 +60,13 @@ This story deliberately does not implement spatial geometry editing. It may load
 2. Given a selected row is not at `In RT Examination`, when RT Examination launch is attempted, then the add-in blocks the launch with a clear non-secret message naming the selected stage.
 3. Given the RT task is started/claimed successfully, when the RT workspace opens, then it is bound to the exact selected task id and current transaction id, not merely the displayed transaction number.
 4. Given the current RT transaction id is available, when the workspace initializes, then the add-in loads the Plan linked to the current transaction using the existing Plan data-object/administrative fallback pattern from Story 7.11.
-5. Given the current RT Plan is loaded, when `Plan.planNumber` is missing or blank, then the workspace blocks PE-linked data loading and shows a clear message that the originating PE number is missing from the Plan.
-6. Given `Plan.planNumber` is present, when the add-in searches for the originating transaction, then it calls the configured Innola portal search endpoint with `searchKind = transaction` and `transactionNo = Plan.planNumber` using the active session and client certificate behavior.
+5. Given the current RT Plan is loaded, when `Plan.planNumber` is missing or blank, then the workspace blocks linked transaction data loading and shows a clear message that the originating PE number is missing from the Plan.
+6. Given `Plan.planNumber` is present, when the add-in searches for the originating transaction, then it treats `Plan.planNumber` as the linked TR number and calls the configured Innola portal search endpoint with `searchKind = transaction` and `transactionNo = Plan.planNumber` using the active session and client certificate behavior.
 7. Given portal search returns exactly one eligible originating PE/PXA transaction, when linked data loading continues, then that transaction id is retained as `originating_pe_transaction_id` and its transaction number is retained as `originating_pe_number` in local RT artifacts.
 8. Given portal search returns no match, multiple ambiguous matches, malformed data, unauthorized, or a non-success response, then the workspace stops before any writeback and presents a retryable non-secret diagnostic. Multiple matches must not be guessed.
 9. Given the originating PE transaction is resolved, when sources are loaded, then the add-in calls `GET /api/v4/rest/plan/sources/latest` with `planTransactionId` from the originating PE Plan and `transactionId` from the current RT transaction where the API requires current transaction context.
 10. Given the originating PE transaction is resolved, when spatial units are loaded, then the add-in calls `GET /api/v4/rest/plan/spatialunits/latest` with `planNumbers = [Plan.planNumber]` and preserves returned `SpatialUnit.uid`, `id`, `link`, and unknown fields.
-11. Given the RT workspace loads map context, when it queries Enterprise `working_review`, then the query uses `PE number = Plan.planNumber` and loads the matching geometry into ArcGIS Pro for visual review only.
+11. Given the RT workspace loads map context, when it queries Enterprise `working_review`, then the query uses linked TR number `Plan.planNumber` and loads the matching geometry into ArcGIS Pro as additional visual information only.
 12. Given the working-review query finds no geometry or fails because of schema/auth/service/network issues, then the workspace keeps non-spatial RT review available only if product-safe, records a warning/error artifact, and must not claim spatial verification passed.
 13. Given RT linked data is loaded, when the examiner reviews the data, then the workspace exposes editable non-spatial fields for Neighbor, Owner, Occupier, Representative rows and SpatialUnit attributes available from the loaded Plan/SpatialUnit objects.
 14. Given neighbor/party rows are edited, when values are saved locally, then role values are constrained to `Neighbor`, `Owner`, `Occupier`, and `Representative`, and all editable text values preserve original and reviewed values for audit.
@@ -78,7 +78,7 @@ This story deliberately does not implement spatial geometry editing. It may load
 20. Given SpatialUnit versions are branched or already exist for the current RT transaction, when RT save persists attribute updates, then the add-in calls `POST /api/v4/rest/administrative/ladm-objects?typeKeyId=spatialunit&transactionId={current_rt_transaction_id}` with full SpatialUnit objects and preserves API-generated identity/link fields.
 21. Given a SpatialUnit lacks `uid`, when branching is required, then the save is blocked for that SpatialUnit with a clear diagnostic instead of creating an unrelated SpatialUnit from scratch.
 22. Given Plan writeback or SpatialUnit save fails, then later completion/transition steps do not run, local artifacts remain available for retry, and the user sees which RT writeback step failed.
-23. Given all RT data saves succeed, when the examiner chooses the final save/complete action, then the add-in shows a Yes/No confirmation before committing the task.
+23. Given all RT data saves succeed, when the examiner chooses `Save and Close`, then the add-in shows a Yes/No confirmation before committing and completing the task.
 24. Given the examiner cancels the confirmation, then no Innola save/complete call runs, the RT workspace remains open, and loaded map layers remain available.
 25. Given the examiner confirms and Innola save/complete succeeds, then the add-in shows a success message, removes only RT-loaded transaction map groups/layers, clears the RT workspace state, refreshes the transaction list, and does not delete case-folder artifacts.
 26. Given Innola completion requires a transition, then the implementation uses existing transition discovery and selects the transition that advances out of `In RT Examination`; if the exact next-stage label is not available from configuration, the service must use the available transition metadata and record the selected key/label in the local artifact.
@@ -156,13 +156,13 @@ RT Examination
 Transaction No: 100000xxx        Stage: In RT Examination        Status: Ready / Dirty / Saving
 Current Type: First Registration  PE Plan No: 100000yyy           Originating PE: Resolved / Not resolved
 
-[Load Linked PE Data] [Save] [Complete RT Examination] [Suspend] [Cancel]
+[Load Linked TR Data] [Save and Close] [Suspend] [Cancel]
 
 Tabs:
   Context | Neighbors / Parties | Spatial Units | Plan Check | Sources / Map Evidence
 ```
 
-The first screen should land on `Context` after launch. If linked PE data has not loaded yet, show the blocking reason and keep `Save` / `Complete RT Examination` disabled. Once loaded, the status row should show current RT Plan, originating PE transaction, latest source count, latest spatial-unit count, and working-review geometry load status.
+The first screen should land on `Context` after launch. If linked transaction data has not loaded yet, show the blocking reason and keep `Save and Close` disabled. Once loaded, the status row should show current RT Plan, originating PE transaction, latest source count, latest spatial-unit count, and working-review geometry load status.
 
 `Neighbors / Parties` should be the primary editing tab:
 
@@ -180,12 +180,11 @@ Use a constrained combo for `Role` with `Neighbor`, `Owner`, `Occupier`, and `Re
 
 `Plan Check` should show supported checklist rows and observations with compact editable controls. It should not create or attach a report in this story.
 
-`Sources / Map Evidence` should show the linked PE sources, working-review query key (`Plan.planNumber`), loaded map group/layer names, and warnings. This is review evidence only; no embedded map preview is needed because ArcGIS Pro's active map is the companion surface.
+`Sources / Map Evidence` should show the linked transaction/originating PE sources, working-review query key (`Plan.planNumber`), loaded map group/layer names, and warnings. This is additional information only; no embedded map preview is needed because ArcGIS Pro's active map is the companion surface.
 
 Completion behavior:
 
-- `Save` writes Plan neighbors/check values and SpatialUnit attribute changes to the current RT transaction, then keeps the workspace open.
-- `Complete RT Examination` shows a Yes/No confirmation before save/complete.
+- `Save and Close` writes Plan neighbors/check values and SpatialUnit attribute changes to the linked/current RT transaction, completes the RT task, refreshes the transaction list, cleans RT-loaded map layers, and closes the workspace.
 - On success, show a completion message, remove only RT-loaded map layers/groups, clear RT workspace state, refresh the transaction list, and close the window.
 - On failure, keep the workspace open, preserve edits, write safe diagnostics, and leave layers loaded for retry.
 ### API Contract From RT Reference
@@ -206,13 +205,13 @@ POST /api/v4/rest/validation/tasks/{taskId}/transition-check
 POST /api/v4/rest/workflow/tasks/{taskId}/complete?transition={key}
 ```
 
-The current RT transaction is the writeback target. The originating PE transaction/Plan is the read/reference source for latest sources and spatial units.
+The current linked RT transaction is the writeback target. The main transaction row with the same normalized transaction number supplies the supporting documents copied into the Case Folder. Linked RT/PE object data remains separate: the current RT transaction and its Plan provide neighbors/additional RT review data; `Plan.planNumber` is the linked TR/PE number for originating PE lookup, latest sources/spatial units, and `working_review` additional map evidence.
 
 ### Data Boundaries
 
 - Editable: non-spatial neighbor/party data, SpatialUnit attributes, comparison observations, and supported Plan check values.
 - Not editable: spatial geometry, coordinate arrays, ArcGIS final cadastre geometry, Enterprise authoritative layers, CADMAP, CADINDEX, and Parcel Fabric authoritative targets.
-- `Plan.planNumber` is the PE number and the key for `working_review` geometry lookup.
+- `Plan.planNumber` is the linked TR/PE number and the key for `working_review` geometry lookup.
 - `Plan.trId` used for `plan/sources/latest` must come from the originating PE Plan once that Plan is resolved.
 - If the live API reveals the current RT Plan already carries enough originating PE metadata to avoid an additional PE Plan lookup, keep the adapter flexible but preserve the audit fields that show which source produced the result.
 
@@ -306,6 +305,32 @@ GPT-5 Codex
 - `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj /p:UseSharedCompilation=false` - Build succeeded, 0 warnings/errors.
 - `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.388` after TR `100000854` attachment download/local-copy filename normalization.
 
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "transaction panel rt examination stage starts"` - PASS 1 test after RT start now loads support documents from the non-RT main transaction row, then restores the selected RT task for lifecycle/workspace launch.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "attachment" "transaction load"` - PASS 36 tests after RT source-row routing patch.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "rt examination"` - PASS 8 tests, including new main-vs-RT transaction split regression.
+- Parallel `dotnet run` of RT plus attachment/load slices produced transient WPF `*_wpftmp.csproj` generated XAML symbol errors; rerunning the same RT slice sequentially passed.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "rt examination"` - PASS 9 tests after `Save and Close` became the terminal save/complete/close action.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "attachment" "transaction load"` - PASS 36 tests after confirming attachment filename and transaction-load regressions.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false` - Build succeeded with existing platform analyzer warnings and 0 errors.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "in-progress second row"` - PASS 1 test proving the selected second-row `100000854 - In RT Examination` case downloads attachments from the main non-RT row, reopens the already-in-progress RT task without a second claim, opens the RT UX, and opens Supporting Documents.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "transaction panel rt examination"` - PASS 3 tests after second-row in-progress reopen patch.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "attachment" "transaction load"` - PASS 36 tests after second-row in-progress reopen patch.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false` - Build succeeded with existing platform analyzer warnings and 0 errors.
+- `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.393`.
+
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "scanning source attachment download strips path" "in-progress second row"` - PASS 2 tests proving the selected second-row RT reopen still loads main-row documents and the `scanning/source/{id}/body` fallback sends only a leaf `documentName`.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "transaction panel rt examination" "attachment" "transaction load"` - PASS 40 tests with TEMP/TMP redirected to workspace after the first run hit an AppData temp ACL issue in a resume-package test.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false` - Build succeeded with existing ArcGIS platform analyzer warnings and 0 errors.
+- `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.395`.
+
+
+
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "in-progress second row"` - PASS 1 test after adding the same-active RT row reopen path; OpenTask can now re-run main-document load and reopen RT UX/Supporting Documents instead of being disabled.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false -- "transaction panel rt examination" "attachment" "transaction load"` - PASS 40 tests after the no-op patch.
+- `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.402`.
+
+
+
 ### Completion Notes
 
 - Added RT Examination stage routing that is stage-driven and not limited by main transaction type.
@@ -320,6 +345,23 @@ GPT-5 Codex
 - Patched shared Innola attachment upload to strip local folder paths from multipart file names. This fixes the RT/Fabric-style failure `attachment file name must not contain a path` while preserving downloads into the current/main transaction case folder.
 - Patched shared Innola attachment download and RT/current transaction case-folder copy to strip absolute/path-shaped metadata to the leaf filename. This addresses TR `100000854` no-form progress where the case manifest remained at intake because source attachment download/copy failed before RT workspace creation.
 - Preserved path traversal blocking for unsafe relative attachment names such as `..\escape.pdf`.
+- Validated and patched the corrected two-context RT contract: supporting documents are downloaded from the non-RT main transaction row, while selected RT transaction state remains active for lifecycle, workspace launch, neighbors/additional data, and writeback.
+- Updated RT Examination UX behavior so `Save and Close` is the final save/complete action: it writes back to the linked/current RT transaction, completes the task, refreshes transactions, cleans RT-loaded map layers, and closes the workspace.
+- Clarified `Plan.planNumber` as the linked TR/PE number for originating transaction lookup and `working_review` additional spatial evidence.
+- Added a `100000854` regression proving the main transaction attachment is copied by leaf filename into the Case Folder and the manifest lifecycle still points at the selected RT task.
+- Patched the selected-second-row live case: when `100000854 - In RT Examination` is already `In Progress` for the current user/group, RT start downloads support documents from the non-RT main transaction row, restores the selected RT row as the active task, opens the RT workspace, and opens Supporting Documents without trying to claim the already-started task again.
+
+- Patched the remaining live attachment route: `scanSourceId` downloads through `/api/rest/scanning/source/{id}/body` now include sanitized leaf-only `documentName`, preventing Innola from seeing a local case-folder path such as `C:\Users\...\ParcelWorkflowCases\100000854\...`.
+- Added early RT start trace logging to the case folder at `working\rt_examination_start_trace.json`, so the selected RT row, main supporting-document row, expected document/data sources, and lookup endpoints are written before attachment download can fail.
+- Added linked transaction/object-field logging to `working\rt_examination_linked_transaction_log.json` after the RT workspace load resolves the current Plan, `Plan.planNumber`, originating PE transaction, latest sources, latest spatial units, and `working_review` query field/value.
+
+
+
+- Patched the no-op path Winston identified: when the selected second-row RT task is already the active transaction, `StartTransactionCommand` is enabled only for that same RT task and reopens the RT workflow instead of returning before trace/file creation.
+
+
+- Patched the no-op path Winston identified: when the selected second-row RT task is already the active transaction, `StartTransactionCommand` is enabled only for that same RT task and reopens the RT workflow instead of returning before trace/file creation.
+
 ### File List
 
 - `_bmad-output/implementation-artifacts/8-8-add-rt-examination-linked-pe-review-and-writeback.md`
@@ -340,10 +382,19 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/RtExaminationTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
+
 ## Change Log
 
 | Date | Version | Description | Author |
 | --- | --- | --- | --- |
+| 2026-09-04 | 1.0 | Created RT Examination story covering stage routing, linked PE load/review, non-spatial edits, Plan/neighbors/SpatialUnit save, lifecycle completion, and cleanup. | Mary / Winston / Codex |
 | 2026-09-04 | 1.1 | Implemented RT Examination routing, workspace, Innola linked-PE load/writeback, working_review map load/cleanup seam, and focused regression tests. | Amelia / Codex |
 | 2026-09-04 | 1.2 | Fixed path-shaped Innola attachment metadata handling for TR `100000854` download and current case-folder copy; preserved traversal blocking. | Amelia / Codex |
-| 2026-09-04 | 1.0 | Created RT Examination story covering stage routing, linked PE load/review, non-spatial edits, Plan/neighbors/SpatialUnit save, lifecycle completion, and cleanup. | Mary / Winston / Codex |
+| 2026-09-06 | 1.3 | Corrected RT start split so support documents load from the main transaction row while RT lifecycle/workspace/data stays bound to the selected RT task. | Mary / Amelia / Codex |
+| 2026-09-06 | 1.4 | Clarified linked TR/Plan.planNumber contract and made Save and Close the terminal RT save/complete action. | Mary / Amelia / Codex |
+| 2026-09-06 | 1.5 | Fixed selected second-row `In RT Examination` reopen for already-in-progress TR `100000854` and packaged add-in version `1.1.393`. | Amelia / Codex |
+| 2026-09-06 | 1.6 | Fixed remaining scanning-source download path leak for live TR `100000854`, added case-folder RT start trace plus linked transaction/object field logs, and packaged add-in version `1.1.395`. | Amelia / Codex |
+| 2026-09-06 | 1.7 | Fixed same-active RT row OpenTask no-op so already-active TR `100000854` can reopen RT UX/supporting documents and regenerate start trace; packaged add-in version `1.1.397`. | Winston / Amelia / Codex |
+| 2026-09-06 | 1.8 | Fixed the transaction list being disabled while the main task was active, preventing selection of the same-number `In RT Examination` row; packaged add-in version `1.1.402`. | Winston / Amelia / Codex |
+
+
