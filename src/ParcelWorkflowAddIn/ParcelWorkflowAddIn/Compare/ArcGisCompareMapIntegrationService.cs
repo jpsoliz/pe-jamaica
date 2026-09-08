@@ -68,6 +68,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         var enterpriseCadasterSettings = settings.CompareEnterpriseCadaster;
         int? polygonFeatureCount = null;
         var workingFeatureCounts = new Dictionary<CompareWorkingLayerRole, int?>();
+        var workingPolygonRows = new List<IReadOnlyDictionary<string, string?>>();
         try
         {
             await QueuedTask.Run(() =>
@@ -97,6 +98,7 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
                         {
                             polygonFeatureCount = featureCount;
                             reviewGeometries.AddRange(ReadFeatureGeometries(featureLayer, request.DefinitionQuery));
+                            workingPolygonRows.AddRange(ReadFeatureAttributeRows(featureLayer, request.DefinitionQuery));
                         }
                     }
 
@@ -152,14 +154,16 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
                 BuildLoadedMessage(plan, groupLayerName, workingFeatureCounts, zoomed: false, cadasterContextSummaries, mapWarnings),
                 loadedLayerUrls,
                 groupLayerName,
-                polygonFeatureCount);
+                polygonFeatureCount,
+                workingPolygonRows);
         }
 
         return CompareMapIntegrationResult.Loaded(
             BuildLoadedMessage(plan, groupLayerName, workingFeatureCounts, zoomed: true, cadasterContextSummaries, mapWarnings),
             loadedLayerUrls,
             groupLayerName,
-            polygonFeatureCount);
+            polygonFeatureCount,
+            workingPolygonRows);
     }
 
     private async Task<WorkingMapPreparationResult> PrepareConfiguredWorkingMapAsync(
@@ -460,6 +464,45 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         }
 
         return geometries;
+    }
+
+    private static IReadOnlyList<IReadOnlyDictionary<string, string?>> ReadFeatureAttributeRows(FeatureLayer featureLayer, string definitionQuery)
+    {
+        var rows = new List<IReadOnlyDictionary<string, string?>>();
+        var fieldNames = ReadFieldNames(featureLayer).ToArray();
+        using var cursor = featureLayer.Search(new QueryFilter
+        {
+            WhereClause = definitionQuery,
+            RowCount = 25
+        });
+
+        while (cursor.MoveNext())
+        {
+            if (cursor.Current is not Row row)
+            {
+                continue;
+            }
+
+            var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var fieldName in fieldNames)
+            {
+                object? value;
+                try
+                {
+                    value = row[fieldName];
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+
+                values[fieldName] = value?.ToString();
+            }
+
+            rows.Add(values);
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<long> QueryContextObjectIds(

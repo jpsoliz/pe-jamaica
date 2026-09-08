@@ -12,7 +12,6 @@ namespace ParcelWorkflowAddIn.Workflow.RtExamination;
 public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtExaminationWritebackService
 {
     private const string PlanTypeKey = "plan";
-    private const string SpatialUnitTypeKey = "spatialunit";
     private const string NeighborsPropertyName = "neighbors";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly HttpClient httpClient;
@@ -85,7 +84,6 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             var originatingPlanTrId = ReadString(originatingPlan, "trId", "transactionId", "transaction_id") ?? originating.TransactionId;
             var sources = await FetchLatestSourcesAsync(session!, originatingPlanTrId, transaction.TransactionId, cancellationToken, layout).ConfigureAwait(false);
             var spatialUnits = await FetchLatestSpatialUnitsAsync(session!, planNumber, cancellationToken, layout).ConfigureAwait(false);
-            WriteJson(layout, "rt_examination_spatialunits_latest.json", spatialUnits.Select(item => item.DeepClone()).ToArray());
             WriteLinkedTransactionLog(
                 layout,
                 transaction,
@@ -122,6 +120,12 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             {
                 warnings.Add($"working_review geometry loaded by {settings.WorkingReviewPeNumberField} = {planNumber}; review-only.");
             }
+            if (spatialUnits.Count == 0 && mapResult?.WorkingPolygonRows?.Count > 0)
+            {
+                spatialUnits = BuildSpatialUnitsFromWorkingPolygonRows(mapResult.WorkingPolygonRows);
+                warnings.Add($"Spatial Units populated from {mapResult.WorkingPolygonRows.Count} working_review polygon row(s).");
+            }
+            WriteJson(layout, "rt_examination_spatialunits_latest.json", spatialUnits.Select(item => item.DeepClone()).ToArray());
             var loadedMapGroups = string.IsNullOrWhiteSpace(mapResult?.GroupLayerName)
                 ? Array.Empty<string>()
                 : new[] { mapResult!.GroupLayerName! };
@@ -144,15 +148,17 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 planNumber,
                 warnings);
 
-            var partyRows = ReadPartyRows(currentPlan).Count > 0 ? ReadPartyRows(currentPlan) : ReadPartyRows(originatingPlan ?? currentPlan);
-            var spatialAttributes = BuildSpatialUnitAttributes(spatialUnits);
+            var partyRows = ReadPartyRows(currentPlan);
+            var spatialSummaries = BuildSpatialUnitSummaries(spatialUnits);
+            var planCheckRows = ReadPlanCheckRows(currentPlan);
             WriteJson(layout, "rt_examination_context.json", context);
             WriteJson(layout, "rt_examination_review.json", new RtExaminationReviewDocument(
                 "rt_examination_review_v1",
                 DateTimeOffset.UtcNow,
                 transaction.TransactionNumber,
                 partyRows,
-                spatialAttributes.Select(item => new RtExaminationSpatialUnitAttribute(item.SpatialUnitId, item.FieldName, item.OriginalValue, item.ReviewedValue)).ToArray(),
+                Array.Empty<RtExaminationSpatialUnitAttribute>(),
+                planCheckRows,
                 null,
                 session!.User.Username));
 
@@ -160,7 +166,8 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 $"RT Examination loaded PE {originating.TransactionNumber ?? planNumber}: {sources.Count} source(s), {spatialUnits.Count} spatial unit(s).",
                 context,
                 partyRows,
-                spatialAttributes,
+                spatialSummaries,
+                planCheckRows,
                 sources.Select(SourceLabel)
                     .Concat(new[] { $"working_review: {settings.WorkingReviewPeNumberField} = {planNumber}" })
                     .ToArray(),
@@ -279,40 +286,32 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             var currentPlanFetch = await FetchPlansAsync(session!, request.Transaction.TransactionId, request.Transaction.TransactionNumber, cancellationToken).ConfigureAwait(false);
             var currentPlan = currentPlanFetch.Plans.FirstOrDefault();
             var linkedPlanNumber = currentPlan is null ? null : ReadString(currentPlan, "planNumber", "plan_number", "number");
-            if (string.IsNullOrWhiteSpace(linkedPlanNumber))
+            if (currentPlan is null || string.IsNullOrWhiteSpace(linkedPlanNumber))
             {
                 WriteFailure(layout, request.Transaction, "plan_number_missing", "Current RT Plan is missing Plan.planNumber; linked Plan cannot be resolved for update.");
                 return RtExaminationSaveResult.Failed("RT Examination save failed because the linked Plan number is missing.", "plan_number_missing");
             }
 
-            var originating = await FindOriginatingTransactionAsync(session!, linkedPlanNumber, request.Transaction.TransactionNumber, cancellationToken, layout).ConfigureAwait(false);
-            if (!originating.Success || string.IsNullOrWhiteSpace(originating.TransactionId))
+            foreach (var plan in currentPlanFetch.Plans)
             {
-                WriteFailure(layout, request.Transaction, originating.ErrorCategory ?? "originating_pe_unresolved", originating.Message);
-                return RtExaminationSaveResult.Failed(originating.Message, originating.ErrorCategory);
-            }
-
-            var linkedPlanFetch = await FetchPlansAsync(session!, originating.TransactionId, originating.TransactionNumber ?? linkedPlanNumber, cancellationToken).ConfigureAwait(false);
-            if (linkedPlanFetch.Plans.Count == 0)
-            {
-                WriteFailure(layout, request.Transaction, "linked_plan_missing", $"Linked transaction {linkedPlanNumber} did not return a Plan object for update.");
-                return RtExaminationSaveResult.Failed($"RT Examination could not find the linked Plan {linkedPlanNumber} to update.", "linked_plan_missing");
-            }
-
-            foreach (var plan in linkedPlanFetch.Plans)
-            {
-                await ApplyPartyRowsAsync(session!, originating.TransactionId, plan, request.PartyRows, layout, cancellationToken).ConfigureAwait(false);
+                await ApplyPartyRowsAsync(session!, request.Transaction.TransactionId, plan, request.PartyRows, layout, cancellationToken).ConfigureAwait(false);
+                if (request.CompleteAfterSave)
+                {
+                    ApplyApprovedPlanCheck(plan, request.Transaction.TransactionNumber);
+                }
+                else
+                {
+                    PreservePlanCheckRows(plan);
+                }
                 if (!string.IsNullOrWhiteSpace(request.Observations))
                 {
                     plan["rtObservations"] = request.Observations;
                 }
             }
             var spatialUnits = LoadSpatialUnitArtifact(layout);
-            var spatialResult = await BranchAndSaveSpatialUnitsAsync(session!, request, layout, spatialUnits, cancellationToken).ConfigureAwait(false);
-            if (!spatialResult.Success)
-            {
-                return spatialResult;
-            }
+            var planCheckRows = request.CompleteAfterSave
+                ? new[] { BuildApprovedPlanCheckRow(request.Transaction.TransactionNumber) }
+                : request.PlanCheckRows;
 
             WriteJson(layout, "rt_examination_api_request.json", new
             {
@@ -321,10 +320,11 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 transaction_id = request.Transaction.TransactionId,
                 transaction_number = request.Transaction.TransactionNumber,
                 party_row_count = request.PartyRows.Count,
-                spatial_unit_attribute_count = request.SpatialUnitAttributes.Count,
+                spatial_unit_attribute_count = 0,
+                plan_check_row_count = request.CompleteAfterSave ? 1 : 0,
                 complete_after_save = request.CompleteAfterSave
             });
-            await SavePlansAsync(session!, originating.TransactionId, linkedPlanFetch, layout, cancellationToken).ConfigureAwait(false);
+            await SavePlansAsync(session!, request.Transaction.TransactionId, currentPlanFetch, layout, cancellationToken).ConfigureAwait(false);
 
             if (request.CompleteAfterSave)
             {
@@ -357,7 +357,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 written_at_utc = DateTimeOffset.UtcNow,
                 transaction_id = request.Transaction.TransactionId,
                 transaction_number = request.Transaction.TransactionNumber,
-                plan_count = linkedPlanFetch.Plans.Count,
+                plan_count = currentPlanFetch.Plans.Count,
                 spatial_unit_count = spatialUnits.Count,
                 completed = request.CompleteAfterSave
             });
@@ -366,7 +366,8 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 DateTimeOffset.UtcNow,
                 request.Transaction.TransactionNumber,
                 request.PartyRows,
-                request.SpatialUnitAttributes,
+                Array.Empty<RtExaminationSpatialUnitAttribute>(),
+                planCheckRows,
                 request.Observations,
                 session!.User.Username));
             return RtExaminationSaveResult.Succeeded(request.CompleteAfterSave
@@ -380,82 +381,22 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         }
     }
 
-    private async Task<RtExaminationSaveResult> BranchAndSaveSpatialUnitsAsync(
-        InnolaSession session,
-        RtExaminationSaveRequest request,
-        CaseFolderLayout layout,
-        IReadOnlyList<JsonObject> spatialUnits,
-        CancellationToken cancellationToken)
-    {
-        if (spatialUnits.Count == 0 || request.SpatialUnitAttributes.Count == 0)
-        {
-            return RtExaminationSaveResult.Succeeded("No SpatialUnit attribute updates required.");
-        }
-
-        var updatesByUnit = request.SpatialUnitAttributes
-            .Where(item => !string.IsNullOrWhiteSpace(item.SpatialUnitId) && RtExaminationSpatialUnitFieldPolicy.IsEditableAttribute(item.FieldName))
-            .GroupBy(item => item.SpatialUnitId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
-        if (updatesByUnit.Count == 0)
-        {
-            return RtExaminationSaveResult.Succeeded("No SpatialUnit attribute updates required.");
-        }
-
-        var missingUid = spatialUnits.FirstOrDefault(unit => string.IsNullOrWhiteSpace(ReadString(unit, "uid")));
-        if (missingUid is not null)
-        {
-            WriteFailure(layout, request.Transaction, "spatial_unit_uid_missing", "A linked SpatialUnit lacks uid and cannot be branched into the RT transaction.");
-            return RtExaminationSaveResult.Failed("RT Examination save failed because a linked SpatialUnit lacks uid.", "spatial_unit_uid_missing");
-        }
-
-        foreach (var unit in spatialUnits)
-        {
-            var key = SpatialUnitKey(unit);
-            if (!updatesByUnit.TryGetValue(key, out var updates))
-            {
-                continue;
-            }
-
-            foreach (var update in updates)
-            {
-                unit[update.FieldName] = update.ReviewedValue;
-            }
-        }
-
-        var uids = spatialUnits.Select(unit => ReadString(unit, "uid")!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var uidQuery = Uri.EscapeDataString("[" + string.Join(",", uids.Select(uid => $"\"{uid}\"")) + "]");
-        await SendJsonAsync(
-            session,
-            HttpMethod.Post,
-            $"{InnolaSettings.V4RestPath}administrative/ladm-objects/new-version-by-uid?typeKeyId={SpatialUnitTypeKey}&uids={uidQuery}&transactionId={Uri.EscapeDataString(request.Transaction.TransactionId)}",
-            null,
-            request.Transaction.TransactionNumber,
-            cancellationToken).ConfigureAwait(false);
-        await SendJsonAsync(
-            session,
-            HttpMethod.Post,
-            $"{InnolaSettings.V4RestPath}administrative/ladm-objects?typeKeyId={SpatialUnitTypeKey}&transactionId={Uri.EscapeDataString(request.Transaction.TransactionId)}",
-            new JsonArray(spatialUnits.Select(unit => unit.DeepClone()).ToArray()).ToJsonString(),
-            request.Transaction.TransactionNumber,
-            cancellationToken).ConfigureAwait(false);
-        return RtExaminationSaveResult.Succeeded("SpatialUnit attributes saved.");
-    }
-
     private async Task<PlanFetchResult> FetchPlansAsync(InnolaSession session, string transactionId, string transactionNumber, CancellationToken cancellationToken, CaseFolderLayout? evidenceLayout = null, string? evidenceName = null)
     {
         foreach (var route in new[] { PlanApiRoute.DataObjects, PlanApiRoute.AdministrativeLadmObjects })
         {
             var body = await SendJsonAsync(session, HttpMethod.Get, BuildPlanPath(transactionId, route), null, transactionNumber, cancellationToken, evidenceLayout, evidenceName ?? "plan").ConfigureAwait(false);
-            var plans = ResolveObjects(body)
+            var bodyNode = JsonNode.Parse(body);
+            var plans = ResolveObjects(bodyNode)
                 .Where(item => string.Equals(ReadString(item, "@c"), "Plan", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(ReadString(item, "planNumber", "plan_number")))
                 .ToArray();
             if (plans.Length > 0)
             {
-                return new PlanFetchResult(transactionId, route, plans);
+                return new PlanFetchResult(transactionId, route, plans, bodyNode is JsonArray);
             }
         }
 
-        return new PlanFetchResult(transactionId, PlanApiRoute.DataObjects, Array.Empty<JsonObject>());
+        return new PlanFetchResult(transactionId, PlanApiRoute.DataObjects, Array.Empty<JsonObject>(), true);
     }
 
     private async Task<OriginatingTransactionResult> FindOriginatingTransactionAsync(InnolaSession session, string planNumber, string currentTransactionNumber, CancellationToken cancellationToken, CaseFolderLayout? evidenceLayout = null)
@@ -504,21 +445,19 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
 
     private async Task SavePlansAsync(InnolaSession session, string transactionId, PlanFetchResult planFetch, CaseFolderLayout layout, CancellationToken cancellationToken)
     {
-        // Plan writeback follows the Compute-stage data-object contract. The administrative
-        // LADM endpoint is reserved for SpatialUnit transaction saves.
-        var payload = planFetch.Plans.Count == 1
-            ? planFetch.Plans[0].ToJsonString()
-            : new JsonArray(planFetch.Plans.Select(plan => plan.DeepClone()).ToArray()).ToJsonString();
+        var payload = BuildPlanSavePayload(planFetch).ToJsonString();
+        var method = SaveMethodFor(planFetch.Route);
+        var path = BuildPlanPath(transactionId, planFetch.Route);
         WriteJson(layout, "rt_examination_api_plan_save_request.json", new JsonObject
         {
-            ["method"] = "PUT",
-            ["endpoint"] = BuildPlanSavePath(transactionId),
+            ["method"] = method.Method,
+            ["endpoint"] = path,
             ["payload"] = JsonNode.Parse(payload)
         });
         await SendJsonAsync(
             session,
-            HttpMethod.Put,
-            BuildPlanSavePath(transactionId),
+            method,
+            path,
             payload,
             transactionId,
             cancellationToken,
@@ -554,7 +493,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
 
     private static IReadOnlyList<RtExaminationPartyRow> ReadPartyRows(JsonObject plan)
     {
-        var source = plan[NeighborsPropertyName] as JsonArray ?? plan["neighbor"] as JsonArray ?? plan["neighbours"] as JsonArray;
+        var source = ResolveChildArray(plan, NeighborsPropertyName, "neighbor", "neighbours");
         if (source is null)
         {
             return Array.Empty<RtExaminationPartyRow>();
@@ -576,17 +515,92 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             .ToArray();
     }
 
-    private Task ApplyPartyRowsAsync(InnolaSession session, string transactionId, JsonObject plan, IReadOnlyList<RtExaminationPartyRow> partyRows, CaseFolderLayout layout, CancellationToken cancellationToken)
+    private static JsonNode BuildPlanSavePayload(PlanFetchResult planFetch)
     {
-        var existing = (plan[NeighborsPropertyName] as JsonArray ?? plan["neighbor"] as JsonArray ?? plan["neighbours"] as JsonArray ?? new JsonArray())
+        JsonNode payload;
+        if (!planFetch.SaveAsArray && planFetch.Plans.Count == 1)
+        {
+            payload = planFetch.Plans[0].DeepClone();
+        }
+        else
+        {
+            payload = new JsonArray(planFetch.Plans.Select(plan => plan.DeepClone()).ToArray());
+        }
+
+        NormalizeObjectAliases(payload);
+        return payload;
+    }
+
+    private static void NormalizeObjectAliases(JsonNode? node)
+    {
+        var nextAlias = 1;
+        Visit(node, ref nextAlias);
+    }
+
+    private static void Visit(JsonNode? node, ref int nextAlias)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                if (obj.ContainsKey("@id"))
+                {
+                    obj["@id"] = $"obj:{nextAlias++}";
+                }
+
+                foreach (var child in obj.Select(pair => pair.Value).ToArray())
+                {
+                    Visit(child, ref nextAlias);
+                }
+
+                break;
+            case JsonArray array:
+                foreach (var child in array.ToArray())
+                {
+                    Visit(child, ref nextAlias);
+                }
+
+                break;
+        }
+    }
+
+    private static IReadOnlyList<RtExaminationPlanCheckRow> ReadPlanCheckRows(JsonObject plan)
+    {
+        var source = ResolveChildArray(plan, "checkList");
+        if (source is null)
+        {
+            return Array.Empty<RtExaminationPlanCheckRow>();
+        }
+
+        return source.OfType<JsonObject>()
+            .Select(item => new RtExaminationPlanCheckRow(
+                ReadString(item, "checkType"),
+                ReadBool(item, "passed", "acceptable"),
+                ReadString(item, "description")))
+            .Where(item => !string.IsNullOrWhiteSpace(item.CheckType))
+            .ToArray();
+    }
+
+    private async Task ApplyPartyRowsAsync(
+        InnolaSession session,
+        string transactionId,
+        JsonObject plan,
+        IReadOnlyList<RtExaminationPartyRow> partyRows,
+        CaseFolderLayout layout,
+        CancellationToken cancellationToken)
+    {
+        var existing = (ResolveCurrentChildArray(plan, NeighborsPropertyName, "neighbor", "neighbours") ?? new JsonArray())
             .OfType<JsonObject>()
             .Select(item => item.DeepClone().AsObject())
             .ToList();
 
-        // RT Examination updates the current Plan's existing Neighbor objects only.
-        // A missing row is skipped rather than creating a new Innola object.
+        // Use current-transaction Neighbor objects. The original Plan is only a display/source snapshot.
         var rows = partyRows.Where(row => RtExaminationPartyRow.IsAllowedRole(row.Role)).ToArray();
-        for (var index = 0; index < rows.Length && index < existing.Count; index++)
+        while (existing.Count < rows.Length)
+        {
+            existing.Add(await CreateDefaultNeighborAsync(session, transactionId, layout, cancellationToken).ConfigureAwait(false));
+        }
+
+        for (var index = 0; index < rows.Length; index++)
         {
             var row = rows[index];
             var item = existing[index];
@@ -605,14 +619,140 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         plan.Remove("neighbor");
         plan.Remove("neighbours");
         plan[NeighborsPropertyName] = new JsonArray(existing.Select(item => item.DeepClone()).ToArray());
-        return Task.CompletedTask;
     }
-    private static IReadOnlyList<RtExaminationSpatialUnitAttributeViewModel> BuildSpatialUnitAttributes(IReadOnlyList<JsonObject> spatialUnits)
+
+    private async Task<JsonObject> CreateDefaultNeighborAsync(
+        InnolaSession session,
+        string transactionId,
+        CaseFolderLayout layout,
+        CancellationToken cancellationToken)
+    {
+        const string payloadJson = "{\"@c\":\"Neighbor\",\"id\":null}";
+        WriteJson(layout, "rt_examination_api_neighbor_create_request.json", new JsonObject
+        {
+            ["method"] = HttpMethod.Post.Method,
+            ["endpoint"] = $"{InnolaSettings.V4RestPath}data/objects/create",
+            ["payload"] = JsonNode.Parse(payloadJson)
+        });
+        var body = await SendJsonAsync(
+            session,
+            HttpMethod.Post,
+            $"{InnolaSettings.V4RestPath}data/objects/create",
+            payloadJson,
+            transactionId,
+            cancellationToken,
+            layout,
+            "neighbor_create").ConfigureAwait(false);
+        return ResolveNeighborTemplate(JsonNode.Parse(body));
+    }
+
+    private static JsonObject ResolveNeighborTemplate(JsonNode? node)
+    {
+        var template = ResolveObject(node);
+        if (template is null || !string.Equals(ReadString(template, "@c"), "Neighbor", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("RT Examination Neighbor create-template response did not contain a Neighbor object.");
+        }
+
+        return template.DeepClone() as JsonObject
+            ?? throw new InvalidOperationException("RT Examination Neighbor create-template response could not be cloned.");
+    }
+
+    private static JsonObject? ResolveObject(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["data"] is JsonArray dataArray)
+            {
+                return dataArray.OfType<JsonObject>().FirstOrDefault();
+            }
+
+            if (obj["data"] is JsonObject dataObject)
+            {
+                return dataObject;
+            }
+
+            return obj;
+        }
+
+        if (node is JsonArray array)
+        {
+            return array.OfType<JsonObject>().FirstOrDefault();
+        }
+
+        return null;
+    }
+
+    private static void PreservePlanCheckRows(JsonObject plan)
+    {
+        var existing = ResolveChildArray(plan, "checkList") ?? new JsonArray();
+        plan["checkList"] = new JsonArray(existing.Select(item => item?.DeepClone()).ToArray());
+    }
+
+    private static void ApplyApprovedPlanCheck(JsonObject plan, string transactionNumber)
+    {
+        var existing = (ResolveChildArray(plan, "checkList") ?? new JsonArray())
+            .OfType<JsonObject>()
+            .Select(item => item.DeepClone().AsObject())
+            .ToList();
+        var check = existing.FirstOrDefault(item =>
+            string.Equals(ReadString(item, "checkType"), "approved", StringComparison.OrdinalIgnoreCase))
+            ?? existing.FirstOrDefault();
+        if (check is null)
+        {
+            check = new JsonObject { ["@c"] = "PlanCheck" };
+            existing.Add(check);
+        }
+
+        var approved = BuildApprovedPlanCheckRow(transactionNumber);
+        check["checkType"] = approved.CheckType;
+        check["passed"] = approved.Acceptable;
+        check["description"] = approved.Description;
+        plan["checkList"] = new JsonArray(existing.Select(item => item.DeepClone()).ToArray());
+    }
+
+    private static RtExaminationPlanCheckRow BuildApprovedPlanCheckRow(string transactionNumber)
+    {
+        return new RtExaminationPlanCheckRow(
+            "approved",
+            true,
+            $"Updated from ArcGIS Pro TR {transactionNumber}.");
+    }
+
+    private static IReadOnlyList<RtExaminationSpatialUnitSummary> BuildSpatialUnitSummaries(IReadOnlyList<JsonObject> spatialUnits)
     {
         return spatialUnits
-            .SelectMany(unit => unit
-                .Where(pair => RtExaminationSpatialUnitFieldPolicy.IsEditableAttribute(pair.Key) && IsPrimitive(pair.Value))
-                .Select(pair => new RtExaminationSpatialUnitAttributeViewModel(SpatialUnitKey(unit), pair.Key, pair.Value?.ToString())))
+            .Select(unit => new RtExaminationSpatialUnitSummary(
+                ReadString(unit, "parcel_name", "parcelName", "name"),
+                ReadString(unit, "area_sqr", "areaSqr", "area"),
+                ReadString(unit, "suid", "suId", "uid", "id", "@id"),
+                ReadString(unit, "created_utc", "createdUtc", "createdAt", "created")))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<JsonObject> BuildSpatialUnitsFromWorkingPolygonRows(IReadOnlyList<IReadOnlyDictionary<string, string?>> polygonRows)
+    {
+        return polygonRows
+            .Select((row, index) =>
+            {
+                var unit = new JsonObject();
+                foreach (var pair in row)
+                {
+                    if (string.IsNullOrWhiteSpace(pair.Key))
+                    {
+                        continue;
+                    }
+
+                    unit[pair.Key] = pair.Value is null ? null : JsonValue.Create(pair.Value);
+                }
+
+                if (string.IsNullOrWhiteSpace(ReadString(unit, "uid", "id", "@id")))
+                {
+                    unit["id"] = $"working_review_polygon_{index + 1}";
+                }
+
+                return unit;
+            })
             .ToArray();
     }
 
@@ -653,11 +793,6 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         return array?.OfType<JsonObject>().ToArray() ?? Array.Empty<JsonObject>();
     }
 
-    private static string BuildPlanSavePath(string transactionId)
-    {
-        return $"{InnolaSettings.V4RestPath}data/objects?typeKeyId={PlanTypeKey}&transactionId={Uri.EscapeDataString(transactionId)}";
-    }
-
     private static string BuildPlanPath(string transactionId, PlanApiRoute route)
     {
         return route == PlanApiRoute.DataObjects
@@ -670,16 +805,6 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
     private static bool IsAuthorized(InnolaSession? session)
     {
         return session is not null && !string.IsNullOrWhiteSpace(session.ServerUrl) && !string.IsNullOrWhiteSpace(session.AccessToken);
-    }
-
-    private static bool IsPrimitive(JsonNode? value)
-    {
-        return value is null || value is JsonValue;
-    }
-
-    private static string SpatialUnitKey(JsonObject unit)
-    {
-        return ReadString(unit, "uid", "id", "@id") ?? "spatial-unit";
     }
 
     private static string PartyKey(JsonObject item)
@@ -725,6 +850,96 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
     private static string SourceLabel(JsonObject source)
     {
         return ReadString(source, "name", "sourceName", "type", "sourceType", "id") ?? "Source";
+    }
+
+    private static JsonArray? ResolveChildArray(JsonObject plan, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (plan[propertyName] is JsonArray array && array.Count > 0)
+            {
+                return new JsonArray(array.Select(item => item?.DeepClone()).ToArray());
+            }
+        }
+
+        var original = ResolveOriginalPlan(plan);
+        if (original is not null)
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                if (original[propertyName] is JsonArray array && array.Count > 0)
+                {
+                    return new JsonArray(array.Select(item => item?.DeepClone()).ToArray());
+                }
+            }
+        }
+
+        foreach (var propertyName in propertyNames)
+        {
+            if (plan[propertyName] is JsonArray array)
+            {
+                return new JsonArray(array.Select(item => item?.DeepClone()).ToArray());
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonArray? ResolveCurrentChildArray(JsonObject plan, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (plan[propertyName] is JsonArray array)
+            {
+                return new JsonArray(array.Select(item => item?.DeepClone()).ToArray());
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonObject? ResolveOriginalPlan(JsonObject plan)
+    {
+        var originalText = ReadString(plan, "original");
+        if (string.IsNullOrWhiteSpace(originalText))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonNode.Parse(originalText) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool? ReadBool(JsonObject? item, params string[] names)
+    {
+        if (item is null)
+        {
+            return null;
+        }
+
+        foreach (var name in names)
+        {
+            if (item.TryGetPropertyValue(name, out var value) && value is JsonValue jsonValue)
+            {
+                if (jsonValue.TryGetValue<bool>(out var boolean))
+                {
+                    return boolean;
+                }
+
+                if (jsonValue.TryGetValue<string>(out var text) && bool.TryParse(text, out boolean))
+                {
+                    return boolean;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static string? ReadString(JsonObject? item, params string[] names)
@@ -898,7 +1113,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         return result.Length > 1000 ? result[..1000] : result;
     }
 
-    private sealed record PlanFetchResult(string LookupTransactionId, PlanApiRoute Route, IReadOnlyList<JsonObject> Plans);
+    private sealed record PlanFetchResult(string LookupTransactionId, PlanApiRoute Route, IReadOnlyList<JsonObject> Plans, bool SaveAsArray);
     private sealed record OriginatingTransactionMatch(string? TransactionId, string? TransactionNumber);
     private sealed record OriginatingTransactionResult(bool Success, string Message, string? TransactionId, string? TransactionNumber, string? ErrorCategory)
     {

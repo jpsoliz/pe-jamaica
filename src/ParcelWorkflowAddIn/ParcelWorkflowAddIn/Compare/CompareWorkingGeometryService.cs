@@ -331,7 +331,8 @@ public sealed record CompareMapIntegrationResult(
     string Message,
     IReadOnlyList<string> LoadedLayerUrls,
     string? GroupLayerName,
-    int? PolygonFeatureCount = null)
+    int? PolygonFeatureCount = null,
+    IReadOnlyList<IReadOnlyDictionary<string, string?>>? WorkingPolygonRows = null)
 {
     public bool Success => Status == CompareMapIntegrationStatus.Loaded;
 
@@ -339,14 +340,16 @@ public sealed record CompareMapIntegrationResult(
         string message,
         IReadOnlyList<string> loadedLayerUrls,
         string? groupLayerName,
-        int? polygonFeatureCount = null)
+        int? polygonFeatureCount = null,
+        IReadOnlyList<IReadOnlyDictionary<string, string?>>? workingPolygonRows = null)
     {
         return new CompareMapIntegrationResult(
             CompareMapIntegrationStatus.Loaded,
             message,
             loadedLayerUrls,
             groupLayerName,
-            polygonFeatureCount);
+            polygonFeatureCount,
+            workingPolygonRows);
     }
 
     public static CompareMapIntegrationResult MapUnavailable(string message)

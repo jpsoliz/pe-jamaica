@@ -12,5 +12,11 @@
   <ItemGroup>
     <ProjectReference Include="..\ParcelWorkflowAddIn\ParcelWorkflowAddIn.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="obj\**\*.cs" />
+    <Compile Remove="obj-*\**\*.cs" />
+    <Compile Remove="bin\**\*.cs" />
+  </ItemGroup>
 </Project>
 

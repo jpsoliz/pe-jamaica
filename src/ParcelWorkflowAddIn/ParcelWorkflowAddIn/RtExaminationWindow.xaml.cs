@@ -75,7 +75,13 @@ public partial class RtExaminationWindow : ProWindow
             return;
         }
 
-        activeWindow = null;
+        e.Cancel = true;
+        if (!viewModel.CancelCommand.CanExecute(null))
+        {
+            return;
+        }
+
+        viewModel.CancelCommand.Execute(null);
     }
 
     private void OnClosed(object? sender, EventArgs e)

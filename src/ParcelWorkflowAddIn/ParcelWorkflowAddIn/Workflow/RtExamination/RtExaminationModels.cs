@@ -110,6 +110,10 @@ public sealed record RtExaminationSpatialUnitAttribute(string SpatialUnitId, str
     public bool IsDirty => !string.Equals(OriginalValue, ReviewedValue, StringComparison.Ordinal);
 }
 
+public sealed record RtExaminationSpatialUnitSummary(string? ParcelName, string? AreaSqr, string? Suid, string? CreatedUtc);
+
+public sealed record RtExaminationPlanCheckRow(string? CheckType, bool? Acceptable, string? Description);
+
 public static class RtExaminationSpatialUnitFieldPolicy
 {
     private static readonly HashSet<string> BlockedExact = new(StringComparer.OrdinalIgnoreCase)
@@ -261,6 +265,55 @@ public sealed class RtExaminationSpatialUnitAttributeViewModel : INotifyProperty
     }
 }
 
+public sealed class RtExaminationPlanCheckRowViewModel : INotifyPropertyChanged
+{
+    private bool? acceptable;
+    private string? description;
+
+    public RtExaminationPlanCheckRowViewModel(RtExaminationPlanCheckRow row)
+    {
+        CheckType = row.CheckType;
+        acceptable = row.Acceptable;
+        description = row.Description;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string? CheckType { get; }
+
+    public bool? Acceptable
+    {
+        get => acceptable;
+        set
+        {
+            if (acceptable == value)
+            {
+                return;
+            }
+
+            acceptable = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Acceptable)));
+        }
+    }
+
+    public string? Description
+    {
+        get => description;
+        set
+        {
+            if (string.Equals(description, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            description = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Description)));
+        }
+    }
+
+    public RtExaminationPlanCheckRow ToRow() => new(CheckType, Acceptable, Description);
+}
+
 public sealed record RtExaminationContextDocument(
     string SchemaVersion,
     DateTimeOffset WrittenAtUtc,
@@ -285,6 +338,7 @@ public sealed record RtExaminationReviewDocument(
     string TransactionNumber,
     IReadOnlyList<RtExaminationPartyRow> PartyRows,
     IReadOnlyList<RtExaminationSpatialUnitAttribute> SpatialUnitAttributes,
+    IReadOnlyList<RtExaminationPlanCheckRow> PlanCheckRows,
     string? Observations,
     string? Reviewer);
 
@@ -293,19 +347,21 @@ public sealed record RtExaminationLoadResult(
     string Message,
     RtExaminationContextDocument? Context,
     IReadOnlyList<RtExaminationPartyRow> PartyRows,
-    IReadOnlyList<RtExaminationSpatialUnitAttributeViewModel> SpatialUnitAttributes,
+    IReadOnlyList<RtExaminationSpatialUnitSummary> SpatialUnits,
+    IReadOnlyList<RtExaminationPlanCheckRow> PlanCheckRows,
     IReadOnlyList<string> SourceLabels,
     IReadOnlyList<string> LoadedMapGroups)
 {
-    public static RtExaminationLoadResult Failed(string message) => new(false, message, null, Array.Empty<RtExaminationPartyRow>(), Array.Empty<RtExaminationSpatialUnitAttributeViewModel>(), Array.Empty<string>(), Array.Empty<string>());
+    public static RtExaminationLoadResult Failed(string message) => new(false, message, null, Array.Empty<RtExaminationPartyRow>(), Array.Empty<RtExaminationSpatialUnitSummary>(), Array.Empty<RtExaminationPlanCheckRow>(), Array.Empty<string>(), Array.Empty<string>());
 
     public static RtExaminationLoadResult Succeeded(
         string message,
         RtExaminationContextDocument context,
         IReadOnlyList<RtExaminationPartyRow> partyRows,
-        IReadOnlyList<RtExaminationSpatialUnitAttributeViewModel> spatialUnitAttributes,
+        IReadOnlyList<RtExaminationSpatialUnitSummary> spatialUnits,
+        IReadOnlyList<RtExaminationPlanCheckRow> planCheckRows,
         IReadOnlyList<string> sourceLabels,
-        IReadOnlyList<string>? loadedMapGroups = null) => new(true, message, context, partyRows, spatialUnitAttributes, sourceLabels, loadedMapGroups ?? Array.Empty<string>());
+        IReadOnlyList<string>? loadedMapGroups = null) => new(true, message, context, partyRows, spatialUnits, planCheckRows, sourceLabels, loadedMapGroups ?? Array.Empty<string>());
 }
 
 public sealed record RtExaminationSaveRequest(
@@ -313,6 +369,7 @@ public sealed record RtExaminationSaveRequest(
     string CaseFolderPath,
     IReadOnlyList<RtExaminationPartyRow> PartyRows,
     IReadOnlyList<RtExaminationSpatialUnitAttribute> SpatialUnitAttributes,
+    IReadOnlyList<RtExaminationPlanCheckRow> PlanCheckRows,
     string? Observations,
     bool CompleteAfterSave);
 
@@ -385,7 +442,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         this.refreshTransactions = refreshTransactions;
         statusText = "Load linked transaction data to begin RT Examination.";
         PartyRows.CollectionChanged += OnPartyRowsChanged;
-        SpatialUnitAttributes.CollectionChanged += OnSpatialUnitAttributesChanged;
+        PlanCheckRows.CollectionChanged += OnPlanCheckRowsChanged;
         LoadLinkedPeDataCommand = new RelayCommand(async () => await LoadAsync().ConfigureAwait(true), () => !IsBusy);
         SaveCommand = new RelayCommand(async () => await SaveAsync(false).ConfigureAwait(true), () => CanSave);
         CompleteCommand = new RelayCommand(async () => await SaveAsync(true).ConfigureAwait(true), () => CanComplete);
@@ -413,7 +470,8 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     public bool CanClose => !IsBusy;
 
     public ObservableCollection<RtExaminationPartyRowViewModel> PartyRows { get; } = [];
-    public ObservableCollection<RtExaminationSpatialUnitAttributeViewModel> SpatialUnitAttributes { get; } = [];
+    public ObservableCollection<RtExaminationSpatialUnitSummary> SpatialUnits { get; } = [];
+    public ObservableCollection<RtExaminationPlanCheckRowViewModel> PlanCheckRows { get; } = [];
     public ObservableCollection<string> SourceLabels { get; } = [];
     public ObservableCollection<string> Warnings { get; } = [];
 
@@ -448,10 +506,16 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                 PartyRows.Add(new RtExaminationPartyRowViewModel(row));
             }
 
-            SpatialUnitAttributes.Clear();
-            foreach (var item in result.SpatialUnitAttributes)
+            SpatialUnits.Clear();
+            foreach (var item in result.SpatialUnits)
             {
-                SpatialUnitAttributes.Add(item);
+                SpatialUnits.Add(item);
+            }
+
+            PlanCheckRows.Clear();
+            foreach (var row in result.PlanCheckRows)
+            {
+                PlanCheckRows.Add(new RtExaminationPlanCheckRowViewModel(row));
             }
 
             isHydrating = false;
@@ -497,7 +561,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
 
     private async Task SaveAsync(bool completeAfterSave)
     {
-        if (!completeAfterSave && !confirmAction("Save RT Examination changes to Innola?"))
+        if (!completeAfterSave && !confirmAction("Save RT Examination neighbor changes to Innola?"))
         {
             StatusText = "RT Examination save cancelled.";
             return;
@@ -509,7 +573,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         }
 
         IsBusy = true;
-        StatusText = completeAfterSave ? "Saving and completing RT Examination..." : "Saving RT Examination data...";
+        StatusText = completeAfterSave ? "Saving and completing RT Examination..." : "Saving RT Examination neighbors...";
         try
         {
             var result = await writebackService.SaveAsync(
@@ -517,7 +581,8 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                     transaction,
                     caseFolderPath,
                     PartyRows.Select(row => row.ToRow()).ToArray(),
-                    SpatialUnitAttributes.Select(item => new RtExaminationSpatialUnitAttribute(item.SpatialUnitId, item.FieldName, item.OriginalValue, item.ReviewedValue)).ToArray(),
+                    Array.Empty<RtExaminationSpatialUnitAttribute>(),
+                    PlanCheckRows.Select(row => row.ToRow()).ToArray(),
                     Observations,
                     completeAfterSave)).ConfigureAwait(true);
             StatusText = result.Message;
@@ -568,7 +633,8 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
             await loadService.CleanupAsync(loadedMapGroups).ConfigureAwait(true);
             loadedMapGroups = Array.Empty<string>();
             PartyRows.Clear();
-            SpatialUnitAttributes.Clear();
+            SpatialUnits.Clear();
+            PlanCheckRows.Clear();
             SourceLabels.Clear();
             Warnings.Clear();
             PePlanNumber = null;
@@ -611,21 +677,21 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
         MarkDirty();
     }
 
-    private void OnSpatialUnitAttributesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void OnPlanCheckRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.OldItems is not null)
         {
-            foreach (RtExaminationSpatialUnitAttributeViewModel item in e.OldItems)
+            foreach (RtExaminationPlanCheckRowViewModel row in e.OldItems)
             {
-                item.PropertyChanged -= OnSpatialUnitPropertyChanged;
+                row.PropertyChanged -= OnPlanCheckRowPropertyChanged;
             }
         }
 
         if (e.NewItems is not null)
         {
-            foreach (RtExaminationSpatialUnitAttributeViewModel item in e.NewItems)
+            foreach (RtExaminationPlanCheckRowViewModel row in e.NewItems)
             {
-                item.PropertyChanged += OnSpatialUnitPropertyChanged;
+                row.PropertyChanged += OnPlanCheckRowPropertyChanged;
             }
         }
 
@@ -634,7 +700,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
 
     private void OnPartyRowPropertyChanged(object? sender, PropertyChangedEventArgs e) => MarkDirty();
 
-    private void OnSpatialUnitPropertyChanged(object? sender, PropertyChangedEventArgs e) => MarkDirty();
+    private void OnPlanCheckRowPropertyChanged(object? sender, PropertyChangedEventArgs e) => MarkDirty();
 
     private void MarkDirty()
     {

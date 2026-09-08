@@ -1,5 +1,8 @@
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.RtExamination;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 
 namespace ParcelWorkflowAddIn.Tests.Innola;
 
@@ -59,11 +62,20 @@ internal static class RtExaminationTests
             "LoadLinkedPeDataCommand",
             "SaveCommand",
             "Content=\"Save\"",
+            "Content=\"Save &amp; Close\"",
             "Header=\"Role\"",
             "Header=\"Address\"",
             "Header=\"LandVal No.\"",
             "Header=\"Exam No.\"",
-            "Binding=\"{Binding ReviewedValue, Mode=TwoWay"
+            "Header=\"Check Type\"",
+            "Header=\"Acceptable\"",
+            "Header=\"Description\"",
+            "Header=\"parcel_name\"",
+            "Header=\"area_sqr\"",
+            "Header=\"suid\"",
+            "Header=\"created_utc\"",
+            "ItemsSource=\"{Binding PlanCheckRows}\"",
+            "ItemsSource=\"{Binding SpatialUnits}\""
         })
         {
             TestAssert.True(source.Contains(expected, StringComparison.Ordinal), $"RT Examination window is missing expected surface: {expected}.");
@@ -72,6 +84,25 @@ internal static class RtExaminationTests
         TestAssert.True(
             source.Contains("ComboBox ItemsSource=\"{Binding AllowedRoles}\"", StringComparison.Ordinal),
             "RT role editing should bind the combo list from each editable party row.");
+    }
+
+    public static void WindowChromeCloseRoutesThroughCancelCommand()
+    {
+        var source = File.ReadAllText(FindSourceFile("RtExaminationWindow.xaml.cs"));
+
+        foreach (var expected in new[]
+        {
+            "Closing += OnClosing;",
+            "e.Cancel = true;",
+            "viewModel.CancelCommand.CanExecute(null)",
+            "viewModel.CancelCommand.Execute(null)",
+            "allowClose = true;"
+        })
+        {
+            TestAssert.True(source.Contains(expected, StringComparison.Ordinal), $"RT Examination window close synchronization is missing: {expected}.");
+        }
+
+        TestAssert.False(source.Contains("closeRequestedFromChrome", StringComparison.Ordinal), "RT chrome close should not use a sticky guard that suppresses later cancel prompts.");
     }
 
     private static string FindSourceFile(string fileName)
@@ -105,6 +136,183 @@ internal static class RtExaminationTests
         TestAssert.Equal(first.DeduplicationKey, duplicate.DeduplicationKey, "Equivalent RT party rows should have the same dedupe key.");
         TestAssert.True(!string.Equals(first.DeduplicationKey, different.DeduplicationKey, StringComparison.Ordinal), "Different RT party rows should not collapse.");
     }
+
+    public static async Task SaveUpdatesCurrentAdministrativePlanRowsInPlace()
+    {
+        var originalPlan = """
+            {
+              "neighbors": [
+                { "id": "neighbor-1", "neighborType": "owner", "name": "Old Owner", "address": "Old Address", "volume": "1", "folio": "2", "lot": "3", "landValNumber": "4", "examNumber": "5" },
+                { "id": "neighbor-2", "neighborType": "occupier", "name": "Old Occupier", "address": "Old Address 2" }
+              ],
+              "checkList": [
+                { "id": "check-1", "checkType": "plan_check_type_area", "passed": false, "description": "Original area note" },
+                { "id": "check-2", "checkType": "plan_check_type_title", "passed": true, "description": "Keep title note" }
+              ]
+            }
+            """;
+        var currentPlan = $$"""
+            [
+              {
+                "@c": "Plan",
+                "id": "current-plan",
+                "uid": "current-plan-uid",
+                "planNumber": "100000749",
+                "trId": "tx-current-rt",
+                "trNo": "100000854",
+                "neighbors": [],
+                "checkList": [],
+                "original": {{JsonSerializer.Serialize(originalPlan)}}
+              }
+            ]
+            """;
+        var handler = new CapturingHttpMessageHandler(
+            "[]",
+            currentPlan,
+            """
+            { "@c": "Neighbor", "id": "created-neighbor-1", "neighborType": "neighbor_type_owner", "allowRead": true, "allowWrite": true }
+            """,
+            """
+            { "@c": "Neighbor", "id": "created-neighbor-2", "neighborType": "neighbor_type_owner", "allowRead": true, "allowWrite": true }
+            """,
+            """{ "status": "ok" }""");
+        using var httpClient = new HttpClient(handler);
+        var service = new InnolaRtExaminationService(
+            httpClient,
+            () => CreateSession(),
+            () => RtExaminationSettings.Default,
+            transactionSettingsProvider: () => InnolaTransactionSettings.Default);
+        var caseFolderPath = Path.Combine(Path.GetTempPath(), "rt-exam-save-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(caseFolderPath, "working"));
+
+        var result = await service.SaveAsync(new RtExaminationSaveRequest(
+            CreateTransaction(),
+            caseFolderPath,
+            new[]
+            {
+                new RtExaminationPartyRow("Occupier", "Henry Natheson", "Sherwood Content", "1", "", "", "", ""),
+                new RtExaminationPartyRow("Owner", "Adolphus Boland", "Sherwood Content", "", "2", "", "4", "")
+            },
+            Array.Empty<RtExaminationSpatialUnitAttribute>(),
+            new[] { new RtExaminationPlanCheckRow("plan_check_type_area", true, "Area accepted.") },
+            null,
+            false));
+
+        TestAssert.True(result.Success, "RT save should succeed against the current administrative Plan route.");
+        TestAssert.Equal(5, handler.Requests.Count, "RT save should fetch data, fetch administrative, create current Neighbor rows, then save administrative.");
+        TestAssert.True(handler.Requests[2].Uri.PathAndQuery.Contains("/api/v4/rest/data/objects/create", StringComparison.Ordinal), "RT save should create current-transaction Neighbor child rows when the current Plan has none.");
+        TestAssert.True(handler.Requests[3].Uri.PathAndQuery.Contains("/api/v4/rest/data/objects/create", StringComparison.Ordinal), "RT save should create one current Neighbor child row for each missing reviewed row.");
+        using (var createDocument = JsonDocument.Parse(handler.Requests[2].Body!))
+        {
+            TestAssert.Equal("Neighbor", createDocument.RootElement.GetProperty("@c").GetString(), "RT Neighbor create-template body should request a Neighbor object.");
+            TestAssert.Equal(JsonValueKind.Null, createDocument.RootElement.GetProperty("id").ValueKind, "RT Neighbor create-template body should include id:null for Innola.");
+        }
+        TestAssert.Equal(HttpMethod.Post.Method, handler.Requests[4].Method.Method, "Administrative Plan save must use POST.");
+        TestAssert.True(handler.Requests[4].Uri.PathAndQuery.Contains("/api/v4/rest/administrative/ladm-objects?typeKeyId=plan", StringComparison.Ordinal), "RT save should use the administrative Plan endpoint.");
+        TestAssert.True(handler.Requests[4].Uri.PathAndQuery.Contains("transactionId=tx-current-rt", StringComparison.Ordinal), "RT save should target the current RT transaction id.");
+
+        using var document = JsonDocument.Parse(handler.Requests[4].Body!);
+        TestAssert.Equal(JsonValueKind.Array, document.RootElement.ValueKind, "Administrative Plan save must preserve the array shape returned by the GET route.");
+        var root = document.RootElement[0];
+        var neighbors = root.GetProperty("neighbors");
+        TestAssert.Equal(2, neighbors.GetArrayLength(), "RT neighbor writeback must update existing rows without adding or removing rows.");
+        TestAssert.Equal("created-neighbor-1", neighbors[0].GetProperty("id").GetString(), "New current-transaction Neighbor identity should come from Innola create-template.");
+        AssertUniqueObjectAliases(root);
+        TestAssert.Equal("neighbor_type_occupier", neighbors[0].GetProperty("neighborType").GetString(), "Edited neighbor role should update in place.");
+        TestAssert.Equal("Henry Natheson", neighbors[0].GetProperty("name").GetString(), "Edited neighbor name should update in place.");
+        TestAssert.Equal("created-neighbor-2", neighbors[1].GetProperty("id").GetString(), "Second new current-transaction Neighbor identity should come from Innola create-template.");
+        TestAssert.Equal("Adolphus Boland", neighbors[1].GetProperty("name").GetString(), "Second edited neighbor should update in place.");
+
+        var checkList = root.GetProperty("checkList");
+        TestAssert.Equal(2, checkList.GetArrayLength(), "RT Save must preserve existing Plan Check rows without add/remove.");
+        TestAssert.False(checkList[0].GetProperty("passed").GetBoolean(), "RT Save must not update Plan Check acceptable values.");
+        TestAssert.Equal("Original area note", checkList[0].GetProperty("description").GetString(), "RT Save must not update Plan Check descriptions.");
+        TestAssert.Equal("Keep title note", checkList[1].GetProperty("description").GetString(), "Unedited Plan Check rows should be preserved.");
+    }
+
+    public static async Task SaveAndCloseApprovesPlanCheckAndCompletesWorkflow()
+    {
+        var currentPlan = """
+            [
+              {
+                "@c": "Plan",
+                "id": "current-plan",
+                "uid": "current-plan-uid",
+                "planNumber": "100000749",
+                "trId": "tx-current-rt",
+                "trNo": "100000854",
+                "neighbors": [
+                  { "id": "neighbor-1", "neighborType": "owner", "name": "Old Owner" }
+                ],
+                "checkList": [
+                  { "@c": "PlanCheck", "id": "check-1", "checkType": "pending", "passed": false, "description": "Original note" }
+                ]
+              }
+            ]
+            """;
+        var handler = new CapturingHttpMessageHandler(
+            "[]",
+            currentPlan,
+            """{ "status": "ok" }""");
+        var lifecycle = new CapturingLifecycleService();
+        using var httpClient = new HttpClient(handler);
+        var service = new InnolaRtExaminationService(
+            httpClient,
+            () => CreateSession(),
+            () => RtExaminationSettings.Default,
+            lifecycle,
+            transactionSettingsProvider: () => InnolaTransactionSettings.Default);
+        var caseFolderPath = Path.Combine(Path.GetTempPath(), "rt-exam-close-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(caseFolderPath, "working"));
+
+        var result = await service.SaveAsync(new RtExaminationSaveRequest(
+            CreateTransaction(),
+            caseFolderPath,
+            new[] { new RtExaminationPartyRow("Owner", "Mary Owner", "", "", "", "", "", "") },
+            Array.Empty<RtExaminationSpatialUnitAttribute>(),
+            Array.Empty<RtExaminationPlanCheckRow>(),
+            null,
+            true));
+
+        TestAssert.True(result.Success, "Save & Close should save and complete.");
+        TestAssert.True(lifecycle.Completed, "Save & Close must move the Innola workflow to the next step.");
+        using var document = JsonDocument.Parse(handler.Requests[2].Body!);
+        TestAssert.Equal(JsonValueKind.Array, document.RootElement.ValueKind, "Administrative Plan Save & Close must preserve the array shape returned by the GET route.");
+        var check = document.RootElement[0].GetProperty("checkList")[0];
+        TestAssert.Equal("approved", check.GetProperty("checkType").GetString(), "Save & Close should set Plan Check type to approved.");
+        TestAssert.True(check.GetProperty("passed").GetBoolean(), "Save & Close should set Plan Check acceptable/passed to true.");
+        TestAssert.Equal("Updated from ArcGIS Pro TR 100000854.", check.GetProperty("description").GetString(), "Save & Close should write the ArcGIS Pro transaction description.");
+    }
+
+    private static void AssertUniqueObjectAliases(JsonElement root)
+    {
+        var aliases = new HashSet<string>(StringComparer.Ordinal);
+        CollectObjectAliases(root, aliases);
+    }
+
+    private static void CollectObjectAliases(JsonElement element, HashSet<string> aliases)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("@id", out var alias) && alias.ValueKind == JsonValueKind.String)
+            {
+                TestAssert.True(aliases.Add(alias.GetString()!), $"RT Plan save payload should not contain duplicate @id alias '{alias.GetString()}'.");
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                CollectObjectAliases(property.Value, aliases);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectObjectAliases(item, aliases);
+            }
+        }
+    }
+
     public static async Task SaveKeepsLinkedRtTransactionOpenUntilComplete()
     {
         var transaction = new SelectedInnolaTransaction(
@@ -181,7 +389,8 @@ internal static class RtExaminationTests
                 "Loaded linked transaction data.",
                 context,
                 Array.Empty<RtExaminationPartyRow>(),
-                Array.Empty<RtExaminationSpatialUnitAttributeViewModel>(),
+                new[] { new RtExaminationSpatialUnitSummary("Parcel 1", "123.45", "SU-1", "2026-09-07T00:00:00Z") },
+                new[] { new RtExaminationPlanCheckRow("plan_check_type_area", true, "Area accepted.") },
                 new[] { "working_review: transaction_number = 100000854" },
                 new[] { "RT 100000854 - PE 100000854" }));
         }
@@ -203,6 +412,79 @@ internal static class RtExaminationTests
             return Task.FromResult(RtExaminationSaveResult.Succeeded("RT Examination data saved and task completed."));
         }
     }
+
+    private sealed class CapturingLifecycleService : IInnolaTransactionLifecycleService
+    {
+        public bool Completed { get; private set; }
+
+        public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("claimed", request.Session.Username, request.Session.User.DisplayName));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("saved", request.Session.Username, request.Session.User.DisplayName));
+        }
+
+        public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
+        {
+            Completed = true;
+            return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("completed", request.Session.Username, request.Session.User.DisplayName));
+        }
+    }
+
+    private static InnolaSession CreateSession()
+    {
+        return new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            InnolaSettings.DefaultServerUrl,
+            "rt.examiner",
+            null,
+            "access-token",
+            new InnolaUserContext("rt.examiner", "RT Examiner", Array.Empty<string>(), Array.Empty<string>()),
+            DateTimeOffset.UtcNow.AddHours(1));
+    }
+
+    private static SelectedInnolaTransaction CreateTransaction()
+    {
+        return new SelectedInnolaTransaction(
+            "task-rt-100000854",
+            "tx-current-rt",
+            "100000854",
+            "In RT Examination",
+            "parcel_workflow",
+            DateTimeOffset.UtcNow,
+            TransactionType: "First Registration");
+    }
+
+    private sealed class CapturingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly Queue<string> responses;
+
+        public CapturingHttpMessageHandler(params string[] responses)
+        {
+            this.responses = new Queue<string>(responses);
+        }
+
+        public List<CapturedRequest> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body));
+
+            var response = responses.Count > 0 ? responses.Dequeue() : "{}";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string? Body);
 }
 
 

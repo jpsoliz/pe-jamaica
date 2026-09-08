@@ -40,7 +40,7 @@
       <StackPanel Orientation="Horizontal">
         <Button Width="136" Height="28" Content="Load Spatial Data" Command="{Binding LoadLinkedPeDataCommand}" />
         <Button Width="86" Height="28" Margin="8,0,0,0" Content="Save" Command="{Binding SaveCommand}" />
-        <Button Width="86" Height="28" Margin="8,0,0,0" Content="Complete" Command="{Binding CompleteCommand}" />
+        <Button Width="112" Height="28" Margin="8,0,0,0" Content="Save &amp; Close" Command="{Binding CompleteCommand}" />
         <Button Width="86" Height="28" Margin="8,0,0,0" Content="{Binding CloseActionText}" Command="{Binding CancelCommand}" />
       </StackPanel>
     </Border>
@@ -99,19 +99,30 @@
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
-                  ItemsSource="{Binding SpatialUnitAttributes}">
+                  IsReadOnly="True"
+                  ItemsSource="{Binding SpatialUnits}">
           <DataGrid.Columns>
-            <DataGridTextColumn Header="Spatial Unit" Width="1.2*" Binding="{Binding SpatialUnitId}" IsReadOnly="True" />
-            <DataGridTextColumn Header="Field" Width="1.2*" Binding="{Binding FieldName}" IsReadOnly="True" />
-            <DataGridTextColumn Header="Original" Width="1.4*" Binding="{Binding OriginalValue}" IsReadOnly="True" />
-            <DataGridTextColumn Header="Reviewed" Width="1.6*" Binding="{Binding ReviewedValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <DataGridTextColumn Header="parcel_name" Width="1.8*" Binding="{Binding ParcelName}" />
+            <DataGridTextColumn Header="area_sqr" Width="1.2*" Binding="{Binding AreaSqr}" />
+            <DataGridTextColumn Header="suid" Width="1.4*" Binding="{Binding Suid}" />
+            <DataGridTextColumn Header="created_utc" Width="1.6*" Binding="{Binding CreatedUtc}" />
           </DataGrid.Columns>
         </DataGrid>
       </TabItem>
 
       <TabItem Header="Plan Check">
         <Grid Margin="8">
-          <TextBox Text="{Binding Observations, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+          <DataGrid AutoGenerateColumns="False"
+                    CanUserAddRows="False"
+                    CanUserDeleteRows="False"
+                    IsReadOnly="True"
+                    ItemsSource="{Binding PlanCheckRows}">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Check Type" Width="1.6*" Binding="{Binding CheckType}" IsReadOnly="True" />
+              <DataGridCheckBoxColumn Header="Acceptable" Width="110" Binding="{Binding Acceptable}" />
+              <DataGridTextColumn Header="Description" Width="3*" Binding="{Binding Description}" />
+            </DataGrid.Columns>
+          </DataGrid>
         </Grid>
       </TabItem>
 
