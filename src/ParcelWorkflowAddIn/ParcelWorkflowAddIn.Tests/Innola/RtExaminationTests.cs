@@ -284,6 +284,78 @@ internal static class RtExaminationTests
         TestAssert.Equal("Updated from ArcGIS Pro TR 100000854.", check.GetProperty("description").GetString(), "Save & Close should write the ArcGIS Pro transaction description.");
     }
 
+    public static async Task SaveAndCloseCreatesCurrentPlanCheckWhenCurrentListIsEmpty()
+    {
+        var originalPlan = """
+            {
+              "checkList": [
+                { "@c": "PlanCheck", "id": "original-check", "checkType": "plan_check_type_area", "passed": false, "description": "Original PE note" }
+              ]
+            }
+            """;
+        var currentPlan = $$"""
+            [
+              {
+                "@c": "Plan",
+                "id": "current-plan",
+                "uid": "current-plan-uid",
+                "planNumber": "100000749",
+                "trId": "tx-current-rt",
+                "trNo": "100000854",
+                "neighbors": [],
+                "checkList": [],
+                "original": {{JsonSerializer.Serialize(originalPlan)}}
+              }
+            ]
+            """;
+        var handler = new CapturingHttpMessageHandler(
+            "[]",
+            currentPlan,
+            """
+            { "@c": "PlanCheck", "id": "created-plan-check", "allowRead": true, "allowWrite": true }
+            """,
+            """{ "status": "ok" }""");
+        var lifecycle = new CapturingLifecycleService();
+        using var httpClient = new HttpClient(handler);
+        var service = new InnolaRtExaminationService(
+            httpClient,
+            () => CreateSession(),
+            () => RtExaminationSettings.Default,
+            lifecycle,
+            transactionSettingsProvider: () => InnolaTransactionSettings.Default);
+        var caseFolderPath = Path.Combine(Path.GetTempPath(), "rt-exam-close-empty-check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(caseFolderPath, "working"));
+
+        var result = await service.SaveAsync(new RtExaminationSaveRequest(
+            CreateTransaction(),
+            caseFolderPath,
+            Array.Empty<RtExaminationPartyRow>(),
+            Array.Empty<RtExaminationSpatialUnitAttribute>(),
+            Array.Empty<RtExaminationPlanCheckRow>(),
+            null,
+            true));
+
+        TestAssert.True(result.Success, $"Save & Close should create a current PlanCheck row when checkList is empty. Error: {result.Message}");
+        TestAssert.True(lifecycle.Completed, "Save & Close must complete after successful PlanCheck save.");
+        TestAssert.Equal(4, handler.Requests.Count, "RT Save & Close should fetch data, fetch administrative, create PlanCheck, then save administrative.");
+        TestAssert.True(handler.Requests[2].Uri.PathAndQuery.Contains("/api/v4/rest/data/objects/create", StringComparison.Ordinal), "RT Save & Close should create a PlanCheck child row through Innola.");
+        using (var createDocument = JsonDocument.Parse(handler.Requests[2].Body!))
+        {
+            TestAssert.Equal("PlanCheck", createDocument.RootElement.GetProperty("@c").GetString(), "RT PlanCheck create-template body should request a PlanCheck object.");
+            TestAssert.Equal(JsonValueKind.Null, createDocument.RootElement.GetProperty("id").ValueKind, "RT PlanCheck create-template body should include id:null for Innola.");
+        }
+
+        using var document = JsonDocument.Parse(handler.Requests[3].Body!);
+        var checkList = document.RootElement[0].GetProperty("checkList");
+        TestAssert.Equal(1, checkList.GetArrayLength(), "Save & Close should append one current PlanCheck row, not copy original snapshot rows.");
+        var check = checkList[0];
+        TestAssert.Equal("created-plan-check", check.GetProperty("id").GetString(), "Current PlanCheck identity should come from Innola create-template.");
+        TestAssert.Equal("approved", check.GetProperty("checkType").GetString(), "Save & Close should set Plan Check type to approved.");
+        TestAssert.True(check.GetProperty("passed").GetBoolean(), "Save & Close should set Plan Check acceptable/passed to true.");
+        TestAssert.Equal("Updated from ArcGIS Pro TR 100000854.", check.GetProperty("description").GetString(), "Save & Close should write the ArcGIS Pro transaction description.");
+        AssertUniqueObjectAliases(document.RootElement[0]);
+    }
+
     private static void AssertUniqueObjectAliases(JsonElement root)
     {
         var aliases = new HashSet<string>(StringComparer.Ordinal);

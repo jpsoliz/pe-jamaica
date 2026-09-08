@@ -174,6 +174,7 @@ public sealed class InnolaTransactionLoadService
         var provenance = DeduplicateAttachmentProvenance(manifest.Payload.AttachmentProvenance ?? Array.Empty<ManifestAttachmentProvenance>()).ToList();
         var loadedAt = getUtcNow().UtcDateTime.ToString("O");
         var newlyWrittenFiles = new List<string>();
+        var attachmentWarnings = new List<string>();
 
         foreach (var attachment in sourceAttachments)
         {
@@ -190,6 +191,12 @@ public sealed class InnolaTransactionLoadService
             }
             catch (Exception exception) when (IsExpectedAdapterFailure(exception))
             {
+                if (isRtExaminationLoad)
+                {
+                    attachmentWarnings.Add(DescribeAttachmentLoadFailure(attachment, "Could not load attachment. Try again."));
+                    continue;
+                }
+
                 CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure("Could not load transaction. Try again.");
@@ -197,6 +204,12 @@ public sealed class InnolaTransactionLoadService
 
             if (!content.Success)
             {
+                if (isRtExaminationLoad)
+                {
+                    attachmentWarnings.Add(DescribeAttachmentLoadFailure(attachment, content.ErrorMessage));
+                    continue;
+                }
+
                 CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(SafeRetryMessage(content.ErrorMessage));
@@ -207,6 +220,12 @@ public sealed class InnolaTransactionLoadService
             var written = attachmentWriter.Write(layout, serviceReference, safeFileName, content.Content, attachment.SourceRole, attachment.SourceType);
             if (!written.Success || written.ManifestSourceFile is null)
             {
+                if (isRtExaminationLoad)
+                {
+                    attachmentWarnings.Add(DescribeAttachmentLoadFailure(attachment, written.ErrorMessage));
+                    continue;
+                }
+
                 CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
                 sessionManager.ClearLoadedTransaction();
                 return InnolaTransactionLoadResult.Failure(written.ErrorMessage ?? "Attachment could not be copied to the Case Folder.");
@@ -232,6 +251,12 @@ public sealed class InnolaTransactionLoadService
         sourceFiles = DeduplicateSourceFiles(ApplyTransactionProfilePrimaryRole(sourceFiles, transactionProfile)).ToList();
         provenance = DeduplicateAttachmentProvenance(ApplyTransactionProfilePrimaryRole(provenance, transactionProfile)).ToList();
 
+        if (isRtExaminationLoad && sourceFiles.Count == 0 && attachmentWarnings.Count > 0)
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure(SafeRetryMessage(attachmentWarnings[0]));
+        }
+
         var supportingDocumentOptions = manifest.Payload.SupportingDocumentOptions ?? new ManifestSupportingDocumentOptions();
         var effectiveSourceFiles = SupportingDocumentSourceFilter.Apply(sourceFiles, supportingDocumentOptions);
         var detectedProfile = profileDetector.Detect(effectiveSourceFiles);
@@ -250,6 +275,7 @@ public sealed class InnolaTransactionLoadService
             transactionProfile.DocumentProfile));
         var updatedManifest = manifest with
         {
+            Warnings = manifest.Warnings.Concat(attachmentWarnings).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Payload = manifest.Payload with
             {
                 WorkflowState = workflowState,
@@ -593,6 +619,12 @@ public sealed class InnolaTransactionLoadService
                 var reopen = caseFolderStore.ReopenCaseFolder(layout.RootDirectory);
                 if (!reopen.Success || reopen.Layout is null || reopen.Manifest is null)
                 {
+                    if (CanInitializeExistingFolder(reopen))
+                    {
+                        InitializeExistingCaseFolder(layout, transactionNumber, username);
+                        return CaseFolderPreparationResult.Prepared(layout, ManifestSerializer.Read(layout.ManifestPath));
+                    }
+
                     return CaseFolderPreparationResult.Failed("Existing Case Folder could not be reopened.");
                 }
 
@@ -619,6 +651,26 @@ public sealed class InnolaTransactionLoadService
         {
             return CaseFolderPreparationResult.Failed($"Case Folder could not be prepared: {exception.Message}");
         }
+    }
+
+    private void InitializeExistingCaseFolder(CaseFolderLayout layout, string transactionNumber, string username)
+    {
+        Directory.CreateDirectory(layout.RootDirectory);
+        Directory.CreateDirectory(layout.SourceDirectory);
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        Directory.CreateDirectory(layout.OutputDirectory);
+        Directory.CreateDirectory(layout.ReportsDirectory);
+        Directory.CreateDirectory(layout.LogsDirectory);
+
+        var manifest = ManifestDocument.CreateInitial(transactionNumber, $"run-{Guid.NewGuid():N}", getUtcNow(), username);
+        ManifestSerializer.Write(layout.ManifestPath, manifest);
+    }
+
+    private static bool CanInitializeExistingFolder(CaseFolderReopenResult reopen)
+    {
+        return reopen.RecoverabilityIssues.Count > 0
+            && reopen.RecoverabilityIssues.All(issue =>
+                string.Equals(issue.Code, "missing_manifest", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ExistingManifestMatches(ManifestDocument manifest, InnolaTransactionDetail detail)
@@ -799,6 +851,14 @@ public sealed class InnolaTransactionLoadService
         return string.Concat(leafName.Select(character =>
             Path.GetInvalidFileNameChars().Contains(character) ? '_' : character)).Trim();
     }
+
+    private static string DescribeAttachmentLoadFailure(InnolaAttachmentMetadata attachment, string? message)
+    {
+        var fileName = SafeAttachmentFileName(attachment.FileName);
+        var reason = SafeRetryMessage(message);
+        return $"{fileName} could not be loaded from Innola: {reason}";
+    }
+
     private static string NormalizeExtension(InnolaAttachmentMetadata attachment)
     {
         if (!string.IsNullOrWhiteSpace(attachment.Extension))

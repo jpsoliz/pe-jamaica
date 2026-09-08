@@ -313,6 +313,61 @@ internal static class InnolaTransactionLoadServiceTests
         TestAssert.Equal("review_approved", manifest.Payload.WorkflowState, "Reopening an existing Case Folder must preserve the saved workflow stage.");
     }
 
+    public static async Task ExistingPartialCaseFolderWithoutManifestIsInitialized()
+    {
+        using var tempRoot = new TempDirectory();
+        var transactionNumber = "100000983";
+        var partialRoot = Path.Combine(tempRoot.Path, transactionNumber);
+        var workingDirectory = Path.Combine(partialRoot, "working");
+        Directory.CreateDirectory(workingDirectory);
+        var tracePath = Path.Combine(workingDirectory, "rt_examination_start_trace.json");
+        File.WriteAllText(tracePath, "{\"step\":\"supporting_document_load_failed\"}");
+
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000983", "transaction-100000983", transactionNumber, "In RT Examination"), FixedNow());
+        var detail = Detail(
+            "task-100000983",
+            "transaction-100000983",
+            transactionNumber,
+            "In RT Examination",
+            DefaultAttachments());
+        var service = LoadService(manager, new CountingDetailService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"Partial existing folder should be initialized instead of blocking reopen. Error: {result.ErrorMessage}");
+        TestAssert.True(File.Exists(Path.Combine(partialRoot, "manifest.json")), "Missing manifest should be created in the existing transaction folder.");
+        TestAssert.True(File.Exists(tracePath), "Existing diagnostic trace should be preserved.");
+        TestAssert.True(Directory.Exists(Path.Combine(partialRoot, "source")), "Source directory should be created in the existing transaction folder.");
+        var manifest = ManifestSerializer.Read(result.Layout!.ManifestPath);
+        TestAssert.Equal(transactionNumber, manifest.TransactionId, "Initialized manifest transaction number mismatch.");
+        TestAssert.Equal("task-100000983", manifest.Payload.InnolaTransaction!.TaskId, "Initialized folder should still be updated with Innola task metadata.");
+    }
+
+    public static async Task RtExaminationLoadKeepsParentDocumentWhenLaterAttachmentFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        manager.SelectTransaction(Row("task-100000983", "transaction-100000983", "100000983", "In RT Examination"), FixedNow());
+        var attachments = new[]
+        {
+            new InnolaAttachmentMetadata("att-one", "survey_diagram_selection.png", ".png", "image/png", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-one", true),
+            new InnolaAttachmentMetadata("att-two", "missing-parent-doc.pdf", ".pdf", "application/pdf", SourceRole.PlanMapReference, "plan", 4, null, "mock-attachment:att-two", true)
+        };
+        var detail = Detail("task-100000983", "transaction-100000983", "100000983", "In RT Examination", attachments);
+        var service = LoadService(manager, new FailingSecondAttachmentService(detail), tempRoot.Path);
+
+        var result = await service.LoadSelectedTransactionAsync();
+
+        TestAssert.True(result.Success, $"RT Examination should keep the successfully loaded parent document. Error: {result.ErrorMessage}");
+        TestAssert.True(File.Exists(Path.Combine(result.Layout!.SourceDirectory, "survey_diagram_selection.png")), "Successful parent attachment should remain in the Case Folder.");
+        TestAssert.True(!File.Exists(Path.Combine(result.Layout.SourceDirectory, "missing-parent-doc.pdf")), "Failed parent attachment should not create a source file.");
+        var manifest = ManifestSerializer.Read(result.Layout.ManifestPath);
+        TestAssert.Equal(1, manifest.Payload.AttachmentProvenance!.Count, "Only the successfully loaded attachment should be recorded as provenance.");
+        TestAssert.True(manifest.Warnings.Any(warning => warning.Contains("missing-parent-doc.pdf", StringComparison.OrdinalIgnoreCase)), "Failed attachment should be preserved as a manifest warning.");
+        TestAssert.Equal("task-100000983", manifest.Payload.InnolaTransaction!.TaskId, "RT load should still persist selected RT task metadata.");
+    }
+
     public static async Task ResumePackageRestoresSavedWorkflowState()
     {
         using var tempRoot = new TempDirectory();

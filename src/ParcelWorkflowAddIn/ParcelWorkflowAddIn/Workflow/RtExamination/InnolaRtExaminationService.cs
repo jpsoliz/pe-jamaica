@@ -297,7 +297,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 await ApplyPartyRowsAsync(session!, request.Transaction.TransactionId, plan, request.PartyRows, layout, cancellationToken).ConfigureAwait(false);
                 if (request.CompleteAfterSave)
                 {
-                    ApplyApprovedPlanCheck(plan, request.Transaction.TransactionNumber);
+                    await ApplyApprovedPlanCheckAsync(session!, request.Transaction.TransactionId, plan, request.Transaction.TransactionNumber, layout, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -689,9 +689,15 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         plan["checkList"] = new JsonArray(existing.Select(item => item?.DeepClone()).ToArray());
     }
 
-    private static void ApplyApprovedPlanCheck(JsonObject plan, string transactionNumber)
+    private async Task ApplyApprovedPlanCheckAsync(
+        InnolaSession session,
+        string transactionId,
+        JsonObject plan,
+        string transactionNumber,
+        CaseFolderLayout layout,
+        CancellationToken cancellationToken)
     {
-        var existing = (ResolveChildArray(plan, "checkList") ?? new JsonArray())
+        var existing = (ResolveCurrentChildArray(plan, "checkList") ?? new JsonArray())
             .OfType<JsonObject>()
             .Select(item => item.DeepClone().AsObject())
             .ToList();
@@ -700,7 +706,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             ?? existing.FirstOrDefault();
         if (check is null)
         {
-            check = new JsonObject { ["@c"] = "PlanCheck" };
+            check = await CreateDefaultPlanCheckAsync(session, transactionId, layout, cancellationToken).ConfigureAwait(false);
             existing.Add(check);
         }
 
@@ -709,6 +715,43 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         check["passed"] = approved.Acceptable;
         check["description"] = approved.Description;
         plan["checkList"] = new JsonArray(existing.Select(item => item.DeepClone()).ToArray());
+    }
+
+    private async Task<JsonObject> CreateDefaultPlanCheckAsync(
+        InnolaSession session,
+        string transactionId,
+        CaseFolderLayout layout,
+        CancellationToken cancellationToken)
+    {
+        const string payloadJson = "{\"@c\":\"PlanCheck\",\"id\":null}";
+        WriteJson(layout, "rt_examination_api_plan_check_create_request.json", new JsonObject
+        {
+            ["method"] = HttpMethod.Post.Method,
+            ["endpoint"] = $"{InnolaSettings.V4RestPath}data/objects/create",
+            ["payload"] = JsonNode.Parse(payloadJson)
+        });
+        var body = await SendJsonAsync(
+            session,
+            HttpMethod.Post,
+            $"{InnolaSettings.V4RestPath}data/objects/create",
+            payloadJson,
+            transactionId,
+            cancellationToken,
+            layout,
+            "plan_check_create").ConfigureAwait(false);
+        return ResolvePlanCheckTemplate(JsonNode.Parse(body));
+    }
+
+    private static JsonObject ResolvePlanCheckTemplate(JsonNode? node)
+    {
+        var template = ResolveObject(node);
+        if (template is null || !string.Equals(ReadString(template, "@c"), "PlanCheck", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("RT Examination PlanCheck create-template response did not contain a PlanCheck object.");
+        }
+
+        return template.DeepClone() as JsonObject
+            ?? throw new InvalidOperationException("RT Examination PlanCheck create-template response could not be cloned.");
     }
 
     private static RtExaminationPlanCheckRow BuildApprovedPlanCheckRow(string transactionNumber)
