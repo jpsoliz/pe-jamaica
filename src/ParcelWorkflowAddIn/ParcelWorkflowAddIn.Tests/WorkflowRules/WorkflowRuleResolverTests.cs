@@ -110,36 +110,39 @@ internal static class WorkflowRuleResolverTests
         TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.SurveyPlanPdf), "PXA plan should use survey plan PDF input role.");
     }
 
-    public static void PxaAliasResolvesThroughTransactionProfileScope()
+    public static void PxaAliasesResolveThroughTransactionProfileScope()
     {
-        using var rules = DefaultRulesFile();
-        var resolver = Resolver(rules.Path);
-        var profile = new DetectedSourceInputProfile(
-            SourceInputProfile.PxaSurveyPlan,
-            SourceInputProfile.PxaSurveyPlanLabel,
-            "matched",
-            FixedNow().UtcDateTime.ToString("O"),
-            Array.Empty<string>(),
-            Array.Empty<string>());
-        var sources = new[]
+        foreach (var transactionType in new[] { "Plan Examination by Area", "Plan Examination v2" })
         {
-            Source("DOC_PLAN_492321.pdf", ".pdf", SourceRole.SurveyPlanPdf)
-        };
-        var context = new WorkflowRuleResolutionContext(
-            "Plan Examination by Area",
-            "parcel_workflow",
-            profile,
-            sources,
-            new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
-            "pxa_single_parcel_survey_plan",
-            "pxa_single_parcel_survey_plan",
-            "scanned_single_parcel_survey_plan_pdf");
+            using var rules = DefaultRulesFile();
+            var resolver = Resolver(rules.Path);
+            var profile = new DetectedSourceInputProfile(
+                SourceInputProfile.PxaSurveyPlan,
+                SourceInputProfile.PxaSurveyPlanLabel,
+                "matched",
+                FixedNow().UtcDateTime.ToString("O"),
+                Array.Empty<string>(),
+                Array.Empty<string>());
+            var sources = new[]
+            {
+                Source("DOC_PLAN_492321.pdf", ".pdf", SourceRole.SurveyPlanPdf)
+            };
+            var context = new WorkflowRuleResolutionContext(
+                transactionType,
+                "parcel_workflow",
+                profile,
+                sources,
+                new WorkflowRuleSettings("openai", true, "balanced", "gpt-4.1-mini", "OPENAI_API_KEY", "local"),
+                "pxa_single_parcel_survey_plan",
+                "pxa_single_parcel_survey_plan",
+                "scanned_single_parcel_survey_plan_pdf");
 
-        var result = resolver.Resolve(context);
+            var result = resolver.Resolve(context);
 
-        TestAssert.True(result.Success, "Plan Examination by Area should resolve through the PXA transaction profile.");
-        TestAssert.Equal("pxa_single_parcel_survey_plan_v1", result.ScriptPlan!.RuleId, "PXA alias rule id mismatch.");
-        TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.SurveyPlanPdf), "PXA alias plan should use survey plan PDF input role.");
+            TestAssert.True(result.Success, $"{transactionType} should resolve through the PXA transaction profile.");
+            TestAssert.Equal("pxa_single_parcel_survey_plan_v1", result.ScriptPlan!.RuleId, "PXA alias rule id mismatch.");
+            TestAssert.True(result.ScriptPlan.Steps[0].InputRoles.Contains(SourceRole.SurveyPlanPdf), "PXA alias plan should use survey plan PDF input role.");
+        }
     }
 
     public static void PlaPlanAnnexationProfileResolvesToPlaPlan()

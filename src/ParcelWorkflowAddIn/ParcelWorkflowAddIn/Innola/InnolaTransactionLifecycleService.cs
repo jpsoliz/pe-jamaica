@@ -147,6 +147,7 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
             return null;
         }
 
+        var desiredTransitionNames = DesiredTransitionNames(request).ToArray();
         JsonElement? fallback = null;
         JsonElement? defaultTransition = null;
         foreach (var transition in document.RootElement.EnumerateArray())
@@ -157,8 +158,7 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
             }
 
             fallback ??= transition;
-            if (!string.IsNullOrWhiteSpace(request.DesiredTransitionName)
-                && TransitionMatches(transition, request.DesiredTransitionName))
+            if (desiredTransitionNames.Any(name => TransitionMatches(transition, name)))
             {
                 return InnolaHttp.ReadString(transition, "transitionId", "id", "name");
             }
@@ -167,6 +167,11 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
             {
                 defaultTransition ??= transition;
             }
+        }
+
+        if (desiredTransitionNames.Length > 0)
+        {
+            return null;
         }
 
         if (defaultTransition.HasValue)
@@ -186,6 +191,27 @@ public sealed class InnolaTransactionLifecycleService : IInnolaTransactionLifecy
             }
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Any(value => value!.Trim().Equals(expected.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IEnumerable<string> DesiredTransitionNames(InnolaTransactionLifecycleRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.DesiredTransitionName))
+        {
+            yield return request.DesiredTransitionName;
+        }
+
+        if (request.DesiredTransitionAliases is null)
+        {
+            yield break;
+        }
+
+        foreach (var alias in request.DesiredTransitionAliases)
+        {
+            if (!string.IsNullOrWhiteSpace(alias))
+            {
+                yield return alias;
+            }
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, InnolaSession session, string relativePath)

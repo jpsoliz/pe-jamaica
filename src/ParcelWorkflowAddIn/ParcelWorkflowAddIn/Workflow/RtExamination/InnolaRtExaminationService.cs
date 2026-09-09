@@ -310,7 +310,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             }
             var spatialUnits = LoadSpatialUnitArtifact(layout);
             var planCheckRows = request.CompleteAfterSave
-                ? new[] { BuildApprovedPlanCheckRow(request.Transaction.TransactionNumber) }
+                ? new[] { BuildRtCompletionPlanCheckRow(request.Transaction.TransactionNumber) }
                 : request.PlanCheckRows;
 
             WriteJson(layout, "rt_examination_api_request.json", new
@@ -322,7 +322,10 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 party_row_count = request.PartyRows.Count,
                 spatial_unit_attribute_count = 0,
                 plan_check_row_count = request.CompleteAfterSave ? 1 : 0,
-                complete_after_save = request.CompleteAfterSave
+                complete_after_save = request.CompleteAfterSave,
+                completion_decision_label = request.CompletionDecision?.Label,
+                completion_gateway_outcome = request.CompletionDecision?.GatewayOutcome,
+                completion_transition_target_stage = request.CompletionDecision?.TransitionTargetStage
             });
             await SavePlansAsync(session!, request.Transaction.TransactionId, currentPlanFetch, layout, cancellationToken).ConfigureAwait(false);
 
@@ -334,6 +337,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 }
 
                 var settings = settingsProvider();
+                var desiredTransition = request.CompletionDecision?.TransitionTargetStage ?? settings.DesiredTransitionName;
                 var lifecycle = await lifecycleService.CompleteAsync(
                     new InnolaTransactionLifecycleRequest(
                         session!,
@@ -341,7 +345,10 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                         request.CaseFolderPath,
                         "in_progress",
                         "RT Examination saved and completed.",
-                        settings.DesiredTransitionName),
+                        desiredTransition,
+                        request.CompletionDecision is null
+                            ? null
+                            : new[] { request.CompletionDecision.GatewayOutcome, request.CompletionDecision.Label }),
                     cancellationToken).ConfigureAwait(false);
                 if (!lifecycle.Success)
                 {
@@ -369,7 +376,10 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 Array.Empty<RtExaminationSpatialUnitAttribute>(),
                 planCheckRows,
                 request.Observations,
-                session!.User.Username));
+                session!.User.Username,
+                request.CompletionDecision?.Label,
+                request.CompletionDecision?.GatewayOutcome,
+                request.CompletionDecision?.TransitionTargetStage));
             return RtExaminationSaveResult.Succeeded(request.CompleteAfterSave
                 ? "RT Examination data saved and task completed."
                 : "RT Examination data saved.");
@@ -702,7 +712,8 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             .Select(item => item.DeepClone().AsObject())
             .ToList();
         var check = existing.FirstOrDefault(item =>
-            string.Equals(ReadString(item, "checkType"), "approved", StringComparison.OrdinalIgnoreCase))
+            string.Equals(ReadString(item, "checkType"), "plan_check_type_general", StringComparison.OrdinalIgnoreCase))
+            ?? existing.FirstOrDefault(item => IsPlanCheckTypeKey(ReadString(item, "checkType")))
             ?? existing.FirstOrDefault();
         if (check is null)
         {
@@ -710,10 +721,13 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             existing.Add(check);
         }
 
-        var approved = BuildApprovedPlanCheckRow(transactionNumber);
-        check["checkType"] = approved.CheckType;
-        check["passed"] = approved.Acceptable;
-        check["description"] = approved.Description;
+        if (!IsPlanCheckTypeKey(ReadString(check, "checkType")))
+        {
+            check["checkType"] = "plan_check_type_general";
+        }
+
+        check["passed"] = true;
+        check["description"] = BuildRtCompletionPlanCheckDescription(transactionNumber);
         plan["checkList"] = new JsonArray(existing.Select(item => item.DeepClone()).ToArray());
     }
 
@@ -754,13 +768,14 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             ?? throw new InvalidOperationException("RT Examination PlanCheck create-template response could not be cloned.");
     }
 
-    private static RtExaminationPlanCheckRow BuildApprovedPlanCheckRow(string transactionNumber)
-    {
-        return new RtExaminationPlanCheckRow(
-            "approved",
-            true,
-            $"Updated from ArcGIS Pro TR {transactionNumber}.");
-    }
+    private static bool IsPlanCheckTypeKey(string? checkType) =>
+        checkType?.StartsWith("plan_check_type_", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static RtExaminationPlanCheckRow BuildRtCompletionPlanCheckRow(string transactionNumber) =>
+        new("plan_check_type_general", true, BuildRtCompletionPlanCheckDescription(transactionNumber));
+
+    private static string BuildRtCompletionPlanCheckDescription(string transactionNumber) =>
+        $"Updated from ArcGIS Pro TR {transactionNumber}.";
 
     private static IReadOnlyList<RtExaminationSpatialUnitSummary> BuildSpatialUnitSummaries(IReadOnlyList<JsonObject> spatialUnits)
     {

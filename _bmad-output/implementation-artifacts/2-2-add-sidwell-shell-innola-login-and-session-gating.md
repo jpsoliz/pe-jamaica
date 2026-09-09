@@ -250,6 +250,7 @@ GPT-5 Codex
 - `tools\package_addin.ps1` passed and produced `ParcelWorkflowAddIn.esriAddInX`.
 - Review patch validation: C# test runner passed 64 tests after user/group context mapping and synchronization-context regression coverage.
 - Review patch validation: `tools\validate_contracts.ps1`, `tools\run_python_tests.ps1`, `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln --no-restore`, and `tools\package_addin.ps1` passed.
+- Patch validation 2026-09-08: `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -- "rt examination" "remember me" "lifecycle complete"` passed 28 tests, including username-only `Remember me` storage.
 
 ### Completion Notes List
 
@@ -261,6 +262,7 @@ GPT-5 Codex
 - Added Login, Transaction Panel placeholder, Configuration, and About WPF surfaces.
 - Added automated tests for login state, logout/expiry, command gates, and secret non-persistence.
 - Applied code review patches so login response user/group/role fields are mapped into `InnolaUserContext`, and session change notifications after async login preserve the caller synchronization context for WPF safety.
+- Patch 2026-09-08: added `Remember me` to the Innola login form. It stores only the remembered username in a user-scoped local preference file; passwords, access tokens, cookies, and session data remain session-only and are not persisted.
 
 ### File List
 
@@ -274,6 +276,7 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/IInnolaAuthService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaAuthService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaLoginResult.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaLoginPreferenceStore.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSession.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSessionManager.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaSessionStatus.cs`
@@ -316,3 +319,4 @@ Approved after patch.
 - 2026-06-10: Implemented Story 2.2 Sidwell shell, Innola login/session state, command gating, placeholder panels, tests, validation, and package generation; moved story to review.
 - 2026-06-10: Applied code review patches for user/group context mapping and WPF-safe session notifications; moved story to done.
 - 2026-08-06: Patch note added for Cadastre tools ribbon simplification to Login, Settings, and About.
+- 2026-09-08: Patch note added for `Remember me`, storing only the username as a user-scoped non-secret preference.

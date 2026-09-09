@@ -37,7 +37,7 @@ The RT flow has three distinct responsibilities: the main transaction supplies s
 5. Load sources and latest spatial units from the originating PE Plan/transaction.
 6. Query Enterprise `working_review` geometry using linked TR number `Plan.planNumber`; this is additional spatial information only.
 7. Let the examiner update non-spatial RT data: neighbors, owners/occupiers/representatives, and comparison observations where supported; Spatial Units are read-only parcel context.
-8. Save the current linked RT transaction Plan with updated `neighbors`/`neighbor` data. On `Save & Close`, also apply the final approved Plan Check values, then complete the RT stage and close the workspace.
+8. Save the current linked RT transaction Plan with updated `neighbors`/`neighbor` data. On `Save & Close`, perform the same save first, apply final Plan Check completion values, then complete the selected RT stage transition and close the workspace.
 
 This story deliberately does not implement spatial geometry editing. It may load geometry for visual review and attribute context, but no working-review or final cadastre geometry edits are allowed in this scope.
 
@@ -57,6 +57,7 @@ This story deliberately does not implement spatial geometry editing. It may load
 - The user-provided `PlanCheckupdate.png` screenshot added on 2026-09-07 shows the live Innola RT Examination Plan Check surface for transaction `100000854`: main transaction type `First Registration`, status `Processing`, task `In RT Examination`, one `Plans` row, and a Plan Check detail area with nested `Plan Check (0)` and `Neighbors (0)` tabs.
 - The screenshot confirms the current RT task can have a Plan row whose visible values are `Plan No. 100000749`, `Type = Plan Examination`, `Neg No. 300008`, `Version = 2`, and `Pending`; these visible identifiers should be captured in RT context/log artifacts when available.
 - The screenshot also confirms empty `Plan Check` and `Neighbors` detail rows are a valid live state. Empty arrays must not be treated as missing Plan data, and the RT workspace must still load, save safely, and complete when no editable Plan Check or Neighbor rows are returned.
+- The user clarified on 2026-09-08 that `Save & Close` must choose the post-RT gateway branch before Innola completion: `Yes, proceed next` advances to `Review Completed RT Examination`, while `No, prepare pre-check log sheet` advances to `Prepare Plan Pre-Check Log Sheet`.
 
 ## Recovered Image-Based Follow-up Plan
 
@@ -66,9 +67,10 @@ This story deliberately does not implement spatial geometry editing. It may load
 - Treat the Plan row as first-class RT context. The workspace should expose the visible Plan row identifiers (`Plan No.`, `Type`, `Neg No.`, `Version`, and status) in the Context tab and persisted diagnostics, because these are the fields the examiner uses to verify that the correct linked Plan is being reviewed.
 - Keep `Plan Check` and `Neighbors` as sibling review sections under the selected Plan context. The current mockup can retain a top-level tab layout, but the required mental model is: current transaction -> Plans row -> Plan Check / Neighbors details.
 - Empty `Plan Check (0)` and `Neighbors (0)` are valid and expected for at least transaction `100000854`. The business rule is "nothing to update in this subtable" rather than "RT load failed."
-- Preserve the Innola action semantics separately: `Save` confirms and persists current Plan neighbor edits only without completing the RT task; `Save & Close` confirms, saves neighbor edits, applies the final RT Plan Check approval, performs the completion transition, refreshes, cleans up, and closes. `Cancel` closes without writeback after user confirmation when there are unsaved edits.
+- Preserve the Innola action semantics separately: `Save` confirms and persists current Plan neighbor/related-value edits only without completing the RT task; `Save & Close` confirms, performs the same save first, applies the final RT Plan Check completion signal, performs the selected completion transition, refreshes, cleans up, and closes. `Cancel` closes without writeback after user confirmation when there are unsaved edits.
 - Revised on 2026-09-07: `Save` must only save/update the Neighbors tab. Spatial Units are read-only parcel context and must not be written by `Save`.
 - Revised on 2026-09-07: `Save & Close` must save/update the Neighbors tab, update the RT Plan Check row to approved, and then move the Innola task to the next workflow step.
+- Revised on 2026-09-08: `Save & Close` must require an explicit RT result branch before completion. The approved/proceed branch targets `Review Completed RT Examination`; the re-check branch targets `Prepare Plan Pre-Check Log Sheet`.
 - Revised on 2026-09-07: Spatial Units should show one row per parcel returned by the PE/working_review polygon scope. Initially visible fields are `parcel_name`, `area_sqr`, `suid`, and `created_utc`; transaction `100000854` / PE `100000749` is expected to show one parcel row.
 - Revised on 2026-09-07: `Save` and `Save & Close` both require a confirmation dialog before writeback.
 - Payload clarification from existing Compute Plan Check code: `checkType` is a string code/value, while the UI `Acceptable` value maps to the nullable boolean payload field `passed` with fallback read support for `acceptable`.
@@ -78,10 +80,10 @@ This story deliberately does not implement spatial geometry editing. It may load
 - Add `PlanCheckupdate.png` as a story source artifact and add a focused regression fixture/test for the live `100000854` Plan Check shape: one current Plan row with zero checklist rows and zero neighbor rows.
 - Extend RT context/review models to preserve and display current Plan row metadata when present: `planNo`/`planNumber`, plan type, negotiation number (`Neg No.`), version, status, uid/id/link, and unknown fields.
 - Change RT load validation so missing Plan object still blocks, but empty `checkList`, `neighbors`, `neighbor`, or `neighbours` arrays do not block. Record counts as `0` and show an informational status.
-- Update `RtExaminationWindow.xaml` / ViewModel so `Save` and `Save & Close` are distinct commands matching Innola: `Save` updates Neighbors only and leaves the workspace open; `Save & Close` updates Neighbors, marks the RT Plan Check as approved, completes the task transition, refreshes, cleans up, and closes.
+- Update `RtExaminationWindow.xaml` / ViewModel so `Save` and `Save & Close` are distinct commands matching Innola: `Save` updates Neighbors/related values only and leaves the workspace open; `Save & Close` updates Neighbors/related values, marks RT completion on a valid Plan Check row, completes the selected task transition, refreshes, cleans up, and closes.
 - Update Spatial Units display to a read-only parcel summary grid using `parcel_name`, `area_sqr`, `suid`, and `created_utc`.
 - Update Plan Check display from a freeform observations-only textbox to a compact read-only grid/list that can show zero rows cleanly and, when rows exist, show Check Type, Acceptable, and Description columns matching the Innola surface. The final approval row is applied automatically during `Save & Close`.
-- Add tests covering: zero Plan Check rows loads successfully, zero Neighbor rows loads successfully, Plan row metadata is persisted, `Save` does not complete the task, and `Save & Close` still completes after a successful save.
+- Add tests covering: zero Plan Check rows loads successfully, zero Neighbor rows loads successfully, Plan row metadata is persisted, `Save` does not complete the task, and `Save & Close` still completes after a successful save using the selected gateway branch.
 
 ## Acceptance Criteria
 
@@ -100,7 +102,7 @@ This story deliberately does not implement spatial geometry editing. It may load
 13. Given RT linked data is loaded, when the examiner reviews the data, then the workspace exposes editable non-spatial fields for Neighbor, Owner, Occupier, and Representative rows, while Spatial Units are shown as read-only parcel summary context.
 14. Given neighbor/party rows are edited, when values are saved locally, then role values are constrained to `Neighbor`, `Owner`, `Occupier`, and `Representative`, and all editable text values preserve original and reviewed values for audit.
 15. Given Spatial Units are displayed, when the examiner saves, then no SpatialUnit objects or geometry/attribute fields are written by RT Examination; the read-only grid shows parcel count/context only.
-16. Given the current RT Plan contains existing checkList rows, when normal `Save` runs, then the add-in preserves checkList values unchanged. When `Save & Close` runs, then the add-in marks the RT Plan Check row as approved with `checkType = approved`, `passed = true`, and description `Updated from ArcGIS Pro TR {transaction_number}.`, while preserving ids, uid, version, registered surveyor, link, unknown fields, and unrecognized checks where present.
+16. Given the current RT Plan contains existing checkList rows, when normal `Save` runs, then the add-in preserves checkList values unchanged. When `Save & Close` runs, then the add-in marks RT completion by updating a current Plan Check row with a valid Innola `plan_check_type_*` key, `passed = true`, and description `Updated from ArcGIS Pro TR {transaction_number}.`, while preserving ids, uid, version, registered surveyor, link, unknown fields, and unrecognized checks where present.
 17. Given the current RT Plan contains neighbor/party rows, when RT save runs, then the add-in updates reviewed `Neighbor`, `Owner`, `Occupier`, and `Representative` values into the current Plan using the confirmed Innola Plan property for this environment. Until live confirmation proves otherwise, use the existing Story 7.11 `neighbors` implementation pattern and make the property name isolated behind the RT Plan writeback service.
 18. Given reviewed neighbor/party rows are saved repeatedly, when RT save is retried, then duplicate Plan rows are avoided using a deterministic key over role, name, address, volume, folio, lot, land valuation number, and examination number where available.
 19. Given originating PE SpatialUnits or working_review polygons are loaded, when RT Examination renders the Spatial Units tab, then the grid shows one row per parcel with initial fields `parcel_name`, `area_sqr`, `suid`, and `created_utc`.
@@ -110,7 +112,7 @@ This story deliberately does not implement spatial geometry editing. It may load
 23. Given all RT data saves succeed, when the examiner chooses `Save and Close`, then the add-in shows a Yes/No confirmation before committing and completing the task.
 24. Given the examiner cancels the confirmation, then no Innola save/complete call runs, the RT workspace remains open, and loaded map layers remain available.
 25. Given the examiner confirms and Innola save/complete succeeds, then the add-in shows a success message, removes only RT-loaded transaction map groups/layers, clears the RT workspace state, refreshes the transaction list, and does not delete case-folder artifacts.
-26. Given Innola completion requires a transition, then the implementation uses existing transition discovery and selects the transition that advances out of `In RT Examination`; if the exact next-stage label is not available from configuration, the service must use the available transition metadata and record the selected key/label in the local artifact.
+26. Given Innola completion requires a transition, then the RT workspace requires the examiner to choose the post-examination branch before `Save & Close`; `Yes, proceed next` must request transition target `Review Completed RT Examination`, `No, prepare pre-check log sheet` must request transition target `Prepare Plan Pre-Check Log Sheet`, and the selected branch/target must be recorded in local RT artifacts.
 27. Given any RT HTTP diagnostic or local artifact is written, then no access token, password, cookie, raw certificate material, or unbounded sensitive service response is logged.
 28. Given the case is reopened after partial RT work, then the workspace can recover current Plan reference, originating PE reference, loaded sources/spatial units metadata, reviewed edits, save status, and last failure/success state from case-folder artifacts.
 29. Given automated tests run, then coverage proves stage routing, exact selected-task binding, Plan load fallback, Plan.planNumber PE resolution, portal search no/multiple match failures, latest sources/spatial units request construction, working_review query key, editable neighbor persistence, read-only Spatial Units display, normal Save check preservation, Save & Close Plan Check approval/completion, failure short-circuit, confirmation cancel, success cleanup, and secret redaction.
@@ -148,11 +150,12 @@ This story deliberately does not implement spatial geometry editing. It may load
 - [x] Implement RT save/writeback orchestration. (AC: 16-27)
   - [x] Add `IInnolaRtExaminationService` or equivalent façade that orchestrates Plan neighbor writeback, Save & Close Plan Check approval, and lifecycle completion.
   - [x] Save Plan neighbor/party data to the current RT transaction, not the originating PE transaction.
-  - [x] Preserve Plan `checkList` during normal `Save`; apply final approved Plan Check values during `Save & Close`.
+  - [x] Preserve Plan `checkList` during normal `Save`; apply final Plan Check completion values during `Save & Close` without replacing Innola's `plan_check_type_*` enum key with a literal status.
   - [x] Do not create or update spatial geometry or SpatialUnit attributes.
   - [x] Stop immediately on the first writeback failure and record `working/rt_examination_api_failure.json`.
   - [x] On success, record `working/rt_examination_api_request.json`, `working/rt_examination_api_response.json`, and lifecycle audit entries.
   - [x] Show final confirmation before save/complete; after success, show completion message, cleanup RT-loaded layers, close workspace, and refresh transaction list.
+  - [x] Add explicit post-RT gateway choices to the form so `Save & Close` sends either `Review Completed RT Examination` or `Prepare Plan Pre-Check Log Sheet` instead of relying on a default transition.
   - [x] Do not attach a new RT report in this story.
 
 - [x] Add focused tests. (AC: 1-29)
@@ -207,14 +210,14 @@ Use a constrained combo for `Role` with `Neighbor`, `Owner`, `Occupier`, and `Re
 
 `Spatial Units` should expose read-only parcel summary rows. Initially show `parcel_name`, `area_sqr`, `suid`, and `created_utc`; geometry fields, coordinate arrays, point references, boundary fields, and other SpatialUnit attributes must not be editable or written by RT Examination.
 
-`Plan Check` should show supported checklist rows and observations with compact read-only controls. Normal `Save` preserves Plan Check values unchanged. `Save & Close` applies the final approval automatically using `checkType = approved`, `passed = true`, and description `Updated from ArcGIS Pro TR {transaction_number}.`; it should not create or attach a report in this story.
+`Plan Check` should show supported checklist rows and observations with compact read-only controls. Normal `Save` preserves Plan Check values unchanged. `Save & Close` applies the final completion signal automatically by preserving/using a valid Innola `plan_check_type_*` key, setting `passed = true`, and writing description `Updated from ArcGIS Pro TR {transaction_number}.`; it should not create or attach a report in this story.
 
 `Sources / Map Evidence` should show the linked transaction/originating PE sources, working-review query key (`Plan.planNumber`), loaded map group/layer names, and warnings. This is additional information only; no embedded map preview is needed because ArcGIS Pro's active map is the companion surface.
 
 Completion behavior:
 
-- `Save` confirms and writes Plan neighbor values only to the linked/current RT transaction, then leaves the RT workspace open.
-- `Save and Close` confirms, writes Plan neighbor values, applies final Plan Check approval to the linked/current RT transaction, completes the RT task, refreshes the transaction list, cleans RT-loaded map layers, and closes the workspace.
+- `Save` confirms and writes Plan neighbor/related values only to the linked/current RT transaction, then leaves the RT workspace open.
+- `Save and Close` confirms, performs the same Plan neighbor/related-value save, applies the final Plan Check completion signal to the linked/current RT transaction, completes the RT task using the selected RT Result transition, refreshes the transaction list, cleans RT-loaded map layers, and closes the workspace.
 - On success, show a completion message, remove only RT-loaded map layers/groups, clear RT workspace state, refresh the transaction list, and close the window.
 - On failure, keep the workspace open, preserve edits, write safe diagnostics, and leave layers loaded for retry.
 ### API Contract From RT Reference
@@ -238,7 +241,7 @@ The current linked RT transaction is the writeback target. The main transaction 
 ### Data Boundaries
 
 - Editable: non-spatial neighbor/party data and comparison observations where supported.
-- Automatically updated on `Save & Close`: RT Plan Check `checkType`, `passed`, and `description`.
+- Automatically updated on `Save & Close`: one current RT Plan Check row is selected/created, its valid `plan_check_type_*` key is preserved or defaulted to `plan_check_type_general`, and `passed` plus `description` are updated.
 - Read-only: Spatial Unit parcel summary fields `parcel_name`, `area_sqr`, `suid`, and `created_utc`.
 - Not editable: spatial geometry, coordinate arrays, ArcGIS final cadastre geometry, Enterprise authoritative layers, CADMAP, CADINDEX, and Parcel Fabric authoritative targets.
 - `Plan.planNumber` is the linked TR/PE number and the key for `working_review` geometry lookup.
@@ -368,6 +371,8 @@ GPT-5 Codex
 - `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.460`.
 - Code review pass on 2026-09-08 found one close-button edge case: a sticky chrome-close guard could suppress later cancel prompts after the user declined the first prompt. The guard was removed and the RT focused suite remained green.
 - `tools/package_addin.ps1 -Configuration Release` - Add-in package produced and registered as version `1.1.461` with the code-review close-button fix included.
+- `dotnet run --project src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.Tests\ParcelWorkflowAddIn.Tests.csproj -c Release -- "rt examination" "remember me" "lifecycle complete"` - PASS 28 tests after adding RT gateway branch selection, desired-transition alias matching, fail-closed transition behavior, and username-only login preference storage.
+- `dotnet build src\ParcelWorkflowAddIn\ParcelWorkflowAddIn.sln -c Release -p:GenerateAssemblyInfo=false -p:GenerateTargetFrameworkAttribute=false -p:UseSharedCompilation=false` - Build succeeded with existing ArcGIS platform analyzer warnings and 0 errors after RT branch and login preference patches.
 
 
 
@@ -401,6 +406,8 @@ GPT-5 Codex
 - Patched RT neighbor writeback for the live main/current Plan object contract: the selected/current RT Plan is the only write target, empty current `neighbors` arrays are populated with Innola-created Neighbor child objects, and the linked/originating PE transaction remains read-only source context.
 - Patched RT administrative Plan save payloads to preserve the response body shape and normalize transient `@id` aliases across the outbound object graph. This fixed the live `400 Failed to read request` writeback failure on TR `100000854`.
 - Patched RT window chrome close behavior so the `X` button routes through the same confirmation, cleanup, transaction refresh, and close path as the Cancel/Close command.
+- Patched RT `Save & Close` to require a selected RT result branch and pass the selected target stage into Innola lifecycle completion: `Review Completed RT Examination` for proceed-next, or `Prepare Plan Pre-Check Log Sheet` for pre-check log sheet preparation. The selected label, gateway outcome, and target stage are written to RT local artifacts.
+- Patched live RT `100000983` writeback diagnosis: Innola rejected the Plan save before workflow transition because the payload used literal `checkType = approved`. `Save & Close` now preserves valid `plan_check_type_*` values, prefers `plan_check_type_general`, and only then sets `passed = true` plus the ArcGIS Pro completion description before invoking the selected combo transition.
 
 ## Code Review
 
@@ -423,6 +430,8 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionDetailServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionLoadServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionSettings.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionLifecycleRequest.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/InnolaTransactionLifecycleService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ParcelWorkflowStageRouter.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Innola/ShellState.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/TransactionPanelState.cs`
@@ -431,6 +440,8 @@ GPT-5 Codex
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/RtExamination/RtExaminationModels.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/RtExamination/InnolaRtExaminationService.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/RtExaminationTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaAuthServiceTests.cs`
+- `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/InnolaTransactionLifecycleServiceTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Innola/TransactionPanelStateTests.cs`
 - `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/Program.cs`
 
@@ -448,5 +459,7 @@ GPT-5 Codex
 | 2026-09-06 | 1.7 | Fixed same-active RT row OpenTask no-op so already-active TR `100000854` can reopen RT UX/supporting documents and regenerate start trace; packaged add-in version `1.1.397`. | Winston / Amelia / Codex |
 | 2026-09-06 | 1.8 | Fixed the transaction list being disabled while the main task was active, preventing selection of the same-number `In RT Examination` row; packaged add-in version `1.1.402`. | Winston / Amelia / Codex |
 | 2026-09-08 | 1.9 | Completed live RT Examination writeback: current RT Plan is the write target, Neighbor rows are created/appended safely, Spatial Units are read-only, Plan Check approval completes on Save & Close, transient `@id` aliases are normalized for Innola, the window `X` routes through Cancel, focused review passed, and add-in version `1.1.461` was packaged. | Mary / Amelia / Codex |
+| 2026-09-08 | 2.0 | Added explicit RT Save & Close gateway branch selection so Innola completion requests either `Review Completed RT Examination` or `Prepare Plan Pre-Check Log Sheet`, with branch evidence recorded in RT artifacts. | JotaPe / Codex |
+| 2026-09-08 | 2.1 | Validated live RT `100000983` writeback failure and corrected PlanCheck completion payload to keep Innola `plan_check_type_*` enum values instead of sending literal `approved`; clarified Save versus Save & Close semantics. | JotaPe / Codex |
 
 

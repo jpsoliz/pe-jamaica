@@ -8,12 +8,22 @@ namespace ParcelWorkflowAddIn;
 public partial class LoginWindow : ProWindow
 {
     private static readonly TimeSpan LoginTimeout = TimeSpan.FromSeconds(30);
+    private readonly InnolaLoginPreferenceStore preferenceStore;
 
     public LoginWindow()
+        : this(new InnolaLoginPreferenceStore())
     {
+    }
+
+    internal LoginWindow(InnolaLoginPreferenceStore preferenceStore)
+    {
+        this.preferenceStore = preferenceStore;
         InitializeComponent();
         ServerTextBlock.Text = ShellState.ConfiguredServerUrl;
         StatusTextBlock.Text = ShellState.Session.StatusText;
+        var preferences = preferenceStore.Load();
+        UsernameTextBox.Text = preferences.RememberedUsername ?? string.Empty;
+        RememberMeCheckBox.IsChecked = preferences.RememberMe;
     }
 
     private async void LoginButton_Click(object sender, RoutedEventArgs e)
@@ -29,6 +39,15 @@ public partial class LoginWindow : ProWindow
 
             if (result.Success)
             {
+                if (RememberMeCheckBox.IsChecked == true)
+                {
+                    preferenceStore.SaveRememberedUser(UsernameTextBox.Text);
+                }
+                else
+                {
+                    preferenceStore.Clear();
+                }
+
                 FrameworkApplication.DockPaneManager.Find(TransactionPanelDockpaneViewModel.DockPaneId)?.Activate();
                 DialogResult = true;
             }

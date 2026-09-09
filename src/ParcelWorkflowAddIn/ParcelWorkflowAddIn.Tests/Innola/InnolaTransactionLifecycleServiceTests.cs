@@ -76,6 +76,53 @@ internal static class InnolaTransactionLifecycleServiceTests
         TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/tasks/task-1/complete?transition=plan_annex_review", StringComparison.Ordinal), "Complete should use the desired Plan Annexation transition.");
     }
 
+    public static async Task LiveLifecycleCompleteDoesNotFallbackWhenDesiredTransitionIsMissing()
+    {
+        var handler = new SequenceHandler(new Response("""
+            [
+              {
+                "transitionId": "default_transition",
+                "name": "Some Other Stage",
+                "isDefault": true
+              }
+            ]
+            """, HttpStatusCode.OK));
+        var service = new InnolaTransactionLifecycleService(new HttpClient(handler));
+
+        var result = await service.CompleteAsync(Request() with
+        {
+            DesiredTransitionName = "Review Completed RT Examination",
+            DesiredTransitionAliases = new[] { "Yes, Proceed Next" }
+        });
+
+        TestAssert.False(result.Success, "Explicit desired transitions should fail closed when no transition metadata matches.");
+        TestAssert.Equal(1, handler.Requests.Count, "Complete endpoint must not be called after a desired transition mismatch.");
+    }
+
+    public static async Task LiveLifecycleCompleteMatchesDesiredTransitionAlias()
+    {
+        var handler = new SequenceHandler(
+            new Response("""
+                [
+                  {
+                    "transitionId": "rt_proceed_next",
+                    "label": "Yes, Proceed Next"
+                  }
+                ]
+                """, HttpStatusCode.OK),
+            new Response("", HttpStatusCode.OK));
+        var service = new InnolaTransactionLifecycleService(new HttpClient(handler));
+
+        var result = await service.CompleteAsync(Request() with
+        {
+            DesiredTransitionName = "Review Completed RT Examination",
+            DesiredTransitionAliases = new[] { "Yes, Proceed Next" }
+        });
+
+        TestAssert.True(result.Success, "Complete should match desired aliases exposed by Innola transition metadata.");
+        TestAssert.True(handler.Requests[1].Uri.AbsoluteUri.EndsWith("/api/v4/rest/workflow/tasks/task-1/complete?transition=rt_proceed_next", StringComparison.Ordinal), "Complete should use the matched RT alias transition.");
+    }
+
     public static async Task LiveLifecycleBusinessFailureIsRedacted()
     {
         var handler = new SequenceHandler(new Response("""

@@ -4,7 +4,7 @@
                     xmlns:controls="clr-namespace:ArcGIS.Desktop.Framework.Controls;assembly=ArcGIS.Desktop.Framework"
                     Title="Cadastre tools Login"
                     Width="360"
-                    Height="230"
+                    Height="260"
                     WindowStartupLocation="CenterOwner">
   <Grid Margin="14">
     <Grid.RowDefinitions>
@@ -55,8 +55,14 @@
                  Grid.Column="1"
                  Margin="10,0,0,6" />
 
+    <CheckBox x:Name="RememberMeCheckBox"
+              Grid.Row="3"
+              Grid.Column="1"
+              Margin="10,0,0,6"
+              Content="Remember me" />
+
     <TextBlock x:Name="StatusTextBlock"
-               Grid.Row="3"
+               Grid.Row="4"
                Grid.ColumnSpan="2"
                Margin="0,4,0,0"
                Text="Not logged in."

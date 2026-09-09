@@ -90,7 +90,7 @@ internal static class ComputeTransactionTypeProfileCatalog
             "pxa_single_parcel_survey_plan",
             true,
             new[] { "PXA" },
-            new[] { "PXA", "Plan Examination by Area" },
+            new[] { "PXA", "Plan Examination by Area", "Plan Examination v2" },
             "pxa_single_parcel_survey_plan",
             new[] { SourceRole.SurveyPlanPdf },
             new[] { SourceRole.CoordinateTextSource, SourceRole.DwgSource },

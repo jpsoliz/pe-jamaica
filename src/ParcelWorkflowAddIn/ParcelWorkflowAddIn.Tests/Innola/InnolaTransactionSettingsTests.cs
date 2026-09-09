@@ -64,9 +64,12 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(5, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
+        TestAssert.Equal(8, settings.SupportedTransactionTypes.Count, "Fallback supported transaction type count mismatch.");
         TestAssert.Equal(InnolaTransactionSettings.ReviewWorkspaceModeNormal, settings.ReviewWorkspaceMode, "Fallback review workspace mode mismatch.");
         TestAssert.Equal("Plan Examination", settings.SupportedTransactionTypes[0], "Fallback first supported transaction type mismatch.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Examination by Area"), "Fallback supported transaction types should include the legacy PXA name.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Examination v2"), "Fallback supported transaction types should include the renamed PXA name.");
+        TestAssert.True(settings.SupportedTransactionTypes.Contains("PXA"), "Fallback supported transaction types should include PXA.");
         TestAssert.True(settings.SupportedTransactionTypes.Contains("PLA"), "Fallback supported transaction types should include PLA.");
         TestAssert.True(settings.SupportedTransactionTypes.Contains("First Registration"), "Fallback supported transaction types should include First Registration.");
         TestAssert.True(settings.SupportedTransactionTypes.Contains("Plan Annexation"), "Fallback supported transaction types should include Plan Annexation.");
@@ -88,7 +91,7 @@ internal static class InnolaTransactionSettingsTests
 
         var settings = InnolaTransactionSettings.Load(settingsFile.Path);
 
-        TestAssert.Equal(5, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
+        TestAssert.Equal(8, settings.SupportedTransactionTypes.Count, "Invalid list should fall back to safe defaults.");
         TestAssert.True(settings.SupportedTransactionTypesWarning?.Contains("empty or invalid", StringComparison.OrdinalIgnoreCase) == true, "Invalid list warning mismatch.");
     }
 

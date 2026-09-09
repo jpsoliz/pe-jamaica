@@ -185,6 +185,7 @@
     "Cadastral Plan Examination",
     "Compute Survey Plan",
     "Plan Examination by Area",
+    "Plan Examination v2",
     "PXA",
     "PLA",
     "First Registration",
@@ -502,7 +503,8 @@
       "transaction_type_codes": ["PXA"],
       "transaction_type_names": [
         "PXA",
-        "Plan Examination by Area"
+        "Plan Examination by Area",
+        "Plan Examination v2"
       ],
       "workflow_profile": "pxa_single_parcel_survey_plan",
       "required_source_roles": [

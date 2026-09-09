@@ -61,6 +61,9 @@ internal static class RtExaminationTests
             "Header=\"Sources / Map Evidence\"",
             "LoadLinkedPeDataCommand",
             "SaveCommand",
+            "ItemsSource=\"{Binding CompletionDecisions}\"",
+            "SelectedItem=\"{Binding SelectedCompletionDecision, Mode=TwoWay}\"",
+            "DisplayMemberPath=\"Label\"",
             "Content=\"Save\"",
             "Content=\"Save &amp; Close\"",
             "Header=\"Role\"",
@@ -245,7 +248,7 @@ internal static class RtExaminationTests
                   { "id": "neighbor-1", "neighborType": "owner", "name": "Old Owner" }
                 ],
                 "checkList": [
-                  { "@c": "PlanCheck", "id": "check-1", "checkType": "pending", "passed": false, "description": "Original note" }
+                  { "@c": "PlanCheck", "id": "check-1", "checkType": "plan_check_type_general", "passed": false, "description": "Original note" }
                 ]
               }
             ]
@@ -272,14 +275,16 @@ internal static class RtExaminationTests
             Array.Empty<RtExaminationSpatialUnitAttribute>(),
             Array.Empty<RtExaminationPlanCheckRow>(),
             null,
-            true));
+            true,
+            RtExaminationCompletionDecision.DefaultOptions[0]));
 
         TestAssert.True(result.Success, "Save & Close should save and complete.");
         TestAssert.True(lifecycle.Completed, "Save & Close must move the Innola workflow to the next step.");
+        TestAssert.Equal("Review Completed RT Examination", lifecycle.LastRequest?.DesiredTransitionName, "Save & Close should use the selected RT transition target.");
         using var document = JsonDocument.Parse(handler.Requests[2].Body!);
         TestAssert.Equal(JsonValueKind.Array, document.RootElement.ValueKind, "Administrative Plan Save & Close must preserve the array shape returned by the GET route.");
         var check = document.RootElement[0].GetProperty("checkList")[0];
-        TestAssert.Equal("approved", check.GetProperty("checkType").GetString(), "Save & Close should set Plan Check type to approved.");
+        TestAssert.Equal("plan_check_type_general", check.GetProperty("checkType").GetString(), "Save & Close should preserve Innola's Plan Check type key.");
         TestAssert.True(check.GetProperty("passed").GetBoolean(), "Save & Close should set Plan Check acceptable/passed to true.");
         TestAssert.Equal("Updated from ArcGIS Pro TR 100000854.", check.GetProperty("description").GetString(), "Save & Close should write the ArcGIS Pro transaction description.");
     }
@@ -333,10 +338,12 @@ internal static class RtExaminationTests
             Array.Empty<RtExaminationSpatialUnitAttribute>(),
             Array.Empty<RtExaminationPlanCheckRow>(),
             null,
-            true));
+            true,
+            RtExaminationCompletionDecision.DefaultOptions[1]));
 
         TestAssert.True(result.Success, $"Save & Close should create a current PlanCheck row when checkList is empty. Error: {result.Message}");
         TestAssert.True(lifecycle.Completed, "Save & Close must complete after successful PlanCheck save.");
+        TestAssert.Equal("Prepare Plan Pre-Check Log Sheet", lifecycle.LastRequest?.DesiredTransitionName, "Save & Close should support the pre-check log sheet branch.");
         TestAssert.Equal(4, handler.Requests.Count, "RT Save & Close should fetch data, fetch administrative, create PlanCheck, then save administrative.");
         TestAssert.True(handler.Requests[2].Uri.PathAndQuery.Contains("/api/v4/rest/data/objects/create", StringComparison.Ordinal), "RT Save & Close should create a PlanCheck child row through Innola.");
         using (var createDocument = JsonDocument.Parse(handler.Requests[2].Body!))
@@ -350,7 +357,7 @@ internal static class RtExaminationTests
         TestAssert.Equal(1, checkList.GetArrayLength(), "Save & Close should append one current PlanCheck row, not copy original snapshot rows.");
         var check = checkList[0];
         TestAssert.Equal("created-plan-check", check.GetProperty("id").GetString(), "Current PlanCheck identity should come from Innola create-template.");
-        TestAssert.Equal("approved", check.GetProperty("checkType").GetString(), "Save & Close should set Plan Check type to approved.");
+        TestAssert.Equal("plan_check_type_general", check.GetProperty("checkType").GetString(), "Save & Close should set a valid Innola Plan Check type key when creating a current row.");
         TestAssert.True(check.GetProperty("passed").GetBoolean(), "Save & Close should set Plan Check acceptable/passed to true.");
         TestAssert.Equal("Updated from ArcGIS Pro TR 100000854.", check.GetProperty("description").GetString(), "Save & Close should write the ArcGIS Pro transaction description.");
         AssertUniqueObjectAliases(document.RootElement[0]);
@@ -411,6 +418,9 @@ internal static class RtExaminationTests
 
         await viewModel.LoadAsync();
         TestAssert.True(!viewModel.CanSave, "Loaded RT Examination should not enable Save before changes.");
+        TestAssert.True(!viewModel.CanComplete, "Loaded RT Examination should require an RT result before Save & Close.");
+        viewModel.SelectedCompletionDecision = RtExaminationCompletionDecision.DefaultOptions[0];
+        TestAssert.True(viewModel.CanComplete, "Choosing an RT result should enable Save & Close.");
         viewModel.Observations = "Updated review";
         TestAssert.True(viewModel.CanSave, "Changed RT Examination should enable Save.");
 
@@ -430,6 +440,7 @@ internal static class RtExaminationTests
         var completed = await Task.WhenAny(closeObserved.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         TestAssert.True(ReferenceEquals(completed, closeObserved.Task), "Complete should close the RT workspace.");
         TestAssert.True(writeback.Request!.CompleteAfterSave, "Complete should be the final RT action.");
+        TestAssert.Equal("Review Completed RT Examination", writeback.Request.CompletionDecision?.TransitionTargetStage, "Complete should pass the selected RT branch to writeback.");
         TestAssert.True(loadService.CleanupCalled, "Successful completion should clean up RT map layers.");
         TestAssert.True(refreshed, "Successful completion should refresh Innola transactions.");
     }
@@ -488,6 +499,7 @@ internal static class RtExaminationTests
     private sealed class CapturingLifecycleService : IInnolaTransactionLifecycleService
     {
         public bool Completed { get; private set; }
+        public InnolaTransactionLifecycleRequest? LastRequest { get; private set; }
 
         public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
@@ -502,6 +514,7 @@ internal static class RtExaminationTests
         public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
             Completed = true;
+            LastRequest = request;
             return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("completed", request.Session.Username, request.Session.User.DisplayName));
         }
     }

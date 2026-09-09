@@ -6,4 +6,5 @@ public sealed record InnolaTransactionLifecycleRequest(
     string CaseFolderPath,
     string? LifecycleStatus,
     string? Reason,
-    string? DesiredTransitionName = null);
+    string? DesiredTransitionName = null,
+    IReadOnlyList<string>? DesiredTransitionAliases = null);

@@ -117,6 +117,25 @@ internal static class InnolaAuthServiceTests
         TestAssert.True(!string.IsNullOrWhiteSpace(result.Session.AccessToken), "Mock login should produce an in-memory token.");
     }
 
+    public static void RememberMeStoresOnlyUsernamePreference()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "innola-login-pref-" + Guid.NewGuid().ToString("N"), "preferences.json");
+        var store = new InnolaLoginPreferenceStore(path);
+
+        store.SaveRememberedUser(" jane.user ");
+
+        var loaded = store.Load();
+        TestAssert.True(loaded.RememberMe, "Remember me should round-trip as enabled.");
+        TestAssert.Equal("jane.user", loaded.RememberedUsername, "Remembered username should be trimmed.");
+        var text = File.ReadAllText(path);
+        TestAssert.True(text.Contains("remembered_username", StringComparison.Ordinal), "Preference should persist the username field.");
+        TestAssert.False(text.Contains("password", StringComparison.OrdinalIgnoreCase), "Preference must not persist password fields.");
+        TestAssert.False(text.Contains("token", StringComparison.OrdinalIgnoreCase), "Preference must not persist token fields.");
+
+        store.Clear();
+        TestAssert.False(File.Exists(path), "Clearing remember me should remove the preference file.");
+    }
+
     private sealed class FakeHttpMessageHandler : HttpMessageHandler
     {
         private readonly string responseBody;

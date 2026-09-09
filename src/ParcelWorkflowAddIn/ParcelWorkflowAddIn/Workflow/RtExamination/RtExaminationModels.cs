@@ -114,6 +114,21 @@ public sealed record RtExaminationSpatialUnitSummary(string? ParcelName, string?
 
 public sealed record RtExaminationPlanCheckRow(string? CheckType, bool? Acceptable, string? Description);
 
+public sealed record RtExaminationCompletionDecision(string Label, string GatewayOutcome, string TransitionTargetStage)
+{
+    public static IReadOnlyList<RtExaminationCompletionDecision> DefaultOptions { get; } = new[]
+    {
+        new RtExaminationCompletionDecision(
+            "Yes, proceed next",
+            "Yes, Proceed Next",
+            "Review Completed RT Examination"),
+        new RtExaminationCompletionDecision(
+            "No, prepare pre-check log sheet",
+            "No, Prepare Re-Check Log Sheet for Plan",
+            "Prepare Plan Pre-Check Log Sheet")
+    };
+}
+
 public static class RtExaminationSpatialUnitFieldPolicy
 {
     private static readonly HashSet<string> BlockedExact = new(StringComparer.OrdinalIgnoreCase)
@@ -340,7 +355,10 @@ public sealed record RtExaminationReviewDocument(
     IReadOnlyList<RtExaminationSpatialUnitAttribute> SpatialUnitAttributes,
     IReadOnlyList<RtExaminationPlanCheckRow> PlanCheckRows,
     string? Observations,
-    string? Reviewer);
+    string? Reviewer,
+    string? CompletionDecisionLabel = null,
+    string? CompletionGatewayOutcome = null,
+    string? CompletionTransitionTargetStage = null);
 
 public sealed record RtExaminationLoadResult(
     bool Success,
@@ -371,7 +389,8 @@ public sealed record RtExaminationSaveRequest(
     IReadOnlyList<RtExaminationSpatialUnitAttribute> SpatialUnitAttributes,
     IReadOnlyList<RtExaminationPlanCheckRow> PlanCheckRows,
     string? Observations,
-    bool CompleteAfterSave);
+    bool CompleteAfterSave,
+    RtExaminationCompletionDecision? CompletionDecision = null);
 
 public sealed record RtExaminationSaveResult(bool Success, string Message, string? ErrorCategory = null)
 {
@@ -466,7 +485,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     public bool IsLoaded { get => isLoaded; private set { isLoaded = value; Notify(nameof(IsLoaded)); RefreshCommands(); } }
     public bool IsDirty => isDirty;
     public bool CanSave => IsLoaded && !IsBusy && IsDirty;
-    public bool CanComplete => IsLoaded && !IsBusy;
+    public bool CanComplete => IsLoaded && !IsBusy && SelectedCompletionDecision is not null;
     public bool CanClose => !IsBusy;
 
     public ObservableCollection<RtExaminationPartyRowViewModel> PartyRows { get; } = [];
@@ -474,6 +493,24 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
     public ObservableCollection<RtExaminationPlanCheckRowViewModel> PlanCheckRows { get; } = [];
     public ObservableCollection<string> SourceLabels { get; } = [];
     public ObservableCollection<string> Warnings { get; } = [];
+    public IReadOnlyList<RtExaminationCompletionDecision> CompletionDecisions { get; } = RtExaminationCompletionDecision.DefaultOptions;
+
+    private RtExaminationCompletionDecision? selectedCompletionDecision;
+    public RtExaminationCompletionDecision? SelectedCompletionDecision
+    {
+        get => selectedCompletionDecision;
+        set
+        {
+            if (Equals(selectedCompletionDecision, value))
+            {
+                return;
+            }
+
+            selectedCompletionDecision = value;
+            Notify(nameof(SelectedCompletionDecision));
+            RefreshCommands();
+        }
+    }
 
     public ICommand LoadLinkedPeDataCommand { get; }
     public ICommand SaveCommand { get; }
@@ -521,6 +558,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
             isHydrating = false;
             isDirty = false;
             hasSaved = false;
+            SelectedCompletionDecision = null;
             Notify(nameof(IsDirty));
             Notify(nameof(CloseActionText));
             loadedMapGroups = result.LoadedMapGroups;
@@ -561,6 +599,12 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
 
     private async Task SaveAsync(bool completeAfterSave)
     {
+        if (completeAfterSave && SelectedCompletionDecision is null)
+        {
+            StatusText = "Choose an RT Examination result before Save & Close.";
+            return;
+        }
+
         if (!completeAfterSave && !confirmAction("Save RT Examination neighbor changes to Innola?"))
         {
             StatusText = "RT Examination save cancelled.";
@@ -584,7 +628,8 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
                     Array.Empty<RtExaminationSpatialUnitAttribute>(),
                     PlanCheckRows.Select(row => row.ToRow()).ToArray(),
                     Observations,
-                    completeAfterSave)).ConfigureAwait(true);
+                    completeAfterSave,
+                    completeAfterSave ? SelectedCompletionDecision : null)).ConfigureAwait(true);
             StatusText = result.Message;
             if (result.Success && !completeAfterSave)
             {
@@ -637,6 +682,7 @@ public sealed class RtExaminationViewModel : INotifyPropertyChanged
             PlanCheckRows.Clear();
             SourceLabels.Clear();
             Warnings.Clear();
+            SelectedCompletionDecision = null;
             PePlanNumber = null;
             OriginatingPeText = null;
             observations = null;

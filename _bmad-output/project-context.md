@@ -1,7 +1,7 @@
 ---
 project_name: 'Sid-jamaica'
 user_name: 'JotaPe'
-date: '2026-08-27'
+date: '2026-09-08'
 sections_completed: ['technology_stack', 'language_specific_rules', 'framework_specific_rules', 'testing_rules', 'code_quality_style_rules', 'development_workflow_rules', 'critical_dont_miss_rules']
 existing_patterns_found: 18
 status: 'complete'
@@ -77,12 +77,19 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - PXA memorandum detection must prefer visible/extracted text evidence over stale boolean flags: if OCR or embedded text contains `MEMORANDUM`, the memorandum rules should evaluate, and scale labels such as `SCALE : 1cm To 10m R.F 1/1000` should remain visible evidence instead of collapsing to only `Present`.
 - PXA review loading must recover memorandum applicability from root-level OCR/text fields and memorandum-sourced metadata, not only from `document_sections.memorandum`; real case artifacts may put visible text evidence outside the normalized section object.
 - PLA Plan Annexation is a distinct Innola transaction profile from PE/PXA. It uses required source type `st_plan_annexation_pdf`; do not route it through PE computation-sheet extraction or hardcode it as PXA.
+- PXA single-parcel survey-plan intake must recognize both Innola transaction type names `Plan Examination by Area` and `Plan Examination v2` as equivalent aliases for the same `pxa_single_parcel_survey_plan` behavior.
 - PLA plan PDFs may be image-only, multi-page documents with title information before the plan page. The examiner must select the plan evidence page/area; first implementation may use `selection_type = "full_page"` while preserving schema room for later rectangular crop metadata.
 - PLA selected plan evidence should be generated as PDF when practical, with PNG fallback, and kept as a case-folder artifact until the final PRO step saves/attaches generated output documents back to Innola.
 - PLA geometry extraction should reuse OCR/vision and reviewed segment/boundary solver patterns where possible. If no usable georeference exists, generate form-valid local-origin geometry such as `(0,0)` and record that it is unreferenced instead of blocking solely for missing geographic placement.
 - PLA source-plan versus generated-geometry matching is visual similarity/overlay evidence only; do not label it as survey-accurate georeferencing or authoritative parcel fabric promotion.
 - PLA_B is separate from PLA_A: it recovers current transaction geometry from Enterprise `working_review` by stripped PE transaction number and loads the related PE output GDB without using PLA_A extraction, survey-diagram crop, or finalize UX. PE output GDB loading must include standalone feature classes, feature-dataset feature classes, and root raster datasets; `mgeo_overlay_[trnumber]` is a raster dataset in tested GDBs and must be loaded with 70% transparency.
 - Supporting Documents crop/attach from Story 2.23F is a shared viewer capability for copied case-folder PDF/PNG/JPG/TIFF documents: users draw a crop, choose DPI defaulting to 300, save PNG first to `working/pla_b/survey_diagram_selection.png`, then attach to the Current TR only using configured source/document type `st_plan_annex_image`; crop export must use controlled source coordinates, not WebView/screen screenshots.
+- RT Examination is stage-driven: any selected transaction at task/stage `In RT Examination` can launch the RT workspace regardless of main transaction type. Supporting documents load from the parent/main transaction, while RT review/writeback targets only the current/main RT transaction Plan; linked/originating PE data is read-only source context.
+- RT Examination `Save` and `Save & Close` have intentionally different side effects. `Save` only confirms and writes current RT Plan `neighbors` updates; it must preserve `checkList` and never write SpatialUnit data. `Save & Close` confirms, performs the same neighbor save first, updates/appends exactly one current RT PlanCheck row using a valid Innola `plan_check_type_*` key with `passed = true`, completes the selected Innola workflow transition, refreshes, cleans RT map/content state, and closes the form.
+- RT Examination `Save & Close` is branch-driven at the post-examination gateway. The user must choose an RT result before completion: `Yes, proceed next` targets `Review Completed RT Examination`; `No, prepare pre-check log sheet` targets `Prepare Plan Pre-Check Log Sheet`. Pass the selected target stage plus gateway-label aliases as the desired Innola workflow transition, record the selected branch in RT artifacts, and fail closed if an explicitly requested transition cannot be matched.
+- RT Examination Plan children must use Innola-generated child object templates when the current Plan arrays are empty. Create missing `Neighbor` rows with `{ "@c": "Neighbor", "id": null }` and missing `PlanCheck` rows with `{ "@c": "PlanCheck", "id": null }` through `/api/v4/rest/data/objects/create`; do not fabricate local child IDs or copy child rows from the `original` linked/PE snapshot for current RT writeback.
+- RT Examination Spatial Units are read-only parcel context. Populate the tab from originating PE SpatialUnits or Enterprise `working_review` polygon rows and initially show `parcel_name`, `area_sqr`, `suid`, and `created_utc`; geometry, boundary fields, and SpatialUnit attributes must not be saved by RT Examination.
+- RT Examination parent attachment preload is tolerant of individual parent attachment failures. Keep successfully copied parent documents, record failed attachments as manifest warnings, and fail only when no usable source document is available; non-RT transaction loading remains stricter and should still fail/clean up on partial attachment failure.
 - Workflow/state-changing stories must test restart/reopen, stale artifacts, duplicate IDs, missing/corrupt artifacts, and explicit failure messages when practical.
 - Python adapter changes should include Python tests where pure Python logic changes, and must keep emitted JSON artifacts contract-compatible.
 - Orientation and bearing-consistency changes need tests for clockwise detection, counterclockwise detection, indeterminate geometry, missing/unparsable bearing text, and tolerance-driven mismatch outcomes.
@@ -116,7 +123,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - When changing ArcGIS Pro SDK behavior, verify build locally and document any manual ArcGIS Pro smoke test that cannot be automated.
 - Never persist Innola access tokens or passwords. Innola credentials stay session-only unless a story explicitly introduces secure credential storage.
 - Keep `project-context.md` current when a story establishes a new durable rule or changes a core architecture boundary.
-- Latest tracked implementation context: Story 7.15 adds Fabric Maintenance promotion review for `Parcel Fabric Maintenance` / `In Parcel Fabric Update`; it loads the working parcel by `SpatialUnitExt.examinationNumber` / `Parcel in Review`, loads exactly one selected final target (`Legal` or `Cadastral`) into the map with transparency, surfaces topology/attribute/candidate evidence for examiner decision, attaches the final promotion summary, and keeps final-write expansion guarded. Final target candidate discovery must be spatial-overlap-first (`1=1`) so visible overlaps are not hidden by PID/status filters; configured source field mappings still drive identity/evidence display, including Fiscal/Cadastral `Lv_number`.
+- Latest tracked implementation context: Story 8.8 RT Examination is complete through add-in `1.1.468`. Recent fixes recovered partial RT case folders missing `manifest.json`, made RT parent attachment preload tolerant after at least one source document loads, added explicit `Save & Close` branch selection, and corrected RT PlanCheck completion writeback to preserve/use valid Innola `plan_check_type_*` values instead of sending literal `checkType = approved`.
 
 ### Critical Don't-Miss Rules
 
@@ -161,4 +168,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-08-27
+Last Updated: 2026-09-08

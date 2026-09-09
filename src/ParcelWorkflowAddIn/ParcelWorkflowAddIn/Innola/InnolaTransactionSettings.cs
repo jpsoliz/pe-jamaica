@@ -48,6 +48,9 @@ public sealed record InnolaTransactionSettings(
     {
         "Plan Examination",
         "Cadastral Plan Examination",
+        "Plan Examination by Area",
+        "Plan Examination v2",
+        "PXA",
         "First Registration",
         "PLA",
         "Plan Annexation"
