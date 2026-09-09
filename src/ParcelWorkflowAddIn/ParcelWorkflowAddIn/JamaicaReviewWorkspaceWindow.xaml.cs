@@ -187,7 +187,7 @@ internal partial class JamaicaReviewWorkspaceWindow : ProWindow
 
             ViewerPdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
             {
-                UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "JamaicaReviewWorkspace")
+                UserDataFolder = WebView2UserDataFolder.ForViewer("JamaicaReviewWorkspace")
             };
 
             await ViewerPdfWebView.EnsureCoreWebView2Async();

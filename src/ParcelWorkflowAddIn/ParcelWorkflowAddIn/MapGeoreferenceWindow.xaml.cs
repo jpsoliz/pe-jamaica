@@ -196,7 +196,7 @@ internal partial class MapGeoreferenceWindow : ProWindow
             {
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "MapGeoreferenceWindow")
+                    UserDataFolder = WebView2UserDataFolder.ForViewer("MapGeoreferenceWindow")
                 }
             };
             MapGeoreferencePdfViewerHost.Children.Add(pdfWebView);

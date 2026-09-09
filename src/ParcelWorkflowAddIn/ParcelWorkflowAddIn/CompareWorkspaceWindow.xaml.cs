@@ -275,7 +275,7 @@ public partial class CompareWorkspaceWindow : ProWindow
                 {
                     CreationProperties = new CoreWebView2CreationProperties
                     {
-                        UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "CompareWorkspace")
+                        UserDataFolder = WebView2UserDataFolder.ForViewer("CompareWorkspace")
                     }
                 };
                 DocumentWebViewHost.Children.Add(documentWebView);

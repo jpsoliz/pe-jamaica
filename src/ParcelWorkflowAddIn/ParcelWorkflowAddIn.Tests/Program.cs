@@ -551,6 +551,7 @@ var tests = new (string Name, Action Run)[]
     ("pxa visible rows rebuild from live review rows after delete", JamaicaReviewWorkspaceXamlTests.VisibleRowsAreRebuiltFromLiveReviewRowsAfterDelete),
     ("points validation diagnostics capture wpf context", JamaicaReviewWorkspaceXamlTests.PointsValidationDiagnosticsCaptureWpfContext),
     ("login server address is configuration only", JamaicaReviewWorkspaceXamlTests.LoginServerAddressIsConfigurationOnly),
+    ("webview2 user data folders use local appdata", JamaicaReviewWorkspaceXamlTests.WebView2UserDataFoldersUseLocalAppData),
     ("point edit draft validates required and numeric fields", PointEditDraftTests.ValidateRejectsMissingAndInvalidNumericFields),
     ("point edit draft blocks duplicate point id within parcel", PointEditDraftTests.ValidateBlocksDuplicatePointIdWithinParcel),
     ("point edit draft applies values to row model", PointEditDraftTests.ApplyToWritesCommittedValuesToRow),

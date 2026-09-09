@@ -549,6 +549,34 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "Login server address should continue to come from the configured Innola server URL and never from user-edited text.");
     }
 
+    public static void WebView2UserDataFoldersUseLocalAppData()
+    {
+        var helperCode = File.ReadAllText(FindSourceFile("WebView2UserDataFolder.cs"));
+        var viewerFiles = new[]
+        {
+            "ParcelWorkflowDockpane.xaml.cs",
+            "JamaicaReviewWorkspaceWindow.xaml.cs",
+            "SupportingDocumentsWindow.xaml.cs",
+            "CompareWorkspaceWindow.xaml.cs",
+            "MapGeoreferenceWindow.xaml.cs"
+        };
+
+        TestAssert.True(
+            helperCode.Contains("Environment.SpecialFolder.LocalApplicationData", StringComparison.Ordinal)
+            && helperCode.Contains("Directory.CreateDirectory(path);", StringComparison.Ordinal)
+            && helperCode.Contains("\"ParcelWorkflowAddIn\"", StringComparison.Ordinal),
+            "WebView2 profile folders should be created under stable per-user LocalAppData, not ArcGIS temp directories.");
+
+        foreach (var fileName in viewerFiles)
+        {
+            var code = File.ReadAllText(FindSourceFile(fileName));
+            TestAssert.True(
+                code.Contains("UserDataFolder = WebView2UserDataFolder.ForViewer(", StringComparison.Ordinal)
+                && !code.Contains("Path.GetTempPath(), \"SidwellCo\", \"WebView2\"", StringComparison.Ordinal),
+                $"{fileName} should use the shared WebView2 user data folder helper.");
+        }
+    }
+
     private static ExtractionReviewRowViewModel Row(string pointIdentifier, string easting, string northing)
     {
         return new ExtractionReviewRowViewModel(

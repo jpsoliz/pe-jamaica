@@ -96,7 +96,7 @@ public class ParcelWorkflowDockpane : UserControl
 
         dockpanePdfWebView.CreationProperties ??= new CoreWebView2CreationProperties
         {
-            UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "ParcelWorkflowDockpane")
+            UserDataFolder = WebView2UserDataFolder.ForViewer("ParcelWorkflowDockpane")
         };
 
         await dockpanePdfWebView.EnsureCoreWebView2Async();

@@ -151,7 +151,7 @@ internal partial class SupportingDocumentsWindow : ProWindow
             {
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    UserDataFolder = Path.Combine(Path.GetTempPath(), "SidwellCo", "WebView2", "SupportingDocumentsWindow")
+                    UserDataFolder = WebView2UserDataFolder.ForViewer("SupportingDocumentsWindow")
                 }
             };
             SupportingDocumentPdfViewerHost.Children.Add(supportingDocumentPdfWebView);
