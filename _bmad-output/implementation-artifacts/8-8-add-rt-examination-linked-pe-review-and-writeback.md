@@ -14,7 +14,7 @@ related_stories:
   - 8-4e-add-compare-task-lifecycle-actions-and-reopen-active-workspace.md
 ---
 
-# Story 8.8: Add RT Examination Linked PE Review And Writeback
+# Story 8.8: Add RT Examination Linked PE Review  And Writeback
 
 Status: done
 

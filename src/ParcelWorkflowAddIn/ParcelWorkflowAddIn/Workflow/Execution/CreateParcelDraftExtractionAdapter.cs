@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Contracts;
 using ParcelWorkflowAddIn.Intake;
 using ParcelWorkflowAddIn.Preflight;
@@ -1249,10 +1250,10 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
     private ResolvedExtractionRoute ResolveExtractionRoute(WorkflowScriptExecutionContext context)
     {
         var catalog = new DocumentTypeCatalogLoader(documentTypeCatalogPath).Load();
+        var allSourceFiles = ResolveExistingExtractionSources(context.Layout, context.Manifest.Payload.SourceFiles);
         var sourceFiles = SupportingDocumentSourceFilter.Apply(
-            context.Manifest.Payload.SourceFiles,
+            allSourceFiles,
             context.Manifest.Payload.SupportingDocumentOptions);
-        var allSourceFiles = context.Manifest.Payload.SourceFiles;
         var candidates = sourceFiles
             .Where(source => !SourceRole.Matches(source.SourceRole, SourceRole.DwgSource))
             .Select(source => new SourceRouteCandidate(
@@ -1338,6 +1339,45 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ResolveCaseExtractionMode(activeExtractorId),
             unsafeToAutomate,
             ResolveOperatorMessage(primaryMatch, activeExtractorId));
+    }
+
+    private static IReadOnlyList<ManifestSourceFile> ResolveExistingExtractionSources(
+        CaseFolderLayout layout,
+        IReadOnlyList<ManifestSourceFile> sourceFiles)
+    {
+        return sourceFiles.Select(source => ResolveExistingExtractionSource(layout, source)).ToArray();
+    }
+
+    private static ManifestSourceFile ResolveExistingExtractionSource(CaseFolderLayout layout, ManifestSourceFile source)
+    {
+        if (!string.IsNullOrWhiteSpace(source.CopiedPath) && File.Exists(source.CopiedPath))
+        {
+            return source;
+        }
+
+        if (string.IsNullOrWhiteSpace(source.CopiedPath) || string.IsNullOrWhiteSpace(layout.SourceDirectory))
+        {
+            return source;
+        }
+
+        var fileName = Path.GetFileName(source.CopiedPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return source;
+        }
+
+        var caseSourcePath = Path.Combine(layout.SourceDirectory, fileName);
+        if (!File.Exists(caseSourcePath))
+        {
+            return source;
+        }
+
+        var info = new FileInfo(caseSourcePath);
+        return source with
+        {
+            CopiedPath = caseSourcePath,
+            FileSize = info.Length
+        };
     }
 
     private static DocumentTypeMatchResult ResolveDocumentTypeMatchForSource(

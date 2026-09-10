@@ -501,7 +501,7 @@ public sealed class ManifestPreflightService
                 }
                 else if (readinessRule is { Enabled: true } && RuleAppliesToStage(readinessRule, stageId))
                 {
-                    if (requireConcreteValidation)
+                    if (requireConcreteValidation && surveyPlanEvidence.HasInvalidCoordinateSystem)
                     {
                         blockers.Add(PreflightCheck.BlockerForCategory(
                             readinessRule.Category,
@@ -533,28 +533,14 @@ public sealed class ManifestPreflightService
             var readinessRule = ruleCatalog.TryGetRule("georeference_spatial_validation_readiness");
             if (readinessRule is { Enabled: true } && RuleAppliesToStage(readinessRule, stageId))
             {
-                if (requireConcreteValidation)
-                {
-                    blockers.Add(PreflightCheck.BlockerForCategory(
-                        readinessRule.Category,
-                        readinessRule.RuleId,
-                        "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
-                        layout.ManifestPath,
-                        null,
-                        "Configure a tabular coordinate source or provide reviewed JAD2001 survey-plan point evidence before continuing.")
-                        .WithDisplayName(readinessRule.DisplayName));
-                }
-                else
-                {
-                    AddRuleIssue(
-                        readinessRule,
-                        blockers,
-                        warnings,
-                        "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
-                        layout.ManifestPath,
-                        null,
-                        "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
-                }
+                AddRuleIssue(
+                    readinessRule,
+                    blockers,
+                    warnings,
+                    "Georeference Check did not run a concrete coordinate, JAD2001, parish, or location validation.",
+                    layout.ManifestPath,
+                    null,
+                    "Configure a tabular coordinate source or a parish/JAD2001 georeference validator before continuing.");
             }
             else if (readinessRule is not null && RuleAppliesToStage(readinessRule, stageId))
             {
@@ -1639,6 +1625,10 @@ public sealed class ManifestPreflightService
         public bool HasGeoreferenceEvidence =>
             IsJad2001CoordinateSystem(CoordinateSystem)
             && PointCount > 0;
+
+        public bool HasInvalidCoordinateSystem =>
+            !string.IsNullOrWhiteSpace(CoordinateSystem)
+            && !IsJad2001CoordinateSystem(CoordinateSystem);
 
         public bool HasDimensionEvidence => PointCount >= 3 && SegmentCount >= 3;
 

@@ -490,7 +490,7 @@ internal static class ManifestPreflightServiceTests
         TestAssert.True(blocker.Evidence?["coordinate_system"].Contains("Theodolite Survey (Compass Standard)") == true, "Blocker evidence should preserve the rejected coordinate-system value for diagnosis.");
     }
 
-    public static void GeoreferenceCheckBlocksWhenOnlySourcePresenceExists()
+    public static void GeoreferenceCheckWarnsWhenOnlySourcePresenceExists()
     {
         using var tempRoot = new TempDirectory();
         var (layout, _) = CreateCaseWithSources(
@@ -507,7 +507,8 @@ internal static class ManifestPreflightServiceTests
             .RunGeoreferenceCheck(layout, "tester");
 
         TestAssert.True(summary.Payload.PassedChecks.Any(check => check.CheckId == "georeference_source_presence"), "The source-presence rule should still report the available source.");
-        TestAssert.True(summary.Payload.Blockers.Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Source presence alone must not pass Georeference Check.");
+        TestAssert.True(summary.Payload.Warnings.Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Source presence alone should keep the missing concrete georeference evidence visible for review.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Missing concrete georeference evidence should not block when a usable georeference source is present.");
     }
 
     public static void DimensionCheckConsumesSurveyPlanExtractionEvidence()
@@ -554,7 +555,8 @@ internal static class ManifestPreflightServiceTests
             .RunGeoreferenceCheck(layout, "tester");
 
         TestAssert.True(summary.Payload.PassedChecks.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Parish-only survey-plan evidence must not pass Georeference Check.");
-        TestAssert.True(summary.Payload.Warnings.Concat(summary.Payload.Blockers).Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Weak survey-plan georeference evidence should remain reportable.");
+        TestAssert.True(summary.Payload.Warnings.Any(check => check.CheckId == "georeference_spatial_validation_readiness"), "Weak survey-plan georeference evidence should remain reportable as a warning.");
+        TestAssert.True(summary.Payload.Blockers.All(check => check.CheckId != "georeference_spatial_validation_readiness"), "Weak survey-plan georeference evidence should not block when the source document is present.");
     }
 
     public static void DimensionCheckDoesNotPassOnAreaOnlySurveyPlanEvidence()

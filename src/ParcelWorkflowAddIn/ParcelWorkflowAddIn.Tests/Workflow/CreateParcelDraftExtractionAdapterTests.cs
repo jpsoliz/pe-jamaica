@@ -961,6 +961,45 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.Equal("candidate", summary.RootElement.GetProperty("stage_evidence").GetProperty("dimension_check").GetProperty("geometry_candidate_status").GetString(), "Dimension evidence should identify geometry candidate readiness.");
     }
 
+    public static void ExtractionAdapterRepairsStaleSurveyPlanCopiedPathFromCaseSourceFolder()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100001005");
+        var catalogPath = Path.Combine(tempRoot.Path, "missing_doc_type_catalog.json");
+        var surveyPlanPath = Path.Combine(layout.SourceDirectory, "PLAN_DOC_478120.pdf");
+        File.WriteAllText(
+            surveyPlanPath,
+            """
+            Parish: Hanover
+            Coordinate System: JAD 2001
+            Point 1 699980.1050 642909.3340
+            Point 2 699910.3050 642989.7380
+            Point 3 699950.0000 642950.0000
+            N86°11'W 2.689m
+            S84°54'16"W 29.769m
+            S02°22'52"W 27.748m
+            """);
+        var staleSurveyPlanPath = Path.Combine(Path.GetPathRoot(tempRoot.Path) ?? "C:\\", "Sidwell", "ParcelWorkflow", "ParcelWorkflowCases", "100001005", "source", "PLAN_DOC_478120.pdf");
+
+        var adapter = new CreateParcelDraftExtractionAdapter(
+            new FakeProcessRunner((_, _, _, _, _) => throw new InvalidOperationException("Existing case source PDF should be used by the embedded-text parser.")),
+            catalogPath);
+        var context = CreatePxaContext(layout, staleSurveyPlanPath);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, "Stale copied paths should be repaired from the active case source folder before extraction.");
+        var reviewPath = Path.Combine(layout.WorkingDirectory, "extraction_review_data.json");
+        var routePath = Path.Combine(layout.WorkingDirectory, "extraction_route.json");
+        using var review = JsonDocument.Parse(File.ReadAllText(reviewPath));
+        using var route = JsonDocument.Parse(File.ReadAllText(routePath));
+
+        TestAssert.Equal("JAD 2001", review.RootElement.GetProperty("coordinate_system").GetProperty("value").GetString(), "Coordinate system should be extracted from the repaired source path.");
+        TestAssert.Equal("Hanover", review.RootElement.GetProperty("survey_metadata").GetProperty("parish").GetProperty("value").GetString(), "Parish should be extracted from the repaired source path.");
+        TestAssert.Equal(3, review.RootElement.GetProperty("rows").GetArrayLength(), "Coordinate rows should be extracted from the repaired source path.");
+        TestAssert.Equal("PLAN_DOC_478120.pdf", route.RootElement.GetProperty("primary_source_file").GetString(), "Route diagnostics should keep the manifest source identity.");
+    }
+
     public static void ExtractionAdapterRoutesNoTextPxaSurveyPlanPdfToManualReviewArtifacts()
     {
         using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
