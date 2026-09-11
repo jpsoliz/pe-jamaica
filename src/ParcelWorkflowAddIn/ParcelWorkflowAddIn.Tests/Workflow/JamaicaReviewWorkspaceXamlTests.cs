@@ -491,6 +491,24 @@ internal static class JamaicaReviewWorkspaceXamlTests
         TestAssert.True(staleGroupSnapshot.Any(row => row.PointIdentifier == "B"), "The test must simulate a stale parcel-group snapshot that still contains the deleted point.");
     }
 
+    public static void VisibleSegmentsAreFilteredBySelectedParcel()
+    {
+        var segments = new List<ExtractionReviewSegmentViewModel>
+        {
+            Segment(2, "L1-02", "L1-03", "Lot 1"),
+            Segment(1, "L2-01", "L2-02", "Lot 2"),
+            Segment(1, "L1-01", "L1-02", "Lot 1"),
+            Segment(3, "L3-01", "L3-02", "Lot 3")
+        };
+
+        var lotOneSegments = JamaicaReviewWorkspaceViewModel.BuildVisibleSegmentsForParcel(segments, "Lot 1");
+        var lotTwoSegments = JamaicaReviewWorkspaceViewModel.BuildVisibleSegmentsForParcel(segments, "Lot 2");
+
+        TestAssert.Equal("L1-01->L1-02,L1-02->L1-03", string.Join(",", lotOneSegments.Select(segment => $"{segment.FromPoint}->{segment.ToPoint}")), "Boundary Segments should only show the selected parcel and preserve segment order.");
+        TestAssert.Equal("L2-01->L2-02", string.Join(",", lotTwoSegments.Select(segment => $"{segment.FromPoint}->{segment.ToPoint}")), "Switching the parcel selector should switch the boundary segment set.");
+        TestAssert.True(lotOneSegments.All(segment => segment.ParcelGroupId == "Lot 1"), "No boundary segment from another parcel should leak into the selected parcel view.");
+    }
+
     public static void PointsValidationDiagnosticsCaptureWpfContext()
     {
         var xaml = File.ReadAllText(FindWorkspaceXaml());
@@ -597,9 +615,21 @@ internal static class JamaicaReviewWorkspaceXamlTests
 
     private static ExtractionReviewSegmentViewModel Segment(int sequence, string fromPoint, string toPoint, string bearing, string distance)
     {
+        return Segment(sequence, fromPoint, toPoint, bearing, distance, "parcel-001");
+    }
+
+    private static ExtractionReviewSegmentViewModel Segment(int sequence, string fromPoint, string toPoint, string parcelGroupId)
+    {
+        return Segment(sequence, fromPoint, toPoint, "N90°00'E", "1", parcelGroupId);
+    }
+
+    private static ExtractionReviewSegmentViewModel Segment(int sequence, string fromPoint, string toPoint, string bearing, string distance, string parcelGroupId)
+    {
         return new ExtractionReviewSegmentViewModel(
             new ExtractionReviewSegment
             {
+                ParcelGroupId = parcelGroupId,
+                ParcelName = parcelGroupId,
                 Sequence = sequence,
                 FromPoint = fromPoint,
                 ToPoint = toPoint,

@@ -181,13 +181,28 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public bool HasStandardReviewSegments => IsStandardPointReview && HasReviewSegments;
 
     public string CenterReviewTitle => IsPxaSurveyPlanReview
-        ? "PXA Survey Plan Review"
+        ? "Parcel Geometry Review"
         : "Validate Points";
 
-    public string SegmentReviewSummary =>
-        HasReviewSegments
-            ? $"{parent.ReviewSegments.Count} reviewed segment candidate(s). Edit the boundary chain before saving or completing validation."
-            : "No segment candidates are available for this review artifact.";
+    public string SegmentReviewSummary
+    {
+        get
+        {
+            if (VisibleSegments.Count > 0)
+            {
+                var parcelLabel = SelectedParcelGroup?.DisplayName ?? "the selected parcel";
+                return $"{VisibleSegments.Count} boundary segment candidate(s) for {parcelLabel}. Edit this parcel's boundary chain before saving or completing validation.";
+            }
+
+            if (HasReviewSegments)
+            {
+                var parcelLabel = SelectedParcelGroup?.DisplayName ?? "this parcel";
+                return $"No boundary segments are loaded for {parcelLabel}. Other parcel groups may still contain segment candidates.";
+            }
+
+            return "No segment candidates are available for this review artifact.";
+        }
+    }
 
     public bool HasPxaMetadata => VisibleMetadataFields.Count > 0
         || VisibleAdjacentOwners.Count > 0
@@ -196,11 +211,11 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public string PxaMetadataSummary => VisibleMetadataFields.Count > 0
         ? $"{VisibleMetadataFields.Count} survey metadata value(s), {VisibleNamedParties.Count} party / representative row(s), {VisibleVolumeFolios.Count} volume-folio row(s). Confirm extracted values before completing validation."
-        : "No PXA survey metadata values were extracted yet.";
+        : "No survey metadata values were extracted yet.";
 
     public string PxaGeneralInfoSummary => VisibleMetadataFields.Count > 0 || VisibleVolumeFolios.Count > 0
         ? $"{VisibleMetadataFields.Count} general survey value(s), {VisibleVolumeFolios.Count} volume / folio row(s). Confirm document dates, instrument, surveyor, and registration details."
-        : "No PXA general survey information was extracted yet.";
+        : "No general survey information was extracted yet.";
 
     public string PxaOwnersNeighborsSummary => VisibleNamedParties.Count > 0 || VisibleAdjacentOwners.Count > 0
         ? $"{VisibleNamedParties.Count} party / representative row(s), {VisibleAdjacentOwners.Count} adjacent owner / neighbor reference(s). Link neighbors to reviewed boundary segments when visible on the plan."
@@ -431,12 +446,14 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
             selectedVisibleRow = null;
             RebuildVisibleRows();
+            RebuildVisibleSegments();
             if (selectedVisibleRow is not null)
             {
                 parent.SelectedReviewRow = selectedVisibleRow;
             }
 
             OnPropertyChanged(nameof(VisibleRows));
+            OnPropertyChanged(nameof(VisibleSegments));
             OnPropertyChanged(nameof(SelectedParcelGroup));
             OnPropertyChanged(nameof(SelectedParcelTitle));
             OnPropertyChanged(nameof(ParcelInterpretationSummary));
@@ -1173,6 +1190,21 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             .ToArray();
     }
 
+    internal static IReadOnlyList<ExtractionReviewSegmentViewModel> BuildVisibleSegmentsForParcel(
+        IEnumerable<ExtractionReviewSegmentViewModel> segments,
+        string? selectedParcelGroupId)
+    {
+        var source = string.IsNullOrWhiteSpace(selectedParcelGroupId)
+            ? segments
+            : segments.Where(segment => string.Equals(ResolveParcelGroupKey(segment.ParcelGroupId), selectedParcelGroupId, StringComparison.OrdinalIgnoreCase));
+
+        return source
+            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
+            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private static string ResolveParcelGroupKey(string? parcelGroupId)
     {
         return string.IsNullOrWhiteSpace(parcelGroupId) ? "Ungrouped" : parcelGroupId;
@@ -1181,11 +1213,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     private void RebuildVisibleSegments()
     {
         var previousSegmentId = SelectedVisibleSegment?.SegmentId;
-        var segments = parent.ReviewSegments
-            .OrderBy(segment => segment.Sequence ?? int.MaxValue)
-            .ThenBy(segment => segment.FromPoint, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(segment => segment.ToPoint, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var segments = BuildVisibleSegmentsForParcel(parent.ReviewSegments, SelectedParcelGroup?.GroupId);
 
         VisibleSegments.Clear();
         foreach (var segment in segments)
@@ -1196,6 +1224,10 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         SelectedVisibleSegment = segments.FirstOrDefault(segment =>
                                      string.Equals(segment.SegmentId, previousSegmentId, StringComparison.OrdinalIgnoreCase))
                                  ?? segments.FirstOrDefault();
+        OnPropertyChanged(nameof(VisibleSegments));
+        OnPropertyChanged(nameof(ParcelPreviewPoints));
+        OnPropertyChanged(nameof(ParcelContextPreviewPaths));
+        OnPropertyChanged(nameof(SegmentReviewSummary));
     }
 
     private void RebuildVisibleMetadata()

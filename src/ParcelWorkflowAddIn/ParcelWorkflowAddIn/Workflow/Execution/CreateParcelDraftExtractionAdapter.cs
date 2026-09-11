@@ -205,6 +205,18 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 WriteRouteArtifact(routeArtifactPath, route, transactionNumber, runtimeDiagnostics);
                 return WorkflowScriptStepExecutionResult.Failed(route.OperatorMessage ?? "No supported extraction route is available for the selected source package.");
             }
+
+            var scannedComputationAttempt = await TryExecuteScannedComputationExternalExtractionAsync(
+                context,
+                route,
+                transactionNumber,
+                reviewArtifactPath,
+                routeArtifactPath,
+                cancellationToken).ConfigureAwait(false);
+            if (scannedComputationAttempt is not null)
+            {
+                return scannedComputationAttempt;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(context.ExecutionSettings.CreateParcelScriptPath) || !File.Exists(context.ExecutionSettings.CreateParcelScriptPath))
@@ -391,7 +403,13 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         var stopwatch = Stopwatch.StartNew();
         var result = await processRunner.RunAsync(
             context.ExecutionSettings.PythonExecutable,
-            BuildSurveyPlanOcrVisionScriptArguments(scriptPath, sourcePath!, reviewArtifactPath, transactionNumber, context.RuleSettings),
+            BuildSurveyPlanOcrVisionScriptArguments(
+                scriptPath,
+                sourcePath!,
+                reviewArtifactPath,
+                transactionNumber,
+                context.RuleSettings,
+                route.DocumentTypeMatch.Definition.Extraction.AiProfile),
             TimeSpan.FromSeconds(Math.Max(30, context.Step.TimeoutSeconds)),
             processEnvironment,
             cancellationToken).ConfigureAwait(false);
@@ -436,6 +454,36 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         }
 
         return null;
+    }
+
+    private async Task<WorkflowScriptStepExecutionResult?> TryExecuteScannedComputationExternalExtractionAsync(
+        WorkflowScriptExecutionContext context,
+        ResolvedExtractionRoute route,
+        string transactionNumber,
+        string reviewArtifactPath,
+        string routeArtifactPath,
+        CancellationToken cancellationToken)
+    {
+        if (!ShouldAttemptScannedComputationVisionExtraction(route))
+        {
+            return null;
+        }
+
+        var summaryArtifactPath = Path.Combine(context.Layout.WorkingDirectory, "computation_ocr_extraction_summary.json");
+        var probe = new SurveyPlanSourceProbe(
+            IsPdf: true,
+            TextLayerAvailable: false,
+            TextLayerProbeStatus: route.FallbackReason ?? "no_usable_text_layer",
+            TextContent: string.Empty);
+        return await TryExecuteSurveyPlanExternalExtractionAsync(
+            context,
+            route,
+            transactionNumber,
+            reviewArtifactPath,
+            summaryArtifactPath,
+            routeArtifactPath,
+            probe,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static SurveyPlanSourceProbe ProbeSurveyPlanSource(string sourcePath)
@@ -1402,7 +1450,26 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                 CatalogPath: catalog.CatalogPath);
         }
 
-        return catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(role, fileName, extension));
+        var weightedMatch = catalog.ResolveBestMatch(new DocumentTypeMatchCandidate(role, fileName, extension));
+        if (SourceRole.Matches(source.SourceRole, SourceRole.ComputationSheet)
+            && string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase)
+            && TryReadTextPayload(source.CopiedPath).TrimStart().StartsWith("%PDF", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(weightedMatch.Definition.Family, "unknown", StringComparison.OrdinalIgnoreCase)
+            && catalog.ResolveById("GENERIC_COMPUTATION_TABLE_V2") is { } computationDefinition)
+        {
+            return new DocumentTypeMatchResult(
+                computationDefinition,
+                "computation_sheet_role_match",
+                1.0,
+                LowConfidence: false,
+                CandidateRole: role,
+                CandidateName: fileName,
+                MatchScore: computationDefinition.Match.ScoreThreshold,
+                ScoreThreshold: computationDefinition.Match.ScoreThreshold,
+                CatalogPath: catalog.CatalogPath);
+        }
+
+        return weightedMatch;
     }
 
     private static void EnrichReviewArtifact(string reviewArtifactPath, ResolvedExtractionRoute route, ExtractionRuntimeDiagnostics? diagnostics)
@@ -1436,7 +1503,12 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         rootNode["ai_available"] = route.AiAvailable;
         rootNode["ai_used"] = route.AiUsed;
         rootNode["provider_used"] = route.ProviderUsed;
-        rootNode["fallback_reason"] = route.FallbackReason;
+        var extractionFallbackReason = rootNode.TryGetPropertyValue("fallback_reason", out var fallbackReasonNode)
+            ? fallbackReasonNode?.GetValue<string>()
+            : null;
+        rootNode["fallback_reason"] = string.IsNullOrWhiteSpace(extractionFallbackReason)
+            ? route.FallbackReason
+            : extractionFallbackReason;
         rootNode["extraction_method"] = diagnostics?.ExtractionMethod ?? route.ActiveExtractorId;
         rootNode["text_layer_probe_status"] = diagnostics?.TextLayerProbeStatus;
         rootNode["text_layer_available"] = diagnostics?.TextLayerAvailable;
@@ -1691,7 +1763,9 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
             ["ai_available"] = route.AiAvailable,
             ["ai_used"] = route.AiUsed,
             ["provider_used"] = route.ProviderUsed,
-            ["fallback_reason"] = route.FallbackReason,
+            ["fallback_reason"] = string.IsNullOrWhiteSpace(diagnostics?.FallbackReason)
+                ? route.FallbackReason
+                : diagnostics.FallbackReason,
             ["extraction_method"] = diagnostics?.ExtractionMethod ?? route.ActiveExtractorId,
             ["text_layer_probe_status"] = diagnostics?.TextLayerProbeStatus,
             ["text_layer_available"] = diagnostics?.TextLayerAvailable,
@@ -1892,6 +1966,17 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
                    && string.Equals(route.DocumentTypeMatch.Definition.Extraction.ParserMode, "parcel_block_rows", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool ShouldAttemptScannedComputationVisionExtraction(ResolvedExtractionRoute route)
+    {
+        return route.PrimarySource is not null
+               && string.Equals(Path.GetExtension(route.PrimarySource.CopiedPath), ".pdf", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(route.DocumentTypeMatch.Definition.Family, "computation_sheet", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(route.DocumentTypeMatch.Definition.Extraction.ParserMode, "parcel_block_rows", StringComparison.OrdinalIgnoreCase)
+               && string.Equals(route.ActiveExtractorId, "openai_table_pdf", StringComparison.OrdinalIgnoreCase)
+               && route.AiAvailable
+               && string.Equals(route.FallbackReason, "no_usable_text_layer", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool TryParseStructuredTextEnvelope(string? standardOutput, out StructuredTextExtractionEnvelope envelope)
     {
         envelope = StructuredTextExtractionEnvelope.Empty;
@@ -1930,10 +2015,13 @@ public sealed class CreateParcelDraftExtractionAdapter : IWorkflowScriptAdapter
         string sourcePdfPath,
         string outputJsonPath,
         string transactionNumber,
-        WorkflowRuleSettings ruleSettings)
+        WorkflowRuleSettings ruleSettings,
+        string? profileOverride = null)
     {
         var model = ResolveEffectiveOpenAiModel(ruleSettings);
-        var profile = string.IsNullOrWhiteSpace(ruleSettings.OpenAiExtractionProfile)
+        var profile = !string.IsNullOrWhiteSpace(profileOverride)
+            ? profileOverride.Trim()
+            : string.IsNullOrWhiteSpace(ruleSettings.OpenAiExtractionProfile)
             ? "balanced"
             : ruleSettings.OpenAiExtractionProfile.Trim();
         var sourceArgumentName = IsImageSource(sourcePdfPath) ? "--source-image" : "--source-pdf";

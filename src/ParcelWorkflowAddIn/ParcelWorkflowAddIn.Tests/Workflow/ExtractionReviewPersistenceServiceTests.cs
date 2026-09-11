@@ -136,6 +136,8 @@ internal static class ExtractionReviewPersistenceServiceTests
               "segment_row_count": 1,
               "segments": [
                 {
+                  "parcel_group_id": "Lot 1",
+                  "parcel_name": "Lot 1",
                   "segment_no": 1,
                   "from_point": "18",
                   "to_point": "15",
@@ -163,6 +165,8 @@ internal static class ExtractionReviewPersistenceServiceTests
         var originalHash = service.ComputeReviewHash(document);
 
         TestAssert.Equal(1, document.Segments.Count, "Segment row should load into typed review document.");
+        TestAssert.Equal("Lot 1", document.Segments[0].ParcelGroupId, "Segment parcel group should load.");
+        TestAssert.Equal("Lot 1", document.Segments[0].ParcelName, "Segment parcel name should load.");
         TestAssert.Equal("18", document.Segments[0].FromPoint, "Segment from point should load.");
         TestAssert.Equal("S84°56'E", document.Segments[0].BearingText, "Segment bearing should load.");
         TestAssert.Equal("0.82", document.Segments[0].Confidence, "Numeric confidence should load as text.");
@@ -174,9 +178,44 @@ internal static class ExtractionReviewPersistenceServiceTests
         var editedHash = service.ComputeReviewHash(reloaded);
 
         TestAssert.Equal("30", reloaded.Segments[0].ReviewToPoint, "Reviewed segment endpoint should persist.");
+        TestAssert.Equal("Lot 1", reloaded.Segments[0].ParcelGroupId, "Segment parcel group should persist.");
+        TestAssert.Equal("Lot 1", reloaded.Segments[0].ParcelName, "Segment parcel name should persist.");
         TestAssert.Equal("15", reloaded.Segments[0].OriginalValues.ToPoint, "Original segment endpoint should remain preserved.");
         TestAssert.Equal("Corrected endpoint after source review.", reloaded.Segments[0].ReviewNotes, "Reviewed segment note should persist.");
         TestAssert.True(!string.Equals(originalHash, editedHash, StringComparison.OrdinalIgnoreCase), "Segment edits should change the review hash.");
+    }
+
+    public static void LoadInfersSegmentParcelGroupFromEndpointRows()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100000896");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "schema_version": "2.20.0",
+              "transaction_number": "100000896",
+              "rows": [
+                { "parcel_group_id": "parcel-001", "parcel_name": "survey-plan-parcel", "point_id": "1", "easting": "727412.734", "northing": "644421.007" },
+                { "parcel_group_id": "parcel-001", "parcel_name": "survey-plan-parcel", "point_id": "3", "easting": "727399.2785", "northing": "644429.6553" }
+              ],
+              "segments": [
+                {
+                  "segment_no": 1,
+                  "from_point": "1",
+                  "to_point": "3",
+                  "bearing_txt": "S48°55'42\"W",
+                  "distance_txt": "28.601m"
+                }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+
+        TestAssert.Equal("parcel-001", document.Segments[0].ParcelGroupId, "Legacy boundary segments without parcel ids should inherit the parcel group from matching endpoint point rows.");
+        TestAssert.Equal("survey-plan-parcel", document.Segments[0].ParcelName, "Legacy boundary segments should inherit the parcel display name from matching endpoint point rows.");
     }
 
     public static void ManualSegmentSavePersistsAsManualSegment()
@@ -192,14 +231,14 @@ internal static class ExtractionReviewPersistenceServiceTests
               "transaction_number": "100000674",
               "extraction_source": "survey_plan_ocr_vision",
               "rows": [
-                { "point_id": "1", "easting": "1", "northing": "1" }
+                { "parcel_group_id": "Lot 2", "point_id": "1", "easting": "1", "northing": "1" }
               ],
               "segments": []
             }
             """);
 
         var document = service.Load(layout)!;
-        var manualSegment = new ManualBoundarySegmentService().CreateManualSegment(document);
+        var manualSegment = new ManualBoundarySegmentService().CreateManualSegment(document, "Lot 2", "Lot 2");
         manualSegment.ReviewFromPoint = "1";
         manualSegment.ReviewToPoint = "2";
         manualSegment.ReviewBearingText = "N07 54E";
@@ -214,6 +253,8 @@ internal static class ExtractionReviewPersistenceServiceTests
 
         TestAssert.Equal(1, reloaded.Segments.Count, "Manual segment should persist.");
         TestAssert.True(reloaded.Segments[0].SegmentId.StartsWith("manual-segment-", StringComparison.Ordinal), "Manual segment id should persist.");
+        TestAssert.Equal("Lot 2", reloaded.Segments[0].ParcelGroupId, "Manual segment should persist the active parcel group.");
+        TestAssert.Equal("Lot 2", reloaded.Segments[0].ParcelName, "Manual segment should persist the active parcel name.");
         TestAssert.Equal("1", reloaded.Segments[0].ReviewFromPoint, "Manual segment from point should persist as reviewed value.");
         TestAssert.Equal("2", reloaded.Segments[0].ReviewToPoint, "Manual segment to point should persist as reviewed value.");
         TestAssert.Equal("N07 54E", reloaded.Segments[0].ReviewBearingText, "Manual segment bearing should persist as reviewed value.");

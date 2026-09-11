@@ -95,6 +95,99 @@ internal static class CreateParcelDraftExtractionAdapterTests
         TestAssert.True(iniText.Contains("matched_active_extractor_id = openai_table_pdf", StringComparison.Ordinal), "Generated ini should include active extractor id.");
     }
 
+    public static void ImageOnlyComputationSheetUsesVisionRouteBeforeLegacyFallback()
+    {
+        using var openAiKeyScope = new EnvironmentVariableScope("OPENAI_API_KEY", "test-key");
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100001027");
+        var catalogPath = Path.Combine(tempRoot.Path, "CreateParcel_doc_types.json");
+        var sourcePath = Path.Combine(layout.SourceDirectory, "document (5).pdf");
+        var planPath = Path.Combine(layout.SourceDirectory, "document (4).pdf");
+        File.WriteAllText(catalogPath, BuildCatalogJson(includeStructuredPoints: false));
+        File.WriteAllBytes(sourcePath, System.Text.Encoding.UTF8.GetBytes("%PDF-1.7 scanned computation sheet"));
+        File.WriteAllText(planPath, "plan");
+
+        var calls = new List<string>();
+        var fakeRunner = new FakeProcessRunner((_, arguments, _, _, _) =>
+        {
+            calls.Add(arguments);
+            if (arguments.Contains("pdf_text_structured_extraction.py", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new ProcessRunResult(
+                    0,
+                    """
+                    {
+                      "status": "fallback_requested",
+                      "text_layer_available": false,
+                      "parser_status": "no_usable_text_layer",
+                      "fallback_reason": "no_usable_text_layer",
+                      "parsed_row_count": 0,
+                      "parsed_parcel_count": 0,
+                      "outputs": {}
+                    }
+                    """,
+                    string.Empty,
+                    false));
+            }
+
+            TestAssert.True(arguments.Contains("survey_plan_ocr_vision_extraction.py", StringComparison.OrdinalIgnoreCase), "Scanned computation fallback should invoke the OCR/vision adapter.");
+            TestAssert.True(arguments.Contains("--profile \"survey_table_vision_v1\"", StringComparison.OrdinalIgnoreCase), "Computation-sheet OCR should use the table vision profile.");
+            var providerReviewPath = Path.Combine(layout.WorkingDirectory, "provider_review.json");
+            File.WriteAllText(
+                providerReviewPath,
+                """
+                {
+                  "schema_version": "2.18.0",
+                  "transaction_number": "100001027",
+                  "source_profile": "scanned_single_parcel_survey_plan_pdf",
+                  "extraction_source": "survey_plan_ocr_vision",
+                  "active_extractor_id": "survey_plan_ocr_vision",
+                  "row_count": 3,
+                  "segment_row_count": 3,
+                  "rows": [
+                    { "parcel_group_id": "Lot 1", "point_identifier": "20", "easting": "712864.006", "northing": "670585.112" },
+                    { "parcel_group_id": "Lot 1", "point_identifier": "21", "easting": "712897.345", "northing": "670582.156" },
+                    { "parcel_group_id": "Lot 2", "point_identifier": "28", "easting": "712856.553", "northing": "670563.653" }
+                  ],
+                  "segments": [
+                    { "parcel_group_id": "Lot 1", "from_point": "20", "to_point": "21", "bearing_txt": "N84°56'E", "distance_txt": "33.470" },
+                    { "parcel_group_id": "Lot 1", "from_point": "21", "to_point": "20", "bearing_txt": "S84°56'W", "distance_txt": "33.470" },
+                    { "parcel_group_id": "Lot 2", "from_point": "28", "to_point": "29", "bearing_txt": "S82°59'E", "distance_txt": "41.415" }
+                  ],
+                  "review_notes": []
+                }
+                """,
+                System.Text.Encoding.UTF8);
+            var stdout = $$"""
+            {
+              "status": "success",
+              "text_layer_available": false,
+              "parser_status": "ocr_vision_parsed",
+              "parsed_row_count": 3,
+              "parsed_parcel_count": 2,
+              "outputs": {
+                "review_json": "{{providerReviewPath.Replace("\\", "\\\\")}}"
+              }
+            }
+            """;
+            return Task.FromResult(new ProcessRunResult(0, stdout, string.Empty, false));
+        });
+
+        var adapter = new CreateParcelDraftExtractionAdapter(fakeRunner, catalogPath);
+        var context = CreateContext(layout, sourcePath, planPath, createLegacyScript: false);
+
+        var result = adapter.ExecuteAsync(context).GetAwaiter().GetResult();
+
+        TestAssert.True(result.Success, result.ErrorMessage ?? "Scanned computation OCR extraction should succeed.");
+        TestAssert.Equal(2, calls.Count, "The adapter should run text-first, then OCR/vision, without legacy fallback.");
+        using var reviewDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json")));
+        var root = reviewDocument.RootElement;
+        TestAssert.Equal("openai_table_pdf", root.GetProperty("active_extractor_id").GetString(), "Active extractor should preserve the configured computation fallback route.");
+        TestAssert.Equal("ocr_vision_parsed", root.GetProperty("text_layer_probe_status").GetString(), "Route diagnostics should record that OCR/vision parsed the scanned PDF.");
+        TestAssert.Equal(3, root.GetProperty("rows").GetArrayLength(), "OCR/vision computation rows should be preserved for review.");
+        TestAssert.Equal("Lot 2", root.GetProperty("rows")[2].GetProperty("parcel_group_id").GetString(), "Lot grouping should survive enrichment.");
+    }
+
     public static void ExtractionAdapterKeepsComputationSheetPrimaryWhenStructuredPointsImportIsEnabled()
     {
         using var tempRoot = new TempDirectory();

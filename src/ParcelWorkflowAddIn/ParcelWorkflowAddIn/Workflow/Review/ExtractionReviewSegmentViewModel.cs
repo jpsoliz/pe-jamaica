@@ -41,6 +41,10 @@ public sealed class ExtractionReviewSegmentViewModel : INotifyPropertyChanged
         ? $"segment-{Sequence?.ToString() ?? "?"}"
         : Model.SegmentId;
 
+    public string ParcelGroupId => string.IsNullOrWhiteSpace(Model.ParcelGroupId) ? "Ungrouped" : Model.ParcelGroupId;
+
+    public string ParcelName => string.IsNullOrWhiteSpace(Model.ParcelName) ? ParcelGroupId : Model.ParcelName;
+
     public int? Sequence
     {
         get => sequence;

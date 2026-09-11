@@ -113,6 +113,65 @@ class SurveyPlanOcrVisionExtractionTests(unittest.TestCase):
             self.assertEqual("1238", payload["survey_metadata"]["volume_folio"][0]["volume"])
             self.assertEqual("856", payload["survey_metadata"]["volume_folio"][0]["folio"])
 
+    def test_scanned_computation_sheet_lot_groups_normalize_to_review_rows(self):
+        raw = {
+            "document_type": "scanned computation sheet",
+            "parcel_groups": [
+                {
+                    "lot_number": "Lot 1",
+                    "rows": [
+                        {
+                            "stn": "20",
+                            "to_station": "21",
+                            "bearing_txt": "N84°56'E",
+                            "metres": "33.470",
+                            "lat": "2.956",
+                            "dep": "33.339",
+                            "northing": "670585.112",
+                            "easting": "712864.006",
+                            "source_page": 1,
+                        },
+                        {
+                            "stn": "21",
+                            "to_station": "22",
+                            "bearing_txt": "S01°27'E",
+                            "metres": "18.343",
+                            "northing": "670582.156",
+                            "easting": "712897.345",
+                            "source_page": 1,
+                        },
+                    ],
+                },
+                {
+                    "lot_number": "Lot 2",
+                    "traverse_rows": [
+                        {
+                            "station": "28",
+                            "to_station": "29",
+                            "bearing": "S82°59'E",
+                            "distance_txt": "41.415",
+                            "northing": "670563.653",
+                            "easting": "712856.553",
+                            "source_page": 1,
+                        }
+                    ],
+                },
+            ],
+        }
+
+        payload = survey_plan_ocr_vision_extraction._normalize_extraction(raw, "100001027", "document (5).pdf")
+
+        self.assertEqual(2, payload["parcel_count_hint"])
+        self.assertEqual(3, payload["row_count"])
+        self.assertEqual("Lot 1", payload["rows"][0]["parcel_group_id"])
+        self.assertEqual("20", payload["rows"][0]["point_identifier"])
+        self.assertEqual("712864.006", payload["rows"][0]["easting"])
+        self.assertEqual(3, payload["segment_row_count"])
+        self.assertEqual("Lot 2", payload["segments"][2]["parcel_group_id"])
+        self.assertEqual("28", payload["segments"][2]["from_point"])
+        self.assertEqual("29", payload["segments"][2]["to_point"])
+        self.assertEqual("41.415", payload["segments"][2]["distance_txt"])
+
     def test_coordinate_system_rejects_survey_method_text(self):
         raw = {
             "coordinate_system": "Theodolite Survey (Compass Standard)",

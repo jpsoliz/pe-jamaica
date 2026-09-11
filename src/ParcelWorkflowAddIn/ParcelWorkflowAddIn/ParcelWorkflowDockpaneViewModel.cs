@@ -2736,7 +2736,9 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        var manualSegment = manualBoundarySegmentService.CreateManualSegment(loadedReviewDocument);
+        var parcelGroupId = ResolveActiveReviewParcelGroupId();
+        var parcelName = ResolveActiveReviewParcelName();
+        var manualSegment = manualBoundarySegmentService.CreateManualSegment(loadedReviewDocument, parcelGroupId, parcelName);
         var reviewSegment = new ExtractionReviewSegmentViewModel(manualSegment, OnReviewSegmentChanged);
         pointEditorOpen = true;
         RefreshWorkflowProperties();
@@ -2754,6 +2756,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             reviewSegment.SyncBackToModel();
             loadedReviewDocument.Segments.Add(manualSegment);
             ReviewSegments.Add(reviewSegment);
+            SetReviewWorkspaceParcelContext(parcelGroupId, parcelName, ResolveActiveReviewTraverseId(), refreshProperties: false);
             ApplyBoundarySolverIfAvailable();
             reviewDirty = true;
             reviewContentVersion++;

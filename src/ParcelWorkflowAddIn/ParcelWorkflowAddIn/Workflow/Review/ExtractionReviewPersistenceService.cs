@@ -68,6 +68,7 @@ public sealed class ExtractionReviewPersistenceService
 
         LoadSurveyMetadata(rootNode, document);
         ApplyDerivedGrouping(document.Rows);
+        ApplyDerivedSegmentGrouping(document.Segments, document.Rows);
 
         document.RowCount = document.Rows.Count > 0 ? document.Rows.Count : document.RowCount;
         document.SegmentRowCount = document.Segments.Count > 0 ? document.Segments.Count : document.SegmentRowCount;
@@ -390,6 +391,8 @@ public sealed class ExtractionReviewPersistenceService
         var segment = new ExtractionReviewSegment
         {
             SegmentId = ReadFirstString(segmentObject, "segment_id", "line_id", "row_id") ?? $"segment-{index:000}",
+            ParcelGroupId = ReadFirstString(segmentObject, "review_parcel_group_id", "parcel_group_id", "parcel", "lot") ?? string.Empty,
+            ParcelName = ReadFirstString(segmentObject, "review_parcel_name", "parcel_name", "lot_name", "lot_number") ?? string.Empty,
             Sequence = sequence,
             FromPoint = fromPoint,
             ToPoint = toPoint,
@@ -513,6 +516,8 @@ public sealed class ExtractionReviewPersistenceService
         {
             var segmentObject = CloneObject(segment.RawSegment);
             segmentObject["segment_id"] = segment.SegmentId;
+            segmentObject["parcel_group_id"] = string.IsNullOrWhiteSpace(segment.ParcelGroupId) ? null : segment.ParcelGroupId;
+            segmentObject["parcel_name"] = string.IsNullOrWhiteSpace(segment.ParcelName) ? null : segment.ParcelName;
             segmentObject["segment_no"] = segment.Sequence;
             segmentObject["sequence"] = segment.Sequence;
             segmentObject["from_point"] = segment.FromPoint;
@@ -536,6 +541,8 @@ public sealed class ExtractionReviewPersistenceService
             segmentObject["review_status"] = string.IsNullOrWhiteSpace(segment.ReviewStatus) ? null : segment.ReviewStatus;
             segmentObject["review_notes"] = string.IsNullOrWhiteSpace(segment.ReviewNotes) ? null : segment.ReviewNotes;
             segmentObject["adjacent_owner"] = string.IsNullOrWhiteSpace(segment.AdjacentOwner) ? null : segment.AdjacentOwner;
+            segmentObject["review_parcel_group_id"] = string.IsNullOrWhiteSpace(segment.ParcelGroupId) ? null : segment.ParcelGroupId;
+            segmentObject["review_parcel_name"] = string.IsNullOrWhiteSpace(segment.ParcelName) ? null : segment.ParcelName;
             segmentObject["review_original_values"] = JsonSerializer.SerializeToNode(new
             {
                 sequence = segment.OriginalValues.Sequence,
@@ -1220,6 +1227,77 @@ public sealed class ExtractionReviewPersistenceService
             }
         }
     }
+
+    private static void ApplyDerivedSegmentGrouping(IReadOnlyList<ExtractionReviewSegment> segments, IReadOnlyList<ExtractionReviewRow> rows)
+    {
+        if (segments.Count == 0 || rows.Count == 0)
+        {
+            return;
+        }
+
+        var rowsByPoint = rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.PointIdentifier) && !string.IsNullOrWhiteSpace(row.ParcelGroupId))
+            .GroupBy(row => row.PointIdentifier.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .Select(row => new SegmentGroupingCandidate(row.ParcelGroupId.Trim(), row.ParcelName?.Trim() ?? string.Empty))
+                    .DistinctBy(candidate => candidate.ParcelGroupId, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var segment in segments)
+        {
+            if (!string.IsNullOrWhiteSpace(segment.ParcelGroupId))
+            {
+                continue;
+            }
+
+            var fromCandidates = FindSegmentEndpointCandidates(rowsByPoint, segment.EffectiveFromPoint);
+            var toCandidates = FindSegmentEndpointCandidates(rowsByPoint, segment.EffectiveToPoint);
+            var matchingCandidate = ResolveSegmentGroupingCandidate(fromCandidates, toCandidates);
+            if (matchingCandidate is null)
+            {
+                continue;
+            }
+
+            segment.ParcelGroupId = matchingCandidate.ParcelGroupId;
+            segment.ParcelName = string.IsNullOrWhiteSpace(segment.ParcelName)
+                ? matchingCandidate.ParcelName
+                : segment.ParcelName;
+        }
+    }
+
+    private static IReadOnlyList<SegmentGroupingCandidate> FindSegmentEndpointCandidates(
+        IReadOnlyDictionary<string, SegmentGroupingCandidate[]> rowsByPoint,
+        string pointIdentifier)
+    {
+        return string.IsNullOrWhiteSpace(pointIdentifier) || !rowsByPoint.TryGetValue(pointIdentifier.Trim(), out var candidates)
+            ? Array.Empty<SegmentGroupingCandidate>()
+            : candidates;
+    }
+
+    private static SegmentGroupingCandidate? ResolveSegmentGroupingCandidate(
+        IReadOnlyList<SegmentGroupingCandidate> fromCandidates,
+        IReadOnlyList<SegmentGroupingCandidate> toCandidates)
+    {
+        if (fromCandidates.Count > 0 && toCandidates.Count > 0)
+        {
+            return fromCandidates.FirstOrDefault(fromCandidate =>
+                toCandidates.Any(toCandidate => string.Equals(
+                    toCandidate.ParcelGroupId,
+                    fromCandidate.ParcelGroupId,
+                    StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return fromCandidates.Count == 1
+            ? fromCandidates[0]
+            : toCandidates.Count == 1
+                ? toCandidates[0]
+                : null;
+    }
+
+    private sealed record SegmentGroupingCandidate(string ParcelGroupId, string ParcelName);
 
     private static string ResolveEffectiveGroupId(ExtractionReviewRow row)
     {

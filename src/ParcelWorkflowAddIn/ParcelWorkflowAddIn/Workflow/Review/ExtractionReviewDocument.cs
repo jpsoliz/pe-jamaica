@@ -243,6 +243,10 @@ public sealed class ExtractionReviewSegment
 {
     public string SegmentId { get; set; } = string.Empty;
 
+    public string ParcelGroupId { get; set; } = string.Empty;
+
+    public string ParcelName { get; set; } = string.Empty;
+
     public int? Sequence { get; set; }
 
     public string FromPoint { get; set; } = string.Empty;

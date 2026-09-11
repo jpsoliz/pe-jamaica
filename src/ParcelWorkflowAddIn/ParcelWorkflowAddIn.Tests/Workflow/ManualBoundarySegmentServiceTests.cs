@@ -30,4 +30,33 @@ internal static class ManualBoundarySegmentServiceTests
         TestAssert.True(segment.IsEdited, "Manual segment should be marked edited so save persists it as a review change.");
         TestAssert.True(segment.SegmentId.StartsWith("manual-segment-002", StringComparison.Ordinal), "Manual segment id should be deterministic and sequence-based.");
     }
+
+    public static void CreateManualSegmentUsesActiveParcelContextAndSequence()
+    {
+        var document = new ExtractionReviewDocument();
+        document.Segments.Add(new ExtractionReviewSegment
+        {
+            SegmentId = "lot-1-segment-009",
+            ParcelGroupId = "Lot 1",
+            Sequence = 9,
+            FromPoint = "A",
+            ToPoint = "B"
+        });
+        document.Segments.Add(new ExtractionReviewSegment
+        {
+            SegmentId = "lot-2-segment-001",
+            ParcelGroupId = "Lot 2",
+            Sequence = 1,
+            FromPoint = "C",
+            ToPoint = "D"
+        });
+
+        var service = new ManualBoundarySegmentService();
+        var segment = service.CreateManualSegment(document, "Lot 2", "Lot 2");
+
+        TestAssert.Equal("Lot 2", segment.ParcelGroupId, "Manual boundary segment should inherit the active parcel group.");
+        TestAssert.Equal("Lot 2", segment.ParcelName, "Manual boundary segment should inherit the active parcel name.");
+        TestAssert.Equal(2, segment.Sequence ?? -1, "Manual boundary segment sequence should advance within the active parcel, not across all parcels.");
+        TestAssert.True(segment.SegmentId.StartsWith("manual-segment-002", StringComparison.Ordinal), "Manual segment id should follow the active parcel sequence.");
+    }
 }

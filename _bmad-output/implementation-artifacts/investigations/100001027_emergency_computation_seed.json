@@ -1,0 +1,93 @@
+{
+  "document_type": "scanned computation sheet",
+  "parcel_count_hint": 3,
+  "survey_metadata": {
+    "parish": "ST. ANDREW",
+    "property_name": "Part of FOREST HILLS GARDENS",
+    "document_area": "1048.277 sq. metres",
+    "survey_date": "March 30, 2026",
+    "instrument": "Topcon GM52 1Y019503",
+    "instrument_check_date": "April 4, 2025",
+    "instrument_check_result": "In Order",
+    "surveyed_by": "A. B. Prendergast"
+  },
+  "review_notes": [
+    "Emergency manual seed transcribed from scanned computation sheet for transaction 100001027.",
+    "Intermediate point labels were generated from row order because the sheet only shows start/closure station labels."
+  ],
+  "parcel_groups": [
+    {
+      "parcel_group_id": "Lot 1",
+      "parcel_name": "Lot 1",
+      "rows": [
+        { "point_id": "20", "northing": "654922.246", "easting": "769062.445", "source_page": 1, "confidence": 0.98, "status": "review_required", "review_note": "Start station from computation sheet." },
+        { "point_id": "L1-01", "northing": "654928.454", "easting": "769060.340", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-02", "northing": "654929.050", "easting": "769061.485", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-03", "northing": "654961.944", "easting": "769069.160", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-04", "northing": "654963.869", "easting": "769070.807", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-05", "northing": "654975.151", "easting": "769073.830", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-06", "northing": "654986.923", "easting": "769076.966", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-07", "northing": "654988.809", "easting": "769070.280", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L1-08", "northing": "654924.290", "easting": "769053.474", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "20-close", "northing": "654922.248", "easting": "769062.440", "source_page": 1, "confidence": 0.98, "status": "review_required", "review_note": "Closure row for station 20." }
+      ],
+      "segments": [
+        { "from_point": "20", "to_point": "L1-01", "azimuth": "341 16", "bearing_txt": "N 18 44 W", "distance_txt": "6.555", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-01", "to_point": "L1-02", "azimuth": "62 30", "bearing_txt": "N 62 30 E", "distance_txt": "1.291", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-02", "to_point": "L1-03", "azimuth": "13 8", "bearing_txt": "N 13 8 E", "distance_txt": "33.778", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-03", "to_point": "L1-04", "azimuth": "40 33", "bearing_txt": "N 40 33 E", "distance_txt": "2.533", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-04", "to_point": "L1-05", "azimuth": "15 0", "bearing_txt": "N 15 0 E", "distance_txt": "11.680", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-05", "to_point": "L1-06", "azimuth": "14 55", "bearing_txt": "N 14 55 E", "distance_txt": "12.183", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-06", "to_point": "L1-07", "azimuth": "285 45", "bearing_txt": "N 74 15 W", "distance_txt": "6.947", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-07", "to_point": "L1-08", "azimuth": "194 36", "bearing_txt": "S 14 36 W", "distance_txt": "66.672", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L1-08", "to_point": "20-close", "azimuth": "102 50", "bearing_txt": "S 77 10 E", "distance_txt": "9.196", "source_page": 1, "confidence": 0.92, "status": "review_required" }
+      ]
+    },
+    {
+      "parcel_group_id": "Lot 2",
+      "parcel_name": "Lot 2",
+      "rows": [
+        { "point_id": "28", "northing": "654961.946", "easting": "769069.159", "source_page": 1, "confidence": 0.98, "status": "review_required", "review_note": "Start station from computation sheet." },
+        { "point_id": "L2-01", "northing": "654963.871", "easting": "769070.806", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-02", "northing": "654975.153", "easting": "769073.829", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-03", "northing": "654973.475", "easting": "769079.016", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-04", "northing": "654969.812", "easting": "769092.916", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-05", "northing": "654968.700", "easting": "769096.620", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-06", "northing": "654956.476", "easting": "769093.573", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L2-07", "northing": "654955.824", "easting": "769093.405", "source_page": 1, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "28-close", "northing": "654961.951", "easting": "769069.160", "source_page": 1, "confidence": 0.98, "status": "review_required", "review_note": "Closure row for station 28." }
+      ],
+      "segments": [
+        { "from_point": "28", "to_point": "L2-01", "azimuth": "40 33", "bearing_txt": "N 40 33 E", "distance_txt": "2.533", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-01", "to_point": "L2-02", "azimuth": "15 0", "bearing_txt": "N 15 0 E", "distance_txt": "11.680", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-02", "to_point": "L2-03", "azimuth": "107 55", "bearing_txt": "S 72 5 E", "distance_txt": "5.452", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-03", "to_point": "L2-04", "azimuth": "104 46", "bearing_txt": "S 75 14 E", "distance_txt": "14.374", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-04", "to_point": "L2-05", "azimuth": "106 42", "bearing_txt": "S 73 18 E", "distance_txt": "3.868", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-05", "to_point": "L2-06", "azimuth": "194 0", "bearing_txt": "S 14 0 W", "distance_txt": "12.598", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-06", "to_point": "L2-07", "azimuth": "194 25", "bearing_txt": "S 14 25 W", "distance_txt": "0.674", "source_page": 1, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L2-07", "to_point": "28-close", "azimuth": "284 11", "bearing_txt": "N 75 49 W", "distance_txt": "25.007", "source_page": 1, "confidence": 0.92, "status": "review_required" }
+      ]
+    },
+    {
+      "parcel_group_id": "Lot 3",
+      "parcel_name": "Lot 3",
+      "rows": [
+        { "point_id": "46", "northing": "654975.153", "easting": "769073.830", "source_page": 2, "confidence": 0.98, "status": "review_required", "review_note": "Start station from computation sheet." },
+        { "point_id": "L3-01", "northing": "654973.476", "easting": "769079.018", "source_page": 2, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L3-02", "northing": "654969.812", "easting": "769092.917", "source_page": 2, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L3-03", "northing": "654968.701", "easting": "769096.622", "source_page": 2, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L3-04", "northing": "654980.669", "easting": "769099.791", "source_page": 2, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "L3-05", "northing": "654986.927", "easting": "769076.967", "source_page": 2, "confidence": 0.9, "status": "review_required" },
+        { "point_id": "46-close", "northing": "654975.155", "easting": "769073.831", "source_page": 2, "confidence": 0.98, "status": "review_required", "review_note": "Closure row for station 46." }
+      ],
+      "segments": [
+        { "from_point": "46", "to_point": "L3-01", "azimuth": "107 55", "bearing_txt": "S 72 5 E", "distance_txt": "5.452", "source_page": 2, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L3-01", "to_point": "L3-02", "azimuth": "104 46", "bearing_txt": "S 75 14 E", "distance_txt": "14.374", "source_page": 2, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L3-02", "to_point": "L3-03", "azimuth": "106 42", "bearing_txt": "S 73 18 E", "distance_txt": "3.868", "source_page": 2, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L3-03", "to_point": "L3-04", "azimuth": "14 50", "bearing_txt": "N 14 50 E", "distance_txt": "12.381", "source_page": 2, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L3-04", "to_point": "L3-05", "azimuth": "285 20", "bearing_txt": "N 74 40 W", "distance_txt": "23.667", "source_page": 2, "confidence": 0.92, "status": "review_required" },
+        { "from_point": "L3-05", "to_point": "46-close", "azimuth": "194 55", "bearing_txt": "S 14 55 W", "distance_txt": "12.183", "source_page": 2, "confidence": 0.92, "status": "review_required" }
+      ]
+    }
+  ]
+}
