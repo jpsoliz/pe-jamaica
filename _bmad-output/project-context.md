@@ -1,7 +1,7 @@
 ---
 project_name: 'Sid-jamaica'
 user_name: 'JotaPe'
-date: '2026-09-08'
+date: '2026-09-12'
 sections_completed: ['technology_stack', 'language_specific_rules', 'framework_specific_rules', 'testing_rules', 'code_quality_style_rules', 'development_workflow_rules', 'critical_dont_miss_rules']
 existing_patterns_found: 18
 status: 'complete'
@@ -123,11 +123,14 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - When changing ArcGIS Pro SDK behavior, verify build locally and document any manual ArcGIS Pro smoke test that cannot be automated.
 - Never persist Innola access tokens or passwords. Innola credentials stay session-only unless a story explicitly introduces secure credential storage.
 - Keep `project-context.md` current when a story establishes a new durable rule or changes a core architecture boundary.
+- Current testing/presentation branch `wipRC9` should stay stable. Commit planning/story docs there if needed, then create PE/PXA refactor code work on a separate branch such as `refactor/pe-unified-plan-examination`; do not merge to `master` until the current implementation is validated as the release baseline.
+- PE/PXA unification is tracked under Epic 11. Story `11-1` is a docs-only inventory/decision lock; Story `11-2` is the first code-changing contract story and should only change the review contract/model/persistence/tests, not route planning, OCR/vision extraction, UI redesign, Enterprise publish, or Innola finalize behavior.
 - Latest tracked implementation context: Story 8.8 RT Examination is complete through add-in `1.1.468`. Recent fixes recovered partial RT case folders missing `manifest.json`, made RT parent attachment preload tolerant after at least one source document loads, added explicit `Save & Close` branch selection, and corrected RT PlanCheck completion writeback to preserve/use valid Innola `plan_check_type_*` values instead of sending literal `checkType = approved`.
 
 ### Critical Don't-Miss Rules
 
 - Do not bypass the review-before-output workflow. Extraction review approval, validation gates, and output creation must remain explicit and auditable.
+- Do not let PE/PXA refactor stories change presentation-tested behavior casually. The unified Plan Examination contract must preserve current PXA single-parcel behavior, PE multi-parcel review behavior, approved-review validation, output generation, Enterprise `working_review` publish, and Innola finalize boundaries unless a later story explicitly changes one boundary with tests.
 - Do not treat ArcGIS Enterprise working layers as final authoritative sync. Working review, Enterprise working layers, Enterprise Parcel Fabric, and final promotion are separate concepts.
 - Do not hardcode Case Folder paths, settings paths, source layer URLs, field names, or Python executable paths when existing settings services can resolve them.
 - Do not create hidden state that is required for recovery. Case Folder artifacts and configured Enterprise working layers must be enough to resume or diagnose work.
@@ -168,4 +171,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-09-08
+Last Updated: 2026-09-12
