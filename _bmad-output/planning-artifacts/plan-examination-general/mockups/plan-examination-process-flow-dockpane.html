@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Examination Process Flow Dockpane</title>
+  <style>
+    :root {
+      --bg: #eef3f7;
+      --panel: #ffffff;
+      --soft: #f5f8fa;
+      --line: #c6d2db;
+      --line-strong: #8fa2af;
+      --text: #1f2933;
+      --muted: #52616b;
+      --faint: #72818c;
+      --blue: #1f6b75;
+      --blue-soft: #e5f1f3;
+      --green: #2f7d4f;
+      --green-soft: #e8f5ed;
+      --amber: #a86400;
+      --amber-soft: #fff3d6;
+      --red: #a4241c;
+      --red-soft: #fdeceb;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #c8d8e4;
+      color: var(--text);
+      padding: 22px;
+    }
+
+    .dock {
+      width: 430px;
+      min-height: 850px;
+      background: var(--bg);
+      border: 1px solid var(--line-strong);
+      box-shadow: 0 16px 32px rgba(31, 41, 51, 0.2);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .titlebar {
+      height: 34px;
+      background: #fbfcfd;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .meta {
+      display: grid;
+      gap: 3px;
+      margin-top: 7px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill-row, .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .pill-row { margin-top: 10px; }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 3px;
+      padding: 3px 7px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.good { background: var(--green-soft); border-color: #b8d7c2; color: #245f3e; }
+    .pill.warn { background: var(--amber-soft); border-color: #ddb76d; color: #6d4700; }
+    .pill.info { background: var(--blue-soft); border-color: #a9c9cf; color: #1d5961; }
+
+    main {
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .card-head {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-head strong {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .card-body {
+      padding: 10px;
+    }
+
+    .stage-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stage {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--line-strong);
+      background: var(--soft);
+      border-radius: 5px;
+      padding: 9px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .stage.done { border-left-color: var(--green); }
+    .stage.active { border-left-color: var(--blue); background: var(--blue-soft); }
+    .stage.wait { border-left-color: var(--line-strong); }
+    .stage.warn { border-left-color: var(--amber); background: var(--amber-soft); }
+
+    .stage-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .stage-title strong {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .stage p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    button {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    button.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: white;
+      font-weight: 600;
+    }
+
+    button.danger {
+      border-color: #d7a29e;
+      color: var(--red);
+      background: #fff7f7;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--soft);
+      padding: 8px;
+      min-height: 56px;
+    }
+
+    .metric label {
+      display: block;
+      font-size: 11px;
+      color: var(--faint);
+      margin-bottom: 4px;
+    }
+
+    .metric strong {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .finding {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--amber);
+      border-radius: 4px;
+      background: var(--soft);
+      padding: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .footer {
+      margin-top: auto;
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+  <section class="dock" aria-label="Plan Examination process flow dockpane">
+    <div class="titlebar">
+      <span>Parcel Workflow</span>
+      <span>- □ ×</span>
+    </div>
+
+    <header>
+      <h1>Plan Examination</h1>
+      <div class="meta">
+        <span>Transaction Number: 100001027</span>
+        <span>Code: PE</span>
+        <span>Profile: Survey plan + computation sheet</span>
+      </div>
+      <div class="pill-row">
+        <span class="pill good">Existing case</span>
+        <span class="pill warn">2 issue(s)</span>
+        <span class="pill info">3 parcels</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <div class="card-head">
+          <strong>Process Summary</strong>
+          <span class="pill good">Ready for review</span>
+        </div>
+        <div class="card-body summary">
+          <div class="metric"><label>Points</label><strong>28</strong></div>
+          <div class="metric"><label>Segments</label><strong>19</strong></div>
+          <div class="metric"><label>Parcels</label><strong>3</strong></div>
+          <div class="metric"><label>Blockers</label><strong>1</strong></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <strong>Workflow</strong>
+          <button>Stage Details</button>
+        </div>
+        <div class="card-body stage-list">
+          <div class="stage done">
+            <div class="stage-title">
+              <strong>1. Process Plan</strong>
+              <span class="pill good">Completed</span>
+            </div>
+            <p>Supporting documents, structure, extraction, georeference, and dimension checks completed.</p>
+            <div class="actions">
+              <button>View Results</button>
+              <button>Rerun Extraction</button>
+            </div>
+          </div>
+
+          <div class="stage active">
+            <div class="stage-title">
+              <strong>2. Validate Points</strong>
+              <span class="pill info">Active</span>
+            </div>
+            <p>Open the Points Validation workspace to review document evidence and correct parcel geometry.</p>
+            <div class="actions">
+              <button class="primary">Open Review Workspace</button>
+              <button>Clear Validation</button>
+            </div>
+          </div>
+
+          <div class="stage wait">
+            <div class="stage-title">
+              <strong>3. Create Spatial Units</strong>
+              <span class="pill">Waiting</span>
+            </div>
+            <p>Creates local map-ready geometry after point validation passes.</p>
+            <div class="actions">
+              <button disabled>Create Spatial Units</button>
+            </div>
+          </div>
+
+          <div class="stage wait">
+            <div class="stage-title">
+              <strong>4. Final Review</strong>
+              <span class="pill">Waiting</span>
+            </div>
+            <p>Review generated geometry in ArcGIS Pro before Enterprise publish.</p>
+          </div>
+
+          <div class="stage wait">
+            <div class="stage-title">
+              <strong>5. Finalize</strong>
+              <span class="pill">Waiting</span>
+            </div>
+            <p>Publishes approved geometry to working_review, records disposition, and closes Innola task.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <strong>Current Blocker</strong>
+          <span class="pill warn">Parcel-scoped</span>
+        </div>
+        <div class="card-body">
+          <div class="finding">parcel-003: 8 points found, 0 segments found, parcel cannot be built yet.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <strong>Restart / Reprocess</strong>
+          <span class="pill info">Visible</span>
+        </div>
+        <div class="card-body actions">
+          <button>Rerun Extraction</button>
+          <button>Clear Validation</button>
+          <button>Recreate Spatial Units</button>
+          <button>Retry Finalize</button>
+          <button class="danger">Restart Transaction</button>
+        </div>
+      </section>
+    </main>
+
+    <div class="footer">
+      <button>Suspend</button>
+      <button class="primary" disabled>Finalize</button>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Examination Unified Review Wireframe</title>
+  <style>
+    :root {
+      --app-bg: #d8e0e6;
+      --surface: #f7f8fa;
+      --panel: #ffffff;
+      --panel-soft: #f0f4f6;
+      --panel-muted: #e8eef2;
+      --line: #c5d0d8;
+      --line-strong: #93a4b0;
+      --text: #1f2933;
+      --muted: #52616b;
+      --faint: #73818c;
+      --blue: #1f6b75;
+      --blue-soft: #e4f0f2;
+      --green: #2f7d4f;
+      --green-soft: #e8f5ed;
+      --amber: #a86400;
+      --amber-soft: #fff3d6;
+      --red: #a4241c;
+      --red-soft: #fdeceb;
+      --map: #d9e8d3;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--app-bg);
+      color: var(--text);
+      padding: 20px;
+    }
+
+    .window {
+      width: min(1440px, calc(100vw - 40px));
+      min-height: 880px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      box-shadow: 0 18px 36px rgba(31, 41, 51, 0.22);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .titlebar {
+      height: 34px;
+      background: #fbfcfd;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chrome-icons {
+      display: flex;
+      gap: 8px;
+      color: var(--faint);
+      font-size: 14px;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 16px 14px;
+    }
+
+    .header-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .subline {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .badge-row, .toolbar, .stage-strip, .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .badge-row { justify-content: flex-end; }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      border-radius: 3px;
+      padding: 3px 7px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.good { background: var(--green-soft); border-color: #b8d7c2; color: #245f3e; }
+    .pill.warn { background: var(--amber-soft); border-color: #ddb76d; color: #6d4700; }
+    .pill.bad { background: var(--red-soft); border-color: #d9a5a1; color: #7e1b14; }
+    .pill.info { background: var(--blue-soft); border-color: #a9c9cf; color: #1d5961; }
+
+    .stage-strip {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .stage {
+      min-width: 128px;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+    }
+
+    .stage strong {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+
+    .stage.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .stage.done strong::before {
+      content: "✓ ";
+      color: var(--green);
+    }
+
+    .content {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr) 300px;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      padding: 12px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .doc-preview {
+      height: 320px;
+      background:
+        linear-gradient(90deg, rgba(31, 107, 117, 0.08) 0 1px, transparent 1px 100%),
+        linear-gradient(rgba(31, 107, 117, 0.08) 0 1px, transparent 1px 100%),
+        #fbfbf7;
+      background-size: 22px 22px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .doc-block {
+      position: absolute;
+      border: 1px solid #9aa8b2;
+      background: rgba(255, 255, 255, 0.78);
+      color: var(--muted);
+      font-size: 11px;
+      padding: 5px;
+    }
+
+    .doc-block.plan { left: 28px; top: 34px; right: 34px; height: 130px; }
+    .doc-block.memo { left: 28px; top: 184px; right: 34px; height: 88px; }
+
+    .doc-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .doc-item {
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .lane {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .lane-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .lane-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .lane-title strong {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .lane-title span {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .tabs {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 10px 0;
+      gap: 4px;
+    }
+
+    .tab {
+      border: 1px solid var(--line);
+      border-bottom: none;
+      background: var(--panel-soft);
+      padding: 7px 10px;
+      border-radius: 4px 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 600;
+      position: relative;
+      top: 1px;
+    }
+
+    .lane-body {
+      padding: 12px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 8px;
+    }
+
+    .field {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel-soft);
+      padding: 8px;
+      min-height: 54px;
+      font-size: 12px;
+    }
+
+    .field label {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .parcel-bar {
+      display: grid;
+      grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+
+    select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      border-radius: 4px;
+      padding: 7px 9px;
+      font-size: 12px;
+      color: var(--text);
+      font-family: inherit;
+    }
+
+    .status-box {
+      border: 1px solid #d3b064;
+      background: var(--amber-soft);
+      border-radius: 4px;
+      padding: 7px 9px;
+      color: #654400;
+      font-size: 12px;
+    }
+
+    .geometry-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+      gap: 12px;
+      min-height: 360px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 7px 8px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      background: var(--panel-muted);
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    tr.selected td {
+      background: var(--blue-soft);
+      border-color: #a9c9cf;
+    }
+
+    .map-preview {
+      height: 100%;
+      min-height: 330px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--map);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .parcel-shape {
+      position: absolute;
+      border: 3px solid var(--blue);
+      background: rgba(31, 107, 117, 0.14);
+      width: 170px;
+      height: 142px;
+      left: 76px;
+      top: 84px;
+      clip-path: polygon(18% 4%, 88% 17%, 95% 76%, 40% 96%, 6% 54%);
+    }
+
+    .parcel-shape.secondary {
+      left: 178px;
+      top: 174px;
+      width: 96px;
+      height: 82px;
+      border-color: #8fa4ad;
+      background: rgba(255, 255, 255, 0.22);
+      opacity: 0.72;
+    }
+
+    .point {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      background: #ffffff;
+      border: 2px solid #1f2933;
+      border-radius: 50%;
+    }
+
+    .p1 { left: 104px; top: 91px; }
+    .p2 { left: 218px; top: 111px; }
+    .p3 { left: 238px; top: 188px; }
+    .p4 { left: 142px; top: 216px; }
+    .p5 { left: 88px; top: 160px; }
+
+    .map-label {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      justify-content: space-between;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 7px 11px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .btn.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .btn.danger {
+      color: var(--red);
+      border-color: #d7a29e;
+      background: #fff7f7;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      min-height: 0;
+    }
+
+    .small-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .finding {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--blue);
+      background: var(--panel-soft);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .finding.warn { border-left-color: var(--amber); }
+    .finding.good { border-left-color: var(--green); }
+    .finding.bad { border-left-color: var(--red); }
+
+    .finding strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 12px;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    @media (max-width: 1180px) {
+      body { padding: 10px; }
+      .window { width: calc(100vw - 20px); }
+      .content { grid-template-columns: 1fr; }
+      .geometry-grid { grid-template-columns: 1fr; }
+      .field-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      .header-grid, .parcel-bar { grid-template-columns: 1fr; }
+      .field-grid { grid-template-columns: 1fr; }
+      .badge-row { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <span>ArcGIS Pro Add-In Wireframe</span>
+      <span class="chrome-icons">- □ ×</span>
+    </div>
+
+    <header>
+      <div class="header-grid">
+        <div>
+          <h1>Plan Examination Review</h1>
+          <div class="subline">
+            <span>Transaction Number: 100001027</span>
+            <span>Transaction Code: PE</span>
+            <span>Profile: Survey plan + computation sheet</span>
+          </div>
+        </div>
+        <div class="badge-row">
+          <span class="pill good">Extraction complete</span>
+          <span class="pill warn">2 issue(s)</span>
+          <span class="pill info">Existing case</span>
+        </div>
+      </div>
+
+      <div class="stage-strip" aria-label="Workflow stages">
+        <div class="stage done"><strong>Process Plan</strong><span>Checks and extraction complete</span></div>
+        <div class="stage active"><strong>Validate Points</strong><span>Review active parcel geometry</span></div>
+        <div class="stage"><strong>Create Spatial Units</strong><span>Local output not created</span></div>
+        <div class="stage"><strong>Final Review</strong><span>Map approval pending</span></div>
+        <div class="stage"><strong>Finalize</strong><span>Enterprise publish pending</span></div>
+      </div>
+    </header>
+
+    <main class="content">
+      <aside class="panel" aria-label="Supporting documents">
+        <div class="panel-header">
+          <h2>Supporting Documents</h2>
+          <span class="pill good">Document-wide</span>
+        </div>
+        <div class="panel-body">
+          <div class="doc-preview">
+            <div class="doc-block plan">Survey plan page preview</div>
+            <div class="doc-block memo">Memorandum / notes evidence</div>
+          </div>
+          <div class="doc-list">
+            <div class="doc-item">
+              <strong>st_surveyplan</strong><br>
+              Survey plan PDF
+            </div>
+            <div class="doc-item">
+              <strong>st_surveysheet</strong><br>
+              Computation sheet PDF
+            </div>
+            <div class="doc-item">
+              <strong>st_autocad_file</strong><br>
+              Optional DWG not loaded
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="main" aria-label="Plan examination review workspace">
+        <section class="lane" aria-label="Transaction review lane">
+          <div class="lane-header">
+            <div class="lane-title">
+              <strong>Transaction Review</strong>
+              <span>Generic document and transaction data. Not filtered by parcel.</span>
+            </div>
+            <span class="pill info">Scope: Transaction</span>
+          </div>
+          <div class="tabs">
+            <div class="tab">General Information</div>
+            <div class="tab active">Parties</div>
+            <div class="tab">Memorandum</div>
+            <div class="tab">Diagnostics</div>
+          </div>
+          <div class="lane-body">
+            <div class="field-grid">
+              <div class="field"><label>Registered owner</label>B.ST MICHEAL HYLTON &amp; CO</div>
+              <div class="field"><label>Parish</label>St. Thomas</div>
+              <div class="field"><label>Surveyor</label>Document evidence pending</div>
+              <div class="field"><label>Volume / folio</label>Document-wide value</div>
+              <div class="field"><label>Memorandum</label>Visible evidence present</div>
+              <div class="field"><label>Document status</label>2 warnings, no blockers</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="lane" aria-label="Parcel geometry review lane">
+          <div class="lane-header">
+            <div class="lane-title">
+              <strong>Parcel Geometry Review</strong>
+              <span>Points, boundary segments, preview, and geometry commands follow the active parcel.</span>
+            </div>
+            <div class="parcel-bar">
+              <select aria-label="Active parcel">
+                <option>Lot 1 - 12 points / 12 segments - Ready</option>
+                <option>Lot 2 - 8 points / 7 segments - Needs review</option>
+                <option>parcel-003 - 8 points / 0 segments - Missing segments</option>
+              </select>
+              <div class="status-box">Lot 1 has 12 points and 12 segments. Closure is within tolerance.</div>
+            </div>
+          </div>
+          <div class="tabs">
+            <div class="tab active">Points</div>
+            <div class="tab">Boundary Segments</div>
+            <div class="tab">Parcel Preview</div>
+          </div>
+          <div class="lane-body">
+            <div class="geometry-grid">
+              <div>
+                <table aria-label="Active parcel points">
+                  <thead>
+                    <tr>
+                      <th>Point</th>
+                      <th>Easting</th>
+                      <th>Northing</th>
+                      <th>Source</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="selected"><td>P1</td><td>766241.25</td><td>641992.20</td><td>Printed</td><td>Reviewed</td></tr>
+                    <tr><td>P2</td><td>766318.84</td><td>641978.71</td><td>Derived</td><td>Reviewed</td></tr>
+                    <tr><td>P3</td><td>766340.18</td><td>641901.44</td><td>Derived</td><td>Reviewed</td></tr>
+                    <tr><td>P4</td><td>766271.90</td><td>641872.09</td><td>Manual</td><td>Reviewed</td></tr>
+                    <tr><td>P5</td><td>766220.17</td><td>641925.60</td><td>Derived</td><td>Reviewed</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="map-preview" aria-label="Parcel preview">
+                <div class="parcel-shape"></div>
+                <div class="parcel-shape secondary"></div>
+                <span class="point p1"></span>
+                <span class="point p2"></span>
+                <span class="point p3"></span>
+                <span class="point p4"></span>
+                <span class="point p5"></span>
+                <div class="map-label">Active parcel: Lot 1. Other parcels remain visible as context.</div>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="button-group">
+              <button class="btn">Rebuild Points</button>
+              <button class="btn">Add Point</button>
+              <button class="btn">Edit Point</button>
+              <button class="btn danger">Remove Point</button>
+              <button class="btn">Add Segment</button>
+              <button class="btn">Edit Segment</button>
+            </div>
+            <div class="button-group">
+              <button class="btn">Save</button>
+              <button class="btn primary">Validation Complete</button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="side-stack" aria-label="Diagnostics and restart">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Stage Findings</h2>
+            <span class="pill warn">Scoped</span>
+          </div>
+          <div class="panel-body small-list">
+            <div class="finding good">
+              <strong>Transaction</strong>
+              Mandatory sources are loaded: st_surveyplan and st_surveysheet.
+            </div>
+            <div class="finding warn">
+              <strong>Document</strong>
+              Surveyor name confidence is low. Review General Information.
+            </div>
+            <div class="finding good">
+              <strong>Parcel: Lot 1</strong>
+              Closure is within tolerance.
+            </div>
+            <div class="finding bad">
+              <strong>Parcel: parcel-003</strong>
+              8 points found, 0 segments found, parcel cannot be built yet.
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Reprocess</h2>
+            <span class="pill info">Visible support actions</span>
+          </div>
+          <div class="panel-body small-list">
+            <button class="btn">Rerun Extraction</button>
+            <button class="btn">Clear Validation</button>
+            <button class="btn">Recreate Spatial Units</button>
+            <button class="btn">Retry Finalize</button>
+            <button class="btn danger">Restart Transaction</button>
+            <p class="note">Reprocess actions are transaction-level. Geometry edit buttons remain parcel-scoped.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Next Gate</h2>
+          </div>
+          <div class="panel-body">
+            <p class="note">After all parcel blockers are cleared, Validation Complete approves reviewed points and lines. Create Spatial Units then creates local map-ready output. Finalize publishes approved geometry to Enterprise working_review.</p>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

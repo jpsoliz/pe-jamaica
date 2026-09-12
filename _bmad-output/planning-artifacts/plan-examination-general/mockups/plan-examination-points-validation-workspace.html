@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Examination Points Validation Workspace</title>
+  <style>
+    :root {
+      --bg: #d7e0e7;
+      --surface: #f7f8fa;
+      --panel: #ffffff;
+      --soft: #f1f5f7;
+      --line: #c5d0d8;
+      --line-strong: #8fa2af;
+      --text: #1f2933;
+      --muted: #52616b;
+      --faint: #72818c;
+      --blue: #1f6b75;
+      --blue-soft: #e5f1f3;
+      --green: #2f7d4f;
+      --green-soft: #e8f5ed;
+      --amber: #a86400;
+      --amber-soft: #fff3d6;
+      --red: #a4241c;
+      --red-soft: #fdeceb;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+
+    .window {
+      width: min(1380px, calc(100vw - 40px));
+      min-height: 820px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      box-shadow: 0 18px 36px rgba(31, 41, 51, 0.22);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .titlebar {
+      height: 34px;
+      background: #fbfcfd;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .subline {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill-row, .tabs, .toolbar, .button-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 3px;
+      padding: 3px 7px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.good { background: var(--green-soft); border-color: #b8d7c2; color: #245f3e; }
+    .pill.warn { background: var(--amber-soft); border-color: #ddb76d; color: #6d4700; }
+    .pill.info { background: var(--blue-soft); border-color: #a9c9cf; color: #1d5961; }
+
+    .content {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 300px 8px minmax(0, 1fr);
+      gap: 0;
+      padding: 10px;
+    }
+
+    .splitter {
+      background: #dfe8ee;
+      border-left: 1px solid #cfdbe3;
+      border-right: 1px solid #f8fafb;
+      margin: 0 6px;
+      border-radius: 4px;
+    }
+
+    .panel, .lane {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header, .lane-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .panel-body, .lane-body {
+      padding: 12px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .doc-preview {
+      height: 430px;
+      background:
+        linear-gradient(90deg, rgba(31, 107, 117, 0.08) 0 1px, transparent 1px),
+        linear-gradient(rgba(31, 107, 117, 0.08) 0 1px, transparent 1px),
+        #fbfbf7;
+      background-size: 22px 22px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      position: relative;
+    }
+
+    .doc-box {
+      position: absolute;
+      left: 26px;
+      right: 26px;
+      border: 1px solid #9aa8b2;
+      background: rgba(255, 255, 255, 0.82);
+      padding: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .doc-box.one { top: 34px; height: 118px; }
+    .doc-box.two { top: 174px; height: 96px; }
+
+    .main {
+      display: grid;
+      grid-template-rows: minmax(220px, 0.42fr) minmax(360px, 0.58fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .tabs {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 10px 0;
+      gap: 4px;
+    }
+
+    .tab {
+      border: 1px solid var(--line);
+      border-bottom: none;
+      background: var(--soft);
+      color: var(--muted);
+      border-radius: 4px 4px 0 0;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .tab.active {
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 600;
+      position: relative;
+      top: 1px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(128px, 1fr));
+      gap: 8px;
+    }
+
+    .field {
+      min-height: 54px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+    }
+
+    .field label {
+      display: block;
+      color: var(--faint);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .parcel-select {
+      display: grid;
+      grid-template-columns: minmax(240px, 360px) minmax(260px, 1fr);
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+    }
+
+    select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 7px 9px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    .status {
+      border: 1px solid #ddb76d;
+      background: var(--amber-soft);
+      color: #654400;
+      border-radius: 4px;
+      padding: 7px 9px;
+      font-size: 12px;
+    }
+
+    .geometry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 230px;
+      gap: 10px;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .grid-stack {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .grid-tools {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .grid-scroll {
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 5px 7px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #e8eef2;
+      color: var(--muted);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    tr.selected td {
+      background: var(--blue-soft);
+      border-color: #a9c9cf;
+    }
+
+    .preview {
+      min-height: 0;
+      height: 100%;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #d9e8d3;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .shape {
+      position: absolute;
+      border: 3px solid var(--blue);
+      background: rgba(31, 107, 117, 0.14);
+      width: 172px;
+      height: 142px;
+      left: 52px;
+      top: 74px;
+      clip-path: polygon(18% 4%, 88% 17%, 95% 76%, 40% 96%, 6% 54%);
+    }
+
+    .shape.other {
+      left: 142px;
+      top: 174px;
+      width: 96px;
+      height: 82px;
+      border-color: #8fa4ad;
+      background: rgba(255, 255, 255, 0.24);
+      opacity: 0.72;
+    }
+
+    .map-label {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      justify-content: space-between;
+    }
+
+    button {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    button.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: white;
+      font-weight: 600;
+    }
+
+    button.danger {
+      border-color: #d7a29e;
+      color: var(--red);
+      background: #fff7f7;
+    }
+
+    .finding-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .finding {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--blue);
+      background: var(--soft);
+      border-radius: 4px;
+      padding: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .finding.warn { border-left-color: var(--amber); }
+    .finding.good { border-left-color: var(--green); }
+    .finding.bad { border-left-color: var(--red); }
+
+    .finding strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+
+    @media (max-width: 1120px) {
+      .content, .geometry { grid-template-columns: 1fr; }
+      .splitter { display: none; }
+      .parcel-select { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <section class="window" aria-label="Points Validation workspace">
+    <div class="titlebar">
+      <span>Points Validation Workspace</span>
+      <span>- □ ×</span>
+    </div>
+
+    <header>
+      <div>
+        <h1>Plan Examination Review</h1>
+        <div class="subline">
+          <span>Transaction 100001027</span>
+          <span>Validate Points and Lines</span>
+          <span>Review mode: editable</span>
+        </div>
+      </div>
+      <div class="pill-row">
+        <span class="pill info">3 parcels</span>
+        <span class="pill warn">1 parcel blocker</span>
+        <span class="pill good">Document data loaded</span>
+      </div>
+    </header>
+
+    <main class="content">
+      <aside class="panel">
+        <div class="panel-header">
+          <h2>Source Evidence</h2>
+          <span class="pill good">Document-wide</span>
+        </div>
+        <div class="panel-body">
+          <div class="doc-preview">
+            <div class="doc-box one">Survey plan PDF page</div>
+            <div class="doc-box two">Computation sheet table</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <section class="main">
+        <section class="lane">
+          <div class="lane-header">
+            <h2>Transaction Review</h2>
+            <div class="pill-row">
+              <span class="pill info">Not filtered by parcel</span>
+              <span class="pill">20 rows</span>
+            </div>
+          </div>
+          <div class="tabs">
+            <div class="tab active">General Information</div>
+            <div class="tab">Parties</div>
+            <div class="tab">Memorandum</div>
+            <div class="tab">Findings</div>
+          </div>
+          <div class="lane-body">
+            <div class="grid-stack">
+              <div class="grid-tools">
+                <span>General extracted values. Scroll keeps headers visible.</span>
+                <span class="pill">Document scope</span>
+              </div>
+              <div class="grid-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Value</th>
+                      <th>Present</th>
+                      <th>Confidence</th>
+                      <th>Status</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Coordinate system</td><td>JAD 2001</td><td></td><td>0.95</td><td>extracted</td><td>Field extracted from survey plan.</td></tr>
+                    <tr><td>Document area</td><td>419.74</td><td></td><td>0.85</td><td>extracted</td><td>Area value requires review.</td></tr>
+                    <tr><td>File reference</td><td>Roxbury Plantation-CM</td><td></td><td>0.85</td><td>extracted</td><td>Source text visible.</td></tr>
+                    <tr><td>GPS instrument number</td><td></td><td></td><td>0</td><td>not_extracted</td><td>Not confidently extracted.</td></tr>
+                    <tr><td>Grounds of objection</td><td>None</td><td></td><td>0.85</td><td>extracted</td><td>Document-level value.</td></tr>
+                    <tr><td>Instrument check date</td><td>2026-04-17</td><td></td><td>0.85</td><td>extracted</td><td>Document-level value.</td></tr>
+                    <tr><td>Instrument check result</td><td>Satisfactory</td><td></td><td>0.85</td><td>extracted</td><td>Document-level value.</td></tr>
+                    <tr><td>North arrow</td><td>Present</td><td>True</td><td>0.85</td><td>extracted</td><td>Visible near plan.</td></tr>
+                    <tr><td>Parish</td><td>Clarendon</td><td></td><td>0.85</td><td>extracted</td><td>Review against map reference.</td></tr>
+                    <tr><td>Plan check date</td><td></td><td></td><td>0</td><td>not_extracted</td><td>Missing from document.</td></tr>
+                    <tr><td>Property name</td><td>ROXBURY PLANTATION</td><td></td><td>0.85</td><td>extracted</td><td>Document-level value.</td></tr>
+                    <tr><td>Scale bar</td><td>SCALE 1 / 500 - 1cm = 5m</td><td>True</td><td>0.95</td><td>extracted</td><td>Scale text visible.</td></tr>
+                    <tr><td>Survey date</td><td>2026-02-26</td><td></td><td>0.85</td><td>extracted</td><td>Document-level value.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-header">
+            <h2>Parcel Geometry Review</h2>
+            <div class="parcel-select">
+              <select aria-label="Active parcel selector">
+                <option>Lot 1 - 12 points / 12 segments - Ready</option>
+                <option>Lot 2 - 8 points / 7 segments - Needs review</option>
+                <option>parcel-003 - 8 points / 0 segments - Missing segments</option>
+              </select>
+              <div class="status">Active parcel: Lot 1. Geometry commands apply only to this parcel.</div>
+            </div>
+          </div>
+          <div class="tabs">
+            <div class="tab active">Points</div>
+            <div class="tab">Boundary Segments</div>
+            <div class="tab">Parcel Preview</div>
+          </div>
+          <div class="lane-body">
+            <div class="geometry">
+              <div class="grid-stack">
+                <div class="grid-tools">
+                  <span>Showing Lot 1 points. Large result sets scroll inside the grid.</span>
+                  <span class="pill">12 of 28 points</span>
+                </div>
+                <div class="grid-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Point</th>
+                        <th>Easting</th>
+                        <th>Northing</th>
+                        <th>Source</th>
+                        <th>Sequence</th>
+                        <th>Status</th>
+                        <th>Review note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="selected"><td>P1</td><td>766241.25</td><td>641992.20</td><td>Printed</td><td>1</td><td>Reviewed</td><td>Anchor point</td></tr>
+                      <tr><td>P2</td><td>766318.84</td><td>641978.71</td><td>Derived</td><td>2</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P3</td><td>766340.18</td><td>641901.44</td><td>Derived</td><td>3</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P4</td><td>766271.90</td><td>641872.09</td><td>Manual</td><td>4</td><td>Reviewed</td><td>Corrected label</td></tr>
+                      <tr><td>P5</td><td>766220.17</td><td>641925.60</td><td>Derived</td><td>5</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P6</td><td>766204.93</td><td>641964.22</td><td>Derived</td><td>6</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P7</td><td>766252.77</td><td>642016.48</td><td>Derived</td><td>7</td><td>Needs review</td><td>Check bearing</td></tr>
+                      <tr><td>P8</td><td>766298.41</td><td>642005.13</td><td>Derived</td><td>8</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P9</td><td>766331.06</td><td>641955.80</td><td>Derived</td><td>9</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P10</td><td>766305.73</td><td>641889.47</td><td>Derived</td><td>10</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P11</td><td>766249.64</td><td>641858.35</td><td>Derived</td><td>11</td><td>Reviewed</td><td></td></tr>
+                      <tr><td>P12</td><td>766211.92</td><td>641902.18</td><td>Derived</td><td>12</td><td>Reviewed</td><td></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="preview">
+                <div class="shape"></div>
+                <div class="shape other"></div>
+                <div class="map-label">Lot 1 selected. Closure passed. 1 bearing warning.</div>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="button-group">
+              <button>Rebuild Points</button>
+              <button>Add Point</button>
+              <button>Edit Point</button>
+              <button class="danger">Remove Point</button>
+              <button>Add Segment</button>
+              <button>Edit Segment</button>
+            </div>
+            <div class="button-group">
+              <button>Save</button>
+              <button class="primary">Validation Complete</button>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </section>
+</body>
+</html>
