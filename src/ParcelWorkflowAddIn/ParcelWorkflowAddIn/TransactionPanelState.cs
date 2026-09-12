@@ -1006,14 +1006,17 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return false;
         }
 
-        var mainRow = FindRtExaminationMainTransactionRow(requestedRtRow);
+        var mainRowLookup = await FindOrFetchRtExaminationMainTransactionRowAsync(requestedRtRow, cancellationToken).ConfigureAwait(true);
+        var mainRow = mainRowLookup.Row;
         if (mainRow is null)
         {
-            ErrorText = $"RT Examination transaction {requestedRtRow.TransactionNumber} requires a non-RT main transaction row so supporting documents can be loaded.";
-            StatusText = ErrorText;
-            SelectedRow = requestedRtRow;
-            WriteRtExaminationStartTrace(requestedRtRow, null, "main_row_missing", ErrorText, null);
-            return false;
+            mainRow = requestedRtRow;
+            WriteRtExaminationStartTrace(
+                requestedRtRow,
+                null,
+                "main_row_missing_using_rt_row",
+                mainRowLookup.ErrorMessage ?? "RT Examination main transaction row was not available; continuing with the selected RT transaction row.",
+                null);
         }
 
         WriteRtExaminationStartTrace(requestedRtRow, mainRow, "supporting_document_load_start", null, null);
@@ -1021,7 +1024,9 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         var previousTransactionState = session.CaptureTransactionState();
         IsLoading = true;
         ErrorText = null;
-        StatusText = $"Loading supporting documents from main transaction: {mainRow.TransactionNumber}.";
+        StatusText = ReferenceEquals(mainRow, requestedRtRow)
+            ? $"Loading RT Examination transaction {requestedRtRow.TransactionNumber} without a separate main transaction row."
+            : $"Loading supporting documents from main transaction: {mainRow.TransactionNumber}.";
         try
         {
             SelectedRow = mainRow;
@@ -1142,7 +1147,55 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private InnolaTransactionRow? FindRtExaminationMainTransactionRow(InnolaTransactionRow requestedRtRow)
     {
         var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(requestedRtRow.TransactionNumber);
-        return allRows
+        return FindRtExaminationMainTransactionRow(requestedRtRow, allRows, normalizedTransactionNumber);
+    }
+
+    private async Task<RtExaminationMainRowLookupResult> FindOrFetchRtExaminationMainTransactionRowAsync(
+        InnolaTransactionRow requestedRtRow,
+        CancellationToken cancellationToken)
+    {
+        var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(requestedRtRow.TransactionNumber);
+        var localRow = FindRtExaminationMainTransactionRow(requestedRtRow, allRows, normalizedTransactionNumber);
+        if (localRow is not null)
+        {
+            return RtExaminationMainRowLookupResult.Succeeded(localRow);
+        }
+
+        if (session.CurrentSession is null)
+        {
+            return RtExaminationMainRowLookupResult.Failed(
+                $"RT Examination transaction {requestedRtRow.TransactionNumber} requires an active Innola session to find the main transaction row.");
+        }
+
+        var currentSession = session.CurrentSession;
+        var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
+            currentSession.ServerUrl,
+            currentSession.AccessToken,
+            currentSession.User.Username,
+            currentSession.User.Groups,
+            ProcessStep,
+            null,
+            requestedRtRow.TransactionNumber,
+            SortField,
+            SortDirection), cancellationToken).ConfigureAwait(true);
+        if (!result.Success)
+        {
+            return RtExaminationMainRowLookupResult.Failed(
+                result.ErrorMessage ?? $"RT Examination transaction {requestedRtRow.TransactionNumber} main row lookup failed.");
+        }
+
+        var fetchedRow = FindRtExaminationMainTransactionRow(requestedRtRow, result.Rows, normalizedTransactionNumber);
+        return fetchedRow is null
+            ? RtExaminationMainRowLookupResult.Failed($"RT Examination transaction {requestedRtRow.TransactionNumber} requires a non-RT main transaction row so supporting documents can be loaded.")
+            : RtExaminationMainRowLookupResult.Succeeded(fetchedRow);
+    }
+
+    private InnolaTransactionRow? FindRtExaminationMainTransactionRow(
+        InnolaTransactionRow requestedRtRow,
+        IEnumerable<InnolaTransactionRow> sourceRows,
+        string normalizedTransactionNumber)
+    {
+        return sourceRows
             .Where(row => !IsSameTransactionTaskRow(row, requestedRtRow))
             .Where(row => !rtExaminationSettings.MatchesStage(row.TaskName))
             .Where(row => IsDefaultActiveQueueRow(row))
@@ -1153,6 +1206,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             .OrderByDescending(row => row.Status == InnolaTransactionStatus.InProgress)
             .ThenByDescending(row => row.ReceivedAt ?? DateTimeOffset.MinValue)
             .FirstOrDefault();
+    }
+
+    private sealed record RtExaminationMainRowLookupResult(InnolaTransactionRow? Row, string? ErrorMessage)
+    {
+        public static RtExaminationMainRowLookupResult Succeeded(InnolaTransactionRow row) => new(row, null);
+
+        public static RtExaminationMainRowLookupResult Failed(string message) => new(null, message);
     }
     private bool LoadPlaBPlanAnnexationTaskForStart(InnolaTransactionRow requestedRow)
     {

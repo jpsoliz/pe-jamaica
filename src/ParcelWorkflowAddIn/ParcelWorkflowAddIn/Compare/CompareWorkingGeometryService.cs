@@ -246,7 +246,8 @@ public sealed record CompareWorkingGeometryLoadPlan(
     string ScopeValue,
     string DefinitionQuery,
     IReadOnlyList<CompareWorkingLayerRequest> Layers,
-    string? InvalidReason)
+    string? InvalidReason,
+    IReadOnlyList<string>? LocalFallbackLayerPaths = null)
 {
     public static CompareWorkingGeometryLoadPlan Invalid(SelectedInnolaTransaction transaction, string reason)
     {
@@ -259,7 +260,8 @@ public sealed record CompareWorkingGeometryLoadPlan(
             string.Empty,
             string.Empty,
             Array.Empty<CompareWorkingLayerRequest>(),
-            reason);
+            reason,
+            null);
     }
 }
 

@@ -1,0 +1,93 @@
+Recommended structure:
+1. Current Problem
+
+Two version on the plan examination transaction. Refactor two based on the experinces, unify the process from PE and PXA into PE only.
+
+Additional problem: 
+PE extraction and review is working through repeated patches, but the process is fragile: OCR routing, case-folder state, parcel-scoped review, point/segment grids, and rebuild behavior are not consistently modeled as one coherent PE workflow.
+
+2. What We Have Done So Far
+Reference the concrete fixes:
+* Scanned computation/survey plan OCR route improvements
+* Parcel-scoped review Option A
+* Boundary Segment grid filtered by parcel
+
+
+3. Evidence / Case Studies
+For each transaction, include:
+* Transaction number
+* Source document name
+* Expected result
+* Actual result
+* Final artifact counts: rows, segments, parcels/lots
+* What failed
+* What was fixed
+* Remaining risk
+Minimum cases:
+100001027, 100000896, 100000622, and the client case 100001005.
+4. PE Workflow Definition
+This is critical. Document the intended PE process step by step:
+1. Supporting Document Check
+2. Structure Check
+3. Georeference Check
+4. Dimension Check
+5. Validate Points and Lines
+6. Manual Mode / Reprocess / Continue Validation
+7. Create Spatial Units
+8. Final Review
+9. Finalize
+For each step: input files, output artifacts, pass/fail rules, retry behavior, and what should be deleted to restart.
+5. File And Folder Contract
+We need this very clear:
+* Dev case folder path
+* Installer/prod case folder path
+* Working folder contents
+* Which JSON files are authoritative
+* Which files are cache/diagnostics
+* Which file controls “existing case”
+* How to safely restart one transaction
+This section is for Amelia and Winston.
+6. Data Contract
+Define the PE review artifact schema:
+* rows
+* segments
+* parcel_groups
+* lots
+* review_* overrides
+* parcel_group_id
+* parcel_name
+* point identifiers
+* easting/northing
+* boundary from/to/bearing/distance
+* confidence/status fields
+Also define fallback rules:
+segments without parcel id should infer from endpoint rows.
+7. UX Problems / UX Goals
+For Sally:
+* Generic document tabs vs parcel-specific geometry tabs
+* Parcel selector behavior
+* Points and Boundary Segments should change per parcel
+* General Info / Owners / Memorandum / Validation Findings remain transaction-wide
+* Rebuild/Add/Edit/Delete apply only to active parcel geometry
+* Need visible status when filtered data exists elsewhere but not in selected parcel
+8. Architecture Problems
+For Winston:
+* OCR route logic is spread across C# adapter and Python extraction tools
+* fallback fixtures are useful but should not become hidden product logic
+* case-folder path resolution must be explicit
+* grid loading should normalize legacy artifacts
+* diagnostics should explain empty grids: no extraction, no rows, filtered out, or invalid schema
+9. Proposed Epics
+Likely epics:
+* Epic 1: Formalize PE Case Folder and Restart Contract
+* Epic 2: Stabilize PE Extraction Routing and Artifact Schema
+* Epic 3: Parcel-Scoped Review UX
+* Epic 4: PE Diagnostics and Recovery
+* Epic 5: Regression Fixture Suite for Real PE Transactions
+10. Acceptance Criteria Draft
+Each story should have concrete ACs like:
+* Given transaction 100000896, when opening Points Validation Tool, then 9 point rows and 8 boundary segments are visible for parcel-001.
+* Given legacy segments without parcel_group_id, when endpoints belong to one parcel, then segments inherit that parcel.
+* Given a user deletes the case folder, when transaction is reopened, then workflow starts from extraction with no stale “Existing Case” badge.
+That’s the document we need. It should be evidence-heavy, not theoretical. Mary can shape requirements from it, Winston can define architecture, Sally can design the review UX, and Amelia can turn it into clean stories with tests.
+

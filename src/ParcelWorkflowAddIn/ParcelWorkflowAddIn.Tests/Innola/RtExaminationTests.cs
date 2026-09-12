@@ -1,4 +1,6 @@
+using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Workflow.RtExamination;
 using System.Net;
 using System.Text;
@@ -106,6 +108,156 @@ internal static class RtExaminationTests
         }
 
         TestAssert.False(source.Contains("closeRequestedFromChrome", StringComparison.Ordinal), "RT chrome close should not use a sticky guard that suppresses later cancel prompts.");
+    }
+
+    public static async Task LoadPopulatesSpatialUnitsFromLinkedPeCaseFolderWhenApiAndMapReturnNone()
+    {
+        using var tempRoot = new TempDirectory();
+        var linkedPeLayout = CaseFolderLayout.For(tempRoot.Path, "100000623");
+        Directory.CreateDirectory(linkedPeLayout.WorkingDirectory);
+        File.WriteAllText(
+            Path.Combine(linkedPeLayout.WorkingDirectory, "spatial_unit_api_response.json"),
+            """
+            {
+              "written_at_utc": "2026-09-04T01:00:01.1549790Z",
+              "polygon_references": [
+                {
+                  "parcel_name": "parcel-001",
+                  "spatial_unit_id": "01a069ee-011c-70cb-9d59-c5b21dbc057a",
+                  "spatial_unit_suid": "S100284154"
+                }
+              ]
+            }
+            """);
+        var linkedGdbPath = Path.Combine(linkedPeLayout.OutputDirectory, "100000623_parcel_output.gdb");
+        Directory.CreateDirectory(linkedGdbPath);
+        var linkedGdbJson = JsonSerializer.Serialize(linkedGdbPath);
+        var pointPathJson = JsonSerializer.Serialize(Path.Combine(linkedGdbPath, "parcel_points"));
+        var linePathJson = JsonSerializer.Serialize(Path.Combine(linkedGdbPath, "parcel_lines"));
+        var polygonPathJson = JsonSerializer.Serialize(Path.Combine(linkedGdbPath, "parcel_polygons"));
+        File.WriteAllText(
+            Path.Combine(linkedPeLayout.OutputDirectory, "output_summary.json"),
+            $$"""
+            {
+              "schema_version": "1.0.0",
+              "transaction_id": "100000623",
+              "run_id": "run-test",
+              "created_at": "2026-09-04T01:00:00Z",
+              "created_by": "test",
+              "source_manifest_hash": "",
+              "payload": {
+                "status": "completed",
+                "review_workspace_mode": "standard",
+                "result_gdb_path": {{linkedGdbJson}},
+                "artifact_paths": [],
+                "map_layer_paths": [
+                  {{pointPathJson}},
+                  {{linePathJson}},
+                  {{polygonPathJson}}
+                ],
+                "point_feature_class_path": {{pointPathJson}},
+                "line_feature_class_path": {{linePathJson}},
+                "polygon_feature_class_path": {{polygonPathJson}},
+                "built_parcel_count": 1,
+                "built_line_count": 12,
+                "built_point_count": 12,
+                "point_count": 12,
+                "line_count": 12,
+                "polygon_count": 1
+              },
+              "warnings": [],
+              "errors": []
+            }
+            """);
+
+        var currentPlan = """
+            [
+              {
+                "@c": "Plan",
+                "id": "current-plan",
+                "uid": "current-plan-uid",
+                "planNumber": "100000623",
+                "trId": "tx-current-rt",
+                "trNo": "100001033",
+                "neighbors": [],
+                "checkList": []
+              }
+            ]
+            """;
+        var originatingSearch = """
+            [
+              { "id": "tx-pe-100000623", "transactionNo": "100000623" }
+            ]
+            """;
+        var originatingPlan = """
+            [
+              {
+                "@c": "Plan",
+                "id": "originating-plan",
+                "uid": "originating-plan-uid",
+                "planNumber": "100000623",
+                "trId": "tx-pe-100000623",
+                "trNo": "100000623"
+              }
+            ]
+            """;
+        var handler = new CapturingHttpMessageHandler(
+            currentPlan,
+            originatingSearch,
+            originatingPlan,
+            "[]",
+            "[]");
+        using var httpClient = new HttpClient(handler);
+        var map = new FixedMapIntegrationService(CompareMapIntegrationResult.MapUnavailable("No active Enterprise portal."));
+        var transactionSettings = InnolaTransactionSettings.Default with
+        {
+            CaseFolderOutputRoot = tempRoot.Path,
+            EnterpriseWorkingReview = new EnterpriseWorkingReviewSettings(
+                true,
+                "https://enterprise.example/server/rest",
+                "sidwell_working_review",
+                EnterpriseWorkingReviewSettings.PublishBehaviorReplaceTransactionScope,
+                EnterpriseWorkingReviewSettings.PublishTimingOnComplete,
+                EnterpriseWorkingReviewSettings.RestoreBehaviorPreferLocalThenEnterprise,
+                true,
+                "transaction_number",
+                new EnterpriseWorkingLayerTargets(
+                    "https://enterprise.example/FeatureServer/1",
+                    "https://enterprise.example/FeatureServer/2",
+                    "https://enterprise.example/FeatureServer/3",
+                    null,
+                    "https://enterprise.example/FeatureServer/4"),
+                null)
+        };
+        var service = new InnolaRtExaminationService(
+            httpClient,
+            () => CreateSession(),
+            () => RtExaminationSettings.Default,
+            mapIntegrationService: map,
+            transactionSettingsProvider: () => transactionSettings);
+        var rtCaseFolderPath = Path.Combine(tempRoot.Path, "100001033");
+        Directory.CreateDirectory(Path.Combine(rtCaseFolderPath, "working"));
+
+        var result = await service.LoadAsync(
+            new SelectedInnolaTransaction(
+                "task-rt-100001033",
+                "tx-current-rt",
+                "100001033",
+                "In RT Examination",
+                "parcel_workflow",
+                DateTimeOffset.UtcNow,
+                TransactionType: "First Registration"),
+            rtCaseFolderPath);
+
+        TestAssert.True(result.Success, $"RT load should succeed from linked PE local spatial unit artifact. Message={result.Message}");
+        TestAssert.Equal(1, result.SpatialUnits.Count, "RT Spatial Units should be populated from the linked PE case folder when API and map return none.");
+        TestAssert.Equal("parcel-001", result.SpatialUnits[0].ParcelName, "Local PE spatial unit parcel name should populate the RT grid.");
+        TestAssert.Equal("S100284154", result.SpatialUnits[0].Suid, "Local PE spatial unit SUID should populate the RT grid.");
+        TestAssert.Equal(3, map.LastPlan?.LocalFallbackLayerPaths?.Count ?? 0, "RT map load should carry linked PE local output layer paths as a fallback.");
+        TestAssert.True(
+            map.LastPlan!.LocalFallbackLayerPaths!.Any(path => path.EndsWith("parcel_polygons", StringComparison.OrdinalIgnoreCase)),
+            "RT local map fallback should include the linked PE polygon feature class.");
+        TestAssert.True(result.Context!.Warnings.Any(warning => warning.Contains("linked PE case folder 100000623", StringComparison.OrdinalIgnoreCase)), "RT context should explain the local PE fallback.");
     }
 
     private static string FindSourceFile(string fileName)
@@ -493,6 +645,31 @@ internal static class RtExaminationTests
         {
             Request = request;
             return Task.FromResult(RtExaminationSaveResult.Succeeded("RT Examination data saved and task completed."));
+        }
+    }
+
+    private sealed class FixedMapIntegrationService : ICompareMapIntegrationService
+    {
+        private readonly CompareMapIntegrationResult result;
+
+        public FixedMapIntegrationService(CompareMapIntegrationResult result)
+        {
+            this.result = result;
+        }
+
+        public CompareWorkingGeometryLoadPlan? LastPlan { get; private set; }
+
+        public Task<CompareMapIntegrationResult> AddTransactionGeometryToActiveMapAsync(
+            CompareWorkingGeometryLoadPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            LastPlan = plan;
+            return Task.FromResult(result);
+        }
+
+        public Task<CompareMapCleanupResult> RemoveTransactionGeometryFromActiveMapAsync(string groupLayerName, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(CompareMapCleanupResult.Skipped("Test cleanup skipped."));
         }
     }
 

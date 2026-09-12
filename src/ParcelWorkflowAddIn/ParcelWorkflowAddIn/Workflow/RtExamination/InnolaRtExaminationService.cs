@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using ParcelWorkflowAddIn.CaseFolders;
 using ParcelWorkflowAddIn.Compare;
 using ParcelWorkflowAddIn.Innola;
+using ParcelWorkflowAddIn.Workflow.Output;
 
 namespace ParcelWorkflowAddIn.Workflow.RtExamination;
 
@@ -125,6 +126,15 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 spatialUnits = BuildSpatialUnitsFromWorkingPolygonRows(mapResult.WorkingPolygonRows);
                 warnings.Add($"Spatial Units populated from {mapResult.WorkingPolygonRows.Count} working_review polygon row(s).");
             }
+            if (spatialUnits.Count == 0)
+            {
+                var localPeSpatialUnits = LoadSpatialUnitsFromLinkedPeCaseFolder(originating.TransactionNumber ?? planNumber);
+                if (localPeSpatialUnits.Count > 0)
+                {
+                    spatialUnits = localPeSpatialUnits;
+                    warnings.Add($"Spatial Units populated from linked PE case folder {originating.TransactionNumber ?? planNumber}.");
+                }
+            }
             WriteJson(layout, "rt_examination_spatialunits_latest.json", spatialUnits.Select(item => item.DeepClone()).ToArray());
             var loadedMapGroups = string.IsNullOrWhiteSpace(mapResult?.GroupLayerName)
                 ? Array.Empty<string>()
@@ -230,7 +240,7 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             new CompareWorkingLayerRequest(CompareWorkingLayerRole.Lines, enterpriseSettings.Layers.Lines!, definitionQuery, true),
             new CompareWorkingLayerRequest(CompareWorkingLayerRole.Points, enterpriseSettings.Layers.Points!, definitionQuery, true)
         };
-        var plan = new CompareWorkingGeometryLoadPlan(
+            var plan = new CompareWorkingGeometryLoadPlan(
             true,
             transaction.TransactionId,
             transaction.TransactionNumber,
@@ -239,7 +249,8 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
             scopeValue,
             definitionQuery,
             layers,
-            null);
+            null,
+            LoadLocalOutputLayerPathsFromLinkedPeCaseFolder(planNumber));
 
         try
         {
@@ -252,6 +263,43 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
         catch (Exception exception)
         {
             return CompareMapIntegrationResult.Failed($"RT working_review geometry could not be loaded: {exception.Message}");
+        }
+    }
+
+    private IReadOnlyList<string> LoadLocalOutputLayerPathsFromLinkedPeCaseFolder(string? linkedPeNumber)
+    {
+        if (string.IsNullOrWhiteSpace(linkedPeNumber))
+        {
+            return Array.Empty<string>();
+        }
+
+        var outputRoot = transactionSettingsProvider().CaseFolderOutputRoot;
+        if (string.IsNullOrWhiteSpace(outputRoot))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var linkedLayout = CaseFolderLayout.For(outputRoot, linkedPeNumber.Trim());
+            var outputSummaryPath = Path.Combine(linkedLayout.OutputDirectory, "output_summary.json");
+            if (!File.Exists(outputSummaryPath))
+            {
+                return Array.Empty<string>();
+            }
+
+            var summary = JsonSerializer.Deserialize<OutputSummaryDocument>(
+                File.ReadAllText(outputSummaryPath),
+                JsonOptions);
+            return summary?.Payload.MapLayerPaths
+                .Where(OutputMapPathResolver.OutputPathExists)
+                .Pipe(OutputMapReviewStyling.OrderLayerPaths)
+                .ToArray()
+                ?? Array.Empty<string>();
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            return Array.Empty<string>();
         }
     }
 
@@ -812,6 +860,93 @@ public sealed class InnolaRtExaminationService : IRtExaminationLoadService, IRtE
                 return unit;
             })
             .ToArray();
+    }
+
+    private IReadOnlyList<JsonObject> LoadSpatialUnitsFromLinkedPeCaseFolder(string? linkedPeNumber)
+    {
+        if (string.IsNullOrWhiteSpace(linkedPeNumber))
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        var outputRoot = transactionSettingsProvider().CaseFolderOutputRoot;
+        if (string.IsNullOrWhiteSpace(outputRoot))
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        try
+        {
+            var linkedLayout = CaseFolderLayout.For(outputRoot, linkedPeNumber.Trim());
+            var apiResponsePath = Path.Combine(linkedLayout.WorkingDirectory, "spatial_unit_api_response.json");
+            if (File.Exists(apiResponsePath))
+            {
+                var apiResponse = JsonNode.Parse(File.ReadAllText(apiResponsePath)) as JsonObject;
+                var fromPolygonReferences = BuildSpatialUnitsFromLocalPolygonReferences(apiResponse);
+                if (fromPolygonReferences.Count > 0)
+                {
+                    return fromPolygonReferences;
+                }
+            }
+
+            var singleReferencePath = Path.Combine(linkedLayout.WorkingDirectory, "enterprise_working_spatial_unit_reference.json");
+            if (File.Exists(singleReferencePath))
+            {
+                var reference = JsonNode.Parse(File.ReadAllText(singleReferencePath)) as JsonObject;
+                var spatialUnitId = ReadString(reference, "spatial_unit_id", "id", "uid");
+                if (!string.IsNullOrWhiteSpace(spatialUnitId))
+                {
+                    return new[]
+                    {
+                        new JsonObject
+                        {
+                            ["parcel_name"] = linkedPeNumber.Trim(),
+                            ["id"] = spatialUnitId,
+                            ["suid"] = ReadString(reference, "spatial_unit_suid", "suid", "suId"),
+                            ["created_utc"] = ReadString(reference, "written_at_utc"),
+                            ["source"] = "linked_pe_case_folder"
+                        }
+                    };
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        return Array.Empty<JsonObject>();
+    }
+
+    private static IReadOnlyList<JsonObject> BuildSpatialUnitsFromLocalPolygonReferences(JsonObject? apiResponse)
+    {
+        if (apiResponse?["polygon_references"] is not JsonArray references)
+        {
+            return Array.Empty<JsonObject>();
+        }
+
+        var writtenAt = ReadString(apiResponse, "written_at_utc");
+        var units = new List<JsonObject>();
+        foreach (var reference in references.OfType<JsonObject>())
+        {
+            var spatialUnitId = ReadString(reference, "spatial_unit_id", "id", "uid");
+            var spatialUnitSuid = ReadString(reference, "spatial_unit_suid", "suid", "suId");
+            if (string.IsNullOrWhiteSpace(spatialUnitId) && string.IsNullOrWhiteSpace(spatialUnitSuid))
+            {
+                continue;
+            }
+
+            units.Add(new JsonObject
+            {
+                ["parcel_name"] = ReadString(reference, "parcel_name", "parcelName", "name"),
+                ["id"] = spatialUnitId,
+                ["suid"] = spatialUnitSuid,
+                ["created_utc"] = writtenAt,
+                ["source"] = "linked_pe_case_folder"
+            });
+        }
+
+        return units;
     }
 
     private static IReadOnlyList<JsonObject> LoadSpatialUnitArtifact(CaseFolderLayout layout)

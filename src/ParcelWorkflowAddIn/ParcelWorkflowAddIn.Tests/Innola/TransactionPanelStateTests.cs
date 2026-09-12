@@ -1100,6 +1100,180 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(1, supportingDocumentLaunchCount, "RT Examination start should open Supporting Documents once.");
     }
 
+    public static async Task RtExaminationStartFetchesMainTransactionRowWhenCurrentFilterOnlyShowsRtRow()
+    {
+        using var tempRoot = new TempDirectory();
+        var mainRow = Row(
+            "task-main-100001033",
+            "100001033",
+            "Assign Legal Officer",
+            "another-user",
+            "2026-09-11T11:00:00-05:00",
+            "First Registration");
+        var rtRow = Row(
+            "task-rt-100001033",
+            "100001033",
+            "In RT Examination",
+            "tester",
+            "2026-09-11T12:44:00-05:00",
+            "First Registration");
+        var sourceAttachment = new InnolaAttachmentMetadata(
+            "att-main-plan",
+            "Plan100001033.pdf",
+            ".pdf",
+            "application/pdf",
+            SourceRole.PlanMapReference,
+            "plan",
+            4,
+            null,
+            "mock-attachment:att-main-plan",
+            true);
+        var detailService = new MockInnolaTransactionDetailService(
+            new[]
+            {
+                new InnolaTransactionDetail(
+                    "100001033",
+                    "100001033",
+                    "task-main-100001033",
+                    "Assign Legal Officer",
+                    "parcel_workflow",
+                    "First Registration",
+                    "scenario_b",
+                    "another-user",
+                    "survey",
+                    null,
+                    "available",
+                    new[] { sourceAttachment }),
+                new InnolaTransactionDetail(
+                    "rt-transaction-100001033",
+                    "100001033",
+                    "task-rt-100001033",
+                    "In RT Examination",
+                    "parcel_workflow",
+                    "APP",
+                    "APP",
+                    "tester",
+                    "Plan Examiner (Comparison)",
+                    null,
+                    "available",
+                    Array.Empty<InnolaAttachmentMetadata>())
+            },
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["att-main-plan"] = new byte[] { 1, 2, 3, 4 }
+            });
+        var service = new SequencedTransactionService(
+            InnolaTransactionListResult.Succeeded(new[] { rtRow }),
+            InnolaTransactionListResult.Succeeded(new[] { mainRow, rtRow }));
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 9, 11, 13, 0, 0, TimeSpan.Zero);
+        var launched = new List<(string TransactionNumber, string? StatusText)>();
+        var supportingDocumentLaunchCount = 0;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock, detailService),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan" },
+            compareWorkflowStages: new[] { "Compare Survey Plan" },
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, detailService),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            },
+            rtExaminationSettings: RtExaminationSettings.Default,
+            rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
+
+        panel.SelectedFilter = "My tasks";
+        panel.SearchText = "1033";
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows.Single();
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(2, service.CallCount, "RT Examination should perform a fallback transaction-number search when the main row is absent from the filtered list.");
+        TestAssert.Equal(null, service.Queries[1].Filter, "Fallback RT main-row lookup must bypass the visible task filter.");
+        TestAssert.Equal("100001033", service.Queries[1].Search, "Fallback RT main-row lookup should search by transaction number.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, $"RT Examination should start after fetching the main row. Status={panel.StatusText}; Error={panel.ErrorText}");
+        TestAssert.Equal("task-rt-100001033", manager.SelectedTransaction?.TaskId, "RT task should remain active after main-row documents load.");
+        TestAssert.True(File.Exists(Path.Combine(tempRoot.Path, "100001033", "source", "Plan100001033.pdf")), "Fallback main row should supply the supporting document.");
+        TestAssert.Equal(1, launched.Count, "RT Examination workspace should launch after fallback main-row load.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Supporting Documents should open after fallback main-row load.");
+    }
+
+    public static async Task RtExaminationStartContinuesWhenInnolaDoesNotReturnMainTransactionRow()
+    {
+        using var tempRoot = new TempDirectory();
+        var rtRow = Row(
+            "task-rt-100001033",
+            "100001033",
+            "In RT Examination",
+            "tester",
+            "2026-09-11T12:44:00-05:00",
+            "First Registration");
+        var detailService = new MockInnolaTransactionDetailService(
+            new[]
+            {
+                new InnolaTransactionDetail(
+                    "rt-transaction-100001033",
+                    "100001033",
+                    "task-rt-100001033",
+                    "In RT Examination",
+                    "parcel_workflow",
+                    "First Registration",
+                    "APP",
+                    "tester",
+                    "Plan Examiner (Comparison)",
+                    null,
+                    "in_progress",
+                    Array.Empty<InnolaAttachmentMetadata>())
+            },
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase));
+        var service = new SequencedTransactionService(
+            InnolaTransactionListResult.Succeeded(new[] { rtRow }),
+            InnolaTransactionListResult.Succeeded(new[] { rtRow }));
+        var manager = LoggedInManager();
+        var clock = () => new DateTimeOffset(2026, 9, 11, 13, 0, 0, TimeSpan.Zero);
+        var launched = new List<(string TransactionNumber, string? StatusText)>();
+        var supportingDocumentLaunchCount = 0;
+        var panel = new TransactionPanelState(
+            manager,
+            service,
+            "parcel_workflow",
+            Loader(manager, tempRoot.Path, clock, detailService),
+            LifecycleCoordinator(manager, clock),
+            null,
+            clock,
+            supportedTransactionTypes: new[] { "Plan Examination" },
+            computeWorkflowStages: new[] { "Compute Survey Plan" },
+            compareWorkflowStages: new[] { "Compare Survey Plan" },
+            compareTransactionLoadService: Loader(manager, tempRoot.Path, clock, detailService),
+            supportingDocumentsLauncher: () =>
+            {
+                supportingDocumentLaunchCount++;
+                return true;
+            },
+            rtExaminationSettings: RtExaminationSettings.Default,
+            rtExaminationWorkspaceLauncher: (transactionNumber, statusText) => launched.Add((transactionNumber, statusText)));
+
+        panel.SelectedFilter = "My tasks";
+        panel.SearchText = "1033";
+        await panel.RefreshAsync();
+        panel.SelectedRow = panel.Rows.Single();
+        await panel.StartSelectedTransactionAsync();
+
+        TestAssert.Equal(null, panel.ErrorText, "Missing non-RT main row should no longer block RT Examination startup.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, $"RT Examination should start from the selected RT row. Status={panel.StatusText}; Error={panel.ErrorText}");
+        TestAssert.Equal("task-rt-100001033", manager.SelectedTransaction?.TaskId, "RT task should remain active after fail-open startup.");
+        TestAssert.True(Directory.Exists(Path.Combine(tempRoot.Path, "100001033")), "RT fail-open startup should still create or reopen the case folder.");
+        TestAssert.Equal(1, launched.Count, "RT Examination workspace should launch even when the main row is unavailable.");
+        TestAssert.Equal(1, supportingDocumentLaunchCount, "Supporting Documents should still open for the RT case folder.");
+    }
+
     public static async Task RtExaminationAlreadyInProgressSecondRowDownloadsMainDocumentsAndOpensWorkspace()
     {
         using var tempRoot = new TempDirectory();
@@ -2143,6 +2317,29 @@ internal static class TransactionPanelStateTests
             CallCount++;
             LastQuery = query;
             return Task.FromResult(Result);
+        }
+    }
+
+    private sealed class SequencedTransactionService : IInnolaTransactionService
+    {
+        private readonly Queue<InnolaTransactionListResult> results;
+
+        public int CallCount { get; private set; }
+
+        public List<InnolaTransactionQuery> Queries { get; } = [];
+
+        public SequencedTransactionService(params InnolaTransactionListResult[] results)
+        {
+            this.results = new Queue<InnolaTransactionListResult>(results);
+        }
+
+        public Task<InnolaTransactionListResult> GetAvailableTransactionsAsync(InnolaTransactionQuery query, CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            Queries.Add(query);
+            return Task.FromResult(results.Count == 0
+                ? InnolaTransactionListResult.Succeeded(Array.Empty<InnolaTransactionRow>())
+                : results.Dequeue());
         }
     }
 

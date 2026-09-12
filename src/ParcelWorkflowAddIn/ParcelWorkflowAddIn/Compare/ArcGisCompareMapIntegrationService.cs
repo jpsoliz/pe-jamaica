@@ -1,3 +1,4 @@
+using System.IO;
 using ArcGIS.Core.CIM;
 using ArcGIS.Core.Data;
 using ArcGIS.Core.Geometry;
@@ -6,6 +7,7 @@ using ArcGIS.Desktop.Mapping;
 using ParcelWorkflowAddIn.Enterprise.PortalAuth;
 using ParcelWorkflowAddIn.Innola;
 using ParcelWorkflowAddIn.Workflow.Maps;
+using ParcelWorkflowAddIn.Workflow.Output;
 
 namespace ParcelWorkflowAddIn.Compare;
 
@@ -45,6 +47,19 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         var mapPreparationResult = await PrepareConfiguredWorkingMapAsync(settings, plan, cancellationToken).ConfigureAwait(false);
         if (!mapPreparationResult.Success)
         {
+            if (MapView.Active is { Map: not null } fallbackMapView)
+            {
+                var fallbackResult = await TryAddLocalFallbackGeometryAsync(
+                    fallbackMapView,
+                    plan,
+                    $"Configured working map preparation was unavailable ({mapPreparationResult.Message}); loaded linked PE local output layers instead.",
+                    cancellationToken).ConfigureAwait(false);
+                if (fallbackResult is not null)
+                {
+                    return fallbackResult;
+                }
+            }
+
             return CompareMapIntegrationResult.MapUnavailable(mapPreparationResult.Message);
         }
 
@@ -57,6 +72,16 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         var authResult = await TryAuthenticateAsync(plan, cancellationToken).ConfigureAwait(false);
         if (!authResult.Success)
         {
+            var fallbackResult = await TryAddLocalFallbackGeometryAsync(
+                mapView,
+                plan,
+                $"Enterprise working_review was unavailable ({authResult.ErrorMessage}); loaded linked PE local output layers instead.",
+                cancellationToken).ConfigureAwait(false);
+            if (fallbackResult is not null)
+            {
+                return fallbackResult;
+            }
+
             return CompareMapIntegrationResult.Failed(authResult.ErrorMessage ?? "ArcGIS Portal authentication failed for Compare working layers.");
         }
 
@@ -161,6 +186,105 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
         return CompareMapIntegrationResult.Loaded(
             BuildLoadedMessage(plan, groupLayerName, workingFeatureCounts, zoomed: true, cadasterContextSummaries, mapWarnings),
             loadedLayerUrls,
+            groupLayerName,
+            polygonFeatureCount,
+            workingPolygonRows);
+    }
+
+    private async Task<CompareMapIntegrationResult?> TryAddLocalFallbackGeometryAsync(
+        MapView mapView,
+        CompareWorkingGeometryLoadPlan plan,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var layerPaths = plan.LocalFallbackLayerPaths?
+            .Where(OutputMapPathResolver.OutputPathExists)
+            .ToArray();
+        if (layerPaths is null || layerPaths.Length == 0)
+        {
+            return null;
+        }
+
+        var loadedLayerPaths = new List<string>();
+        var zoomLayers = new List<Layer>();
+        var mapWarnings = new List<string>();
+        var workingFeatureCounts = new Dictionary<CompareWorkingLayerRole, int?>();
+        var workingPolygonRows = new List<IReadOnlyDictionary<string, string?>>();
+        var groupLayerName = BuildGroupLayerName(plan);
+        int? polygonFeatureCount = null;
+
+        try
+        {
+            await QueuedTask.Run(() =>
+            {
+                RemoveStaleCompareGroups(mapView.Map, groupLayerName);
+                var groupLayer = EnsureGroupLayer(mapView.Map, groupLayerName);
+                ClearGroupLayer(mapView.Map, groupLayer);
+                foreach (var layerPath in layerPaths)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var role = ResolveLocalLayerRole(layerPath);
+                    RemoveExistingLocalLayer(mapView.Map, layerPath);
+                    var layer = LayerFactory.Instance.CreateLayer(
+                        new Uri(layerPath),
+                        groupLayer,
+                        0,
+                        BuildWorkingLayerName(role, plan.ScopeValue));
+                    if (layer is FeatureLayer featureLayer)
+                    {
+                        featureLayer.SetEditable(false);
+                        ApplyWorkingLayerStyle(featureLayer, role, mapWarnings);
+                        ApplyWorkingLayerLabels(featureLayer, role, mapWarnings);
+                        var featureCount = CountFeatures(featureLayer, "1=1");
+                        workingFeatureCounts[role] = featureCount;
+                        if (role == CompareWorkingLayerRole.Polygons)
+                        {
+                            polygonFeatureCount = featureCount;
+                            workingPolygonRows.AddRange(ReadFeatureAttributeRows(featureLayer, "1=1"));
+                            zoomLayers.Add(featureLayer);
+                        }
+                    }
+
+                    loadedLayerPaths.Add(layerPath);
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or InvalidOperationException
+            or NotSupportedException
+            or UriFormatException
+            or ArcGIS.Core.CalledOnWrongThreadException)
+        {
+            return CompareMapIntegrationResult.Failed($"Linked PE local output layers could not be loaded into the active map: {exception.Message}");
+        }
+
+        if (loadedLayerPaths.Count == 0)
+        {
+            return null;
+        }
+
+        if (polygonFeatureCount == 0)
+        {
+            return CompareMapIntegrationResult.NoPolygons($"No local linked PE polygons were found for {plan.ScopeValue}.", groupLayerName);
+        }
+
+        try
+        {
+            await mapView.ZoomToAsync(zoomLayers.Count > 0 ? zoomLayers : mapView.Map.Layers).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            return CompareMapIntegrationResult.Loaded(
+                $"{reason} Zoom could not be completed automatically.",
+                loadedLayerPaths,
+                groupLayerName,
+                polygonFeatureCount,
+                workingPolygonRows);
+        }
+
+        return CompareMapIntegrationResult.Loaded(
+            $"{reason} Loaded {loadedLayerPaths.Count} local layer(s) for {plan.ScopeValue}.",
+            loadedLayerPaths,
             groupLayerName,
             polygonFeatureCount,
             workingPolygonRows);
@@ -338,6 +462,33 @@ public sealed class ArcGisCompareMapIntegrationService : ICompareMapIntegrationS
                 map.RemoveLayer(layer);
             }
         }
+    }
+
+    private static void RemoveExistingLocalLayer(Map map, string layerPath)
+    {
+        foreach (var layer in FlattenLayers(map.Layers).ToArray())
+        {
+            if (string.Equals(layer.URI, new Uri(layerPath).AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+            {
+                map.RemoveLayer(layer);
+            }
+        }
+    }
+
+    private static CompareWorkingLayerRole ResolveLocalLayerRole(string layerPath)
+    {
+        var fileName = Path.GetFileName(layerPath);
+        if (fileName.Contains("polygon", StringComparison.OrdinalIgnoreCase))
+        {
+            return CompareWorkingLayerRole.Polygons;
+        }
+
+        if (fileName.Contains("line", StringComparison.OrdinalIgnoreCase))
+        {
+            return CompareWorkingLayerRole.Lines;
+        }
+
+        return CompareWorkingLayerRole.Points;
     }
 
     private static IEnumerable<Layer> FlattenLayers(IEnumerable<Layer> layers)
