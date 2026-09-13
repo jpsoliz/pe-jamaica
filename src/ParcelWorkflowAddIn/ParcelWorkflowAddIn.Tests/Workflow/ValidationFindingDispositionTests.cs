@@ -206,14 +206,16 @@ internal static class ValidationFindingDispositionTests
 
         TestAssert.True(xaml.Contains("Header=\"Validation Findings\"", StringComparison.Ordinal), "Points Validation Tool should expose a dedicated validation findings tab.");
         TestAssert.True(xaml.Contains("Visibility=\"{Binding ShowValidationFindingsTab, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal), "Validation findings tab should be present in the PXA review form.");
-        TestAssert.True(xaml.Contains("ItemsSource=\"{Binding ValidationFindingRows}\"", StringComparison.Ordinal), "Validation findings tab should bind to projected finding rows.");
+        TestAssert.True(xaml.Contains("ItemsSource=\"{Binding VisibleValidationFindingRows}\"", StringComparison.Ordinal), "Validation findings tab should bind to examiner-visible projected finding rows.");
+        TestAssert.True(xaml.Contains("RowHeight=\"54\"", StringComparison.Ordinal), "Validation findings tab should use compact rows.");
+        TestAssert.True(workspaceViewModel.Contains("FilterForExaminerReview(parent.ValidationFindingRows)", StringComparison.Ordinal), "Workspace view-model should hide non-examiner findings in the UI only.");
         TestAssert.True(xaml.Contains("ValidationFindingsSummary", StringComparison.Ordinal) && xaml.Contains("ValidationFindingsHelpText", StringComparison.Ordinal), "Validation findings tab should summarize the decision context.");
         TestAssert.True(xaml.Contains("DisplayRuleName", StringComparison.Ordinal), "Validation findings tab should show friendly rule names.");
         TestAssert.True(xaml.Contains("DisplayFinding", StringComparison.Ordinal), "Validation findings tab should show examiner-facing finding text.");
         TestAssert.True(xaml.Contains("DisplayStatus", StringComparison.Ordinal), "Validation findings tab should show normalized status text.");
         TestAssert.False(xaml.Contains("Header=\"Decision\"", StringComparison.Ordinal), "Validation findings tab should not expose a Decision column.");
         TestAssert.True(
-            workspaceViewModel.Contains("ValidationFindingRows => parent.ValidationFindingRows", StringComparison.Ordinal)
+            workspaceViewModel.Contains("VisibleValidationFindingRows", StringComparison.Ordinal)
             && workspaceViewModel.Contains("ShowValidationFindingsTab => IsPxaSurveyPlanReview", StringComparison.Ordinal)
             && workspaceViewModel.Contains("ValidationFindingRows.CollectionChanged", StringComparison.Ordinal),
             "Workspace view-model should project validation findings and refresh when the parent rows change.");
@@ -232,38 +234,51 @@ internal static class ValidationFindingDispositionTests
             && previewService.Contains("--review-data", StringComparison.Ordinal),
             "Validation preview should use the adapter against current review data without writing the formal validation summary.");
     }
-    public static void ReviewWorkspaceOwnersNeighborsUsesEditableRoleCombos()
+    public static void ReviewWorkspaceParticipantsUsesSingleEditableGrid()
     {
         var xaml = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "JamaicaReviewWorkspaceWindow.xaml"));
         var workspaceViewModel = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "JamaicaReviewWorkspaceViewModel.cs"));
-        var ownersStart = xaml.IndexOf("Header=\"Owners / Neighbors\"", StringComparison.Ordinal);
+        var ownersStart = xaml.IndexOf("Header=\"Participants\"", StringComparison.Ordinal);
         var boundaryStart = xaml.IndexOf("Header=\"Boundary Segments\"", StringComparison.Ordinal);
 
-        TestAssert.True(ownersStart >= 0 && boundaryStart > ownersStart, "Owners / Neighbors tab should be present before Boundary Segments.");
+        TestAssert.True(ownersStart >= 0 && boundaryStart > ownersStart, "Participants tab should be present before Boundary Segments.");
         var ownersTab = xaml[ownersStart..boundaryStart];
 
-        TestAssert.True(ownersTab.Contains("OwnerNeighborRoleOptions", StringComparison.Ordinal), "Owners / Neighbors role column should bind to the controlled role options.");
-        TestAssert.True(ownersTab.Contains("Text=\"{Binding Role, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\"", StringComparison.Ordinal), "Owners / Neighbors role choices should update the row Role while preserving existing role text.");
+        TestAssert.True(ownersTab.Contains("PxaParticipantsGrid", StringComparison.Ordinal), "Participants tab should use one grid.");
+        TestAssert.True(ownersTab.Contains("ItemsSource=\"{Binding VisibleParticipants}\"", StringComparison.Ordinal), "Participants tab should bind to the merged participant projection.");
+        TestAssert.False(ownersTab.Contains("PxaNamedPartiesGrid", StringComparison.Ordinal), "Participants tab should not keep the first legacy party grid.");
+        TestAssert.False(ownersTab.Contains("PxaAdjacentOwnersGrid", StringComparison.Ordinal), "Participants tab should not keep a second legacy neighbor grid.");
+        TestAssert.False(xaml.Contains("Header=\"Owners / Neighbors\"", StringComparison.Ordinal), "Legacy Owners / Neighbors tab label should be removed.");
+        TestAssert.True(ownersTab.Contains("OwnerNeighborRoleOptions", StringComparison.Ordinal), "Participants role column should bind to the controlled role options.");
+        TestAssert.True(ownersTab.Contains("Text=\"{Binding Role, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\"", StringComparison.Ordinal), "Participants role choices should update the row Role while preserving existing role text.");
         TestAssert.True(workspaceViewModel.Contains("OwnerNeighborRoleOptions", StringComparison.Ordinal), "Workspace view-model should expose the role choices.");
+        TestAssert.True(workspaceViewModel.Contains("VisibleParticipants", StringComparison.Ordinal), "Workspace view-model should expose the merged participant collection.");
+        TestAssert.True(workspaceViewModel.Contains("new ExtractionReviewParticipantViewModel(owner)", StringComparison.Ordinal), "Adjacent owner rows should remain backed by the neighbor model used by finalize.");
+        var dockpaneViewModel = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "ParcelWorkflowDockpaneViewModel.cs"));
+        TestAssert.True(
+            dockpaneViewModel.Contains("PromoteNamedPartyNeighborsToAdjacentOwners", StringComparison.Ordinal)
+            && dockpaneViewModel.Contains("loadedReviewDocument.AdjacentOwners.Add(adjacentOwner)", StringComparison.Ordinal)
+            && dockpaneViewModel.Contains("ReviewNamedParties.Remove(party)", StringComparison.Ordinal),
+            "Named party rows changed to Neighbor should be promoted into the adjacent-owner model used by Innola finalize.");
         TestAssert.True(workspaceViewModel.Contains("\"Instigator\"", StringComparison.Ordinal), "Role choices should include Instigator.");
         TestAssert.True(workspaceViewModel.Contains("\"Owner\"", StringComparison.Ordinal), "Role choices should include Owner.");
         TestAssert.True(workspaceViewModel.Contains("\"Neighbor\"", StringComparison.Ordinal), "Role choices should include Neighbor.");
         TestAssert.True(workspaceViewModel.Contains("\"Representative\"", StringComparison.Ordinal), "Role choices should include Representative.");
         TestAssert.True(workspaceViewModel.Contains("\"Other\"", StringComparison.Ordinal), "Role choices should include Other.");
-        TestAssert.False(ownersTab.Contains("Header=\"From\"", StringComparison.Ordinal), "Owners / Neighbors tab should not show From columns.");
-        TestAssert.False(ownersTab.Contains("Header=\"To\"", StringComparison.Ordinal), "Owners / Neighbors tab should not show To columns.");
-        TestAssert.True(ownersTab.Contains("Header=\"Lot Number\"", StringComparison.Ordinal), "Adjacent owner grid should expose Lot Number.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LotNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Lot Number edits should commit when the cell edit finishes.");
-        TestAssert.True(ownersTab.Contains("Header=\"Address\"", StringComparison.Ordinal), "Adjacent owner grid should expose Address.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Address, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Address edits should commit when the cell edit finishes.");
-        TestAssert.True(ownersTab.Contains("Header=\"LandVal No.\"", StringComparison.Ordinal), "Adjacent owner grid should expose LandVal No.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LandValuationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner LandVal No. edits should commit when the cell edit finishes.");
-        TestAssert.True(ownersTab.Contains("Header=\"Exam No\"", StringComparison.Ordinal), "Adjacent owner grid should expose Exam No.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding ExaminationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Exam No edits should commit when the cell edit finishes.");
-        TestAssert.True(ownersTab.Contains("Header=\"Volume\"", StringComparison.Ordinal), "Adjacent owner grid should use the full Volume header.");
+        TestAssert.False(ownersTab.Contains("Header=\"From\"", StringComparison.Ordinal), "Participants tab should not show From columns.");
+        TestAssert.False(ownersTab.Contains("Header=\"To\"", StringComparison.Ordinal), "Participants tab should not show To columns.");
+        TestAssert.True(ownersTab.Contains("Header=\"Lot Number\"", StringComparison.Ordinal), "Participants grid should expose Lot Number.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LotNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant Lot Number edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"Address\"", StringComparison.Ordinal), "Participants grid should expose Address.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Address, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant Address edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"LandVal No.\"", StringComparison.Ordinal), "Participants grid should expose LandVal No.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding LandValuationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant LandVal No. edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"Exam No\"", StringComparison.Ordinal), "Participants grid should expose Exam No.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding ExaminationNumber, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant Exam No edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Header=\"Volume\"", StringComparison.Ordinal), "Participants grid should use the full Volume header.");
         TestAssert.False(ownersTab.Contains("Header=\"Vol.\"", StringComparison.Ordinal), "Adjacent owner grid should not abbreviate Volume as Vol.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Volume, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Volume edits should commit when the cell edit finishes.");
-        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Folio, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Adjacent owner Folio edits should commit when the cell edit finishes.");
-        TestAssert.False(ownersTab.Contains("Header=\"Status\"", StringComparison.Ordinal), "Owners / Neighbors tab should not show Status columns.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Volume, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant Volume edits should commit when the cell edit finishes.");
+        TestAssert.True(ownersTab.Contains("Binding=\"{Binding Folio, UpdateSourceTrigger=LostFocus}\"", StringComparison.Ordinal), "Participant Folio edits should commit when the cell edit finishes.");
+        TestAssert.False(ownersTab.Contains("Header=\"Status\"", StringComparison.Ordinal), "Participants tab should not show Status columns.");
     }
 }

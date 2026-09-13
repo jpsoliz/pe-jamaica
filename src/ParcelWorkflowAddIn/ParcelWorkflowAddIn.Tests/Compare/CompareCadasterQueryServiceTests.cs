@@ -299,6 +299,49 @@ internal static class CompareCadasterQueryServiceTests
         TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Cookie-only retry should map the successful BA Unit response.");
     }
 
+    public static async Task InnolaBaUnitVolumeFolioSearchRefreshesSessionAfterAuthFailure()
+    {
+        var handler = new CapturingHttpMessageHandler(new[]
+        {
+            ("""{"message":"Full authentication is required to access this resource"}""", HttpStatusCode.Unauthorized),
+            ("""
+             {
+               "records": [
+                 {
+                   "owners": "TRACEY, HOPETON SCOTT",
+                   "pid": "10843842",
+                   "volume": 1486,
+                   "folio": 393,
+                   "landvalnumber": "16505005179"
+                 }
+               ]
+             }
+             """, HttpStatusCode.OK)
+        });
+        var ensureCalls = 0;
+        var service = new InnolaBaUnitLegalCadasterQueryService(
+            LegalInnolaSource(),
+            () => Session() with { AccessToken = "token-stale" },
+            new HttpClient(handler),
+            () => FixedNow,
+            hasInnolaSessionCookie: _ => false,
+            ensureSessionAsync: (_, _) =>
+            {
+                ensureCalls++;
+                var token = ensureCalls == 1 ? "token-stale" : "token-refreshed";
+                return Task.FromResult(InnolaSessionEnsureResult.Succeeded(Session() with { AccessToken = token }, "Innola session is active."));
+            });
+
+        var result = await service.QueryByVolumeFolioAsync("1486", "393");
+
+        TestAssert.True(result.Success, "BA Unit search should refresh the Innola session once after an authorization failure.");
+        TestAssert.Equal(2, ensureCalls, "BA Unit search should ensure before the call and once again after the auth failure.");
+        TestAssert.Equal(2, handler.RequestCount, "BA Unit search should resend the safe read exactly once after refreshing authorization.");
+        TestAssert.Equal("token-stale", handler.AccessTokens[0], "First request should use the initially ensured Innola Access-Token.");
+        TestAssert.Equal("token-refreshed", handler.AccessTokens[1], "Auth retry should use the refreshed Innola Access-Token.");
+        TestAssert.Equal("TRACEY, HOPETON SCOTT", result.Records[0].OwnerName, "Auth refresh retry should map the successful BA Unit response.");
+    }
+
     public static async Task InnolaBaUnitVolumeFolioSearchRetriesTransientFailures()
     {
         var handler = new CapturingHttpMessageHandler(new[]

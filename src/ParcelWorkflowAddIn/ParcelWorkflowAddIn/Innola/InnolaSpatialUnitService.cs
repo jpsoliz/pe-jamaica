@@ -63,7 +63,15 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             : examinationFieldName.Trim();
         try
         {
-            session = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
+            var refreshedSession = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
+            if (refreshedSession is null)
+            {
+                return InnolaSpatialUnitExaminationNumberResult.Failed(
+                    InnolaApiResilience.LoginRequiredMessage,
+                    "login_required");
+            }
+
+            session = refreshedSession;
             using var response = await InnolaApiResilience.SendAsync(
                 httpClient,
                 new InnolaApiOperation("spatial unit examination lookup", TransactionNumber: transaction.TransactionNumber),
@@ -122,7 +130,15 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
 
         try
         {
-            session = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
+            var refreshedSession = await RefreshSessionBeforeSpatialUnitWriteAsync(session, cancellationToken).ConfigureAwait(false);
+            if (refreshedSession is null)
+            {
+                return InnolaSpatialUnitSaveResult.Failed(
+                    InnolaApiResilience.LoginRequiredMessage,
+                    "login_required");
+            }
+
+            session = refreshedSession;
             var layout = CaseFolderLayout.FromRootDirectory(caseFolderPath);
             var outputSummary = outputSummaryPersistenceService.Load(layout);
             var spatialUnitCount = ResolveSpatialUnitCount(outputSummary);
@@ -212,7 +228,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             .ToArray();
     }
 
-    private async Task<InnolaSession> RefreshSessionBeforeSpatialUnitWriteAsync(
+    private async Task<InnolaSession?> RefreshSessionBeforeSpatialUnitWriteAsync(
         InnolaSession session,
         CancellationToken cancellationToken)
     {
@@ -221,7 +237,7 @@ public sealed class InnolaSpatialUnitService : IInnolaSpatialUnitService
             return session;
         }
 
-        return await refreshSession(session, cancellationToken).ConfigureAwait(false) ?? session;
+        return await refreshSession(session, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyList<JsonObject>> CreateDefaultSpatialUnitsAsync(

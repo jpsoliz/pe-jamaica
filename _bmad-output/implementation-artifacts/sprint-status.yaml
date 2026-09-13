@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review in a fresh context
 
 generated: 2026-06-09
-last_updated: 2026-09-12
+last_updated: 2026-09-13
 project: Sid-jamaica
 project_key: NOKEY
 tracking_system: file-system
@@ -192,3 +192,9 @@ development_status:
   11-1-inventory-and-decision-lock-for-plan-examination-unification: review
   11-2-unified-pdf-extraction-contract-for-plan-examination: ready-for-dev
   epic-11-retrospective: optional
+
+  epic-12: in-progress
+  12-1-current-testing-review-ux-and-extraction-polish: done
+  12-2-centralize-innola-session-refresh-for-workflow-finalize: done
+  12-3-add-computed-participants-and-title-image-download-to-compare: done
+  epic-12-retrospective: optional

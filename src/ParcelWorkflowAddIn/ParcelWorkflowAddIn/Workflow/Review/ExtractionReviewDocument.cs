@@ -136,6 +136,18 @@ public sealed class ExtractionReviewNamedParty
 
     public string Role { get; set; } = string.Empty;
 
+    public string LotNumber { get; set; } = string.Empty;
+
+    public string Address { get; set; } = string.Empty;
+
+    public string LandValuationNumber { get; set; } = string.Empty;
+
+    public string ExaminationNumber { get; set; } = string.Empty;
+
+    public string Volume { get; set; } = string.Empty;
+
+    public string Folio { get; set; } = string.Empty;
+
     public string SourcePage { get; set; } = string.Empty;
 
     public string SourceZone { get; set; } = string.Empty;

@@ -5,6 +5,8 @@ namespace ParcelWorkflowAddIn.Innola;
 public sealed class InnolaSessionManager
 {
     private readonly IInnolaAuthService authService;
+    private readonly SemaphoreSlim refreshGate = new(1, 1);
+    private int sessionGeneration;
 
     public InnolaSessionManager(IInnolaAuthService authService)
     {
@@ -22,6 +24,8 @@ public sealed class InnolaSessionManager
     public string StatusText { get; private set; } = "Not logged in.";
 
     public bool IsLoggedIn => Status == InnolaSessionStatus.LoggedIn && CurrentSession is not null && !string.IsNullOrWhiteSpace(CurrentSession.AccessToken);
+
+    public bool IsSessionRefreshRunning { get; private set; }
 
     public bool IsTransactionLoaded { get; private set; }
 
@@ -169,6 +173,7 @@ public sealed class InnolaSessionManager
     public async Task<InnolaSession?> RefreshCurrentSessionAsync(CancellationToken cancellationToken = default)
     {
         var current = CurrentSession;
+        var capturedGeneration = sessionGeneration;
         if (current is null
             || string.IsNullOrWhiteSpace(current.ServerUrl)
             || string.IsNullOrWhiteSpace(current.Username)
@@ -189,18 +194,99 @@ public sealed class InnolaSessionManager
                 return null;
             }
 
-            CurrentSession = result.Session;
+            if (capturedGeneration != sessionGeneration || !ReferenceEquals(CurrentSession, current))
+            {
+                return CurrentSession;
+            }
+
+            CurrentSession = PreserveExistingUserContextWhenRefreshOmitsIt(current, result.Session);
             Status = InnolaSessionStatus.LoggedIn;
-            var displayName = string.IsNullOrWhiteSpace(result.Session.User.DisplayName)
-                ? result.Session.User.Username
-                : result.Session.User.DisplayName;
+            var displayName = string.IsNullOrWhiteSpace(CurrentSession.User.DisplayName)
+                ? CurrentSession.User.Username
+                : CurrentSession.User.DisplayName;
             StatusText = $"Innola session refreshed for {displayName}.";
             OnSessionChanged();
             return CurrentSession;
         }
-        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or OperationCanceledException)
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
         {
             return null;
+        }
+    }
+
+    public async Task<InnolaSessionEnsureResult> EnsureCurrentSessionAsync(
+        string operationName,
+        string? transactionNumber = null,
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!forceRefresh && IsLoggedIn && CurrentSession is not null)
+        {
+            return InnolaSessionEnsureResult.Succeeded(CurrentSession, "Innola session is active.");
+        }
+
+        try
+        {
+            await refreshGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return InnolaSessionEnsureResult.Cancelled();
+        }
+
+        try
+        {
+            var current = CurrentSession;
+            if (current is null
+                || string.IsNullOrWhiteSpace(current.ServerUrl)
+                || string.IsNullOrWhiteSpace(current.Username)
+                || string.IsNullOrWhiteSpace(current.SessionPassword))
+            {
+                MarkSessionRefreshFailed(InnolaApiResilience.LoginRequiredMessage);
+                return InnolaSessionEnsureResult.Failed(InnolaApiResilience.LoginRequiredMessage, "login_required");
+            }
+
+            var operation = string.IsNullOrWhiteSpace(operationName)
+                ? "Innola operation"
+                : operationName.Trim();
+            var transactionSuffix = string.IsNullOrWhiteSpace(transactionNumber)
+                ? string.Empty
+                : $" for transaction {transactionNumber.Trim()}";
+
+            IsSessionRefreshRunning = true;
+            StatusText = $"Reconnecting to Innola... {operation}{transactionSuffix}.";
+            OnSessionChanged();
+
+            try
+            {
+                var refreshed = await RefreshCurrentSessionAsync(cancellationToken);
+                if (refreshed is null)
+                {
+                    MarkSessionRefreshFailed(InnolaApiResilience.LoginRequiredMessage);
+                    return InnolaSessionEnsureResult.Failed(InnolaApiResilience.LoginRequiredMessage, "login_required");
+                }
+
+                IsSessionRefreshRunning = false;
+                StatusText = "Innola connection restored. Continuing...";
+                OnSessionChanged();
+                return InnolaSessionEnsureResult.Succeeded(refreshed, StatusText);
+            }
+            catch (OperationCanceledException)
+            {
+                IsSessionRefreshRunning = false;
+                OnSessionChanged();
+                return InnolaSessionEnsureResult.Cancelled();
+            }
+        }
+        finally
+        {
+            if (IsSessionRefreshRunning)
+            {
+                IsSessionRefreshRunning = false;
+                OnSessionChanged();
+            }
+
+            refreshGate.Release();
         }
     }
 
@@ -404,6 +490,7 @@ public sealed class InnolaSessionManager
 
     public void ApplySuccessfulSession(InnolaSession session)
     {
+        sessionGeneration++;
         CurrentSession = session;
         Status = InnolaSessionStatus.LoggedIn;
         ClearLoadedTransactionCore();
@@ -417,12 +504,53 @@ public sealed class InnolaSessionManager
 
     private void Clear(string statusText, InnolaSessionStatus status)
     {
+        sessionGeneration++;
         CurrentSession = null;
         ClearLoadedTransactionCore();
         SelectedTransaction = null;
         Status = status;
         StatusText = statusText;
         OnSessionChanged();
+    }
+
+    private void MarkSessionRefreshFailed(string statusText)
+    {
+        sessionGeneration++;
+        CurrentSession = null;
+        Status = InnolaSessionStatus.SessionExpired;
+        StatusText = statusText;
+        OnSessionChanged();
+    }
+
+    private static InnolaSession PreserveExistingUserContextWhenRefreshOmitsIt(InnolaSession previous, InnolaSession refreshed)
+    {
+        var displayName = string.IsNullOrWhiteSpace(refreshed.User.DisplayName)
+            || string.Equals(refreshed.User.DisplayName, refreshed.User.Username, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(previous.User.DisplayName)
+            ? previous.User.DisplayName
+            : refreshed.User.DisplayName;
+        var groups = refreshed.User.Groups.Count > 0
+            ? refreshed.User.Groups
+            : previous.User.Groups;
+        var roles = refreshed.User.Roles.Count > 0
+            ? refreshed.User.Roles
+            : previous.User.Roles;
+        if (string.Equals(displayName, refreshed.User.DisplayName, StringComparison.Ordinal)
+            && ReferenceEquals(groups, refreshed.User.Groups)
+            && ReferenceEquals(roles, refreshed.User.Roles))
+        {
+            return refreshed;
+        }
+
+        return refreshed with
+        {
+            User = refreshed.User with
+            {
+                DisplayName = displayName,
+                Groups = groups,
+                Roles = roles
+            }
+        };
     }
 
     private static string SanitizeStatus(string? message)
@@ -444,6 +572,13 @@ public sealed class InnolaSessionManager
 
     private void OnSessionChanged()
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(OnSessionChanged, System.Windows.Threading.DispatcherPriority.Background);
+            return;
+        }
+
         SessionChanged?.Invoke(this, EventArgs.Empty);
     }
 

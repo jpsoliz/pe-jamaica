@@ -182,6 +182,149 @@ internal static class InnolaSessionManagerTests
         TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Refresh must preserve lifecycle ownership state.");
     }
 
+    public static async Task EnsureCurrentSessionRefreshesAndPreservesLoadedTransaction()
+    {
+        var refreshedSession = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-refreshed",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null);
+        var auth = new FakeAuthService
+        {
+            LoginResult = InnolaLoginResult.Succeeded(refreshedSession)
+        };
+        var manager = new InnolaSessionManager(auth);
+        manager.ApplySuccessfulSession(refreshedSession with { AccessToken = "token-stale" });
+        var selected = new InnolaTransactionRow(
+            "task-100000854",
+            "txn-100000854",
+            "100000854",
+            "Compute Survey Plan",
+            "parcel_workflow",
+            InnolaTransactionStatus.InProgress,
+            "Compute Survey Plan",
+            "Test User",
+            "tester",
+            null,
+            DateTimeOffset.UtcNow,
+            true,
+            true,
+            null,
+            null);
+        manager.SelectTransaction(selected, DateTimeOffset.UtcNow);
+        manager.MarkTransactionLoaded("100000854", @"C:\Cases\100000854", "2026-07-27T16:39:00Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-07-27T16:39:01Z", "Transaction is in progress.");
+
+        var result = await manager.EnsureCurrentSessionAsync("Plan Examination writeback", "100000854", forceRefresh: true);
+
+        TestAssert.True(result.Success, "Ensure should refresh successfully.");
+        TestAssert.Equal("token-refreshed", result.Session?.AccessToken, "Ensure should return the refreshed token.");
+        TestAssert.True(manager.IsLoggedIn, "Manager should remain logged in after ensure.");
+        TestAssert.True(!manager.IsSessionRefreshRunning, "Refresh running flag should clear after ensure completes.");
+        TestAssert.Equal("Innola connection restored. Continuing...", manager.StatusText, "Successful ensure status should be visible.");
+        TestAssert.True(manager.IsTransactionLoaded, "Ensure must preserve the loaded transaction.");
+        TestAssert.Equal(InnolaTransactionLifecycleStatus.InProgress, manager.LifecycleStatus, "Ensure must preserve lifecycle state.");
+    }
+
+    public static async Task EnsureCurrentSessionFailureRequiresLoginWithoutSecretDiagnostics()
+    {
+        var auth = new FakeAuthService
+        {
+            LoginResult = InnolaLoginResult.Failure("token secret-password expired")
+        };
+        var manager = new InnolaSessionManager(auth);
+        manager.ApplySuccessfulSession(new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-stale",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null));
+        var selected = new InnolaTransactionRow(
+            "task-100000854",
+            "txn-100000854",
+            "100000854",
+            "Compute Survey Plan",
+            "parcel_workflow",
+            InnolaTransactionStatus.InProgress,
+            "Compute Survey Plan",
+            "Test User",
+            "tester",
+            null,
+            DateTimeOffset.UtcNow,
+            true,
+            true,
+            null,
+            null);
+        manager.SelectTransaction(selected, DateTimeOffset.UtcNow);
+        manager.MarkTransactionLoaded("100000854", @"C:\Cases\100000854", "2026-07-27T16:39:00Z", false);
+        manager.MarkTransactionClaimed("tester", "Test User", "2026-07-27T16:39:01Z", "Transaction is in progress.");
+
+        var result = await manager.EnsureCurrentSessionAsync("Finalize", "100000854", forceRefresh: true);
+
+        TestAssert.True(!result.Success, "Ensure should fail when refresh fails.");
+        TestAssert.Equal("login_required", result.ErrorCategory, "Refresh failure category mismatch.");
+        TestAssert.Equal(InnolaApiResilience.LoginRequiredMessage, result.Message, "Refresh failure message mismatch.");
+        TestAssert.True(!result.Message.Contains("secret-password", StringComparison.Ordinal), "Failure message must not expose password.");
+        TestAssert.True(!result.Message.Contains("token-stale", StringComparison.Ordinal), "Failure message must not expose token.");
+        TestAssert.True(!manager.IsLoggedIn, "Manager should no longer be logged in after refresh failure.");
+        TestAssert.True(manager.IsTransactionLoaded, "Refresh failure should preserve the loaded case state for retry after login.");
+        TestAssert.True(!manager.IsSessionRefreshRunning, "Refresh running flag should clear after failure.");
+    }
+
+    public static async Task EnsureCurrentSessionCancellationDoesNotExpireCurrentSession()
+    {
+        var manager = new InnolaSessionManager(new CanceledAuthService());
+        manager.ApplySuccessfulSession(new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-stale",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null));
+
+        var result = await manager.EnsureCurrentSessionAsync("transaction list refresh", "100000854", forceRefresh: true);
+
+        TestAssert.True(!result.Success, "Cancelled refresh should report a non-success result.");
+        TestAssert.Equal("cancelled", result.ErrorCategory, "Cancelled refresh category mismatch.");
+        TestAssert.True(manager.IsLoggedIn, "Cancelled refresh must not expire the active session.");
+        TestAssert.Equal("token-stale", manager.CurrentSession?.AccessToken, "Cancelled refresh must preserve the active token in memory.");
+        TestAssert.Equal(InnolaSessionStatus.LoggedIn, manager.Status, "Cancelled refresh must preserve logged-in status.");
+        TestAssert.True(!manager.IsSessionRefreshRunning, "Refresh running flag should clear after cancellation.");
+    }
+
+    public static async Task EnsureCurrentSessionLateRefreshDoesNotOverwriteNewerSession()
+    {
+        var initialSession = new InnolaSession(
+            InnolaSessionStatus.LoggedIn,
+            "https://eltrs.innola-solutions.com/",
+            "tester",
+            "secret-password",
+            "token-stale",
+            new InnolaUserContext("tester", "Test User", new[] { "survey" }, Array.Empty<string>()),
+            null);
+        var auth = new DelayedAuthService();
+        var manager = new InnolaSessionManager(auth);
+        manager.ApplySuccessfulSession(initialSession);
+
+        var ensureTask = manager.EnsureCurrentSessionAsync("Finalize", "100000854", forceRefresh: true);
+        await auth.LoginStarted.Task;
+
+        manager.ApplySuccessfulSession(initialSession with { AccessToken = "token-new-login" });
+        auth.Complete(InnolaLoginResult.Succeeded(initialSession with { AccessToken = "token-late-refresh" }));
+        var result = await ensureTask;
+
+        TestAssert.True(result.Success, "Late refresh should resolve successfully against the newer active session.");
+        TestAssert.Equal("token-new-login", result.Session?.AccessToken, "Ensure should return the newer active session.");
+        TestAssert.Equal("token-new-login", manager.CurrentSession?.AccessToken, "Late refresh must not overwrite a newer login.");
+        TestAssert.True(!manager.IsSessionRefreshRunning, "Refresh running flag should clear after late refresh completes.");
+    }
+
     public static async Task SessionSecretsAreNotWrittenToSettingsOrCaseFolderFiles()
     {
         const string secretPassword = "super-secret-session-password";
@@ -275,6 +418,34 @@ internal static class InnolaSessionManagerTests
         public Task LogoutAsync(CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class DelayedAuthService : IInnolaAuthService
+    {
+        private readonly TaskCompletionSource<InnolaLoginResult> loginResult = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> LoginStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public InnolaSession? CurrentSession { get; private set; }
+
+        public async Task<InnolaLoginResult> LoginAsync(string serverUrl, string username, string password, CancellationToken cancellationToken = default)
+        {
+            LoginStarted.TrySetResult(true);
+            var result = await loginResult.Task.WaitAsync(cancellationToken);
+            CurrentSession = result.Session;
+            return result;
+        }
+
+        public Task LogoutAsync(CancellationToken cancellationToken = default)
+        {
+            CurrentSession = null;
+            return Task.CompletedTask;
+        }
+
+        public void Complete(InnolaLoginResult result)
+        {
+            loginResult.TrySetResult(result);
         }
     }
 }

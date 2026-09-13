@@ -89,7 +89,18 @@ public sealed class InnolaTransactionLoadService
             return InnolaTransactionLoadResult.Failure("Select a transaction before loading.");
         }
 
-        var session = sessionManager.CurrentSession;
+        var sessionEnsure = await sessionManager.EnsureCurrentSessionAsync(
+            "transaction detail load",
+            sessionManager.SelectedTransaction.TransactionNumber,
+            forceRefresh: true,
+            cancellationToken).ConfigureAwait(false);
+        if (!sessionEnsure.Success || sessionEnsure.Session is null)
+        {
+            sessionManager.ClearLoadedTransaction();
+            return InnolaTransactionLoadResult.Failure(sessionEnsure.Message);
+        }
+
+        var session = sessionEnsure.Session;
         var selected = NormalizeSelectedTransaction(sessionManager.SelectedTransaction);
         InnolaTransactionDetailResult detailResult;
         try
@@ -187,7 +198,25 @@ public sealed class InnolaTransactionLoadService
             InnolaAttachmentContentResult content;
             try
             {
-                content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+                var attachmentSession = await sessionManager.EnsureCurrentSessionAsync(
+                    "source attachment download",
+                    selected.TransactionNumber,
+                    forceRefresh: true,
+                    cancellationToken).ConfigureAwait(false);
+                if (!attachmentSession.Success || attachmentSession.Session is null)
+                {
+                    if (isRtExaminationLoad)
+                    {
+                        attachmentWarnings.Add(DescribeAttachmentLoadFailure(attachment, attachmentSession.Message));
+                        continue;
+                    }
+
+                    CleanupNewlyWrittenFiles(newlyWrittenFiles, preserveFiles: isRtExaminationLoad);
+                    sessionManager.ClearLoadedTransaction();
+                    return InnolaTransactionLoadResult.Failure(attachmentSession.Message);
+                }
+
+                content = await detailService.GetAttachmentContentAsync(attachmentSession.Session, detail, attachment, cancellationToken);
             }
             catch (Exception exception) when (IsExpectedAdapterFailure(exception))
             {
@@ -498,7 +527,17 @@ public sealed class InnolaTransactionLoadService
         InnolaAttachmentContentResult content;
         try
         {
-            content = await detailService.GetAttachmentContentAsync(session, detail, resumeAttachment, cancellationToken);
+            var resumeSession = await sessionManager.EnsureCurrentSessionAsync(
+                "resume package download",
+                selected.TransactionNumber,
+                forceRefresh: true,
+                cancellationToken).ConfigureAwait(false);
+            if (!resumeSession.Success || resumeSession.Session is null)
+            {
+                return ResumePackageRestoreResult.Failed(resumeSession.Message);
+            }
+
+            content = await detailService.GetAttachmentContentAsync(resumeSession.Session, detail, resumeAttachment, cancellationToken);
         }
         catch (Exception exception) when (IsExpectedAdapterFailure(exception))
         {
@@ -530,7 +569,19 @@ public sealed class InnolaTransactionLoadService
         {
             try
             {
-                var content = await detailService.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+                var resumeSession = await sessionManager.EnsureCurrentSessionAsync(
+                    "resume package candidate download",
+                    selected.TransactionNumber,
+                    forceRefresh: true,
+                    cancellationToken).ConfigureAwait(false);
+                if (!resumeSession.Success || resumeSession.Session is null)
+                {
+                    Debug.WriteLine(
+                        $"Innola resume package candidate could not refresh session. TransactionNumber={detail.TransactionNumber}; Attachment={attachment.FileName}; Error={resumeSession.ErrorCategory ?? "login_required"}.");
+                    continue;
+                }
+
+                var content = await detailService.GetAttachmentContentAsync(resumeSession.Session, detail, attachment, cancellationToken);
                 if (!content.Success || content.Content.Length == 0)
                 {
                     Debug.WriteLine(

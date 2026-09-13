@@ -184,12 +184,16 @@ internal static class ShellState
 
         action();
     }
-    public static void OpenFabricMaintenanceWorkspace(string transactionNumber, string peNumber, string? statusText)
+    public static void OpenFabricMaintenanceWorkspace(
+        string transactionNumber,
+        string peNumber,
+        string? statusText,
+        IFabricMaintenanceCancelService? cancelService = null)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher is not null && !dispatcher.CheckAccess())
         {
-            _ = dispatcher.InvokeAsync(() => OpenFabricMaintenanceWorkspace(transactionNumber, peNumber, statusText));
+            _ = dispatcher.InvokeAsync(() => OpenFabricMaintenanceWorkspace(transactionNumber, peNumber, statusText, cancelService));
             return;
         }
 
@@ -219,8 +223,14 @@ internal static class ShellState
                     TransactionLifecycle,
                     new FabricMaintenanceSummaryAttachmentService(() => Session.CurrentSession, TransactionDetails),
                     new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
-                    (completedAt, message) => RunOnDispatcher(() => Session.MarkTransactionCompleted(completedAt, message)),
-                    message => RunOnDispatcher(() => Session.MarkLifecycleError(message))));
+                    ensureSession: (operation, transaction, cancellationToken) => Session.EnsureCurrentSessionAsync(
+                        operation,
+                        transaction,
+                        forceRefresh: true,
+                        cancellationToken: cancellationToken),
+                    markCompleted: (completedAt, message) => RunOnDispatcher(() => Session.MarkTransactionCompleted(completedAt, message)),
+                    markError: message => RunOnDispatcher(() => Session.MarkLifecycleError(message))),
+                cancelService);
             FabricMaintenancePromotionWindow.ShowOrActivate(viewModel);
         }
         catch (Exception exception)
@@ -327,7 +337,12 @@ internal static class ShellState
             legalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateLegal(
                 Settings,
                 () => Session.CurrentSession,
-                SharedInnolaHttpClient),
+                SharedInnolaHttpClient,
+                ensureSessionAsync: (operation, cancellationToken) => Session.EnsureCurrentSessionAsync(
+                    operation,
+                    Session.SelectedTransaction?.TransactionNumber,
+                    forceRefresh: true,
+                    cancellationToken)),
             fiscalCadasterQueryService: CompareCadasterQueryServiceFactory.CreateFiscal(Settings),
             enterpriseCadasterEvidenceService: new CompareEnterpriseCadasterEvidenceService(InnolaTransactionSettings.Load),
             taskLifecycleService: taskLifecycleService,
@@ -336,9 +351,22 @@ internal static class ShellState
                 CreateTransactionDetailService()),
             mapIntegrationService: new ArcGisCompareMapIntegrationService(),
             promptService: new MessageBoxCompareWorkspacePromptService(),
+            titleSourceService: new InnolaCompareTitleSourceService(
+                SharedInnolaHttpClient,
+                (operation, cancellationToken) => Session.EnsureCurrentSessionAsync(
+                    operation,
+                    Session.SelectedTransaction?.TransactionNumber,
+                    forceRefresh: false || IsAuthorizationRetryOperation(operation),
+                    cancellationToken)),
+            titleSourceSelectionService: new MessageBoxCompareTitleSourceSelectionService(),
             reviewerId: Session.CurrentUser?.Username,
             reviewerDisplayName: Session.CurrentUser?.DisplayName);
         CompareWorkspaceWindow.ShowOrActivate(viewModel);
+    }
+
+    private static bool IsAuthorizationRetryOperation(string operation)
+    {
+        return operation.Contains("auth retry", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IInnolaAuthService CreateAuthService()
@@ -378,7 +406,15 @@ internal static class ShellState
             ? new MockInnolaSpatialUnitService()
             : new InnolaSpatialUnitService(
                 SharedInnolaHttpClient,
-                (_, cancellationToken) => Session.RefreshCurrentSessionAsync(cancellationToken));
+                async (_, cancellationToken) =>
+                {
+                    var result = await Session.EnsureCurrentSessionAsync(
+                        "Innola Spatial Unit write",
+                        Session.SelectedTransaction?.TransactionNumber,
+                        forceRefresh: true,
+                        cancellationToken).ConfigureAwait(false);
+                    return result.Session;
+                });
     }
 
     private static IInnolaPlanCheckService CreatePlanCheckService()

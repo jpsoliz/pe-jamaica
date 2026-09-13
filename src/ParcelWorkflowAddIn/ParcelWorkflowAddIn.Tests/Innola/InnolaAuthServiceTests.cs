@@ -104,6 +104,50 @@ internal static class InnolaAuthServiceTests
         }
     }
 
+    public static async Task SessionManagerRaisesRefreshChangeOnCallerContext()
+    {
+        var context = new TrackingSynchronizationContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var auth = new AsyncFakeAuthService();
+            var manager = new InnolaSessionManager(auth);
+            manager.ApplySuccessfulSession(new InnolaSession(
+                InnolaSessionStatus.LoggedIn,
+                "https://eltrs.innola-solutions.com/",
+                "tester",
+                "password",
+                "token-stale",
+                new InnolaUserContext("tester", "Test User", Array.Empty<string>(), Array.Empty<string>()),
+                null));
+
+            var reconnectContextMatches = false;
+            var restoredContextMatches = false;
+            manager.SessionChanged += (_, _) =>
+            {
+                if (manager.IsSessionRefreshRunning)
+                {
+                    reconnectContextMatches = ReferenceEquals(SynchronizationContext.Current, context);
+                }
+
+                if (string.Equals(manager.StatusText, "Innola connection restored. Continuing...", StringComparison.Ordinal))
+                {
+                    restoredContextMatches = ReferenceEquals(SynchronizationContext.Current, context);
+                }
+            };
+
+            await manager.EnsureCurrentSessionAsync("transaction list refresh", "100000854", forceRefresh: true);
+
+            TestAssert.True(reconnectContextMatches, "Refresh start notification should resume on caller synchronization context.");
+            TestAssert.True(restoredContextMatches, "Refresh restored notification should resume on caller synchronization context.");
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
     public static async Task MockAuthEnablesDryRunLogin()
     {
         var service = new MockInnolaAuthService();

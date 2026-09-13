@@ -33,6 +33,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private readonly SpatialOverlapOwnerEnrichmentService spatialOverlapOwnerEnrichmentService;
     private readonly SpatialOverlapReviewSnapshotService spatialOverlapReviewSnapshotService;
     private readonly ICompareWorkspacePromptService promptService;
+    private readonly ICompareTitleSourceService titleSourceService;
+    private readonly ICompareTitleSourceSelectionService titleSourceSelectionService;
+    private readonly CompareTitleSourceTracePersistenceService titleSourceTracePersistence;
+    private readonly ExtractionReviewPersistenceService extractionReviewPersistence;
     private readonly Func<string?, CancellationToken, Task> mapGeoreferenceOverlayCleanup;
     private readonly string pdfViewerMode;
     private readonly Func<DateTimeOffset> getUtcNow;
@@ -52,6 +56,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private string surveyPlanSummary = "Survey plan interpretation will appear here after extraction evidence is available.";
     private string legalCadasterSummary = "Legal cadaster query results will appear here in Story 8.4.";
     private string fiscalNeighborSummary = "Fiscal neighbor query results will appear here in Story 8.4.";
+    private string computedParticipantsStatus = "Computed participants not loaded.";
     private string decisionStatus = "Draft";
     private string selectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
     private string searchPid = string.Empty;
@@ -62,7 +67,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     private string searchParish = string.Empty;
     private string searchValidationMessage = string.Empty;
     private string evidenceSearchStatusMessage = "No legal cadaster search has been run.";
+    private CompareComputedParticipantItem? selectedComputedParticipant;
     private bool isLoading;
+    private bool isFinalizeOperationRunning;
     private bool isPdfPanelVisible;
     private bool documentsAvailable;
     private bool geometryAvailable;
@@ -97,6 +104,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         SpatialOverlapOwnerEnrichmentService? spatialOverlapOwnerEnrichmentService = null,
         SpatialOverlapReviewSnapshotService? spatialOverlapReviewSnapshotService = null,
         ICompareWorkspacePromptService? promptService = null,
+        ICompareTitleSourceService? titleSourceService = null,
+        ICompareTitleSourceSelectionService? titleSourceSelectionService = null,
+        CompareTitleSourceTracePersistenceService? titleSourceTracePersistence = null,
+        ExtractionReviewPersistenceService? extractionReviewPersistence = null,
         Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null,
         string? pdfViewerMode = null,
         Func<DateTimeOffset>? getUtcNow = null,
@@ -125,6 +136,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             ?? new SpatialOverlapOwnerEnrichmentService(this.legalCadasterQueryService);
         this.spatialOverlapReviewSnapshotService = spatialOverlapReviewSnapshotService ?? new SpatialOverlapReviewSnapshotService();
         this.promptService = promptService ?? new AutoApproveCompareWorkspacePromptService();
+        this.titleSourceService = titleSourceService ?? new UnsupportedCompareTitleSourceService();
+        this.titleSourceSelectionService = titleSourceSelectionService ?? new AutoCompareTitleSourceSelectionService();
+        this.titleSourceTracePersistence = titleSourceTracePersistence ?? new CompareTitleSourceTracePersistenceService();
+        this.extractionReviewPersistence = extractionReviewPersistence ?? new ExtractionReviewPersistenceService();
         this.mapGeoreferenceOverlayCleanup = mapGeoreferenceOverlayCleanup
             ?? ((transactionNumber, token) => new ParcelWorkflowAddIn.MapGeoreferenceOverlayService().RemoveOverlayAsync(transactionNumber, token));
         this.pdfViewerMode = string.IsNullOrWhiteSpace(pdfViewerMode)
@@ -155,6 +170,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         RemoveValuableEvidenceCommand = new RelayCommand(
             parameter => RemoveValuableEvidence(parameter as CompareValuableEvidenceItem),
             parameter => parameter is CompareValuableEvidenceItem && !IsLoading);
+        SearchTitleImageCommand = new RelayCommand(
+            async () => await SearchTitleImageAsync(),
+            () => CanSearchTitleImage);
         TogglePdfPanelCommand = new RelayCommand(TogglePdfPanel);
         SaveProgressCommand = new RelayCommand(SaveProgress, () => CanSaveProgress);
         CancelTaskCommand = new RelayCommand(async () => await CancelTaskAsync(), () => CanCancelTask);
@@ -171,6 +189,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             RaiseCommandStates();
         };
         EnterpriseCadasterEvidenceRows.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEnterpriseCadasterEvidenceRows));
+        ComputedParticipants.CollectionChanged += (_, _) =>
+        {
+            NotifyPropertyChanged(nameof(HasComputedParticipants));
+            NotifyPropertyChanged(nameof(CanSearchTitleImage));
+        };
         EvidenceItems.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasEvidenceItems));
         Discrepancies.CollectionChanged += (_, _) => NotifyPropertyChanged(nameof(HasDiscrepancies));
     }
@@ -197,6 +220,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public ObservableCollection<CompareEnterpriseCadasterEvidenceRowItem> EnterpriseCadasterEvidenceRows { get; } = new();
 
+    public ObservableCollection<CompareComputedParticipantItem> ComputedParticipants { get; } = new();
+
     public ObservableCollection<CompareDiscrepancyItem> Discrepancies { get; } = new();
 
     public bool HasQueryResults => QueryResults.Count > 0;
@@ -206,6 +231,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public bool HasValuableEvidenceItems => ValuableEvidenceItems.Count > 0;
 
     public bool HasEnterpriseCadasterEvidenceRows => EnterpriseCadasterEvidenceRows.Count > 0;
+
+    public bool HasComputedParticipants => ComputedParticipants.Count > 0;
 
     public bool HasEvidenceItems => EvidenceItems.Count > 0;
 
@@ -257,6 +284,8 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
     public ICommand RemoveValuableEvidenceCommand { get; }
 
+    public ICommand SearchTitleImageCommand { get; }
+
     public ICommand TogglePdfPanelCommand { get; }
 
     public ICommand SaveProgressCommand { get; }
@@ -276,6 +305,24 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         get => isLoading;
         private set => SetField(ref isLoading, value, nameof(IsLoading));
     }
+
+    public bool IsFinalizeOperationRunning
+    {
+        get => isFinalizeOperationRunning;
+        private set
+        {
+            if (!SetField(ref isFinalizeOperationRunning, value, nameof(IsFinalizeOperationRunning)))
+            {
+                return;
+            }
+
+            NotifyPropertyChanged(nameof(FinalizeOperationRunningText));
+        }
+    }
+
+    public string FinalizeOperationRunningText => IsFinalizeOperationRunning
+        ? "Saving Compare..."
+        : string.Empty;
 
     public bool IsPdfPanelVisible
     {
@@ -541,6 +588,29 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         private set => SetField(ref evidenceSearchStatusMessage, value, nameof(EvidenceSearchStatusMessage));
     }
 
+    public string ComputedParticipantsStatus
+    {
+        get => computedParticipantsStatus;
+        private set => SetField(ref computedParticipantsStatus, value, nameof(ComputedParticipantsStatus));
+    }
+
+    public CompareComputedParticipantItem? SelectedComputedParticipant
+    {
+        get => selectedComputedParticipant;
+        set
+        {
+            if (selectedComputedParticipant == value)
+            {
+                return;
+            }
+
+            selectedComputedParticipant = value;
+            NotifyPropertyChanged(nameof(SelectedComputedParticipant));
+            NotifyPropertyChanged(nameof(CanSearchTitleImage));
+            RaiseCommandStates();
+        }
+    }
+
     public bool DocumentsAvailable
     {
         get => documentsAvailable;
@@ -570,6 +640,11 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     public bool CanQueryFiscalEvidence => GeometryAvailable && !IsLoading;
 
     public bool CanRunEvidenceSearch => CanQueryLegalEvidence;
+
+    public bool CanSearchTitleImage => layout is not null
+        && SelectedComputedParticipant is not null
+        && SelectedComputedParticipant.HasVolumeFolio
+        && !IsLoading;
 
     public bool CanSaveProgress => layout is not null && !IsLoading;
 
@@ -845,6 +920,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
             RefreshPdfDocumentSelectorState();
             SelectedDocument = PdfDocuments.FirstOrDefault()?.SourceFile;
+            LoadComputedParticipants(reopenedCaseFolder.Layout);
             ApplySurveyPlanEvidence();
             RestoreDraft(reopenedCaseFolder.Layout);
             RestoreDecision(reopenedCaseFolder.Layout);
@@ -854,6 +930,171 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         RefreshEvidenceItems();
         RaiseStateProperties();
+    }
+
+    public async Task SearchTitleImageAsync(CancellationToken cancellationToken = default)
+    {
+        if (layout is null)
+        {
+            ComputedParticipantsStatus = "Open a Compare case folder before searching title images.";
+            StatusText = ComputedParticipantsStatus;
+            RaiseStateProperties();
+            return;
+        }
+
+        if (SelectedComputedParticipant is null)
+        {
+            ComputedParticipantsStatus = "Select a computed participant before searching title images.";
+            StatusText = ComputedParticipantsStatus;
+            RaiseStateProperties();
+            return;
+        }
+
+        if (!SelectedComputedParticipant.HasVolumeFolio)
+        {
+            ComputedParticipantsStatus = "Selected participant needs both Volume and Folio before title image search.";
+            StatusText = ComputedParticipantsStatus;
+            RaiseStateProperties();
+            return;
+        }
+
+        IsLoading = true;
+        ComputedParticipantsStatus = $"Searching title source for {SelectedComputedParticipant.Volume}/{SelectedComputedParticipant.Folio}.";
+        StatusText = ComputedParticipantsStatus;
+        try
+        {
+            var search = await titleSourceService
+                .SearchCurrentTitlesAsync(SelectedComputedParticipant.Volume!, SelectedComputedParticipant.Folio!, cancellationToken)
+                .ConfigureAwait(true);
+            if (!search.Success || search.Sources.Count == 0)
+            {
+                titleSourceTracePersistence.Append(
+                    layout,
+                    transaction.TransactionNumber,
+                    SelectedComputedParticipant.Volume!,
+                    SelectedComputedParticipant.Folio!,
+                    search,
+                    null,
+                    getUtcNow());
+                ComputedParticipantsStatus = search.Message;
+                StatusText = search.Message;
+                return;
+            }
+
+            var selectedSource = search.Sources.Count == 1
+                ? search.Sources[0]
+                : titleSourceSelectionService.Select(search.Sources);
+            if (selectedSource is null)
+            {
+                ComputedParticipantsStatus = "Title source selection cancelled.";
+                StatusText = ComputedParticipantsStatus;
+                return;
+            }
+
+            var download = await titleSourceService
+                .DownloadAsync(selectedSource, SelectedComputedParticipant.Volume!, SelectedComputedParticipant.Folio!, layout, cancellationToken)
+                .ConfigureAwait(true);
+            titleSourceTracePersistence.Append(
+                layout,
+                transaction.TransactionNumber,
+                SelectedComputedParticipant.Volume!,
+                SelectedComputedParticipant.Folio!,
+                search,
+                download,
+                getUtcNow());
+            ComputedParticipantsStatus = download.Message;
+            StatusText = download.Message;
+            if (download.Success)
+            {
+                RefreshDocumentsFromCaseFolder(download.FilePath);
+            }
+        }
+        finally
+        {
+            IsLoading = false;
+            RaiseStateProperties();
+        }
+    }
+
+    private void LoadComputedParticipants(CaseFolderLayout caseLayout)
+    {
+        ComputedParticipants.Clear();
+        ExtractionReviewDocument? reviewDocument;
+        try
+        {
+            reviewDocument = extractionReviewPersistence.Load(caseLayout);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or InvalidOperationException
+            or System.Text.Json.JsonException)
+        {
+            ComputedParticipantsStatus = "Computed participants could not be loaded from the review artifact.";
+            return;
+        }
+
+        if (reviewDocument is null)
+        {
+            ComputedParticipantsStatus = "No Compute review artifact is available for computed participants.";
+            return;
+        }
+
+        foreach (var item in ProjectComputedParticipants(reviewDocument))
+        {
+            ComputedParticipants.Add(item);
+        }
+
+        SelectedComputedParticipant = ComputedParticipants.FirstOrDefault(item => item.HasVolumeFolio)
+            ?? ComputedParticipants.FirstOrDefault();
+        ComputedParticipantsStatus = ComputedParticipants.Count == 0
+            ? "No computed participant rows were found in the review artifact."
+            : $"{ComputedParticipants.Count} computed participant row(s) loaded.";
+    }
+
+    private static IReadOnlyList<CompareComputedParticipantItem> ProjectComputedParticipants(ExtractionReviewDocument document)
+    {
+        var rows = new List<CompareComputedParticipantItem>();
+        rows.AddRange(document.Parties.Select(party => CompareComputedParticipantItem.FromNamedParty(party, "Party")));
+        rows.AddRange(document.Representatives.Select(party => CompareComputedParticipantItem.FromNamedParty(party, "Representative")));
+        rows.AddRange(document.AdjacentOwners.Select(owner => CompareComputedParticipantItem.FromAdjacentOwner(owner, "Adjacent Owner")));
+        return rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.Name)
+                || !string.IsNullOrWhiteSpace(row.Volume)
+                || !string.IsNullOrWhiteSpace(row.Folio)
+                || !string.IsNullOrWhiteSpace(row.LandValuationNumber))
+            .ToArray();
+    }
+
+    private void RefreshDocumentsFromCaseFolder(string? selectFilePath)
+    {
+        if (layout is null)
+        {
+            return;
+        }
+
+        var reopened = caseFolderStore.ReopenCaseFolder(layout.RootDirectory);
+        if (!reopened.Success)
+        {
+            return;
+        }
+
+        Documents.Clear();
+        PdfDocuments.Clear();
+        foreach (var source in reopened.SourceFiles)
+        {
+            var item = new CompareDocumentItem(source);
+            Documents.Add(item);
+            if (item.IsPdf)
+            {
+                PdfDocuments.Add(item);
+            }
+        }
+
+        RefreshPdfDocumentSelectorState();
+        SelectedDocument = !string.IsNullOrWhiteSpace(selectFilePath)
+            ? PdfDocuments.FirstOrDefault(item => string.Equals(item.SourceFile.CopiedPath, selectFilePath, StringComparison.OrdinalIgnoreCase))?.SourceFile
+                ?? PdfDocuments.FirstOrDefault()?.SourceFile
+            : PdfDocuments.FirstOrDefault()?.SourceFile;
     }
 
     private void ApplyGeometryState(CompareWorkingGeometryLoadResult geometry)
@@ -1727,6 +1968,10 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             {
                 ["report_already_generated"] = reportAlreadyGenerated.ToString(CultureInfo.InvariantCulture)
             }));
+        IsFinalizeOperationRunning = true;
+        IsLoading = true;
+        StatusText = "Saving Compare and finalizing transaction.";
+        RaiseStateProperties();
         SaveDecision(CompareReviewDecisionValues.Approved, "Finalized");
         TraceFinalizeStep(
             "report_generated",
@@ -1735,7 +1980,6 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
                 ? "Finalize saved the decision and generated the PDF report."
                 : "Finalize saved the decision, but the PDF report was not found.",
             BuildFinalizeTraceDetails());
-        IsLoading = true;
         StatusText = "Preparing Compare report attachment.";
         try
         {
@@ -1787,6 +2031,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         finally
         {
             IsLoading = false;
+            IsFinalizeOperationRunning = false;
             RaiseStateProperties();
         }
     }
@@ -1880,7 +2125,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         RelatedPartyMatches.Clear();
         ValuableEvidenceItems.Clear();
         EnterpriseCadasterEvidenceRows.Clear();
+        ComputedParticipants.Clear();
         Discrepancies.Clear();
+        selectedComputedParticipant = null;
         selectedDocument = null;
         currentGeometryPlan = null;
         currentCompareGroupLayerName = null;
@@ -1891,6 +2138,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         HasSavedCompareReport = false;
         DocumentStatus = "Compare workspace cleared.";
         GeometryStatus = "Compare map layers cleared.";
+        ComputedParticipantsStatus = "Computed participants not loaded.";
         RaiseStateProperties();
     }
 
@@ -2244,12 +2492,15 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         NotifyPropertyChanged(nameof(CanQueryLegalEvidence));
         NotifyPropertyChanged(nameof(CanQueryFiscalEvidence));
         NotifyPropertyChanged(nameof(CanRunEvidenceSearch));
+        NotifyPropertyChanged(nameof(CanSearchTitleImage));
         NotifyPropertyChanged(nameof(CanSaveProgress));
         NotifyPropertyChanged(nameof(CanCancelTask));
         NotifyPropertyChanged(nameof(CanSuspendTask));
         NotifyPropertyChanged(nameof(CanCompleteTask));
         NotifyPropertyChanged(nameof(CanBlockCompare));
         NotifyPropertyChanged(nameof(CanApproveCompare));
+        NotifyPropertyChanged(nameof(IsFinalizeOperationRunning));
+        NotifyPropertyChanged(nameof(FinalizeOperationRunningText));
         NotifyPropertyChanged(nameof(HasUnresolvedDiscrepancies));
         NotifyPropertyChanged(nameof(LegalEvidenceReviewed));
         NotifyPropertyChanged(nameof(FiscalEvidenceReviewed));
@@ -2271,7 +2522,9 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
             RunEvidenceSearchCommand,
             ClearEvidenceSearchFieldsCommand,
             MarkEvidenceResultValuableCommand,
+            MarkPartyMatchValuableCommand,
             RemoveValuableEvidenceCommand,
+            SearchTitleImageCommand,
             SaveProgressCommand,
             CancelTaskCommand,
             SuspendTaskCommand,
@@ -2308,6 +2561,61 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
     {
         NotifyPropertyChanged(nameof(HasPdfDocuments));
         NotifyPropertyChanged(nameof(PdfDocumentSelectorStatus));
+    }
+}
+
+public sealed record CompareComputedParticipantItem(
+    string? Name,
+    string? Role,
+    string? LotNumber,
+    string? Address,
+    string? LandValuationNumber,
+    string? ExaminationNumber,
+    string? Volume,
+    string? Folio,
+    string Source,
+    string? Status,
+    string? Diagnostic)
+{
+    public bool HasVolumeFolio => !string.IsNullOrWhiteSpace(Volume) && !string.IsNullOrWhiteSpace(Folio);
+
+    public string VolumeFolio => HasVolumeFolio ? $"{Volume}/{Folio}" : "(blank)";
+
+    public static CompareComputedParticipantItem FromAdjacentOwner(ExtractionReviewAdjacentOwner owner, string source)
+    {
+        return new CompareComputedParticipantItem(
+            NullIfBlank(owner.Name),
+            NullIfBlank(owner.Role) ?? CompareEvidenceRoleTag.Neighbor,
+            NullIfBlank(owner.LotNumber),
+            NullIfBlank(owner.Address),
+            NullIfBlank(owner.LandValuationNumber),
+            NullIfBlank(owner.ExaminationNumber),
+            NullIfBlank(owner.Volume),
+            NullIfBlank(owner.Folio),
+            source,
+            NullIfBlank(owner.ReviewStatus),
+            NullIfBlank(owner.ReviewNotes));
+    }
+
+    public static CompareComputedParticipantItem FromNamedParty(ExtractionReviewNamedParty party, string source)
+    {
+        return new CompareComputedParticipantItem(
+            NullIfBlank(party.Name),
+            NullIfBlank(party.Role) ?? source,
+            NullIfBlank(party.LotNumber),
+            NullIfBlank(party.Address),
+            NullIfBlank(party.LandValuationNumber),
+            NullIfBlank(party.ExaminationNumber),
+            NullIfBlank(party.Volume),
+            NullIfBlank(party.Folio),
+            source,
+            NullIfBlank(party.ReviewStatus),
+            NullIfBlank(party.ReviewNotes));
+    }
+
+    private static string? NullIfBlank(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
 

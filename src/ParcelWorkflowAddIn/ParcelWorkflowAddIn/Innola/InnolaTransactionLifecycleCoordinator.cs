@@ -68,7 +68,16 @@ public sealed class InnolaTransactionLifecycleCoordinator
         var now = NowString();
         try
         {
-            var request = CreateRequest("claim");
+            var session = await EnsureCurrentSessionForInnolaAsync(
+                "transaction lifecycle start",
+                "transaction_claim_session_refresh",
+                cancellationToken).ConfigureAwait(false);
+            if (session is null)
+            {
+                return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+            }
+
+            var request = CreateRequest("claim", session);
             var result = await lifecycleService.ClaimAsync(request, cancellationToken);
             if (!result.Success)
             {
@@ -133,7 +142,16 @@ public sealed class InnolaTransactionLifecycleCoordinator
         var now = NowString();
         try
         {
-            var result = await lifecycleService.SaveProgressAsync(CreateRequest("save_progress"), cancellationToken);
+            var session = await EnsureCurrentSessionForInnolaAsync(
+                "transaction save progress",
+                "transaction_save_progress_session_refresh",
+                cancellationToken).ConfigureAwait(false);
+            if (session is null)
+            {
+                return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+            }
+
+            var result = await lifecycleService.SaveProgressAsync(CreateRequest("save_progress", session), cancellationToken);
             if (!result.Success)
             {
                 var message = SafeRetryMessage(result.Message, "Could not save progress. Try again.");
@@ -306,8 +324,17 @@ public sealed class InnolaTransactionLifecycleCoordinator
                         completionReadyReason: "ready",
                         spatialUnitApiStatus: "started");
 
+                    var spatialUnitSession = await EnsureCurrentSessionForInnolaAsync(
+                        "Innola Spatial Unit write",
+                        "compute_spatial_unit_session_refresh",
+                        cancellationToken).ConfigureAwait(false);
+                    if (spatialUnitSession is null)
+                    {
+                        return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+                    }
+
                     spatialUnitResult = await spatialUnitService.CreateOrUpdateAsync(
-                        sessionManager.CurrentSession!,
+                        spatialUnitSession,
                         sessionManager.SelectedTransaction!,
                         layout.RootDirectory,
                         disposition,
@@ -457,6 +484,15 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     completionReady: true,
                     completionReadyReason: "ready");
 
+                var reportAttachmentSession = await EnsureCurrentSessionForInnolaAsync(
+                    "Compute report attachment upload",
+                    "compute_report_attachment_session_refresh",
+                    cancellationToken).ConfigureAwait(false);
+                if (reportAttachmentSession is null)
+                {
+                    return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+                }
+
                 var attachmentResult = await computeReportAttachmentService.UploadAsync(
                     sessionManager.SelectedTransaction!,
                     reportResult.PdfReportPath!,
@@ -520,8 +556,17 @@ public sealed class InnolaTransactionLifecycleCoordinator
                         spatialUnitId: disposition.SpatialUnitId,
                         spatialUnitApiStatus: disposition.SpatialUnitApiStatus);
 
+                    var planCheckSession = await EnsureCurrentSessionForInnolaAsync(
+                        "Innola Plan Examination writeback",
+                        "compute_plan_examination_session_refresh",
+                        cancellationToken).ConfigureAwait(false);
+                    if (planCheckSession is null)
+                    {
+                        return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+                    }
+
                     var planCheckResult = await planCheckService.WriteAsync(
-                        sessionManager.CurrentSession!,
+                        planCheckSession,
                         sessionManager.SelectedTransaction!,
                         layout.RootDirectory,
                         disposition,
@@ -573,6 +618,15 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     LifecycleStatusForManifest(),
                     completionReady: true,
                     completionReadyReason: "ready");
+
+                var plaAttachmentSession = await EnsureCurrentSessionForInnolaAsync(
+                    "PLA output attachment upload",
+                    "pla_output_attachment_session_refresh",
+                    cancellationToken).ConfigureAwait(false);
+                if (plaAttachmentSession is null)
+                {
+                    return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+                }
 
                 var plaUpload = await plaFinalizeService.UploadGeneratedOutputsAsync(
                     layout,
@@ -667,7 +721,16 @@ public sealed class InnolaTransactionLifecycleCoordinator
                     workingPackageUploadStatus: disposition.WorkingPackageUploadStatus);
             }
 
-            var result = await lifecycleService.CompleteAsync(CreateRequest("complete"), cancellationToken);
+            var completeSession = await EnsureCurrentSessionForInnolaAsync(
+                "transaction lifecycle complete",
+                "transaction_complete_session_refresh",
+                cancellationToken).ConfigureAwait(false);
+            if (completeSession is null)
+            {
+                return InnolaTransactionLoadResult.Failure(InnolaApiResilience.LoginRequiredMessage);
+            }
+
+            var result = await lifecycleService.CompleteAsync(CreateRequest("complete", completeSession), cancellationToken);
             if (!result.Success)
             {
                 var message = SafeRetryMessage(result.Message, "Could not complete transaction. Try again.");
@@ -711,8 +774,21 @@ public sealed class InnolaTransactionLifecycleCoordinator
 
             packagePath = package.PackagePath;
             var content = await File.ReadAllBytesAsync(package.PackagePath, cancellationToken);
+            var session = await EnsureCurrentSessionForInnolaAsync(
+                $"{sourceType} attachment upload",
+                "transaction_attachment_upload_session_refresh",
+                cancellationToken).ConfigureAwait(false);
+            if (session is null)
+            {
+                return CasePackageUploadResult.Failure(
+                    fileName,
+                    sourceType,
+                    InnolaApiResilience.LoginRequiredMessage,
+                    "login_required");
+            }
+
             var result = await detailService.UploadAttachmentAsync(
-                sessionManager.CurrentSession!,
+                session,
                 transaction,
                 fileName,
                 package.ContentType,
@@ -959,10 +1035,38 @@ public sealed class InnolaTransactionLifecycleCoordinator
         return null;
     }
 
-    private InnolaTransactionLifecycleRequest CreateRequest(string reason)
+    private async Task<InnolaSession?> EnsureCurrentSessionForInnolaAsync(
+        string operationName,
+        string auditAction,
+        CancellationToken cancellationToken)
+    {
+        var result = await sessionManager.EnsureCurrentSessionAsync(
+            operationName,
+            sessionManager.SelectedTransaction?.TransactionNumber,
+            forceRefresh: true,
+            cancellationToken).ConfigureAwait(false);
+
+        UpdateManifestAndAudit(
+            auditAction,
+            result.Success ? "succeeded" : "failed",
+            result.Message,
+            result.ErrorCategory,
+            result.Success ? LifecycleStatusForManifest() : "error",
+            lastErrorCategory: result.ErrorCategory);
+
+        if (!result.Success || result.Session is null)
+        {
+            sessionManager.MarkLifecycleError(result.Message);
+            return null;
+        }
+
+        return result.Session;
+    }
+
+    private InnolaTransactionLifecycleRequest CreateRequest(string reason, InnolaSession session)
     {
         return new InnolaTransactionLifecycleRequest(
-            sessionManager.CurrentSession!,
+            session,
             sessionManager.SelectedTransaction!,
             sessionManager.LoadedCaseFolderPath!,
             LifecycleStatusForManifest(),

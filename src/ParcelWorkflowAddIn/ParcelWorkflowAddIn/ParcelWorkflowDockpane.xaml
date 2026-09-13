@@ -277,10 +277,28 @@
     <Border DockPanel.Dock="Bottom"
             Background="#25313A"
             Padding="12,8">
-      <TextBlock Text="{Binding StatusText}"
-                 FontSize="11"
-                 Foreground="#D8E2E8"
-                 TextWrapping="Wrap" />
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right"
+                    Margin="10,0,0,0"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding IsWorkflowOperationRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <ProgressBar Width="64"
+                       Height="8"
+                       IsIndeterminate="True"
+                       VerticalAlignment="Center" />
+          <TextBlock Text="{Binding WorkflowOperationRunningText}"
+                     Margin="6,0,0,0"
+                     FontSize="11"
+                     FontWeight="SemiBold"
+                     Foreground="#FFFFFF"
+                     VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="{Binding StatusText}"
+                   FontSize="11"
+                   Foreground="#D8E2E8"
+                   TextWrapping="Wrap" />
+      </DockPanel>
     </Border>
 
     <ScrollViewer Margin="8"
@@ -468,7 +486,7 @@
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
-                  <Button Content="Process"
+                  <Button Content="Run Checks"
                           Command="{Binding RunPreflightCommand}"
                           IsEnabled="{Binding CanRunPreflight}"
                           Style="{StaticResource SmallButtonStyle}" />
@@ -585,9 +603,9 @@
                                      FontSize="11"
                                      Foreground="#1F2933" />
                         </Border>
-                        <Button Content="Process"
-                                Command="{Binding RunGeoreferenceCheckCommand}"
-                                IsEnabled="{Binding CanRunGeoreferenceCheck}"
+                        <Button Content="Run Checks"
+                                Command="{Binding RunPreflightCommand}"
+                                IsEnabled="{Binding CanRunPreflight}"
                                 Style="{StaticResource SmallButtonStyle}"
                                 Margin="6,0,0,0" />
                       </StackPanel>
@@ -692,9 +710,9 @@
                                      FontSize="11"
                                      Foreground="#1F2933" />
                         </Border>
-                        <Button Content="Process"
-                                Command="{Binding RunDimensionCheckCommand}"
-                                IsEnabled="{Binding CanRunDimensionCheck}"
+                        <Button Content="Run Checks"
+                                Command="{Binding RunPreflightCommand}"
+                                IsEnabled="{Binding CanRunPreflight}"
                                 Style="{StaticResource SmallButtonStyle}"
                                 Margin="6,0,0,0" />
                       </StackPanel>
@@ -799,9 +817,9 @@
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
-                  <Button Content="Process"
-                          Command="{Binding RunGeoreferenceCheckCommand}"
-                          IsEnabled="{Binding CanRunGeoreferenceCheck}"
+                  <Button Content="Run Checks"
+                          Command="{Binding RunPreflightCommand}"
+                          IsEnabled="{Binding CanRunPreflight}"
                           Style="{StaticResource SmallButtonStyle}" />
                 </StackPanel>
               </DockPanel>
@@ -875,9 +893,9 @@
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
-                  <Button Content="Process"
-                          Command="{Binding RunDimensionCheckCommand}"
-                          IsEnabled="{Binding CanRunDimensionCheck}"
+                  <Button Content="Run Checks"
+                          Command="{Binding RunPreflightCommand}"
+                          IsEnabled="{Binding CanRunPreflight}"
                           Style="{StaticResource SmallButtonStyle}" />
                 </StackPanel>
               </DockPanel>
@@ -1123,12 +1141,12 @@
                             MinWidth="156"
                             Height="28"
                             VerticalAlignment="Top" />
-                    <Button Content="Reprocess"
+                    <Button Content="Rerun Extraction"
                             Command="{Binding ReprocessExtractionReviewCommand}"
                             IsEnabled="{Binding CanReprocessExtractionReview}"
                             Style="{StaticResource SmallButtonStyle}"
                             Margin="0,0,6,0"
-                            MinWidth="78"
+                            MinWidth="118"
                             Height="28"
                             VerticalAlignment="Top"
                             Visibility="{Binding ShowReprocessExtractionAction, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -1671,7 +1689,7 @@
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
-                  <Button Content="Run"
+                  <Button Content="Create"
                           Command="{Binding RunValidationCommand}"
                           IsEnabled="{Binding CanRunValidation}"
                           Style="{StaticResource SmallButtonStyle}" />
@@ -1703,7 +1721,7 @@
             <Border Style="{StaticResource SectionHeaderBorderStyle}">
               <DockPanel Height="36"
                          LastChildFill="False">
-                <TextBlock Text="Create Spatial Units"
+                <TextBlock Text="Spatial Unit Output"
                            Style="{StaticResource SectionHeaderTextStyle}"
                            Margin="10,0,0,0" />
                 <StackPanel DockPanel.Dock="Right"
@@ -1715,13 +1733,9 @@
                                FontSize="11"
                                Foreground="#1F2933" />
                   </Border>
-                  <Button Content="Run"
+                  <Button Content="Create"
                           Command="{Binding RunOutputsCommand}"
                           IsEnabled="{Binding CanRunOutputs}"
-                          Style="{StaticResource SmallButtonStyle}"
-                          Margin="0,0,6,0" />
-                  <Button Content="{Binding OutputPreviewToggleText}"
-                          Command="{Binding ToggleOutputPreviewCommand}"
                           Style="{StaticResource SmallButtonStyle}" />
                 </StackPanel>
               </DockPanel>
@@ -1734,38 +1748,6 @@
                            FontSize="11"
                            Foreground="#52616B"
                            TextWrapping="Wrap" />
-                <Border Margin="0,8,0,0"
-                        Padding="8"
-                        Background="#F7F8FA"
-                        BorderBrush="#E1E8ED"
-                        BorderThickness="1"
-                        CornerRadius="4"
-                        Visibility="{Binding OutputPreviewExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <TextBlock Text="{Binding OutputPreviewBodyText}"
-                             FontSize="11"
-                             Foreground="#52616B"
-                             TextWrapping="Wrap" />
-                </Border>
-                <ItemsControl ItemsSource="{Binding OutputArtifacts}"
-                              Margin="0,8,0,0"
-                              Visibility="{Binding OutputPreviewExpanded, Converter={StaticResource BooleanToVisibilityConverter}}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Margin="0,0,0,6">
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="*" />
-                          <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding ArtifactName}"
-                                   FontSize="12"
-                                   Foreground="#1F2933" />
-                        <TextBlock Grid.Column="1"
-                                   Text="case artifact"
-                                   Style="{StaticResource CaptionTextStyle}" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
               </StackPanel>
             </Border>
           </StackPanel>

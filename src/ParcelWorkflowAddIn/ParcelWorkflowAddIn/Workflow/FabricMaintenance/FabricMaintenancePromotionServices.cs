@@ -1436,6 +1436,32 @@ public sealed class DeferredFabricMaintenanceFinalWriteCompletionService : IFabr
     }
 }
 
+public interface IFabricMaintenanceCancelService
+{
+    Task<FabricMaintenanceCancelResult> CancelAsync(
+        string currentTransactionNumber,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record FabricMaintenanceCancelResult(bool Success, string Message)
+{
+    public static FabricMaintenanceCancelResult Succeeded(string message) => new(true, message);
+
+    public static FabricMaintenanceCancelResult Failed(string message) => new(false, message);
+}
+
+public sealed class DeferredFabricMaintenanceCancelService : IFabricMaintenanceCancelService
+{
+    public Task<FabricMaintenanceCancelResult> CancelAsync(
+        string currentTransactionNumber,
+        CancellationToken cancellationToken = default)
+    {
+        _ = currentTransactionNumber;
+        _ = cancellationToken;
+        return Task.FromResult(FabricMaintenanceCancelResult.Succeeded("Fabric Maintenance review closed."));
+    }
+}
+
 public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMaintenanceFinalWriteCompletionService
 {
     public const string DesiredCompletionTransitionName = "Review & Approve Parcel Fabric Update";
@@ -1443,6 +1469,7 @@ public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMainte
     private const string CompletedMessage = "Fabric Maintenance final write completed and moved to the next Innola stage.";
 
     private readonly Func<InnolaSession?> getSession;
+    private readonly Func<string, string?, CancellationToken, Task<InnolaSessionEnsureResult>> ensureSession;
     private readonly Func<SelectedInnolaTransaction?> getTransaction;
     private readonly Func<string?> getCaseFolderPath;
     private readonly Func<string?> getExaminer;
@@ -1460,10 +1487,12 @@ public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMainte
         IInnolaTransactionLifecycleService lifecycleService,
         IFabricMaintenanceSummaryAttachmentService summaryAttachmentService,
         FabricMaintenancePromotionFinalActionService finalActionService,
+        Func<string, string?, CancellationToken, Task<InnolaSessionEnsureResult>>? ensureSession = null,
         Action<string, string>? markCompleted = null,
         Action<string>? markError = null)
     {
         this.getSession = getSession;
+        this.ensureSession = ensureSession ?? DefaultEnsureSessionAsync;
         this.getTransaction = getTransaction;
         this.getCaseFolderPath = getCaseFolderPath;
         this.getExaminer = getExaminer;
@@ -1479,10 +1508,12 @@ public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMainte
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(review);
-        var session = getSession();
-        if (session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+
+        var ensured = await ensureSession("Fabric Maintenance final write", review.CurrentTransactionNumber, cancellationToken).ConfigureAwait(false);
+        var session = ensured.Session;
+        if (!ensured.Success || session is null || string.IsNullOrWhiteSpace(session.AccessToken))
         {
-            return Failure("Fabric Maintenance final write requires an active Innola session.");
+            return Failure(InnolaApiResilience.LoginRequiredMessage);
         }
 
         var transaction = getTransaction();
@@ -1510,6 +1541,13 @@ public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMainte
             return Failure(attachment.Message);
         }
 
+        ensured = await ensureSession("Fabric Maintenance final write completion", review.CurrentTransactionNumber, cancellationToken).ConfigureAwait(false);
+        session = ensured.Session;
+        if (!ensured.Success || session is null || string.IsNullOrWhiteSpace(session.AccessToken))
+        {
+            return Failure(InnolaApiResilience.LoginRequiredMessage);
+        }
+
         var finalAction = finalActionService.Execute(layout, review, getExaminer(), summaryAttachmentSucceeded: true);
         var readiness = FabricMaintenanceCompletionReadinessService.Evaluate(finalAction);
         if (!readiness.IsReady)
@@ -1533,6 +1571,21 @@ public sealed class FabricMaintenanceFinalWriteCompletionService : IFabricMainte
 
         markCompleted?.Invoke(DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), CompletedMessage);
         return new FabricMaintenanceFinalWriteCompletionResult(true, CompletedMessage);
+    }
+
+    private Task<InnolaSessionEnsureResult> DefaultEnsureSessionAsync(
+        string operationName,
+        string? transactionNumber,
+        CancellationToken cancellationToken)
+    {
+        _ = operationName;
+        _ = transactionNumber;
+        _ = cancellationToken;
+
+        var session = getSession();
+        return Task.FromResult(session is null || string.IsNullOrWhiteSpace(session.AccessToken)
+            ? InnolaSessionEnsureResult.Failed(InnolaApiResilience.LoginRequiredMessage, "login_required")
+            : InnolaSessionEnsureResult.Succeeded(session, "Innola session is active."));
     }
 
     private FabricMaintenanceFinalWriteCompletionResult Failure(string message)

@@ -76,6 +76,26 @@ VOLUME_FOLIO_PATTERNS = [
         re.IGNORECASE,
     ),
 ]
+GPS_INSTRUMENT_PATTERNS = [
+    re.compile(
+        r"\bGPS\s+(?:instrument|receiver)(?:\s+(?:number|no\.?|#))?\s*[:#-]?\s*(?P<value>[A-Z0-9][A-Z0-9 ./_-]{1,40})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:instrument|receiver)\s+(?:number|no\.?|#)\s*[:#-]?\s*(?P<value>GPS[A-Z0-9 ./_-]{1,40})",
+        re.IGNORECASE,
+    ),
+]
+GPS_SERIAL_PATTERNS = [
+    re.compile(
+        r"\bGPS\s+(?:serial|s/?n|sn)(?:\s+(?:number|no\.?|#))?\s*[:#-]?\s*(?P<value>[A-Z0-9][A-Z0-9 ./_-]{1,40})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:GPS|GNSS)\b.{0,30}\b(?:serial|s/?n|sn)(?:\s+(?:number|no\.?|#))?\s*[:#-]?\s*(?P<value>[A-Z0-9][A-Z0-9 ./_-]{1,40})",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _build_document_text_metrics_from_pages(pages: list[_PdfTextMetricPage]) -> dict:
@@ -378,6 +398,56 @@ def _extract_volume_folios(pages: list[str]) -> list[dict]:
                     )
     return volume_folios
 
+
+def _clean_metadata_value(value: str) -> str:
+    cleaned = value.strip().strip(" .;,")
+    cleaned = re.split(
+        r"\s{2,}|\s+(?:(?:GPS\s+)?(?:SERIAL|S/?N|SN)(?:\s+(?:NUMBER|NO\.?|#))?|DATE|CHECK|PARISH|SCALE|SURVEYOR|METHOD)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    return cleaned.strip().strip(" .;,")
+
+
+def _field(value: str, raw_text: str, source_page: int, source_zone: str) -> dict:
+    return {
+        "value": value,
+        "raw_text": raw_text,
+        "confidence": 0.8,
+        "source_page": source_page,
+        "source_zone": source_zone,
+        "review_status": "needs_review",
+    }
+
+
+def _extract_gps_metadata(pages: list[str]) -> dict:
+    metadata: dict[str, dict] = {}
+    for page_index, page_text in enumerate(pages, start=1):
+        for raw_line in page_text.splitlines():
+            line = _normalize_line(raw_line)
+            if not line:
+                continue
+
+            if "gps_instrument_number" not in metadata:
+                for pattern in GPS_INSTRUMENT_PATTERNS:
+                    match = pattern.search(line)
+                    if match:
+                        value = _clean_metadata_value(match.group("value"))
+                        if value:
+                            metadata["gps_instrument_number"] = _field(value, line, page_index, "instrument_block")
+                            break
+
+            if "gps_serial_number" not in metadata:
+                for pattern in GPS_SERIAL_PATTERNS:
+                    match = pattern.search(line)
+                    if match:
+                        value = _clean_metadata_value(match.group("value"))
+                        if value:
+                            metadata["gps_serial_number"] = _field(value, line, page_index, "instrument_block")
+                            break
+    return metadata
+
 COMPUTE_SHEET_KEYWORDS = (
     "COMPUTATION SHEET",
     "COMPUTE SHEET",
@@ -424,6 +494,9 @@ def _parse_pages(pages: list[str], transaction_number: str, document_text_metric
     rows: list[dict] = []
     parcel_names: list[str] = []
     volume_folios = _extract_volume_folios(pages)
+    survey_metadata = _extract_gps_metadata(pages)
+    if volume_folios:
+        survey_metadata["volume_folio"] = volume_folios
     embedded_compute_sheet = _detect_embedded_compute_sheet_pages(pages)
     document_text_metrics = document_text_metrics or {"status": "not_available", "pages": []}
     current_parcel_name: str | None = None
@@ -624,7 +697,7 @@ def _parse_pages(pages: list[str], transaction_number: str, document_text_metric
             "fallback_reason": "parse_confidence_low",
             "parsed_parcel_count": 0,
             "parsed_row_count": 0,
-            "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
+            "survey_metadata": survey_metadata,
             "embedded_compute_sheet": embedded_compute_sheet,
             "document_text_metrics": document_text_metrics,
         }
@@ -650,7 +723,7 @@ def _parse_pages(pages: list[str], transaction_number: str, document_text_metric
         "parcel_count": len({row["parcel_group_id"] for row in normalized_rows}),
         "row_count": len(normalized_rows),
         "extraction_source": "embedded_text_pdf",
-        "survey_metadata": {"volume_folio": volume_folios} if volume_folios else {},
+        "survey_metadata": survey_metadata,
         "embedded_compute_sheet": {**embedded_compute_sheet, "rows": normalized_rows if embedded_compute_sheet.get("detected") else []},
         "document_text_metrics": document_text_metrics,
         "rows": normalized_rows,

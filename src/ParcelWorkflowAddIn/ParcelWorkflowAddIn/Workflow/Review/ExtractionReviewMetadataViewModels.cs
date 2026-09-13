@@ -264,6 +264,12 @@ public sealed class ExtractionReviewNamedPartyViewModel : INotifyPropertyChanged
     private readonly Action onPartyChanged;
     private string name;
     private string role;
+    private string lotNumber;
+    private string address;
+    private string landValuationNumber;
+    private string examinationNumber;
+    private string volume;
+    private string folio;
     private string sourceGroup;
     private string reviewStatus;
     private string reviewNotes;
@@ -275,6 +281,12 @@ public sealed class ExtractionReviewNamedPartyViewModel : INotifyPropertyChanged
         this.onPartyChanged = onPartyChanged;
         name = model.Name;
         role = model.Role;
+        lotNumber = model.LotNumber;
+        address = model.Address;
+        landValuationNumber = model.LandValuationNumber;
+        examinationNumber = model.ExaminationNumber;
+        volume = model.Volume;
+        folio = model.Folio;
         reviewStatus = model.ReviewStatus;
         reviewNotes = model.ReviewNotes;
     }
@@ -311,6 +323,42 @@ public sealed class ExtractionReviewNamedPartyViewModel : INotifyPropertyChanged
         set => UpdateValue(ref role, value, model => model.Role = value?.Trim() ?? string.Empty);
     }
 
+    public string LotNumber
+    {
+        get => lotNumber;
+        set => UpdateValue(ref lotNumber, value, model => model.LotNumber = value?.Trim() ?? string.Empty);
+    }
+
+    public string Address
+    {
+        get => address;
+        set => UpdateValue(ref address, value, model => model.Address = value?.Trim() ?? string.Empty);
+    }
+
+    public string LandValuationNumber
+    {
+        get => landValuationNumber;
+        set => UpdateValue(ref landValuationNumber, value, model => model.LandValuationNumber = value?.Trim() ?? string.Empty);
+    }
+
+    public string ExaminationNumber
+    {
+        get => examinationNumber;
+        set => UpdateValue(ref examinationNumber, value, model => model.ExaminationNumber = value?.Trim() ?? string.Empty);
+    }
+
+    public string Volume
+    {
+        get => volume;
+        set => UpdateValue(ref volume, value, model => model.Volume = value?.Trim() ?? string.Empty);
+    }
+
+    public string Folio
+    {
+        get => folio;
+        set => UpdateValue(ref folio, value, model => model.Folio = value?.Trim() ?? string.Empty);
+    }
+
     public string SourceLabel
     {
         get
@@ -340,6 +388,12 @@ public sealed class ExtractionReviewNamedPartyViewModel : INotifyPropertyChanged
     {
         Model.Name = name.Trim();
         Model.Role = role.Trim();
+        Model.LotNumber = lotNumber.Trim();
+        Model.Address = address.Trim();
+        Model.LandValuationNumber = landValuationNumber.Trim();
+        Model.ExaminationNumber = examinationNumber.Trim();
+        Model.Volume = volume.Trim();
+        Model.Folio = folio.Trim();
         Model.ReviewStatus = reviewStatus.Trim();
         Model.ReviewNotes = reviewNotes.Trim();
     }
@@ -361,6 +415,161 @@ public sealed class ExtractionReviewNamedPartyViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+public sealed class ExtractionReviewParticipantViewModel : INotifyPropertyChanged
+{
+    private readonly ExtractionReviewAdjacentOwnerViewModel? adjacentOwner;
+    private readonly ExtractionReviewNamedPartyViewModel? namedParty;
+
+    public ExtractionReviewParticipantViewModel(ExtractionReviewAdjacentOwnerViewModel adjacentOwner)
+    {
+        this.adjacentOwner = adjacentOwner;
+        adjacentOwner.PropertyChanged += OnSourcePropertyChanged;
+    }
+
+    public ExtractionReviewParticipantViewModel(ExtractionReviewNamedPartyViewModel namedParty)
+    {
+        this.namedParty = namedParty;
+        namedParty.PropertyChanged += OnSourcePropertyChanged;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Name
+    {
+        get => adjacentOwner?.Name ?? namedParty?.Name ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.Name = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.Name = value;
+            }
+        }
+    }
+
+    public string Role
+    {
+        get => adjacentOwner?.Role ?? namedParty?.Role ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.Role = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.Role = value;
+            }
+        }
+    }
+
+    public string LotNumber
+    {
+        get => adjacentOwner?.LotNumber ?? namedParty?.LotNumber ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.LotNumber = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.LotNumber = value;
+            }
+        }
+    }
+
+    public string Address
+    {
+        get => adjacentOwner?.Address ?? namedParty?.Address ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.Address = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.Address = value;
+            }
+        }
+    }
+
+    public string LandValuationNumber
+    {
+        get => adjacentOwner?.LandValuationNumber ?? namedParty?.LandValuationNumber ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.LandValuationNumber = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.LandValuationNumber = value;
+            }
+        }
+    }
+
+    public string ExaminationNumber
+    {
+        get => adjacentOwner?.ExaminationNumber ?? namedParty?.ExaminationNumber ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.ExaminationNumber = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.ExaminationNumber = value;
+            }
+        }
+    }
+
+    public string Volume
+    {
+        get => adjacentOwner?.Volume ?? namedParty?.Volume ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.Volume = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.Volume = value;
+            }
+        }
+    }
+
+    public string Folio
+    {
+        get => adjacentOwner?.Folio ?? namedParty?.Folio ?? string.Empty;
+        set
+        {
+            if (adjacentOwner is not null)
+            {
+                adjacentOwner.Folio = value;
+            }
+            else if (namedParty is not null)
+            {
+                namedParty.Folio = value;
+            }
+        }
+    }
+
+    public string SourceLabel => adjacentOwner?.SegmentLabel ?? namedParty?.SourceLabel ?? string.Empty;
+
+    private void OnSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        PropertyChanged?.Invoke(this, e);
     }
 }
 
@@ -460,23 +669,48 @@ public sealed class ExtractionReviewVolumeFolioViewModel : INotifyPropertyChange
     }
 }
 
-public sealed class ExtractionReviewMemorandumGroupViewModel
+public sealed class ExtractionReviewMemorandumGroupViewModel : INotifyPropertyChanged
 {
     public ExtractionReviewMemorandumGroupViewModel(ExtractionReviewMemorandumGroup model, Action onRuleChanged)
     {
         Model = model;
         Rules = model.Rules
-            .Select(rule => new ExtractionReviewMemorandumRuleResultViewModel(rule, onRuleChanged))
+            .Select(rule => new ExtractionReviewMemorandumRuleResultViewModel(rule, () =>
+            {
+                OnPropertyChanged(nameof(Summary));
+                onRuleChanged();
+            }))
             .ToArray();
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public ExtractionReviewMemorandumGroup Model { get; }
 
     public string DisplayName => Model.DisplayName;
 
-    public string Summary => Model.Summary;
+    public string Summary
+    {
+        get
+        {
+            var needsReview = Rules.Count(rule => rule.IsUnresolvedDisposition);
+            return needsReview == 1
+                ? "1 needs review"
+                : $"{needsReview} needs review";
+        }
+    }
 
     public IReadOnlyList<ExtractionReviewMemorandumRuleResultViewModel> Rules { get; }
+
+    public void RefreshSummary()
+    {
+        OnPropertyChanged(nameof(Summary));
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 }
 
 public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPropertyChanged
@@ -514,18 +748,28 @@ public sealed class ExtractionReviewMemorandumRuleResultViewModel : INotifyPrope
     public string ReviewerStatus
     {
         get => reviewerStatus;
-        set
-        {
-            var next = value?.Trim() ?? string.Empty;
-            if (string.Equals(reviewerStatus, next, StringComparison.Ordinal))
-            {
-                return;
-            }
+        set => SetReviewerStatus(value, notifyReviewChanged: true);
+    }
 
-            reviewerStatus = next;
-            Model.ReviewerStatus = next;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(IsUnresolvedDisposition));
+    public void SetReviewerStatusForBulkApply(string value)
+    {
+        SetReviewerStatus(value, notifyReviewChanged: false);
+    }
+
+    private void SetReviewerStatus(string value, bool notifyReviewChanged)
+    {
+        var next = value?.Trim() ?? string.Empty;
+        if (string.Equals(reviewerStatus, next, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        reviewerStatus = next;
+        Model.ReviewerStatus = next;
+        OnPropertyChanged(nameof(ReviewerStatus));
+        OnPropertyChanged(nameof(IsUnresolvedDisposition));
+        if (notifyReviewChanged)
+        {
             onRuleChanged();
         }
     }

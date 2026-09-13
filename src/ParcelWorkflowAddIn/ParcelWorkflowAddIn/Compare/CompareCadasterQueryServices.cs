@@ -46,7 +46,8 @@ public static class CompareCadasterQueryServiceFactory
         InnolaTransactionSettings settings,
         Func<InnolaSession?>? getSession = null,
         HttpClient? httpClient = null,
-        Func<DateTimeOffset>? getUtcNow = null)
+        Func<DateTimeOffset>? getUtcNow = null,
+        Func<string, CancellationToken, Task<InnolaSessionEnsureResult>>? ensureSessionAsync = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         if (settings.Mode.Equals("mock", StringComparison.OrdinalIgnoreCase))
@@ -70,7 +71,8 @@ public static class CompareCadasterQueryServiceFactory
                 getSession ?? (() => null),
                 httpClient ?? new HttpClient(),
                 getUtcNow,
-                settings.CompareCadaster.TimeoutSeconds);
+                settings.CompareCadaster.TimeoutSeconds,
+                ensureSessionAsync: ensureSessionAsync);
         }
 
         return new UnsupportedLegalCadasterQueryService(
@@ -117,6 +119,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
     private readonly HttpClient httpClient;
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly Func<string, bool> hasInnolaSessionCookie;
+    private readonly Func<string, CancellationToken, Task<InnolaSessionEnsureResult>>? ensureSessionAsync;
     private readonly int timeoutSeconds;
     private string SearchDisplayName => source.Adapter.Equals("innola_owner_search", StringComparison.OrdinalIgnoreCase)
         ? "Innola owner search"
@@ -128,13 +131,15 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         HttpClient httpClient,
         Func<DateTimeOffset>? getUtcNow = null,
         int timeoutSeconds = 30,
-        Func<string, bool>? hasInnolaSessionCookie = null)
+        Func<string, bool>? hasInnolaSessionCookie = null,
+        Func<string, CancellationToken, Task<InnolaSessionEnsureResult>>? ensureSessionAsync = null)
     {
         this.source = source;
         this.getSession = getSession;
         this.httpClient = httpClient;
         this.getUtcNow = getUtcNow ?? (() => DateTimeOffset.UtcNow);
         this.hasInnolaSessionCookie = hasInnolaSessionCookie ?? (serverUrl => InnolaHttpClientFactory.HasCookie(serverUrl, "INNOLAID"));
+        this.ensureSessionAsync = ensureSessionAsync;
         this.timeoutSeconds = Math.Max(1, timeoutSeconds);
     }
 
@@ -272,17 +277,18 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         string payload,
         CancellationToken cancellationToken)
     {
-        var session = getSession();
-        if (session is null || string.IsNullOrWhiteSpace(session.ServerUrl) || string.IsNullOrWhiteSpace(session.AccessToken))
+        var ensured = await EnsureSessionForSearchAsync($"{SearchDisplayName} search", cancellationToken).ConfigureAwait(false);
+        if (!ensured.Success || !HasRequiredInnolaSessionFields(ensured.Session))
         {
             return LegalCadasterQueryResult.Failed(
                 query,
-                $"Innola session is not available for {SearchDisplayName}.",
-                "Login to Innola before running live Compare legal cadaster queries.");
+                InnolaApiResilience.LoginRequiredMessage,
+                $"Login to Innola before running live Compare legal cadaster queries. {ensured.Message}");
         }
 
         try
         {
+            var session = ensured.Session!;
             var searchUri = ResolveSearchUri(session.ServerUrl);
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
@@ -335,11 +341,32 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         string accessToken,
         CancellationToken cancellationToken)
     {
-        using var request = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true);
-        using var response = await InnolaApiResilience.SendAsync(
+        var currentSearchUri = searchUri;
+        var currentServerUrl = serverUrl;
+        var currentAccessToken = accessToken;
+        using var request = CreateSearchRequest(currentSearchUri, currentServerUrl, payload, currentAccessToken, includeAccessToken: true);
+        using var response = await InnolaApiResilience.SendWithAuthorizationRefreshAsync(
             httpClient,
             new InnolaApiOperation($"{SearchDisplayName} search"),
-            () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: true),
+            () => CreateSearchRequest(currentSearchUri, currentServerUrl, payload, currentAccessToken, includeAccessToken: true),
+            async retryCancellationToken =>
+            {
+                if (ensureSessionAsync is null)
+                {
+                    return false;
+                }
+
+                var refreshed = await EnsureSessionForSearchAsync($"{SearchDisplayName} search auth retry", retryCancellationToken).ConfigureAwait(false);
+                if (!refreshed.Success || !HasRequiredInnolaSessionFields(refreshed.Session))
+                {
+                    return false;
+                }
+
+                currentServerUrl = refreshed.Session!.ServerUrl;
+                currentAccessToken = refreshed.Session.AccessToken;
+                currentSearchUri = ResolveSearchUri(currentServerUrl);
+                return true;
+            },
             cancellationToken).ConfigureAwait(false);
         if (response.IsSuccessStatusCode)
         {
@@ -347,13 +374,13 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         }
 
         var failureBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (ShouldRetryWithoutAccessToken(response.StatusCode, serverUrl, request))
+        if (ShouldRetryWithoutAccessToken(response.StatusCode, currentServerUrl, request))
         {
-            using var cookieOnlyRequest = CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false);
+            using var cookieOnlyRequest = CreateSearchRequest(currentSearchUri, currentServerUrl, payload, currentAccessToken, includeAccessToken: false);
             using var cookieOnlyResponse = await InnolaApiResilience.SendAsync(
                 httpClient,
                 new InnolaApiOperation($"{SearchDisplayName} search cookie-only"),
-                () => CreateSearchRequest(searchUri, serverUrl, payload, accessToken, includeAccessToken: false),
+                () => CreateSearchRequest(currentSearchUri, currentServerUrl, payload, currentAccessToken, includeAccessToken: false),
                 cancellationToken).ConfigureAwait(false);
             if (cookieOnlyResponse.IsSuccessStatusCode)
             {
@@ -367,7 +394,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             return (null, LegalCadasterQueryResult.Failed(
                 query,
                 cookieOnlyFailureMessage,
-                $"{BuildFailureDiagnostic(cookieOnlyResponse.StatusCode, serverUrl, cookieOnlyRequest, $"{SearchDisplayName} cookie-only retry", cookieOnlyFailureBody)} Initial Access-Token response was {(int)response.StatusCode} {response.StatusCode}: {LegalCadasterQueryResult.Redact(failureBody)}"));
+                $"{BuildFailureDiagnostic(cookieOnlyResponse.StatusCode, currentServerUrl, cookieOnlyRequest, $"{SearchDisplayName} cookie-only retry", cookieOnlyFailureBody)} Initial Access-Token response was {(int)response.StatusCode} {response.StatusCode}: {LegalCadasterQueryResult.Redact(failureBody)}"));
         }
 
         var failureMessage = InnolaApiResilience.IsAuthorizationFailure(response.StatusCode)
@@ -376,7 +403,7 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
         return (null, LegalCadasterQueryResult.Failed(
             query,
             failureMessage,
-            BuildFailureDiagnostic(response.StatusCode, serverUrl, request, SearchDisplayName, failureBody)));
+            BuildFailureDiagnostic(response.StatusCode, currentServerUrl, request, SearchDisplayName, failureBody)));
     }
 
     private async Task<LegalCadasterQueryResult?> AppendRemainingOwnerSearchPagesAsync(
@@ -588,7 +615,8 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
             httpClient,
             getUtcNow,
             timeoutSeconds,
-            hasInnolaSessionCookie);
+            hasInnolaSessionCookie,
+            ensureSessionAsync);
     }
 
     private string BuildSearchPayload(LegalCadasterQuery query)
@@ -735,6 +763,26 @@ public sealed class InnolaBaUnitLegalCadasterQueryService : ILegalCadasterQueryS
     private static string? NullIfBlank(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task<InnolaSessionEnsureResult> EnsureSessionForSearchAsync(string operation, CancellationToken cancellationToken)
+    {
+        if (ensureSessionAsync is not null)
+        {
+            return await ensureSessionAsync(operation, cancellationToken).ConfigureAwait(false);
+        }
+
+        var session = getSession();
+        return HasRequiredInnolaSessionFields(session)
+            ? InnolaSessionEnsureResult.Succeeded(session!, "Innola session is active.")
+            : InnolaSessionEnsureResult.Failed("Innola session is not available.", "login_required");
+    }
+
+    private static bool HasRequiredInnolaSessionFields(InnolaSession? session)
+    {
+        return session is not null
+            && !string.IsNullOrWhiteSpace(session.ServerUrl)
+            && !string.IsNullOrWhiteSpace(session.AccessToken);
     }
 
     private static void ApplyInnolaWebSearchHeaders(HttpRequestMessage request, string serverUrl)

@@ -121,6 +121,67 @@ class PdfTextStructuredExtractionTests(unittest.TestCase):
         self.assertEqual("856", volume_folio["folio"])
         self.assertIn("Volume/Folio", volume_folio["raw_text"])
 
+    def test_gps_metadata_aliases_are_extracted_to_review_metadata(self):
+        pages = [
+            "\n".join(
+                [
+                    "GPS instrument number: GPS-7",
+                    "GPS serial number: SN-12345",
+                    "Parcel Name: 110900201",
+                    "North: 644211.6910m East: 670076.2940m",
+                    "Line Course: N 04 -07-50 E Length: 10.107",
+                    "North: 644221.7717m East: 670077.0220m",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000400")
+
+        self.assertEqual("success", result["status"])
+        metadata = result["survey_metadata"]
+        self.assertEqual("GPS-7", metadata["gps_instrument_number"]["value"])
+        self.assertEqual("SN-12345", metadata["gps_serial_number"]["value"])
+        self.assertEqual("instrument_block", metadata["gps_serial_number"]["source_zone"])
+
+    def test_gps_metadata_stops_instrument_value_before_serial_label_on_same_line(self):
+        pages = [
+            "\n".join(
+                [
+                    "GPS instrument number: GPS-7 GPS serial number: SN-12345",
+                    "Parcel Name: 110900201",
+                    "North: 644211.6910m East: 670076.2940m",
+                    "Line Course: N 04 -07-50 E Length: 10.107",
+                    "North: 644221.7717m East: 670077.0220m",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000400")
+
+        self.assertEqual("success", result["status"])
+        metadata = result["survey_metadata"]
+        self.assertEqual("GPS-7", metadata["gps_instrument_number"]["value"])
+        self.assertEqual("SN-12345", metadata["gps_serial_number"]["value"])
+
+    def test_non_gps_serial_line_is_not_extracted_as_gps_serial(self):
+        pages = [
+            "\n".join(
+                [
+                    "Instrument: TOPCON GM-52",
+                    "Serial number: TS-999",
+                    "Parcel Name: 110900201",
+                    "North: 644211.6910m East: 670076.2940m",
+                    "Line Course: N 04 -07-50 E Length: 10.107",
+                    "North: 644221.7717m East: 670077.0220m",
+                ]
+            )
+        ]
+
+        result = pdf_text_structured_extraction._parse_pages(pages, "100000400")
+
+        self.assertEqual("success", result["status"])
+        self.assertNotIn("gps_serial_number", result["survey_metadata"])
+
     def test_document_text_metrics_uses_page_dimensions_and_span_heights(self):
         page = pdf_text_structured_extraction._PdfTextMetricPage(
             width_pt=612,

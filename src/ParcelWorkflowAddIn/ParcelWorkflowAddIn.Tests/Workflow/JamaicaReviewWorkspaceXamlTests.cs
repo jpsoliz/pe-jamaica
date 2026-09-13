@@ -49,7 +49,11 @@ internal static class JamaicaReviewWorkspaceXamlTests
             "PXA review workspace should expose a dedicated Memorandum tab with rule evidence, status, and workflow effect rows.");
         TestAssert.True(
             xaml.Contains("RowStyle=\"{StaticResource MemorandumRuleRowStyle}\"", StringComparison.Ordinal)
+            && xaml.Contains("<Style x:Key=\"SmallButtonStyle\"", StringComparison.Ordinal)
             && xaml.Contains("Binding=\"{Binding IsUnresolvedDisposition}\"", StringComparison.Ordinal)
+            && xaml.Contains("ItemsSource=\"{Binding BulkMemorandumStatusOptions}\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding ApplyBulkMemorandumDispositionCommand}\"", StringComparison.Ordinal)
+            && xaml.Contains("Apply to Needs Review", StringComparison.Ordinal)
             && xaml.Contains("Value=\"#B91C1C\"", StringComparison.Ordinal)
             && xaml.Contains("Header=\"Reviewer Disposition\"", StringComparison.Ordinal)
             && xaml.Contains("Header=\"Value\"", StringComparison.Ordinal)
@@ -65,11 +69,21 @@ internal static class JamaicaReviewWorkspaceXamlTests
             workspaceViewModelCode.Contains("VisibleMemorandumGroups", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("PxaMemorandumSummary", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("ApplyBulkMemorandumDisposition", StringComparison.Ordinal)
+            && (workspaceViewModelCode.Contains(".Where(rule => rule.IsUnresolvedDisposition)\r\n            .ToArray()", StringComparison.Ordinal)
+                || workspaceViewModelCode.Contains(".Where(rule => rule.IsUnresolvedDisposition)\n            .ToArray()", StringComparison.Ordinal))
+            && workspaceViewModelCode.Contains("rule.SetReviewerStatusForBulkApply(SelectedBulkMemorandumStatus)", StringComparison.Ordinal)
+            && workspaceViewModelCode.Contains("parent.NotifyReviewMetadataBatchChanged()", StringComparison.Ordinal)
+            && !workspaceViewModelCode.Contains("group.DisplayName}: {group.Summary}", StringComparison.Ordinal)
             && workspaceViewModelCode.Contains("ReviewMemorandumGroups.CollectionChanged", StringComparison.Ordinal),
             "PXA review view-model should project memorandum groups while hiding the Memorandum tab for PLA plan-annexation reviews.");
         var memorandumViewModelCode = File.ReadAllText(FindSourceFile("ExtractionReviewMetadataViewModels.cs"));
         TestAssert.True(
             memorandumViewModelCode.Contains("IsUnresolvedDisposition", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("ExtractionReviewMemorandumGroupViewModel : INotifyPropertyChanged", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("Rules.Count(rule => rule.IsUnresolvedDisposition)", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("RefreshSummary", StringComparison.Ordinal)
+            && memorandumViewModelCode.Contains("SetReviewerStatusForBulkApply", StringComparison.Ordinal)
             && memorandumViewModelCode.Contains("Needs Review", StringComparison.Ordinal)
             && memorandumViewModelCode.Contains("Accepted", StringComparison.Ordinal)
             && memorandumViewModelCode.Contains("Corrected", StringComparison.Ordinal)
@@ -83,6 +97,45 @@ internal static class JamaicaReviewWorkspaceXamlTests
             workflowDockpaneCode.Contains("!IsPlaPlanAnnexationReview\r\n        && loadedReviewDocument?.MemorandumRuleResults.Any", StringComparison.Ordinal)
             || workflowDockpaneCode.Contains("!IsPlaPlanAnnexationReview\n        && loadedReviewDocument?.MemorandumRuleResults.Any", StringComparison.Ordinal),
             "PLA reviews should not be blocked by hidden memorandum disposition rules.");
+    }
+
+    public static void DockpaneUsesCombinedChecksAndSingleRerunExtractionAction()
+    {
+        var xaml = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpane.xaml"));
+        var viewModelCode = File.ReadAllText(FindSourceFile("ParcelWorkflowDockpaneViewModel.cs"));
+
+        TestAssert.True(xaml.Contains("Content=\"Run Checks\"", StringComparison.Ordinal), "Structure card should expose a combined early-check action.");
+        TestAssert.True(xaml.Contains("Content=\"Rerun Extraction\"", StringComparison.Ordinal), "Forced extraction action should use one clear label.");
+        TestAssert.True(xaml.Contains("Text=\"Spatial Unit Output\"", StringComparison.Ordinal), "Output recovery card should not repeat the Create Spatial Units stage title.");
+        TestAssert.False(xaml.Contains("OutputPreviewToggleText", StringComparison.Ordinal), "Create Spatial Units output preview toggle should stay hidden from the dockpane.");
+        TestAssert.False(xaml.Contains("ToggleOutputPreviewCommand", StringComparison.Ordinal), "Create Spatial Units output preview command should not be exposed in the dockpane.");
+        TestAssert.False(xaml.Contains("Content=\"Reprocess\"", StringComparison.Ordinal), "Old Reprocess button label should be removed from the dockpane.");
+        TestAssert.True(
+            xaml.Contains("IsIndeterminate=\"True\"", StringComparison.Ordinal)
+            && xaml.Contains("Visibility=\"{Binding IsWorkflowOperationRunning, Converter={StaticResource BooleanToVisibilityConverter}}\"", StringComparison.Ordinal)
+            && xaml.Contains("Text=\"{Binding WorkflowOperationRunningText}\"", StringComparison.Ordinal)
+            && viewModelCode.Contains("IsWorkflowOperationRunning", StringComparison.Ordinal)
+            && viewModelCode.Contains("WorkflowOperationRunningText", StringComparison.Ordinal)
+            && viewModelCode.Contains("IsFinalizeOperationRunning", StringComparison.Ordinal)
+            && viewModelCode.Contains("\"Finalizing transaction...\"", StringComparison.Ordinal),
+            "Dockpane footer should expose a running indicator while workflow operations and Finalize are active.");
+        TestAssert.True(
+            viewModelCode.Contains("IsFinalizeOperationRunning = true;", StringComparison.Ordinal)
+            && viewModelCode.Contains("finally", StringComparison.Ordinal)
+            && viewModelCode.Contains("IsFinalizeOperationRunning = false;", StringComparison.Ordinal)
+            && viewModelCode.Contains("&& !IsFinalizeOperationRunning", StringComparison.Ordinal),
+            "Finalize should show progress, clear it reliably, and prevent duplicate finalize clicks.");
+        TestAssert.True(
+            viewModelCode.Contains("workflowSession.RunStructureCheckAsync(Environment.UserName)", StringComparison.Ordinal)
+            && viewModelCode.Contains("workflowSession.RunGeoreferenceCheckAsync(Environment.UserName)", StringComparison.Ordinal)
+            && viewModelCode.Contains("workflowSession.RunDimensionCheckAsync(Environment.UserName)", StringComparison.Ordinal)
+            && viewModelCode.Contains("validationResult.Success && workflowSession.CanRunOutputs", StringComparison.Ordinal)
+            && viewModelCode.Contains("await RunOutputsAsync().ConfigureAwait(true)", StringComparison.Ordinal)
+            && viewModelCode.Contains("? \"Rerun Extraction\"", StringComparison.Ordinal)
+            && viewModelCode.Contains("&& !workflowSession.ExtractionResultRequiresDecision", StringComparison.Ordinal)
+            && viewModelCode.Contains("structureSummary.Payload.Blockers.Count > 0", StringComparison.Ordinal)
+            && viewModelCode.Contains("georeferenceSummary.Payload.Blockers.Count > 0", StringComparison.Ordinal),
+            "RunPreflightAsync should run Structure, Georeference, and Dimension checks sequentially, Create Spatial Units should chain validation into output creation, and extraction decision state should show only one rerun action.");
     }
 
     public static void DockpaneExposesSupportingDocumentsWorkspace()
@@ -383,6 +436,10 @@ internal static class JamaicaReviewWorkspaceXamlTests
             && dockpaneCode.Contains("\"square feet\"", StringComparison.Ordinal)
             && dockpaneCode.Contains("\"sq. ft\"", StringComparison.Ordinal),
             "Document area comparison should not treat square-foot text as square metres.");
+        TestAssert.True(
+            dockpaneCode.Contains("AreaTextUsesHectares", StringComparison.Ordinal)
+            && dockpaneCode.Contains("area *= 10000d", StringComparison.Ordinal),
+            "Document area comparison should convert reviewed hectare values to square metres before the solver compares area.");
     }
 
     public static void PxaParcelPreviewUsesUniqueReviewedSegmentPointOrder()
@@ -521,7 +578,7 @@ internal static class JamaicaReviewWorkspaceXamlTests
             xaml.Contains("x:Name=\"ReviewTabs\"", StringComparison.Ordinal)
             && xaml.Contains("SelectionChanged=\"ReviewTabs_SelectionChanged\"", StringComparison.Ordinal)
             && xaml.Contains("SelectionChanged=\"ReviewDataGrid_SelectionChanged\"", StringComparison.Ordinal)
-            && xaml.Contains("x:Name=\"PxaNamedPartiesGrid\"", StringComparison.Ordinal)
+            && xaml.Contains("x:Name=\"PxaParticipantsGrid\"", StringComparison.Ordinal)
             && xaml.Contains("x:Name=\"PxaPointsGrid\"", StringComparison.Ordinal),
             "Points Validation Tool should name and observe tabs/grids so UI crash diagnostics include active control context.");
         TestAssert.True(

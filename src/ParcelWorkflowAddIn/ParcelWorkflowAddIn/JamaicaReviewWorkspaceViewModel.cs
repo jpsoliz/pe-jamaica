@@ -18,6 +18,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     private JamaicaParcelGroupViewModel? selectedParcelGroup;
     private ExtractionReviewRowViewModel? selectedVisibleRow;
     private ExtractionReviewSegmentViewModel? selectedVisibleSegment;
+    private string selectedBulkMemorandumStatus = "Accepted";
     private bool isRefreshingProjection;
     private bool isApplyingSelectedParcelGroup;
     private bool suppressParentParcelContextSync;
@@ -41,9 +42,12 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         VisibleMetadataFields = [];
         VisibleAdjacentOwners = [];
         VisibleNamedParties = [];
+        VisibleParticipants = [];
         VisibleVolumeFolios = [];
         VisibleMemorandumGroups = [];
+        VisibleValidationFindingRows = [];
         ParcelGroups = [];
+        ApplyBulkMemorandumDispositionCommand = new RelayCommand(ApplyBulkMemorandumDisposition, () => CanApplyBulkMemorandumDisposition);
         RefreshProjection();
     }
 
@@ -61,11 +65,13 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
 
     public ObservableCollection<ExtractionReviewNamedPartyViewModel> VisibleNamedParties { get; }
 
+    public ObservableCollection<ExtractionReviewParticipantViewModel> VisibleParticipants { get; }
+
     public ObservableCollection<ExtractionReviewVolumeFolioViewModel> VisibleVolumeFolios { get; }
 
     public ObservableCollection<ExtractionReviewMemorandumGroupViewModel> VisibleMemorandumGroups { get; }
 
-    public ObservableCollection<ValidationFindingDispositionRow> ValidationFindingRows => parent.ValidationFindingRows;
+    public ObservableCollection<ValidationFindingDispositionRow> VisibleValidationFindingRows { get; }
 
     public IReadOnlyList<string> OwnerNeighborRoleOptions { get; } =
     [
@@ -75,6 +81,34 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         "Representative",
         "Other"
     ];
+
+    public IReadOnlyList<string> BulkMemorandumStatusOptions { get; } =
+    [
+        "Accepted",
+        "Corrected",
+        "Skipped",
+        "Not available"
+    ];
+
+    public string SelectedBulkMemorandumStatus
+    {
+        get => selectedBulkMemorandumStatus;
+        set
+        {
+            var next = value?.Trim() ?? string.Empty;
+            if (string.Equals(selectedBulkMemorandumStatus, next, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            selectedBulkMemorandumStatus = next;
+            OnPropertyChanged(nameof(SelectedBulkMemorandumStatus));
+            OnPropertyChanged(nameof(CanApplyBulkMemorandumDisposition));
+            ApplyBulkMemorandumDispositionCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public RelayCommand ApplyBulkMemorandumDispositionCommand { get; }
 
     public string WindowTitle => "Points Validation Tool";
 
@@ -218,8 +252,8 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         : "No general survey information was extracted yet.";
 
     public string PxaOwnersNeighborsSummary => VisibleNamedParties.Count > 0 || VisibleAdjacentOwners.Count > 0
-        ? $"{VisibleNamedParties.Count} party / representative row(s), {VisibleAdjacentOwners.Count} adjacent owner / neighbor reference(s). Link neighbors to reviewed boundary segments when visible on the plan."
-        : "No owner, representative, or neighbor references were extracted yet.";
+        ? $"{VisibleParticipants.Count} participant row(s). Confirm owners, representatives, and neighbors before completing validation."
+        : "No participant references were extracted yet.";
 
     public string PxaAdjacentOwnerSummary => VisibleAdjacentOwners.Count > 0
         ? $"{VisibleAdjacentOwners.Count} adjacent owner / party reference(s). Link owners to reviewed boundary segments when visible on the plan."
@@ -230,12 +264,16 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
     public bool ShowPxaMemorandumTab => IsPxaSurveyPlanReview && !parent.IsPlaPlanAnnexationReview;
 
     public string PxaMemorandumSummary => VisibleMemorandumGroups.Count > 0
-        ? string.Join(" | ", VisibleMemorandumGroups.Select(group => $"{group.DisplayName}: {group.Summary}"))
+        ? $"{VisibleMemorandumGroups.Sum(group => group.Rules.Count)} memorandum rule row(s), {VisibleMemorandumGroups.Sum(group => group.Rules.Count(rule => rule.IsUnresolvedDisposition))} unresolved."
         : "No memorandum-specific rules are available for this review artifact.";
+
+    public bool CanApplyBulkMemorandumDisposition =>
+        BulkMemorandumStatusOptions.Contains(SelectedBulkMemorandumStatus, StringComparer.OrdinalIgnoreCase)
+        && VisibleMemorandumGroups.Any(group => group.Rules.Any(rule => rule.IsUnresolvedDisposition));
 
     public bool ShowValidationFindingsTab => IsPxaSurveyPlanReview;
 
-    public bool HasValidationFindingRows => parent.HasValidationFindingRows;
+    public bool HasValidationFindingRows => VisibleValidationFindingRows.Count > 0;
 
     public string ValidationFindingsSummary
     {
@@ -246,15 +284,15 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 return "No Create Spatial Units validation findings are loaded for this case yet.";
             }
 
-            var pending = parent.ValidationFindingRows.Count(row => !row.HasDisposition);
-            var actualFindings = parent.ValidationFindingRows.Count(row => !string.Equals(row.Status, "N/A", StringComparison.OrdinalIgnoreCase));
-            var blockers = parent.ValidationFindingRows.Count(row => string.Equals(row.Severity, "critical", StringComparison.OrdinalIgnoreCase) || string.Equals(row.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            var pending = VisibleValidationFindingRows.Count(row => !row.HasDisposition);
+            var actualFindings = VisibleValidationFindingRows.Count(row => !string.Equals(row.Status, "N/A", StringComparison.OrdinalIgnoreCase));
+            var blockers = VisibleValidationFindingRows.Count(row => string.Equals(row.Severity, "critical", StringComparison.OrdinalIgnoreCase) || string.Equals(row.Severity, "high", StringComparison.OrdinalIgnoreCase));
             if (actualFindings == 0)
             {
-                return $"{parent.ValidationFindingRows.Count} validation point(s) listed. Current result values are N/A until Create Spatial Units validation runs.";
+                return $"{VisibleValidationFindingRows.Count} validation point(s) listed. Current result values are N/A until Create Spatial Units validation runs.";
             }
 
-            return $"{parent.ValidationFindingRows.Count} validation point(s), {actualFindings} loaded finding/result row(s), {pending} pending disposition, {blockers} critical/high item(s). Review the evidence and record a decision before moving forward.";
+            return $"{VisibleValidationFindingRows.Count} validation point(s), {actualFindings} loaded finding/result row(s), {pending} pending disposition, {blockers} critical/high item(s). Review the evidence and record a decision before moving forward.";
         }
     }
 
@@ -878,15 +916,19 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PxaMetadataSummary));
         OnPropertyChanged(nameof(PxaGeneralInfoSummary));
         OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
+        OnPropertyChanged(nameof(VisibleParticipants));
         OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
         OnPropertyChanged(nameof(ShowPxaMemorandumTab));
         OnPropertyChanged(nameof(HasPxaMemorandumReview));
         OnPropertyChanged(nameof(PxaMemorandumSummary));
+        OnPropertyChanged(nameof(CanApplyBulkMemorandumDisposition));
+        ApplyBulkMemorandumDispositionCommand.RaiseCanExecuteChanged();
     }
 
     private void OnValidationFindingRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        OnPropertyChanged(nameof(ValidationFindingRows));
+        RebuildVisibleValidationFindingRows();
+        OnPropertyChanged(nameof(VisibleValidationFindingRows));
         OnPropertyChanged(nameof(ShowValidationFindingsTab));
         OnPropertyChanged(nameof(HasValidationFindingRows));
         OnPropertyChanged(nameof(ValidationFindingsSummary));
@@ -953,6 +995,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PxaMetadataSummary));
                 OnPropertyChanged(nameof(PxaGeneralInfoSummary));
                 OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
+                OnPropertyChanged(nameof(VisibleParticipants));
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(ShowPxaMemorandumTab));
                 OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
@@ -978,6 +1021,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SelectedReviewRowValidationIssueText));
                 OnPropertyChanged(nameof(CanCompleteValidation));
                 OnPropertyChanged(nameof(ShowValidationCompleteAction));
+                OnPropertyChanged(nameof(VisibleValidationFindingRows));
                 break;
             case nameof(ParcelWorkflowDockpaneViewModel.ReviewBadgeText):
                 OnPropertyChanged(nameof(ReviewBadge));
@@ -1034,6 +1078,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PxaMetadataSummary));
                 OnPropertyChanged(nameof(PxaGeneralInfoSummary));
                 OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
+                OnPropertyChanged(nameof(VisibleParticipants));
                 OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
                 OnPropertyChanged(nameof(HasUnsavedReviewChanges));
                 OnPropertyChanged(nameof(CanSaveReview));
@@ -1100,6 +1145,7 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             RebuildVisibleRows();
             RebuildVisibleSegments();
             RebuildVisibleMetadata();
+            RebuildVisibleValidationFindingRows();
             OnPropertyChanged(nameof(UsesLiveArtifacts));
             OnPropertyChanged(nameof(WorkspaceStatus));
             OnPropertyChanged(nameof(DataBindingModeText));
@@ -1122,13 +1168,17 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PxaMetadataSummary));
             OnPropertyChanged(nameof(PxaGeneralInfoSummary));
             OnPropertyChanged(nameof(PxaOwnersNeighborsSummary));
+            OnPropertyChanged(nameof(VisibleParticipants));
             OnPropertyChanged(nameof(PxaAdjacentOwnerSummary));
             OnPropertyChanged(nameof(ShowPxaMemorandumTab));
             OnPropertyChanged(nameof(HasPxaMemorandumReview));
             OnPropertyChanged(nameof(PxaMemorandumSummary));
+            OnPropertyChanged(nameof(CanApplyBulkMemorandumDisposition));
+            OnPropertyChanged(nameof(VisibleValidationFindingRows));
             OnPropertyChanged(nameof(IsPxaSurveyPlanReview));
             OnPropertyChanged(nameof(IsStandardPointReview));
             OnPropertyChanged(nameof(CenterReviewTitle));
+            ApplyBulkMemorandumDispositionCommand.RaiseCanExecuteChanged();
         }
         finally
         {
@@ -1258,6 +1308,17 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
             VisibleNamedParties.Add(party);
         }
 
+        VisibleParticipants.Clear();
+        foreach (var party in VisibleNamedParties)
+        {
+            VisibleParticipants.Add(new ExtractionReviewParticipantViewModel(party));
+        }
+
+        foreach (var owner in VisibleAdjacentOwners)
+        {
+            VisibleParticipants.Add(new ExtractionReviewParticipantViewModel(owner));
+        }
+
         VisibleVolumeFolios.Clear();
         foreach (var volumeFolio in parent.ReviewVolumeFolios
                      .OrderBy(item => item.Volume, StringComparer.OrdinalIgnoreCase)
@@ -1271,6 +1332,41 @@ internal sealed class JamaicaReviewWorkspaceViewModel : INotifyPropertyChanged
         {
             VisibleMemorandumGroups.Add(group);
         }
+
+        ApplyBulkMemorandumDispositionCommand.RaiseCanExecuteChanged();
+    }
+
+    private void RebuildVisibleValidationFindingRows()
+    {
+        VisibleValidationFindingRows.Clear();
+        foreach (var row in ValidationFindingDispositionProjector.FilterForExaminerReview(parent.ValidationFindingRows))
+        {
+            VisibleValidationFindingRows.Add(row);
+        }
+    }
+
+    private void ApplyBulkMemorandumDisposition()
+    {
+        if (!CanApplyBulkMemorandumDisposition)
+        {
+            return;
+        }
+
+        var unresolvedRules = VisibleMemorandumGroups
+            .SelectMany(group => group.Rules)
+            .Where(rule => rule.IsUnresolvedDisposition)
+            .ToArray();
+
+        foreach (var rule in unresolvedRules)
+        {
+            rule.SetReviewerStatusForBulkApply(SelectedBulkMemorandumStatus);
+        }
+
+        parent.NotifyReviewMetadataBatchChanged();
+        RefreshProjection();
+        OnPropertyChanged(nameof(PxaMemorandumSummary));
+        OnPropertyChanged(nameof(CanApplyBulkMemorandumDisposition));
+        ApplyBulkMemorandumDispositionCommand.RaiseCanExecuteChanged();
     }
 
     private PointCollection BuildPreviewPoints()

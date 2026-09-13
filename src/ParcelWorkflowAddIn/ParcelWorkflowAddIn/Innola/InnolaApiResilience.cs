@@ -82,6 +82,36 @@ public static class InnolaApiResilience
         return await httpClient.SendAsync(finalRequest, cancellationToken).ConfigureAwait(false);
     }
 
+    public static async Task<HttpResponseMessage> SendWithAuthorizationRefreshAsync(
+        HttpClient httpClient,
+        InnolaApiOperation operation,
+        Func<HttpRequestMessage> createRequest,
+        Func<CancellationToken, Task<bool>> refreshAuthorization,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(refreshAuthorization);
+
+        var response = await SendAsync(httpClient, operation, createRequest, cancellationToken).ConfigureAwait(false);
+        if (operation.RetryMode != InnolaApiRetryMode.Safe
+            || !IsAuthorizationFailure(response.StatusCode))
+        {
+            return response;
+        }
+
+        Debug.WriteLine($"Refreshing Innola authorization after auth failure. Operation={operation.Name}; Transaction={operation.TransactionNumber ?? "(none)"}; Status={response.StatusCode}.");
+        if (!await refreshAuthorization(cancellationToken).ConfigureAwait(false))
+        {
+            return response;
+        }
+
+        response.Dispose();
+        return await SendAsync(
+            httpClient,
+            operation with { MaxAttempts = 1 },
+            createRequest,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public static bool IsRetryableStatus(HttpStatusCode statusCode)
     {
         return statusCode is HttpStatusCode.RequestTimeout

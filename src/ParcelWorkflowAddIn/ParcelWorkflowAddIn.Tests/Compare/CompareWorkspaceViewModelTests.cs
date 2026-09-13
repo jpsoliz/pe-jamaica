@@ -210,6 +210,7 @@ internal static class CompareWorkspaceViewModelTests
         viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
         viewModel.Notes = "Evidence reconciled against the survey plan.";
         viewModel.MarkAllDiscrepanciesResolved();
+        viewModel.SaveProgressCommand.Execute(null);
 
         viewModel.ApproveCompareCommand.Execute(null);
         await lifecycle.CompleteObserved.Task;
@@ -230,6 +231,47 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(traceText.Contains("\"step\": \"upload_result\"", StringComparison.Ordinal), "Finalize trace should record upload result.");
         TestAssert.True(traceText.Contains("\"source_type\": \"st_compare_report\"", StringComparison.Ordinal), "Finalize trace should record Compare report attachment type.");
         TestAssert.True(traceText.Contains("\"pdf_report_exists\": \"True\"", StringComparison.Ordinal), "Finalize trace should record generated PDF existence.");
+    }
+
+    public static async Task FinalizeShowsSavingProgressWhileCompletingTask()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        var lifecycle = new RecordingCompareTaskLifecycleService
+        {
+            CompleteResult = CompareTaskLifecycleResult.Succeeded("Completed from test."),
+            CompleteRelease = new TaskCompletionSource()
+        };
+        var viewModel = CreateViewModel(
+            new MockLegalCadasterQueryService(new[]
+            {
+                LegalRecord("Jane Brown", "typed-999", "1", "2", "title-1")
+            }),
+            lifecycle,
+            new RecordingCompareReportAttachmentService(),
+            mapIntegrationService: new RecordingCompareMapIntegrationService(),
+            mapGeoreferenceOverlayCleanup: (_, _) => Task.CompletedTask);
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedEvidenceSearchMode = CompareEvidenceSearchMode.Pid;
+        viewModel.SearchPid = "typed-999";
+        await viewModel.RunEvidenceSearchAsync();
+        viewModel.MarkEvidenceResultValuableCommand.Execute(viewModel.QueryResults[0]);
+        viewModel.Notes = "Evidence reconciled against the survey plan.";
+        viewModel.MarkAllDiscrepanciesResolved();
+        viewModel.SaveProgressCommand.Execute(null);
+        TestAssert.True(viewModel.CanApproveCompare, $"Finalize should be enabled after Save. Status={viewModel.StatusText}");
+
+        viewModel.ApproveCompareCommand.Execute(null);
+        await WaitUntilAsync(() => lifecycle.CompleteCalls > 0);
+
+        TestAssert.True(viewModel.IsFinalizeOperationRunning, "Finalize should expose saving progress while the lifecycle completion is still running.");
+        TestAssert.Equal("Saving Compare...", viewModel.FinalizeOperationRunningText, "Finalize progress text should be visible while saving.");
+        TestAssert.False(viewModel.ApproveCompareCommand.CanExecute(null), "Finalize should be disabled while the save/finalize operation is in progress.");
+
+        lifecycle.CompleteRelease.SetResult();
+        await WaitUntilAsync(() => !viewModel.IsFinalizeOperationRunning);
+
+        TestAssert.False(viewModel.IsFinalizeOperationRunning, "Finalize progress should clear after completion returns.");
+        TestAssert.Equal(string.Empty, viewModel.FinalizeOperationRunningText, "Finalize progress text should clear after completion returns.");
     }
 
     public static void SaveDraftDoesNotCallTaskLifecycle()
@@ -857,12 +899,93 @@ internal static class CompareWorkspaceViewModelTests
         TestAssert.True(!string.Equals(firstId, viewModel.ValuableEvidenceItems[0].EvidenceId, StringComparison.Ordinal), "Evidence IDs should not be reused after removal.");
     }
 
+    public static void ComputedParticipantsLoadFromReviewArtifactAndGateTitleSearch()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        WriteExtractionReviewWithParticipants(fixture.Layout);
+        var titleService = new RecordingTitleSourceService();
+        var viewModel = CreateViewModel(titleSourceService: titleService);
+
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+
+        TestAssert.Equal(3, viewModel.ComputedParticipants.Count, "Compare should load parties, representatives, and adjacent owners from the Compute review artifact.");
+        TestAssert.True(viewModel.HasComputedParticipants, "Computed participant list should be visible when rows exist.");
+        TestAssert.Equal("Neighbor", viewModel.ComputedParticipants[2].Role, "Blank adjacent owner roles should display as Neighbor for examiner review.");
+        TestAssert.True(viewModel.CanSearchTitleImage, "The first row with Volume/Folio should enable title image search.");
+
+        viewModel.SelectedComputedParticipant = viewModel.ComputedParticipants[1];
+        TestAssert.False(viewModel.CanSearchTitleImage, "Rows missing Volume or Folio should not enable title image search.");
+    }
+
+    public static async Task ComputedParticipantTitleSearchMissingVolumeFolioDoesNotCallInnola()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        WriteExtractionReviewWithParticipants(fixture.Layout);
+        var titleService = new RecordingTitleSourceService();
+        var viewModel = CreateViewModel(titleSourceService: titleService);
+
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SelectedComputedParticipant = viewModel.ComputedParticipants[1];
+        await viewModel.SearchTitleImageAsync();
+
+        TestAssert.Equal(0, titleService.SearchCalls, "Title source search should not call Innola when the selected participant lacks Volume/Folio.");
+        TestAssert.True(viewModel.ComputedParticipantsStatus.Contains("needs both Volume and Folio", StringComparison.Ordinal), "UI status should explain the missing fields.");
+    }
+
+    public static async Task ComputedParticipantTitleSearchUsesSelectionAndRefreshesPdfSelector()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        WriteExtractionReviewWithParticipants(fixture.Layout);
+        var titleService = new RecordingTitleSourceService
+        {
+            SearchResult = new CompareTitleSourceSearchResult(
+                true,
+                new[]
+                {
+                    new CompareTitleSourceRecord("source-1", "Old source", "2000/1", "st_title", "reg_status_current"),
+                    new CompareTitleSourceRecord("source-2", "Chosen source", "2000/1", "st_title", "reg_status_current")
+                },
+                "2 found.",
+                null)
+        };
+        var selection = new RecordingTitleSourceSelectionService(1);
+        var viewModel = CreateViewModel(titleSourceService: titleService, titleSourceSelectionService: selection);
+
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        await viewModel.SearchTitleImageAsync();
+
+        TestAssert.Equal(1, selection.SelectCalls, "Multiple title sources should ask the examiner to choose.");
+        TestAssert.Equal("source-2", titleService.DownloadedSourceId, "Only the selected source should be downloaded.");
+        TestAssert.True(File.Exists(Path.Combine(fixture.Layout.SourceDirectory, "Repo_2000_1.pdf")), "Downloaded title should use the locked Repo_Volume_Folio.pdf name.");
+        TestAssert.True(viewModel.PdfDocuments.Any(item => item.FileName.Equals("Repo_2000_1.pdf", StringComparison.OrdinalIgnoreCase)), "Compare PDF selector should refresh without reopening.");
+        TestAssert.Equal("Repo_2000_1.pdf", viewModel.SelectedDocument?.FileName, "Downloaded title should become the selected Compare document.");
+    }
+
+    public static void CompareWorkspaceSaveDoesNotRegisterDownloadedTitle()
+    {
+        using var fixture = CreateCaseFolderWithSource();
+        WriteExtractionReviewWithParticipants(fixture.Layout);
+        var attachmentService = new RecordingCompareReportAttachmentService();
+        var titleService = new RecordingTitleSourceService();
+        var viewModel = CreateViewModel(
+            titleSourceService: titleService,
+            reportAttachmentService: attachmentService,
+            taskLifecycleService: new RecordingCompareTaskLifecycleService());
+
+        viewModel.ApplyLoadState(ReadyState(fixture.Layout.RootDirectory), fixture.Reopen());
+        viewModel.SaveProgressCommand.Execute(null);
+
+        TestAssert.Equal(0, attachmentService.UploadCalls, "Save should not upload or register local title documents to Innola.");
+    }
+
     private static CompareWorkspaceViewModel CreateViewModel(
         ILegalCadasterQueryService? legalService = null,
         ICompareTaskLifecycleService? taskLifecycleService = null,
         ICompareReportAttachmentService? reportAttachmentService = null,
         ICompareMapIntegrationService? mapIntegrationService = null,
         ICompareWorkspacePromptService? promptService = null,
+        ICompareTitleSourceService? titleSourceService = null,
+        ICompareTitleSourceSelectionService? titleSourceSelectionService = null,
         Func<string?, CancellationToken, Task>? mapGeoreferenceOverlayCleanup = null)
     {
         return new CompareWorkspaceViewModel(new SelectedInnolaTransaction(
@@ -877,7 +1000,52 @@ internal static class CompareWorkspaceViewModelTests
             reportAttachmentService: reportAttachmentService,
             mapIntegrationService: mapIntegrationService,
             promptService: promptService,
+            titleSourceService: titleSourceService,
+            titleSourceSelectionService: titleSourceSelectionService,
             mapGeoreferenceOverlayCleanup: mapGeoreferenceOverlayCleanup);
+    }
+
+    private static void WriteExtractionReviewWithParticipants(CaseFolderLayout layout)
+    {
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        File.WriteAllText(Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"), """
+        {
+          "schema_version": "1.0.0",
+          "transaction_number": "TR100000674",
+          "row_count": 1,
+          "rows": [
+            { "point_identifier": "1", "easting": "100", "northing": "200" }
+          ],
+          "parties": [
+            {
+              "name": "Mary Brown",
+              "role": "Owner",
+              "lot_number": "1",
+              "address": "Main Road",
+              "land_valuation_number": "LV-1",
+              "examination_number": "EX-1",
+              "volume": "2000",
+              "folio": "1",
+              "review_status": "Accepted"
+            }
+          ],
+          "representatives": [
+            {
+              "name": "Paul Green",
+              "role": "Representative",
+              "volume": "2000"
+            }
+          ],
+          "adjacent_owners": [
+            {
+              "name": "Sonia Stewart",
+              "role": null,
+              "volume": "3000",
+              "folio": "5"
+            }
+          ]
+        }
+        """);
     }
 
     private static LegalCadasterRecord LegalRecord(
@@ -906,6 +1074,21 @@ internal static class CompareWorkspaceViewModelTests
             landValuationNumber,
             parish,
             partyRole);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(20);
+        }
+
+        TestAssert.True(condition(), "Timed out waiting for async Compare workspace state.");
     }
 
     private sealed class CountingLegalCadasterQueryService : ILegalCadasterQueryService
@@ -1001,6 +1184,10 @@ internal static class CompareWorkspaceViewModelTests
 
         public TaskCompletionSource<string> CompleteObserved { get; } = new();
 
+        public TaskCompletionSource? CompleteRelease { get; init; }
+
+        public TaskCompletionSource CompleteReleased { get; } = new();
+
         public CompareTaskLifecycleResult CancelResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Cancelled.");
 
         public CompareTaskLifecycleResult SuspendResult { get; set; } = CompareTaskLifecycleResult.Succeeded("Suspended.");
@@ -1031,12 +1218,18 @@ internal static class CompareWorkspaceViewModelTests
             return Task.FromResult(CancelResult);
         }
 
-        public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
+        public async Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
         {
             CompleteCalls++;
             LastTransactionNumber = transactionNumber;
             CompleteObserved.TrySetResult(transactionNumber);
-            return Task.FromResult(CompleteResult);
+            if (CompleteRelease is not null)
+            {
+                await CompleteRelease.Task.WaitAsync(cancellationToken);
+            }
+
+            CompleteReleased.TrySetResult();
+            return CompleteResult;
         }
     }
 
@@ -1057,6 +1250,74 @@ internal static class CompareWorkspaceViewModelTests
             LastTransactionNumber = transaction.TransactionNumber;
             LastPdfReportPath = pdfReportPath;
             return Task.FromResult(CompareReportAttachmentResult.Succeeded(CompareReportAttachmentService.SourceType, pdfReportPath));
+        }
+    }
+
+    private sealed class RecordingTitleSourceService : ICompareTitleSourceService
+    {
+        public int SearchCalls { get; private set; }
+
+        public string? LastVolume { get; private set; }
+
+        public string? LastFolio { get; private set; }
+
+        public string? DownloadedSourceId { get; private set; }
+
+        public CompareTitleSourceSearchResult SearchResult { get; set; } = new(
+            true,
+            new[] { new CompareTitleSourceRecord("source-1", "Source 1", "2000/1", "st_title", "reg_status_current") },
+            "1 found.",
+            null);
+
+        public Task<CompareTitleSourceSearchResult> SearchCurrentTitlesAsync(string volume, string folio, CancellationToken cancellationToken = default)
+        {
+            SearchCalls++;
+            LastVolume = volume;
+            LastFolio = folio;
+            return Task.FromResult(SearchResult);
+        }
+
+        public Task<CompareTitleDownloadResult> DownloadAsync(
+            CompareTitleSourceRecord source,
+            string volume,
+            string folio,
+            CaseFolderLayout layout,
+            CancellationToken cancellationToken = default)
+        {
+            DownloadedSourceId = source.SourceId;
+            Directory.CreateDirectory(layout.SourceDirectory);
+            var path = Path.Combine(layout.SourceDirectory, $"Repo_{volume}_{folio}.pdf");
+            File.WriteAllText(path, "%PDF-1.4 fake title");
+            var manifest = ManifestSerializer.Read(layout.ManifestPath);
+            ManifestSerializer.Write(layout.ManifestPath, manifest with
+            {
+                Payload = manifest.Payload with
+                {
+                    SourceFiles = manifest.Payload.SourceFiles.Concat(new[]
+                    {
+                        new ManifestSourceFile(path, path, ".pdf", new FileInfo(path).Length, DateTimeOffset.UtcNow.ToString("O"), "compare_title_source", "st_title")
+                    }).ToArray()
+                }
+            });
+            return Task.FromResult(new CompareTitleDownloadResult(true, $"Downloaded {Path.GetFileName(path)}.", path, null));
+        }
+    }
+
+    private sealed class RecordingTitleSourceSelectionService : ICompareTitleSourceSelectionService
+    {
+        private readonly int selectedIndex;
+
+        public RecordingTitleSourceSelectionService(int selectedIndex)
+        {
+            this.selectedIndex = selectedIndex;
+        }
+
+        public int SelectCalls { get; private set; }
+
+        public CompareTitleSourceRecord? Select(IReadOnlyList<CompareTitleSourceRecord> sources)
+        {
+            SelectCalls++;
+            return sources[selectedIndex];
         }
     }
 

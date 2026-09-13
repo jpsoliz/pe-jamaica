@@ -474,6 +474,125 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         TestAssert.True(audit.Contains("compute_plan_examination_writeback_failed", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Examination failure.");
     }
 
+    public static async Task CompleteRefreshesSessionBeforeInnolaFinalizePhases()
+    {
+        using var tempRoot = new TempDirectory();
+        var auth = new FakeAuthService(
+            "token-refresh-1",
+            "token-refresh-2",
+            "token-refresh-3",
+            "token-refresh-4",
+            "token-refresh-5",
+            "token-refresh-6",
+            "token-refresh-7",
+            "token-refresh-8",
+            "token-refresh-9",
+            "token-refresh-10");
+        var detailService = new RecordingUploadDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var planChecks = new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Succeeded());
+        var manager = LoggedInManager(auth);
+        manager.SelectTransaction(Row("task-100000004", "TR100000004"), FixedNow());
+        var loader = new InnolaTransactionLoadService(
+            manager,
+            detailService,
+            new CaseFolderStore(() => FixedNow(), () => "run-lifecycle-refresh"),
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            new SourceInputProfileDetector(() => FixedNow()),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => tempRoot.Path,
+            () => FixedNow());
+        var loaded = await loader.LoadSelectedTransactionAsync();
+        TestAssert.True(loaded.Success, "Test setup should load a transaction.");
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            new FakeReportService(success: true),
+            planChecks);
+
+        await coordinator.StartOrClaimAsync();
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(result.Success, "Complete should succeed with refreshed sessions.");
+        TestAssert.True(spatialUnits.AccessTokens.Count == 1 && spatialUnits.AccessTokens.All(IsRefreshToken), "Spatial Unit write should use a refreshed token.");
+        TestAssert.True(planChecks.AccessTokens.Count == 1 && planChecks.AccessTokens.All(IsRefreshToken), "Plan Examination writeback should use a refreshed token.");
+        TestAssert.True(detailService.UploadAccessTokens.Count == 2 && detailService.UploadAccessTokens.All(IsRefreshToken), "Compute report and completed package uploads should use refreshed tokens.");
+        TestAssert.True(lifecycleService.CompleteAccessTokens.Count == 1 && lifecycleService.CompleteAccessTokens.All(IsRefreshToken), "Lifecycle complete should use a refreshed token.");
+        TestAssert.Equal("Innola connection restored. Continuing...", manager.StatusText, "Successful refresh should leave visible restored status.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_session_refresh", StringComparison.OrdinalIgnoreCase), "Audit should record Spatial Unit session refresh.");
+        TestAssert.True(audit.Contains("compute_plan_examination_session_refresh", StringComparison.OrdinalIgnoreCase), "Audit should record Plan Examination session refresh.");
+        TestAssert.True(audit.Contains("transaction_complete_session_refresh", StringComparison.OrdinalIgnoreCase), "Audit should record lifecycle complete session refresh.");
+    }
+
+    public static async Task CompleteStopsBeforeRemoteMutationWhenSessionRefreshFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var auth = new FakeAuthService("token-refresh-1", "token-refresh-2", "token-refresh-3", "token-refresh-4");
+        var detailService = new RecordingUploadDetailService();
+        var lifecycleService = new CountingLifecycleService();
+        var spatialUnits = new RecordingSpatialUnitService(InnolaSpatialUnitSaveResult.Succeeded("su-100000004"));
+        var planChecks = new RecordingPlanCheckService(InnolaPlanCheckWritebackResult.Succeeded());
+        var manager = LoggedInManager(auth);
+        manager.SelectTransaction(Row("task-100000004", "TR100000004"), FixedNow());
+        var loader = new InnolaTransactionLoadService(
+            manager,
+            detailService,
+            new CaseFolderStore(() => FixedNow(), () => "run-lifecycle-refresh-failure"),
+            new AttachmentSourceFileWriter(() => FixedNow()),
+            new SourceInputProfileDetector(() => FixedNow()),
+            new WorkflowRuleResolver(),
+            WorkflowRuleSettingsLoader.Load,
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => tempRoot.Path,
+            () => FixedNow());
+        var loaded = await loader.LoadSelectedTransactionAsync();
+        TestAssert.True(loaded.Success, "Test setup should load a transaction.");
+        var coordinator = new InnolaTransactionLifecycleCoordinator(
+            manager,
+            detailService,
+            lifecycleService,
+            spatialUnits,
+            new FakeReadiness(true),
+            new WorkflowLifecycleAuditService(() => FixedNow()),
+            new CaseResumePackageService(() => FixedNow(), () => "test"),
+            () => FixedNow(),
+            new FakeReportService(success: true),
+            planChecks);
+
+        await coordinator.StartOrClaimAsync();
+        auth.FailAllFutureLogins = true;
+        var layout = CaseFolderLayout.FromRootDirectory(manager.LoadedCaseFolderPath!);
+        WriteDisposition(layout);
+
+        var result = await coordinator.CompleteAsync();
+
+        TestAssert.True(!result.Success, "Complete should stop when session refresh fails.");
+        TestAssert.Equal(InnolaApiResilience.LoginRequiredMessage, result.ErrorMessage, "Failure should request login.");
+        TestAssert.Equal(0, spatialUnits.CallCount, "Spatial Unit write must not run after refresh failure.");
+        TestAssert.Equal(0, planChecks.CallCount, "Plan Examination writeback must not run after refresh failure.");
+        TestAssert.Equal(0, detailService.UploadAccessTokens.Count, "Attachments must not upload after refresh failure.");
+        TestAssert.Equal(0, lifecycleService.CompleteCalls, "Lifecycle complete must not run after refresh failure.");
+        TestAssert.True(manager.IsTransactionLoaded, "Loaded case should remain available after refresh failure.");
+        TestAssert.True(!manager.StatusText.Contains("secret-password", StringComparison.Ordinal), "Status must not expose password.");
+        TestAssert.True(!manager.StatusText.Contains("token", StringComparison.OrdinalIgnoreCase), "Status must not expose token.");
+        var audit = File.ReadAllText(WorkflowLifecycleAuditService.GetAuditPath(layout));
+        TestAssert.True(audit.Contains("compute_spatial_unit_session_refresh", StringComparison.OrdinalIgnoreCase), "Audit should record failed refresh phase.");
+        TestAssert.True(audit.Contains("login_required", StringComparison.OrdinalIgnoreCase), "Audit should record redacted refresh category.");
+    }
+
     public static async Task LifecycleFailuresPreserveStateAndRedactSecrets()
     {
         using var tempRoot = new TempDirectory();
@@ -571,9 +690,9 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         new ComputeReviewDispositionPersistenceService().Save(layout, document);
     }
 
-    private static InnolaSessionManager LoggedInManager()
+    private static InnolaSessionManager LoggedInManager(FakeAuthService? auth = null)
     {
-        var manager = new InnolaSessionManager(new FakeAuthService());
+        var manager = new InnolaSessionManager(auth ?? new FakeAuthService());
         manager.ApplySuccessfulSession(new InnolaSession(
             InnolaSessionStatus.LoggedIn,
             "https://eltrs.innola-solutions.com/",
@@ -610,11 +729,20 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         return new DateTimeOffset(2026, 6, 10, 12, 0, 0, TimeSpan.Zero);
     }
 
+    private static bool IsRefreshToken(string accessToken)
+    {
+        return accessToken.StartsWith("token-refresh-", StringComparison.Ordinal);
+    }
+
     private sealed class CountingLifecycleService : IInnolaTransactionLifecycleService
     {
         public int SaveCalls { get; private set; }
 
         public int CompleteCalls { get; private set; }
+
+        public List<string> SaveAccessTokens { get; } = new();
+
+        public List<string> CompleteAccessTokens { get; } = new();
 
         public Task<InnolaTransactionLifecycleResult> ClaimAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
@@ -624,12 +752,14 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         public Task<InnolaTransactionLifecycleResult> SaveProgressAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
             SaveCalls++;
+            SaveAccessTokens.Add(request.Session.AccessToken);
             return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("in_progress", request.Session.User.Username, request.Session.User.DisplayName, "Saved."));
         }
 
         public Task<InnolaTransactionLifecycleResult> CompleteAsync(InnolaTransactionLifecycleRequest request, CancellationToken cancellationToken = default)
         {
             CompleteCalls++;
+            CompleteAccessTokens.Add(request.Session.AccessToken);
             return Task.FromResult(InnolaTransactionLifecycleResult.Succeeded("completed", request.Session.User.Username, request.Session.User.DisplayName, "Completed."));
         }
     }
@@ -663,6 +793,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         public int CallCount { get; private set; }
 
+        public List<string> AccessTokens { get; } = new();
+
         public Task<InnolaSpatialUnitExaminationNumberResult> GetExaminationNumberAsync(
             InnolaSession session,
             SelectedInnolaTransaction transaction,
@@ -680,6 +812,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            AccessTokens.Add(session.AccessToken);
             return Task.FromResult(result);
         }
     }
@@ -695,6 +828,8 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
         public int CallCount { get; private set; }
 
+        public List<string> AccessTokens { get; } = new();
+
         public Task<InnolaPlanCheckWritebackResult> WriteAsync(
             InnolaSession session,
             SelectedInnolaTransaction transaction,
@@ -703,6 +838,7 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            AccessTokens.Add(session.AccessToken);
             return Task.FromResult(result);
         }
     }
@@ -805,6 +941,50 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
         }
     }
 
+    private sealed class RecordingUploadDetailService : IInnolaTransactionDetailService
+    {
+        private readonly MockInnolaTransactionDetailService inner = new();
+
+        public List<string> UploadAccessTokens { get; } = new();
+
+        public Task<InnolaTransactionDetailResult> GetTransactionDetailAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            CancellationToken cancellationToken = default)
+        {
+            return inner.GetTransactionDetailAsync(session, selectedTransaction, cancellationToken);
+        }
+
+        public Task<InnolaAttachmentContentResult> GetAttachmentContentAsync(
+            InnolaSession session,
+            InnolaTransactionDetail detail,
+            InnolaAttachmentMetadata attachment,
+            CancellationToken cancellationToken = default)
+        {
+            return inner.GetAttachmentContentAsync(session, detail, attachment, cancellationToken);
+        }
+
+        public Task<InnolaAttachmentUploadResult> UploadAttachmentAsync(
+            InnolaSession session,
+            SelectedInnolaTransaction selectedTransaction,
+            string fileName,
+            string contentType,
+            byte[] content,
+            string sourceType,
+            CancellationToken cancellationToken = default)
+        {
+            UploadAccessTokens.Add(session.AccessToken);
+            return inner.UploadAttachmentAsync(
+                session,
+                selectedTransaction,
+                fileName,
+                contentType,
+                content,
+                sourceType,
+                cancellationToken);
+        }
+    }
+
     private sealed class FakeReadiness : ITransactionCompletionReadinessService
     {
         private readonly bool isReady;
@@ -824,16 +1004,35 @@ internal static class InnolaTransactionLifecycleCoordinatorTests
 
     private sealed class FakeAuthService : IInnolaAuthService
     {
+        private readonly Queue<string> accessTokens;
+
+        public FakeAuthService(params string[] accessTokens)
+        {
+            this.accessTokens = new Queue<string>(accessTokens);
+        }
+
         public InnolaSession? CurrentSession { get; private set; }
+
+        public bool FailAfterQueuedTokens { get; init; }
+
+        public bool FailAllFutureLogins { get; set; }
 
         public Task<InnolaLoginResult> LoginAsync(string serverUrl, string username, string password, CancellationToken cancellationToken = default)
         {
+            if (FailAllFutureLogins || (accessTokens.Count == 0 && FailAfterQueuedTokens))
+            {
+                return Task.FromResult(InnolaLoginResult.Failure("login required"));
+            }
+
+            var accessToken = accessTokens.Count == 0
+                ? "token-abc"
+                : accessTokens.Dequeue();
             CurrentSession = new InnolaSession(
                 InnolaSessionStatus.LoggedIn,
                 serverUrl,
                 username,
                 password,
-                "token-abc",
+                accessToken,
                 new InnolaUserContext(username, username, Array.Empty<string>(), Array.Empty<string>()),
                 null);
             return Task.FromResult(InnolaLoginResult.Succeeded(CurrentSession));

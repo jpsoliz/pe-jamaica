@@ -194,6 +194,28 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(ready.IsReady, ready.Message);
     }
 
+    public static async Task ReviewCheckSummariesStayCollapsedUntilLoadedAndSummarizeWarnings()
+    {
+        var loadService = new CapturingReviewLoadService();
+        var initial = new FabricMaintenancePromotionViewModel(
+            "100000859",
+            "100000814",
+            ConfiguredSettings(),
+            reviewLoadService: loadService);
+
+        TestAssert.True(initial.TopologyReviewSummary.Contains("load parcel", StringComparison.OrdinalIgnoreCase), "Topology summary should stay compact before loading.");
+        TestAssert.False(initial.IsTopologyReviewExpanded, "Topology review should stay collapsed before loading.");
+
+        initial.IsCadastralTargetSelected = true;
+        initial.LoadParcelCommand.Execute(null);
+        await loadService.Completed.Task;
+
+        TestAssert.True(initial.TopologyReviewSummary.Contains("warning", StringComparison.OrdinalIgnoreCase), "Topology summary should expose warning count after loading.");
+        TestAssert.True(initial.AttributeReviewSummary.Contains("passed", StringComparison.OrdinalIgnoreCase), "Attribute summary should expose pass count after loading.");
+        TestAssert.False(initial.IsTopologyReviewExpanded, "Warnings should stay collapsed by default.");
+        TestAssert.False(initial.IsAttributeReviewExpanded, "Passing attribute checks should stay collapsed by default.");
+    }
+
     public static void NotImplementedDecisionOptionsRemainVisibleButBlocked()
     {
         var review = FabricMaintenanceReviewState.Create(
@@ -215,6 +237,7 @@ internal static class FabricMaintenancePromotionTests
     public static void WorkspaceXamlExposesReviewAndFinalWriteScreens()
     {
         var xaml = File.ReadAllText(FindSourceFile("FabricMaintenancePromotionWindow.xaml"));
+        var codeBehind = File.ReadAllText(FindSourceFile("FabricMaintenancePromotionWindow.xaml.cs"));
         var viewModel = File.ReadAllText(FindSourceFile("FabricMaintenancePromotionViewModel.cs"));
         var services = File.ReadAllText(FindSourceFile("FabricMaintenancePromotionServices.cs"));
 
@@ -225,21 +248,60 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(xaml.Contains("<RadioButton", StringComparison.Ordinal), "Final target radio buttons missing.");
         TestAssert.True(xaml.Contains("Content=\"Legal\"", StringComparison.Ordinal), "Legal target option missing.");
         TestAssert.True(xaml.Contains("Content=\"Cadastral\"", StringComparison.Ordinal), "Cadastral target option missing.");
-        TestAssert.True(xaml.Contains("Content=\"Load Parcel\"", StringComparison.Ordinal), "Load Parcel action missing.");
-        TestAssert.True(xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal), "Cancel action missing.");
+        foreach (var expected in new[]
+                 {
+                     "Source=\"Images/FabricIcons/LoadParcels.png\"",
+                     "Source=\"Images/FabricIcons/SelectFeatures.png\"",
+                     "Source=\"Images/FabricIcons/AttributeTables.png\"",
+                     "Source=\"Images/FabricIcons/TopologyRules.png\"",
+                     "Source=\"Images/FabricIcons/ReplaceExistingLayer.png\"",
+                     "Source=\"Images/FabricIcons/KeepExistingDiscard.png\"",
+                     "Source=\"Images/FabricIcons/MergeAttributesOnly.png\"",
+                     "Source=\"Images/FabricIcons/SendBack.png\"",
+                     "Source=\"Images/FabricIcons/ApproveFinalWrite.png\"",
+                     "Source=\"Images/FabricIcons/Cancel.png\""
+                 })
+        {
+            TestAssert.True(xaml.Contains(expected, StringComparison.Ordinal), $"Fabric Maintenance icon missing: {expected}.");
+        }
+
+        TestAssert.True(xaml.Contains("Text=\"Load Parcel\"", StringComparison.Ordinal), "Load Parcel action missing.");
+        TestAssert.True(xaml.Contains("Text=\"Cancel\"", StringComparison.Ordinal), "Cancel action missing.");
         TestAssert.False(xaml.Contains("Content=\"Refresh Review\"", StringComparison.Ordinal), "Generic Refresh Review action should not be visible in this patch.");
         TestAssert.True(xaml.Contains("ItemsSource=\"{Binding ReviewResults}\"", StringComparison.Ordinal), "Review results grid missing.");
         TestAssert.True(xaml.Contains("ItemsSource=\"{Binding FinalCandidates}\"", StringComparison.Ordinal), "Final candidate grid missing.");
         TestAssert.True(xaml.Contains("SelectedItem=\"{Binding SelectedFinalCandidate, Mode=TwoWay}\"", StringComparison.Ordinal), "Final candidate selection binding missing.");
-        TestAssert.True(xaml.Contains("Text=\"Attribute Review\"", StringComparison.Ordinal), "Attribute Review evidence area missing.");
+        TestAssert.True(xaml.Contains("<Expander Header=\"{Binding TopologyReviewSummary}\"", StringComparison.Ordinal), "Topology Review should render as a collapsed summary expander.");
+        TestAssert.True(xaml.Contains("<Expander Header=\"{Binding AttributeReviewSummary}\"", StringComparison.Ordinal), "Attribute Review should render as a collapsed summary expander.");
+        TestAssert.True(xaml.Contains("IsExpanded=\"{Binding IsTopologyReviewExpanded, Mode=OneWay}\"", StringComparison.Ordinal), "Topology Review should auto-expand only for blocking checks.");
+        TestAssert.True(xaml.Contains("IsExpanded=\"{Binding IsAttributeReviewExpanded, Mode=OneWay}\"", StringComparison.Ordinal), "Attribute Review should auto-expand only for blocking checks.");
         TestAssert.True(xaml.Contains("Selected decision:", StringComparison.Ordinal), "Selected decision feedback should be visible.");
-        TestAssert.True(xaml.Contains("Content=\"Replace Existing\"", StringComparison.Ordinal), "Replace future option missing.");
-        TestAssert.True(xaml.Contains("Content=\"Merge Attributes Only\"", StringComparison.Ordinal), "Merge future option missing.");
-        TestAssert.True(xaml.Contains("Content=\"Approve For Final Write\"", StringComparison.Ordinal), "Approve action missing.");
-        TestAssert.True(xaml.Contains("Content=\"Confirm Final Write\"", StringComparison.Ordinal), "Final write confirmation action missing.");
+        TestAssert.True(xaml.Contains("Text=\"Replace Existing\"", StringComparison.Ordinal), "Replace future option missing.");
+        TestAssert.True(xaml.Contains("Text=\"Merge Attributes Only\"", StringComparison.Ordinal), "Merge future option missing.");
+        TestAssert.True(xaml.Contains("Text=\"Approve For Final Write\"", StringComparison.Ordinal), "Approve action missing.");
+        TestAssert.True(xaml.Contains("Text=\"Confirm Final Write\"", StringComparison.Ordinal), "Final write confirmation action missing.");
+        TestAssert.True(xaml.Contains("IsIndeterminate=\"True\"", StringComparison.Ordinal), "Final write progress bar should be indeterminate.");
+        TestAssert.True(xaml.Contains("IsConfirmFinalWriteRunning, Converter={StaticResource BooleanToVisibilityConverter}", StringComparison.Ordinal), "Final write progress visibility should bind to running state.");
+        TestAssert.True(xaml.Contains("Text=\"Saving Fabric Maintenance...\"", StringComparison.Ordinal), "Final write progress text missing.");
         TestAssert.True(xaml.Contains("Text=\"{Binding ParcelInReview, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\"", StringComparison.Ordinal), "Parcel in Review should be editable from the workspace.");
         TestAssert.True(xaml.Contains("IsEnabled=\"{Binding IsParcelInReviewEditable}\"", StringComparison.Ordinal), "Parcel in Review editing should be controlled by the view model.");
+        foreach (var expected in new[]
+                 {
+                     "Closing += OnClosing;",
+                     "e.Cancel = true;",
+                     "viewModel.CancelCommand.CanExecute(null)",
+                     "viewModel.CancelCommand.Execute(null)",
+                     "allowClose = true;"
+                 })
+        {
+            TestAssert.True(codeBehind.Contains(expected, StringComparison.Ordinal), $"Fabric Maintenance window close synchronization is missing: {expected}");
+        }
+
         TestAssert.True(viewModel.Contains("showMessage(result.Message)", StringComparison.Ordinal), "View model should show future-option messages.");
+        TestAssert.True(viewModel.Contains("cancelService.CancelAsync(CurrentTransactionNumber)", StringComparison.Ordinal), "Cancel should terminate/release the Fabric transaction through the cancel service.");
+        TestAssert.True(services.Contains("IFabricMaintenanceCancelService", StringComparison.Ordinal), "Fabric cancel lifecycle service seam missing.");
+        TestAssert.True(services.Contains("ensureSession(\"Fabric Maintenance final write\"", StringComparison.Ordinal), "Fabric final write should refresh the Innola session before writes.");
+        TestAssert.True(services.Contains("ensureSession(\"Fabric Maintenance final write completion\"", StringComparison.Ordinal), "Fabric final write should refresh the Innola session before lifecycle completion.");
         TestAssert.True(services.Contains("\"To be implemented\"", StringComparison.Ordinal), "Future decision options should show exact not-implemented popup text.");
         TestAssert.True(services.Contains("ArcGisFabricMaintenanceReviewLoadService", StringComparison.Ordinal), "ArcGIS review load seam missing.");
     }
@@ -314,18 +376,22 @@ internal static class FabricMaintenancePromotionTests
     public static async Task CancelCleansReviewContextAndRequestsWindowClose()
     {
         var loadService = new CapturingReviewLoadService();
+        var cancelService = new CapturingCancelService();
         var viewModel = new FabricMaintenancePromotionViewModel(
             "100000859",
             "100000814",
             ConfiguredSettings(),
-            reviewLoadService: loadService);
+            reviewLoadService: loadService,
+            cancelService: cancelService);
         var closeRequested = false;
         viewModel.RequestClose += (_, _) => closeRequested = true;
 
         viewModel.CancelCommand.Execute(null);
         await loadService.CleanupCompleted.Task;
+        await cancelService.Completed.Task;
 
         TestAssert.Equal("100000859", loadService.CleanupTransactionNumber, "Cancel cleanup should be scoped to the current transaction.");
+        TestAssert.Equal("100000859", cancelService.TransactionNumber, "Cancel should terminate the active Fabric transaction after cleanup.");
         TestAssert.True(closeRequested, "Cancel should request the Fabric Maintenance window to close after cleanup.");
     }
 
@@ -518,8 +584,8 @@ internal static class FabricMaintenancePromotionTests
             lifecycleService,
             attachmentService,
             new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
-            (at, message) => { completedAt = at; completedMessage = message; },
-            message => errorMessage = message);
+            markCompleted: (at, message) => { completedAt = at; completedMessage = message; },
+            markError: message => errorMessage = message);
         var review = FabricMaintenanceReviewState.Create(
             "100000859",
             "100000814",
@@ -542,6 +608,92 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(completedAt is not null, "Completion should mark the local session completed.");
         TestAssert.True(completedMessage?.Contains("next Innola stage", StringComparison.OrdinalIgnoreCase) == true, "Completion message should say Innola moved to the next stage.");
         TestAssert.True(errorMessage is null, "Successful Fabric completion should not mark a lifecycle error.");
+    }
+
+    public static async Task FinalWriteCompletionServiceRefreshesInnolaSessionBeforeWriteAndComplete()
+    {
+        using var tempRoot = new TempDirectory();
+        var initialSession = TestSession("stale-token");
+        var refreshedSession = TestSession("refreshed-token");
+        var transaction = new SelectedInnolaTransaction(
+            "task-fabric-1",
+            "tx-1",
+            "100000859",
+            "In Parcel Fabric Update",
+            "parcel_workflow",
+            DateTimeOffset.UtcNow);
+        var attachmentService = new CapturingSummaryAttachmentService();
+        var lifecycleService = new CapturingLifecycleService();
+        var ensureCalls = new List<string>();
+        var service = new FabricMaintenanceFinalWriteCompletionService(
+            () => initialSession,
+            () => transaction,
+            () => tempRoot.Path,
+            () => "jp.examiner",
+            lifecycleService,
+            attachmentService,
+            new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
+            ensureSession: (operation, number, _) =>
+            {
+                ensureCalls.Add($"{operation}:{number}");
+                return Task.FromResult(InnolaSessionEnsureResult.Succeeded(refreshedSession, "Innola connection restored. Continuing..."));
+            });
+        var review = FabricMaintenanceReviewState.Create(
+            "100000859",
+            "100000814",
+            FabricMaintenanceTarget.Fiscal,
+            new FabricMaintenanceFeatureCounts(1, 1, 1, 1),
+            candidateCount: 0);
+        review.SelectDecision(FabricMaintenancePromotionDecision.SendBackForReview);
+        review.DecisionNotes = "Returned for topology correction.";
+
+        var result = await service.CompleteAsync(review);
+
+        TestAssert.True(result.Success, result.Message);
+        TestAssert.Equal(2, ensureCalls.Count, "Final write should refresh before summary upload and before lifecycle completion.");
+        TestAssert.True(ensureCalls[0].Contains("Fabric Maintenance final write:100000859", StringComparison.Ordinal), "First ensure should identify the final write operation.");
+        TestAssert.Equal("refreshed-token", lifecycleService.Request?.Session.AccessToken, "Lifecycle completion should use the refreshed Innola session.");
+    }
+
+    public static async Task FinalWriteCompletionServiceKeepsRetryContextWhenSessionCannotBeRestored()
+    {
+        using var tempRoot = new TempDirectory();
+        var transaction = new SelectedInnolaTransaction(
+            "task-fabric-1",
+            "tx-1",
+            "100000859",
+            "In Parcel Fabric Update",
+            "parcel_workflow",
+            DateTimeOffset.UtcNow);
+        var attachmentService = new CapturingSummaryAttachmentService();
+        var lifecycleService = new CapturingLifecycleService();
+        string? errorMessage = null;
+        var service = new FabricMaintenanceFinalWriteCompletionService(
+            () => null,
+            () => transaction,
+            () => tempRoot.Path,
+            () => "jp.examiner",
+            lifecycleService,
+            attachmentService,
+            new FabricMaintenancePromotionFinalActionService(new FabricMaintenancePromotionArtifactService()),
+            ensureSession: (_, _, _) => Task.FromResult(InnolaSessionEnsureResult.Failed(InnolaApiResilience.LoginRequiredMessage, "login_required")),
+            markError: message => errorMessage = message);
+        var review = FabricMaintenanceReviewState.Create(
+            "100000859",
+            "100000814",
+            FabricMaintenanceTarget.Fiscal,
+            new FabricMaintenanceFeatureCounts(1, 1, 1, 1),
+            candidateCount: 0);
+        review.SelectDecision(FabricMaintenancePromotionDecision.SendBackForReview);
+        review.DecisionNotes = "Returned for topology correction.";
+
+        var result = await service.CompleteAsync(review);
+
+        TestAssert.False(result.Success, "Missing restored session should block Fabric final write.");
+        TestAssert.Equal(InnolaApiResilience.LoginRequiredMessage, result.Message, "Session restore failure should use the same message as Compute and Compare.");
+        TestAssert.Equal(InnolaApiResilience.LoginRequiredMessage, errorMessage, "Session restore failure should be marked for lifecycle diagnostics.");
+        TestAssert.True(attachmentService.SummaryPath is null, "Final write should not upload summary when session cannot be restored.");
+        TestAssert.True(lifecycleService.Request is null, "Final write should not complete Innola lifecycle when session cannot be restored.");
     }
     public static async Task SummaryAttachmentServiceUploadsJsonArtifact()
     {
@@ -577,14 +729,14 @@ internal static class FabricMaintenancePromotionTests
         TestAssert.True(detailService.ContentLength > 0, "Fabric summary upload should include file content.");
     }
 
-    private static InnolaSession TestSession()
+    private static InnolaSession TestSession(string accessToken = "token")
     {
         return new InnolaSession(
             InnolaSessionStatus.LoggedIn,
             "https://example.test/",
             "jp.examiner",
             null,
-            "token",
+            accessToken,
             new InnolaUserContext("jp.examiner", "JP Examiner", Array.Empty<string>(), Array.Empty<string>()),
             null);
     }
@@ -800,6 +952,24 @@ internal static class FabricMaintenancePromotionTests
             return Task.FromResult(new FabricMaintenanceFinalWriteCompletionResult(success, message));
         }
     }
+
+    private sealed class CapturingCancelService : IFabricMaintenanceCancelService
+    {
+        public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? TransactionNumber { get; private set; }
+
+        public Task<FabricMaintenanceCancelResult> CancelAsync(
+            string currentTransactionNumber,
+            CancellationToken cancellationToken = default)
+        {
+            _ = cancellationToken;
+            TransactionNumber = currentTransactionNumber;
+            Completed.TrySetResult();
+            return Task.FromResult(FabricMaintenanceCancelResult.Succeeded("Cancelled Fabric Maintenance transaction."));
+        }
+    }
+
     private sealed class ThrowingReviewLoadService : IFabricMaintenanceReviewLoadService
     {
         public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -155,6 +155,30 @@ internal static class InnolaSpatialUnitServiceTests
         TestAssert.Equal("token-refreshed", handler.AccessTokens[1], "Spatial Unit save should use the refreshed token.");
     }
 
+    public static async Task StopsBeforeSpatialUnitWriteWhenSessionRefreshFails()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteOutputSummary(layout);
+        var handler = new RecordingHandler(new[]
+        {
+            "[{\"@c\":\"SpatialUnitExt\",\"id\":\"draft-su-1\",\"uid\":\"draft-uid-1\"}]"
+        });
+        var service = new InnolaSpatialUnitService(
+            new HttpClient(handler),
+            (_, _) => Task.FromResult<InnolaSession?>(null));
+
+        var result = await service.CreateOrUpdateAsync(
+            Session() with { AccessToken = "token-stale" },
+            Transaction(),
+            layout.RootDirectory,
+            Disposition(layout));
+
+        TestAssert.True(!result.Success, "Spatial Unit save should stop when session refresh fails.");
+        TestAssert.Equal("login_required", result.ErrorCategory, "Spatial Unit refresh failure category mismatch.");
+        TestAssert.Equal(0, handler.Requests.Count, "Spatial Unit save must not call Innola with a stale session after refresh failure.");
+    }
+
     public static async Task RetriesCookieOnlyWhenAccessTokenRejected()
     {
         using var tempRoot = new TempDirectory();

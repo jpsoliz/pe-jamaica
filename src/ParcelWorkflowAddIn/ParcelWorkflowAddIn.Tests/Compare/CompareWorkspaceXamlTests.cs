@@ -10,9 +10,10 @@ internal static class CompareWorkspaceXamlTests
             xaml.Contains("Command=\"{Binding ReloadGeometryCommand}\"", StringComparison.Ordinal),
             "Compare ownership evidence UI should expose a Load Compare Layers command that loads or reloads the Compare working layers.");
         TestAssert.True(
-            xaml.Contains("Content=\"Load Compare Layers\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Load Compare Layers\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareLoad.png\"", StringComparison.Ordinal)
             && !xaml.Contains("Refresh Legal/Fiscal spatial evidence", StringComparison.Ordinal),
-            "Compare map loading should be presented as Load Compare Layers.");
+            "Compare map loading should be presented as Load Compare Layers with the load icon.");
         TestAssert.False(
             xaml.Contains("Text=\"{Binding FiscalEvidenceStatus}\"", StringComparison.Ordinal),
             "Compare should not show fiscal neighbor status in the top toolbar.");
@@ -68,16 +69,30 @@ internal static class CompareWorkspaceXamlTests
         var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
 
         TestAssert.True(
-            xaml.Contains("Content=\"Save\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Save\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareSave.png\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding SaveProgressCommand}\"", StringComparison.Ordinal),
-            "Compare should expose Save as a draft save and report-generation command.");
+            "Compare should expose Save as a draft save and report-generation command with the save icon.");
+        TestAssert.True(
+            xaml.Contains("<StackPanel Grid.Column=\"0\" Orientation=\"Horizontal\" HorizontalAlignment=\"Left\">", StringComparison.Ordinal),
+            "Save, Suspend and Finalize should sit in the fixed footer row at the lower left, aligned with Cancel.");
+        TestAssert.True(
+            xaml.Contains("Width=\"100\"", StringComparison.Ordinal)
+            && !xaml.Contains("<UniformGrid Columns=\"3\">", StringComparison.Ordinal),
+            "Footer lifecycle buttons should use compact fixed sizing instead of stretching across the Compare content area.");
+        TestAssert.True(
+            xaml.Contains("Visibility=\"{Binding IsFinalizeOperationRunning, Converter={StaticResource BoolToVisibility}}\"", StringComparison.Ordinal)
+            && xaml.Contains("IsIndeterminate=\"True\"", StringComparison.Ordinal)
+            && xaml.Contains("Text=\"{Binding FinalizeOperationRunningText}\"", StringComparison.Ordinal),
+            "Compare should show an indeterminate footer progress indicator while Finalize is saving.");
         TestAssert.True(
             xaml.Contains("Saves the current Compare status and regenerates the PDF report", StringComparison.Ordinal),
             "Save should explain that it saves the current status and regenerates the PDF report.");
         TestAssert.True(
-            xaml.Contains("Content=\"Suspend\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Suspend\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareSuspend.png\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding SuspendTaskCommand}\"", StringComparison.Ordinal),
-            "Compare should expose Suspend for save-and-close lifecycle release.");
+            "Compare should expose Suspend for save-and-close lifecycle release with the suspend icon.");
         TestAssert.False(
             xaml.Contains("Content=\"Complete task\"", StringComparison.Ordinal)
             || xaml.Contains("Content=\"Block\"", StringComparison.Ordinal)
@@ -85,18 +100,20 @@ internal static class CompareWorkspaceXamlTests
             || xaml.Contains("Command=\"{Binding BlockCompareCommand}\"", StringComparison.Ordinal),
             "Compare should not expose Block or Complete task in the simplified action row.");
         TestAssert.True(
-            xaml.Contains("Content=\"Cancel\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Cancel\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareCancel.png\"", StringComparison.Ordinal)
             && xaml.Contains("Cancels the Compare workspace without saving", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding CancelTaskCommand}\"", StringComparison.Ordinal),
-            "Compare should label the no-save cleanup action as Cancel.");
+            "Compare should label the no-save cleanup action as Cancel with the cancel icon.");
         TestAssert.True(
             xaml.Contains("regenerates and uploads the PDF report", StringComparison.Ordinal),
             "Finalize should explain that it saves, regenerates and uploads the PDF report, then clears the workspace.");
         TestAssert.True(
-            xaml.Contains("Content=\"Finalize\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Finalize\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareFinalize.png\"", StringComparison.Ordinal)
             && !xaml.Contains("Content=\"Approve Compare\"", StringComparison.Ordinal)
             && !xaml.Contains("Content=\"Return to Compute\"", StringComparison.Ordinal),
-            "Compare should use Finalize as the approving action and should not expose Return to Compute.");
+            "Compare should use Finalize as the approving action with the finalize icon and should not expose Return to Compute.");
         TestAssert.True(
             xaml.Contains("VerticalScrollBarVisibility=\"Auto\"", StringComparison.Ordinal),
             "Compare evidence and decision controls should remain reachable in compact windows.");
@@ -196,16 +213,64 @@ internal static class CompareWorkspaceXamlTests
         var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
 
         TestAssert.True(
-            xaml.Contains("Content=\"Run Overlap Review\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"Run Overlap Review\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareRun.png\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding RunOverlapReviewCommand}\"", StringComparison.Ordinal),
-            "Compare should expose a Run Overlap Review command in the review shell.");
+            "Compare should expose a Run Overlap Review command in the review shell with the run icon.");
         TestAssert.True(
-            xaml.Contains("Content=\"View Overlap Review\"", StringComparison.Ordinal)
+            xaml.Contains("Text=\"View Overlap Review\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/CompareView.png\"", StringComparison.Ordinal)
             && xaml.Contains("Command=\"{Binding OpenOverlapReviewCommand}\"", StringComparison.Ordinal),
-            "Compare should expose a View Overlap Review command for the dedicated evidence surface.");
+            "Compare should expose a View Overlap Review command for the dedicated evidence surface with the view icon.");
         TestAssert.True(
             xaml.Contains("Text=\"{Binding OverlapReviewStatus}\"", StringComparison.Ordinal),
             "Compare should surface overlap review status text after the button runs.");
+    }
+
+    public static void CompareWorkspaceExposesComputedParticipantsTitleImageOnlyThere()
+    {
+        var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
+
+        TestAssert.True(
+            xaml.Contains("Text=\"Computed Participants\"", StringComparison.Ordinal)
+            && xaml.Contains("ItemsSource=\"{Binding ComputedParticipants}\"", StringComparison.Ordinal),
+            "Compare should expose computed participants separately from generic ownership search results.");
+        TestAssert.True(
+            xaml.Contains("Text=\"Search Title Image\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/SearchTitleImages.png\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding SearchTitleImageCommand}\"", StringComparison.Ordinal),
+            "Search Title Image should bind to the computed participant command with the dedicated title icon.");
+        TestAssert.True(
+            xaml.Contains("SelectedItem=\"{Binding SelectedComputedParticipant", StringComparison.Ordinal)
+            && xaml.Contains("Text=\"{Binding ComputedParticipantsStatus}\"", StringComparison.Ordinal),
+            "Computed participants should support row selection and status feedback.");
+        TestAssert.True(
+            xaml.Contains("MaxHeight=\"170\"", StringComparison.Ordinal)
+            && xaml.Contains("ScrollViewer.VerticalScrollBarVisibility=\"Auto\"", StringComparison.Ordinal),
+            "Computed participants should stay bounded for long Compute participant lists.");
+        TestAssert.False(
+            xaml.Contains("Command=\"{Binding DataContext.SearchTitleImageCommand", StringComparison.Ordinal),
+            "Generic search result rows should not expose Search Title Image as a per-row command.");
+    }
+
+    public static void CompareWorkspaceUsesSearchIcons()
+    {
+        var xaml = File.ReadAllText(FindCompareWorkspaceXaml());
+
+        TestAssert.True(
+            xaml.Contains("Text=\"Search\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/Search.png\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding RunEvidenceSearchCommand}\"", StringComparison.Ordinal),
+            "Ownership Evidence Search should use the dedicated search icon.");
+        TestAssert.True(
+            xaml.Contains("Text=\"Clear\"", StringComparison.Ordinal)
+            && xaml.Contains("Source=\"Images/CompareIcons/ClearSearch.png\"", StringComparison.Ordinal)
+            && xaml.Contains("Command=\"{Binding ClearEvidenceSearchFieldsCommand}\"", StringComparison.Ordinal),
+            "Ownership Evidence Clear should use the dedicated clear-search icon.");
+        TestAssert.False(
+            xaml.Contains("Content=\"Search\" Command=\"{Binding RunEvidenceSearchCommand}\"", StringComparison.Ordinal)
+            || xaml.Contains("Content=\"Clear\" Command=\"{Binding ClearEvidenceSearchFieldsCommand}\"", StringComparison.Ordinal),
+            "Search and Clear should be icon buttons with explicit text content, not plain content-only buttons.");
     }
 
     private static string FindCompareWorkspaceXaml()

@@ -117,6 +117,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     private bool extractionSummaryExpanded;
     private bool validationSummaryExpanded;
     private bool outputsSummaryExpanded;
+    private bool isFinalizeOperationRunning;
     private bool reviewViewerFitToPane = true;
     private double reviewViewerZoom = 1.0d;
     private bool reviewDirty;
@@ -249,6 +250,65 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     public string CurrentStep => workflowSession.CurrentStep;
 
     public string StatusText => workflowSession.StatusText;
+
+    public bool IsWorkflowOperationRunning =>
+        workflowSession.IsPreflightRunning
+        || workflowSession.IsExtractionRunning
+        || workflowSession.IsValidationRunning
+        || workflowSession.IsOutputRunning
+        || IsFinalizeOperationRunning;
+
+    public bool IsFinalizeOperationRunning
+    {
+        get => isFinalizeOperationRunning;
+        private set
+        {
+            if (isFinalizeOperationRunning == value)
+            {
+                return;
+            }
+
+            isFinalizeOperationRunning = value;
+            NotifyPropertyChanged(nameof(IsFinalizeOperationRunning));
+            NotifyPropertyChanged(nameof(IsWorkflowOperationRunning));
+            NotifyPropertyChanged(nameof(WorkflowOperationRunningText));
+            NotifyPropertyChanged(nameof(CanCompleteTransaction));
+            completeTransactionCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string WorkflowOperationRunningText
+    {
+        get
+        {
+            if (workflowSession.IsPreflightRunning)
+            {
+                return "Running checks...";
+            }
+
+            if (workflowSession.IsExtractionRunning)
+            {
+                return "Running extraction...";
+            }
+
+            if (workflowSession.IsValidationRunning)
+            {
+                return "Running validation...";
+            }
+
+            if (workflowSession.IsOutputRunning)
+            {
+                return "Creating outputs...";
+            }
+
+            if (IsFinalizeOperationRunning)
+            {
+                return "Finalizing transaction...";
+            }
+
+            return string.Empty;
+        }
+    }
 
     public string LifecycleStatusText => ShellState.Session.LifecycleStatusText ?? "No active transaction lifecycle.";
 
@@ -504,7 +564,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanUseWorkflowActions => ShellState.CanOpenComputeWorkflow;
 
-    public bool CanRunPreflight => CanUseWorkflowActions && workflowSession.CanRunStructureCheck;
+    public bool CanRunPreflight =>
+        CanUseWorkflowActions
+        && (workflowSession.CanRunStructureCheck
+            || workflowSession.CanRunGeoreferenceCheck
+            || workflowSession.CanRunDimensionCheck);
 
     public bool CanRunGeoreferenceCheck => CanUseWorkflowActions && workflowSession.CanRunGeoreferenceCheck;
 
@@ -539,6 +603,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool CanCompleteTransaction =>
         CanUseWorkflowActions
+        && !IsFinalizeOperationRunning
         && ShellState.Session.CanCompleteTransaction
         && workflowSession.CurrentState == WorkflowState.SpatialReviewApproved
         && (!IsPlaPlanAnnexationWorkflow || HasPlaFinalizeReadiness())
@@ -841,7 +906,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         HasLoadedReviewData
             ? "Continue Validation"
             : workflowSession.ExtractionResultRequiresDecision
-                ? "Re-process extraction"
+                ? "Rerun Extraction"
                 : workflowSession.HasUsableExtractionReview
                     ? "Continue Validation"
                     : HasExtractionReviewArtifact(workflowSession)
@@ -872,6 +937,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
     public bool ShowReprocessExtractionAction =>
         HasActiveCase
+        && !workflowSession.ExtractionResultRequiresDecision
         && (HasLoadedReviewData || workflowSession.HasUsableExtractionReview || HasExtractionReviewArtifact(workflowSession));
 
     public string ExtractionDecisionSummaryText => workflowSession.CurrentExtractionDecisionGate.SummaryText;
@@ -1875,7 +1941,25 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         var running = workflowSession.RunStructureCheckAsync(Environment.UserName);
         RefreshWorkflowProperties();
-        await running;
+        var structureSummary = await running.ConfigureAwait(true);
+        RefreshWorkflowProperties();
+        if (structureSummary.Payload.Blockers.Count > 0)
+        {
+            return;
+        }
+
+        running = workflowSession.RunGeoreferenceCheckAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        var georeferenceSummary = await running.ConfigureAwait(true);
+        RefreshWorkflowProperties();
+        if (georeferenceSummary.Payload.Blockers.Count > 0)
+        {
+            return;
+        }
+
+        running = workflowSession.RunDimensionCheckAsync(Environment.UserName);
+        RefreshWorkflowProperties();
+        await running.ConfigureAwait(true);
         RefreshWorkflowProperties();
     }
 
@@ -2102,6 +2186,11 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         RefreshWorkflowProperties();
     }
 
+    internal void NotifyReviewMetadataBatchChanged()
+    {
+        OnReviewMetadataChanged();
+    }
+
     private SurveyPlanBoundarySolverResult? ApplyBoundarySolverIfAvailable(
         bool useDerivedCoordinatesAsAnchors = false,
         bool repairPrematureClosingLabels = false,
@@ -2252,10 +2341,12 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             owner.SyncBackToModel();
         }
 
-        foreach (var party in ReviewNamedParties)
+        foreach (var party in ReviewNamedParties.ToArray())
         {
             party.SyncBackToModel();
         }
+
+        PromoteNamedPartyNeighborsToAdjacentOwners();
 
         foreach (var volumeFolio in ReviewVolumeFolios)
         {
@@ -2385,7 +2476,17 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return false;
         }
 
-        return TryParseFirstReviewNumber(text, out area);
+        if (!TryParseFirstReviewNumber(text, out area))
+        {
+            return false;
+        }
+
+        if (AreaTextUsesHectares(text) || AreaTextUsesHectares(unitText))
+        {
+            area *= 10000d;
+        }
+
+        return true;
     }
 
     private static string ReadJsonText(JsonNode? node)
@@ -2405,6 +2506,16 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             || text.Contains("ft2", StringComparison.OrdinalIgnoreCase)
             || text.Contains("ft²", StringComparison.OrdinalIgnoreCase)
             || text.Contains("SQUARE_FEET", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool AreaTextUsesHectares(string? value)
+    {
+        var text = value ?? string.Empty;
+        return text.Contains("hectare", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("HECTARES", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("area_unit_type_hectares", StringComparison.OrdinalIgnoreCase)
+            || text.Contains(" ha", StringComparison.OrdinalIgnoreCase)
+            || text.EndsWith("ha", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryParseFirstReviewNumber(string? value, out double number)
@@ -3238,10 +3349,64 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
     {
         var validationTask = workflowSession.RunValidationAsync(Environment.UserName);
         RefreshWorkflowProperties();
-        await validationTask.ConfigureAwait(true);
+        var validationResult = await validationTask.ConfigureAwait(true);
         currentValidationPreviewSummary = null;
         RefreshValidationFindingRows();
         RefreshWorkflowProperties();
+
+        if (validationResult.Success && workflowSession.CanRunOutputs)
+        {
+            await RunOutputsAsync().ConfigureAwait(true);
+        }
+    }
+
+    private void PromoteNamedPartyNeighborsToAdjacentOwners()
+    {
+        if (loadedReviewDocument is null)
+        {
+            return;
+        }
+
+        var promotedParties = ReviewNamedParties
+            .Where(party => IsNeighborRole(party.Role))
+            .ToArray();
+        if (promotedParties.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var party in promotedParties)
+        {
+            party.SyncBackToModel();
+            loadedReviewDocument.Parties.Remove(party.Model);
+            loadedReviewDocument.Representatives.Remove(party.Model);
+
+            var adjacentOwner = new ExtractionReviewAdjacentOwner
+            {
+                Name = party.Model.Name,
+                Role = "Neighbor",
+                LotNumber = party.Model.LotNumber,
+                Address = party.Model.Address,
+                LandValuationNumber = party.Model.LandValuationNumber,
+                ExaminationNumber = party.Model.ExaminationNumber,
+                Volume = party.Model.Volume,
+                Folio = party.Model.Folio,
+                SourcePage = party.Model.SourcePage,
+                SourceZone = party.Model.SourceZone,
+                ReviewStatus = party.Model.ReviewStatus,
+                ReviewNotes = party.Model.ReviewNotes,
+                RawOwner = party.Model.RawParty.DeepClone() as JsonObject ?? []
+            };
+
+            loadedReviewDocument.AdjacentOwners.Add(adjacentOwner);
+            ReviewNamedParties.Remove(party);
+            ReviewAdjacentOwners.Add(new ExtractionReviewAdjacentOwnerViewModel(adjacentOwner, OnReviewMetadataChanged));
+        }
+    }
+
+    private static bool IsNeighborRole(string? role)
+    {
+        return string.Equals(role?.Trim(), "Neighbor", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RunOutputsAsync()
@@ -3253,7 +3418,7 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         {
             var mapResult = await outputMapIntegrationService.AddOutputsToActiveMapAsync(workflowSession.CurrentOutputSummary).ConfigureAwait(true);
             workflowSession.SetValidationFailure(mapResult.Message);
-            outputPreviewExpanded = true;
+            outputPreviewExpanded = false;
         }
 
         RefreshWorkflowProperties();
@@ -3921,49 +4086,57 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
             return;
         }
 
-        if (!IsPlaPlanAnnexationWorkflow && !IsPlaBWorkflow)
+        IsFinalizeOperationRunning = true;
+        try
         {
-            var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
-            if (publishResult.Attempted && !publishResult.Success)
+            if (!IsPlaPlanAnnexationWorkflow && !IsPlaBWorkflow)
             {
-                RefreshWorkflowProperties();
+                var publishResult = await workflowSession.PublishEnterpriseWorkingReviewAsync(Environment.UserName);
+                if (publishResult.Attempted && !publishResult.Success)
+                {
+                    RefreshWorkflowProperties();
+                    return;
+                }
+
+                var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
+                    decision,
+                    comment,
+                    Environment.UserName);
+                if (!dispositionResult.Success)
+                {
+                    RefreshWorkflowProperties();
+                    return;
+                }
+            }
+
+            var completedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
+            var completedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
+            var result = await ShellState.LifecycleCoordinator.CompleteAsync();
+            if (result.Success)
+            {
+                await CompleteTransactionSuccessUiAsync(
+                    completedTransactionNumber,
+                    result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.",
+                    showCompletionDialog: true).ConfigureAwait(true);
                 return;
             }
 
-            var dispositionResult = await workflowSession.RecordComputeDispositionAsync(
-                decision,
-                comment,
-                Environment.UserName);
-            if (!dispositionResult.Success)
+            if (TryResolveCompletedTransactionStatus(completedCaseFolderPath, out var completedStatusText))
             {
-                RefreshWorkflowProperties();
+                await CompleteTransactionSuccessUiAsync(
+                    completedTransactionNumber,
+                    completedStatusText,
+                    showCompletionDialog: true).ConfigureAwait(true);
                 return;
             }
-        }
 
-        var completedTransactionNumber = ShellState.Session.LoadedTransactionNumber ?? workflowSession.TransactionId ?? TransactionId;
-        var completedCaseFolderPath = ShellState.Session.LoadedCaseFolderPath ?? workflowSession.CaseFolderPath;
-        var result = await ShellState.LifecycleCoordinator.CompleteAsync();
-        if (result.Success)
+            workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
+            RefreshWorkflowProperties();
+        }
+        finally
         {
-            await CompleteTransactionSuccessUiAsync(
-                completedTransactionNumber,
-                result.StatusMessage ?? "Completed. Final package uploaded and transaction closed.",
-                showCompletionDialog: true).ConfigureAwait(true);
-            return;
+            IsFinalizeOperationRunning = false;
         }
-
-        if (TryResolveCompletedTransactionStatus(completedCaseFolderPath, out var completedStatusText))
-        {
-            await CompleteTransactionSuccessUiAsync(
-                completedTransactionNumber,
-                completedStatusText,
-                showCompletionDialog: true).ConfigureAwait(true);
-            return;
-        }
-
-        workflowSession.SetValidationFailure(result.ErrorMessage ?? "Complete is blocked.");
-        RefreshWorkflowProperties();
     }
 
     private async Task CompleteTransactionSuccessUiAsync(
@@ -4853,6 +5026,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         NotifyPropertyChanged(nameof(CurrentWorkflowState));
         NotifyPropertyChanged(nameof(CurrentStep));
         NotifyPropertyChanged(nameof(StatusText));
+        NotifyPropertyChanged(nameof(IsWorkflowOperationRunning));
+        NotifyPropertyChanged(nameof(WorkflowOperationRunningText));
         NotifyPropertyChanged(nameof(LifecycleStatusText));
         NotifyPropertyChanged(nameof(Caption));
         NotifyPropertyChanged(nameof(TabText));

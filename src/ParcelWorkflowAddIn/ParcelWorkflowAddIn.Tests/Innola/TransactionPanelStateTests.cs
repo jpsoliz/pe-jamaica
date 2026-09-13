@@ -24,12 +24,19 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal(0, service.CallCount, "Logged-out refresh should not call transaction service.");
         TestAssert.Equal("Not logged in.", panel.StatusText, "Logged-out status mismatch.");
         TestAssert.True(!panel.CanRefresh, "Refresh should be disabled while logged out.");
+        TestAssert.True(!panel.CanSearchTransactions, "Search should be disabled while logged out.");
         TestAssert.True(!panel.CanLoadSelectedTransaction, "Load should be disabled while logged out.");
         TestAssert.Equal(0, panel.Rows.Count, "Logged-out panel should not show rows.");
         TestAssert.Equal("User: not logged in", panel.ConnectionUserText, "Logged-out user footer mismatch.");
         TestAssert.Equal("Server: not connected", panel.ConnectionServerText, "Logged-out server footer mismatch.");
         TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logged-out mode footer mismatch.");
         TestAssert.Equal("Records retrieved: not refreshed", panel.RetrievedRecordCountText, "Logged-out count footer mismatch.");
+
+        panel.SearchText = "62";
+
+        TestAssert.Equal(string.Empty, panel.SearchText, "Logged-out search input should not be retained.");
+        TestAssert.Equal("Log in before searching transactions.", panel.StatusText, "Logged-out search status mismatch.");
+        TestAssert.Equal(0, service.CallCount, "Logged-out search should not queue a refresh.");
     }
 
     public static void PlaBTestInputRequiresLogin()
@@ -71,7 +78,7 @@ internal static class TransactionPanelStateTests
                     "First Registration",
                     "First Registration",
                     "Plan Annexation",
-                    new[] { "First Registration", "Plan Annexation" })
+                    new[] { "First Registration", "Plan Annexation" }) with { AssignedUser = "tester" }
             })
         };
         var manager = LoggedInManager();
@@ -282,6 +289,7 @@ internal static class TransactionPanelStateTests
         using var temp = new TempDirectory();
         string? launchedTransactionNumber = null;
         string? launchedPeNumber = null;
+        IFabricMaintenanceCancelService? launchedCancelService = null;
         var annotateRow = Row(
             "task-annotate",
             "100000859",
@@ -318,10 +326,11 @@ internal static class TransactionPanelStateTests
             supportedTransactionTypes: new[] { "Plan Examination" },
             plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService("100000814"),
             fabricMaintenancePromotionSettings: FabricMaintenancePromotionSettings.Default,
-            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, _) =>
+            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, _, cancelService) =>
             {
                 launchedTransactionNumber = transactionNumber;
                 launchedPeNumber = peNumber;
+                launchedCancelService = cancelService;
             },
             plaBCaseFolderPreparer: (transactionNumber, username) => new CaseFolderStore(clock, () => "run-fabric-maintenance-start")
                 .CreateCase(temp.Path, transactionNumber, username));
@@ -340,6 +349,13 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("In Parcel Fabric Update", manager.SelectedTransaction?.TaskName, "Fabric Maintenance start should not bind to the first same-TR task.");
         TestAssert.Equal("100000859", launchedTransactionNumber, "Fabric Maintenance workspace should open for the selected transaction number.");
         TestAssert.Equal("100000814", launchedPeNumber, "Fabric Maintenance workspace should receive PE from SpatialUnitExt.examinationNumber.");
+
+        TestAssert.True(launchedCancelService is not null, "Fabric Maintenance launch should pass a cancel service back to the workspace.");
+        var cancelResult = await launchedCancelService!.CancelAsync("100000859");
+
+        TestAssert.True(cancelResult.Success, cancelResult.Message);
+        TestAssert.False(manager.HasActiveTransaction, "Fabric Maintenance cancel should clear the active transaction and return control to the transaction list.");
+        TestAssert.Equal("All tasks", panel.SelectedFilter, "Fabric Maintenance cancel should reset the list filter so the user can continue from Transactions List.");
     }
 
     public static async Task FabricMaintenanceStartOpensWorkspaceWithEditablePeWhenSpatialUnitPeIsMissing()
@@ -374,7 +390,7 @@ internal static class TransactionPanelStateTests
             supportedTransactionTypes: new[] { "Plan Examination" },
             plaBSpatialUnitService: new FixedExaminationNumberSpatialUnitService(null),
             fabricMaintenancePromotionSettings: FabricMaintenancePromotionSettings.Default,
-            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, status) =>
+            fabricMaintenanceWorkspaceLauncher: (transactionNumber, peNumber, status, _) =>
             {
                 launchedTransactionNumber = transactionNumber;
                 launchedPeNumber = peNumber;
@@ -515,9 +531,9 @@ internal static class TransactionPanelStateTests
         TestAssert.Equal("tester", service.LastQuery?.Username, "Query user mismatch.");
         TestAssert.Equal("parcel_workflow", service.LastQuery?.ProcessStep, "Query process step mismatch.");
         TestAssert.True(service.LastQuery!.Groups.Contains("survey"), "Query should include user groups.");
-        TestAssert.Equal(2, panel.Rows.Count, "Panel row count mismatch.");
-        TestAssert.Equal("TR100000005", panel.Rows[0].TransactionNumber, "Default sort should show newest received transactions first.");
-        TestAssert.Equal("2 available transactions.", panel.StatusText, "Refresh status mismatch.");
+        TestAssert.Equal(1, panel.Rows.Count, "Panel row count mismatch.");
+        TestAssert.Equal("TR100000004", panel.Rows[0].TransactionNumber, "Default filter should show transactions assigned to the logged-in user.");
+        TestAssert.Equal("1 available transaction.", panel.StatusText, "Refresh status mismatch.");
         TestAssert.Equal("User: Test User", panel.ConnectionUserText, "Logged-in user footer mismatch.");
         TestAssert.Equal("Server: https://eltrs.innola-solutions.com/", panel.ConnectionServerText, "Logged-in server footer mismatch.");
         TestAssert.True(panel.ConnectionModeText.StartsWith("Mode: ", StringComparison.Ordinal), "Logged-in mode footer mismatch.");
@@ -553,6 +569,7 @@ internal static class TransactionPanelStateTests
         var manager = LoggedInManager();
         var panel = new TransactionPanelState(manager, service, "parcel_workflow", () => new DateTimeOffset(2026, 6, 10, 10, 0, 0, TimeSpan.Zero));
 
+        panel.SelectedFilter = "All tasks";
         await panel.RefreshAsync();
         panel.SearchText = "QC";
 
@@ -598,6 +615,58 @@ internal static class TransactionPanelStateTests
         TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000006"), "Display text containing the username token should match.");
         TestAssert.True(panel.Rows.Any(row => row.TransactionNumber == "TR100000007"), "Display-name-only assignee should match the logged-in user.");
         TestAssert.True(!panel.Rows.Any(row => row.TransactionNumber == "TR100000005"), "Substring user names should not match.");
+    }
+
+    public static async Task MyTasksIsDefaultTransactionFilter()
+    {
+        var service = new FakeTransactionService
+        {
+            Result = InnolaTransactionListResult.Succeeded(new[]
+            {
+                Row("task-1", "TR100000004", "Computation Check", "survey", "2024-10-15T09:24:00-05:00") with { AssignedUser = "tester" },
+                Row("task-2", "TR100000005", "Compute Survey Plan", "survey", "2024-10-15T09:38:00-05:00") with { AssignedUser = "tester2" }
+            })
+        };
+        var panel = new TransactionPanelState(LoggedInManager(), service, "parcel_workflow");
+
+        await panel.RefreshAsync();
+
+        TestAssert.Equal("My tasks", panel.SelectedFilter, "Transaction List should default to assigned-to-me filtering.");
+        TestAssert.Equal(1, panel.Rows.Count, "Default Transaction List should only show tasks assigned to the logged-in user.");
+        TestAssert.Equal("TR100000004", panel.Rows[0].TransactionNumber, "Default My tasks filter row mismatch.");
+    }
+
+    public static async Task SessionChangeFromBackgroundThreadUsesPanelSynchronizationContext()
+    {
+        var context = new TrackingSynchronizationContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            var manager = LoggedInManager();
+            var panel = new TransactionPanelState(manager, new FakeTransactionService(), "parcel_workflow");
+            manager.SelectTransaction(
+                Row("task-1", "TR100000004", "Compare", "tester", "2024-10-15T09:24:00-05:00"),
+                DateTimeOffset.UtcNow);
+            manager.MarkTransactionLoaded("TR100000004", Path.GetTempPath(), "2026-08-27T10:00:00.0000000Z", false);
+
+            var callbackUsedPanelContext = false;
+            panel.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(TransactionPanelState.IsTransactionActive))
+                {
+                    callbackUsedPanelContext = ReferenceEquals(SynchronizationContext.Current, context);
+                }
+            };
+
+            await Task.Run(manager.ClearLoadedTransaction);
+
+            TestAssert.True(callbackUsedPanelContext, "Background session changes should update the panel through the captured synchronization context.");
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
     }
 
     public static async Task GroupTasksFilterMatchesLoggedInGroupsOnly()
@@ -1443,7 +1512,7 @@ internal static class TransactionPanelStateTests
         TestAssert.True(suspendResult.Success, "Lifecycle bridge should suspend through the panel path.");
         TestAssert.Equal(1, lifecycleService.SaveProgressCalls, "Suspend should save progress through the existing lifecycle service.");
         TestAssert.False(panel.IsTransactionPanelLocked, "Suspend from Compare should unlock the transaction panel.");
-        TestAssert.Equal("100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
+        TestAssert.Equal("TR100000004", panel.SavedTransactionNumber, "Suspended Compare task should remain marked as saved for resume.");
     }
 
     public static async Task ActiveCompareTaskDisablesCmpWhenCompareWorkspaceIsOpen()
@@ -1504,6 +1573,7 @@ internal static class TransactionPanelStateTests
     public static void ProductionTransactionPanelLaunchesCompareWithSafeLoader()
     {
         var source = File.ReadAllText(FindSourceFile("TransactionPanelDockpaneViewModel.cs"));
+        var shellSource = File.ReadAllText(FindSourceFile(Path.Combine("Innola", "ShellState.cs")));
 
         TestAssert.True(
             source.Contains("compareWorkspaceLifecycleLauncher: ShellState.OpenCompareWorkspace", StringComparison.Ordinal)
@@ -1512,6 +1582,10 @@ internal static class TransactionPanelStateTests
         TestAssert.True(
             source.Contains("compareTransactionLoadService: ShellState.CompareTransactionLoader", StringComparison.Ordinal),
             "Production transaction panel must use the Compare-safe loader so Compare starts do not prepare the ArcGIS map before routing.");
+        TestAssert.True(
+            shellSource.Contains("new InnolaCompareTitleSourceService", StringComparison.Ordinal)
+            && shellSource.Contains("forceRefresh: false", StringComparison.Ordinal),
+            "Compare title-image search must use the active session first; forced refresh is reserved for write/finalize paths.");
     }
 
     public static async Task CompareWorkflowStageDoesNotLaunchWhenOwnershipStartFails()
@@ -1932,7 +2006,7 @@ internal static class TransactionPanelStateTests
         await panel.LoadSelectedTransactionAsync();
 
         TestAssert.True(!manager.CanOpenParcelWorkflow, "Loaded but unclaimed workflow should remain disabled after failed new load.");
-        TestAssert.Equal("TR100000004", manager.LoadedTransactionNumber, "Failed load should preserve previous loaded transaction number.");
+        TestAssert.Equal("100000004", manager.LoadedTransactionNumber, "Failed load should preserve previous loaded transaction number.");
         TestAssert.Equal(firstLoadedPath, manager.LoadedCaseFolderPath, "Failed load should preserve previous Case Folder path.");
         TestAssert.Equal("TR100000004", manager.SelectedTransaction?.TransactionNumber, "Failed load should restore previous selected transaction.");
         TestAssert.True(panel.ErrorText is not null, "Failed load should show an error.");
@@ -1963,7 +2037,7 @@ internal static class TransactionPanelStateTests
         panel.SelectedRow = FindRow(panel, "TR100000005");
         await panel.LoadSelectedTransactionAsync();
 
-        TestAssert.Equal("TR100000004", manager.LoadedTransactionNumber, "Stay decision should preserve current loaded transaction.");
+        TestAssert.Equal("100000004", manager.LoadedTransactionNumber, "Stay decision should preserve current loaded transaction.");
         TestAssert.Equal("TR100000004", panel.SelectedRow?.TransactionNumber, "Stay decision should restore active row selection.");
     }
 
@@ -2215,7 +2289,7 @@ internal static class TransactionPanelStateTests
             InnolaTransactionStatus.Available,
             transactionType,
             "John Johnson",
-            assignedGroup == "tester" ? "tester" : null,
+            assignedGroup is "tester" or "survey" ? "tester" : null,
             assignedGroup,
             DateTimeOffset.Parse(receivedAt),
             true,
@@ -2664,6 +2738,23 @@ internal static class TransactionPanelStateTests
         {
             CurrentSession = null;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TrackingSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            var previous = Current;
+            SetSynchronizationContext(this);
+            try
+            {
+                d(state);
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+            }
         }
     }
 }

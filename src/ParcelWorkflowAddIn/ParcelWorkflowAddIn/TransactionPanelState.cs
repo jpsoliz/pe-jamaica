@@ -39,7 +39,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly IInnolaTransactionLifecycleService plaBTransactionLifecycleService;
     private readonly PlaBPlanAnnexationTaskSettings plaBPlanAnnexationTaskSettings;
     private readonly FabricMaintenancePromotionSettings fabricMaintenancePromotionSettings;
-    private readonly Action<string, string, string?> fabricMaintenanceWorkspaceLauncher;
+    private readonly Action<string, string, string?, IFabricMaintenanceCancelService?> fabricMaintenanceWorkspaceLauncher;
     private readonly RtExaminationSettings rtExaminationSettings;
     private readonly Action<string, string?> rtExaminationWorkspaceLauncher;
     private readonly Func<IReadOnlyList<string>, CancellationToken, Task<PlaBMapCleanupResult>> plaBMapCleanup;
@@ -48,11 +48,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private readonly Func<bool> supportingDocumentsLauncher;
     private readonly Action supportingDocumentsRefresher;
     private readonly Func<DateTimeOffset> clock;
+    private readonly SynchronizationContext? uiSynchronizationContext;
     private readonly bool autoRefreshOnLogin;
     private readonly List<InnolaTransactionRow> allRows = new();
     private readonly HashSet<string> locallyCompletedTransactionNumbers = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? searchRefreshCancellation;
-    private string selectedFilter = "All tasks";
+    private string selectedFilter = "My tasks";
     private string searchText = string.Empty;
     private string sortField = "Received";
     private string sortDirection = "Descending";
@@ -119,7 +120,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         IInnolaTransactionLifecycleService? plaBTransactionLifecycleService = null,
         PlaBPlanAnnexationTaskSettings? plaBPlanAnnexationTaskSettings = null,
         FabricMaintenancePromotionSettings? fabricMaintenancePromotionSettings = null,
-        Action<string, string, string?>? fabricMaintenanceWorkspaceLauncher = null,
+        Action<string, string, string?, IFabricMaintenanceCancelService?>? fabricMaintenanceWorkspaceLauncher = null,
         Func<IReadOnlyList<string>, CancellationToken, Task<PlaBMapCleanupResult>>? plaBMapCleanup = null,
         Func<string, string, CaseFolderCreationResult>? plaBCaseFolderPreparer = null,
         RtExaminationSettings? rtExaminationSettings = null,
@@ -164,6 +165,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         this.supportingDocumentsRefresher = supportingDocumentsRefresher ?? (() => { });
         ProcessStep = string.IsNullOrWhiteSpace(processStep) ? "parcel_workflow" : processStep;
         this.clock = clock ?? (() => DateTimeOffset.Now);
+        uiSynchronizationContext = SynchronizationContext.Current;
         this.autoRefreshOnLogin = autoRefreshOnLogin;
 
         Rows = new ObservableCollection<InnolaTransactionRow>();
@@ -179,7 +181,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         AddDocumentCommand = new RelayCommand(ChooseAndAddDocuments, () => CanAddDocument);
         CompleteTaskCommand = new RelayCommand(async () => await CompleteCurrentTransactionAsync(), () => CanCompleteTask);
         ReopenCompareCommand = new RelayCommand(async () => await ReopenCompareWorkspaceAsync(), () => CanReopenCompare);
-        session.SessionChanged += (_, _) => HandleSessionChanged();
+        session.SessionChanged += (_, _) => HandleSessionChangedOnUiContext();
         RefreshSessionState();
         QueueWorkingMapPreloadAfterLogin();
         QueueRefreshAfterLogin();
@@ -273,10 +275,13 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     public bool CanEditListCriteria => IsLoggedIn && !IsLoading && !IsTransactionPanelLocked;
 
-    public bool CanSearchTransactions => IsLoggedIn && !IsTransactionPanelLocked;
+    public bool CanSearchTransactions => IsLoggedIn
+        && !IsTransactionPanelLocked
+        && session.CurrentSession is not null;
 
     public bool CanUseListControls => IsLoggedIn
         && !IsLoading
+        && !IsTransactionPanelLocked
         && allRows.Count > 0;
 
     public bool HasRows => Rows.Count > 0;
@@ -379,6 +384,17 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         set
         {
             var normalized = value ?? string.Empty;
+        if (!CanSearchTransactions)
+        {
+            if (!IsLoggedIn || session.CurrentSession is null)
+            {
+                StatusText = "Log in before searching transactions.";
+                }
+
+                NotifyPropertyChanged(nameof(SearchText));
+                return;
+            }
+
             if (IsTransactionPanelLocked)
             {
                 StatusText = $"Active transaction {ActiveTransactionNumber} is in progress. Stop/save or complete it before searching.";
@@ -448,18 +464,21 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         get => selectedRow;
         set
         {
-            if (IsTransactionPanelLocked && value is not null && !IsActiveRow(value))
+            if (IsTransactionPanelLocked)
             {
-                RestoreSelectedRow(session.SelectedTransaction);
-                StatusText = $"Active transaction {ActiveTransactionNumber} remains selected.";
-                return;
-            }
+                var activeRow = session.SelectedTransaction is null
+                    ? null
+                    : FindActiveTransactionRow(session.SelectedTransaction);
+                if ((value is null && selectedRow is not null) || (value is not null && !IsActiveRow(value)))
+                {
+                    if (activeRow is not null)
+                    {
+                        ApplySelectedRow(activeRow);
+                    }
 
-            if (IsTransactionPanelLocked && value is null && selectedRow is not null)
-            {
-                RestoreSelectedRow(session.SelectedTransaction);
-                StatusText = $"Active transaction {ActiveTransactionNumber} remains selected.";
-                return;
+                    StatusText = $"Active transaction {ActiveTransactionNumber} remains selected.";
+                    return;
+                }
             }
 
             if (ReferenceEquals(selectedRow, value))
@@ -467,13 +486,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 return;
             }
 
-            selectedRow = value;
-            NotifyPropertyChanged(nameof(SelectedRow));
-            NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
-            NotifySelectionDetails();
-            NotifyCommandStates();
-            UpdateSelectionStatus();
+            ApplySelectedRow(value);
         }
+    }
+
+    private void ApplySelectedRow(InnolaTransactionRow? row)
+    {
+        if (ReferenceEquals(selectedRow, row))
+        {
+            return;
+        }
+
+        selectedRow = row;
+        NotifyPropertyChanged(nameof(SelectedRow));
+        NotifyPropertyChanged(nameof(CanLoadSelectedTransaction));
+        NotifySelectionDetails();
+        NotifyCommandStates();
+        UpdateSelectionStatus();
     }
 
     public bool HasSelectedRow => SelectedRow is not null;
@@ -616,7 +645,14 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         StatusText = "Refreshing transactions.";
         try
         {
-            var currentSession = session.CurrentSession;
+            var currentSession = await EnsurePanelSessionAsync("transaction list refresh", cancellationToken).ConfigureAwait(true);
+            if (currentSession is null)
+            {
+                ErrorText ??= InnolaApiResilience.LoginRequiredMessage;
+                StatusText = ErrorText;
+                return;
+            }
+
             using var timeout = new CancellationTokenSource(RefreshTimeout);
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
@@ -686,6 +722,31 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return string.IsNullOrWhiteSpace(result.ErrorCategory)
             ? message
             : $"{message} ({result.ErrorCategory})";
+    }
+
+    private async Task<InnolaSession?> EnsurePanelSessionAsync(
+        string operationName,
+        CancellationToken cancellationToken)
+    {
+        var result = await session.EnsureCurrentSessionAsync(
+            operationName,
+            session.SelectedTransaction?.TransactionNumber,
+            forceRefresh: true,
+            cancellationToken).ConfigureAwait(true);
+
+        StatusText = result.Message;
+        if (!result.Success || result.Session is null)
+        {
+            ErrorText = string.Equals(result.ErrorCategory, "cancelled", StringComparison.OrdinalIgnoreCase)
+                ? result.Message
+                : InnolaApiResilience.LoginRequiredMessage;
+            StatusText = ErrorText;
+            NotifyListState();
+            return null;
+        }
+
+        NotifyListState();
+        return result.Session;
     }
 
     public void LoadSelectedTransaction()
@@ -1161,13 +1222,15 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return RtExaminationMainRowLookupResult.Succeeded(localRow);
         }
 
-        if (session.CurrentSession is null)
+        var currentSession = await EnsurePanelSessionAsync(
+            "RT Examination main transaction lookup",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
         {
             return RtExaminationMainRowLookupResult.Failed(
                 $"RT Examination transaction {requestedRtRow.TransactionNumber} requires an active Innola session to find the main transaction row.");
         }
 
-        var currentSession = session.CurrentSession;
         var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
             currentSession.ServerUrl,
             currentSession.AccessToken,
@@ -1461,11 +1524,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         try
         {
             var savedTransactionNumber = session.LoadedTransactionNumber;
+            var savedDisplayTransactionNumber = SelectedRow?.TransactionNumber ?? savedTransactionNumber;
             var result = await lifecycleCoordinator.SaveAndCloseAsync(cancellationToken);
             ApplyLifecycleResult(result, "Suspended. Transaction released for later resume.");
             if (result.Success)
             {
-                SavedTransactionNumber = savedTransactionNumber;
+                SavedTransactionNumber = savedDisplayTransactionNumber;
                 session.ClearLoadedTransaction();
                 RestoreSelectedRow(savedTransactionNumber);
                 StatusText = result.StatusMessage ?? "Suspended. Select a transaction to continue.";
@@ -1560,7 +1624,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 SavedTransactionNumber = null;
                 if (!string.IsNullOrWhiteSpace(completedTransactionNumber))
                 {
-                    locallyCompletedTransactionNumbers.Add(completedTransactionNumber);
+                    locallyCompletedTransactionNumbers.Add(InnolaTransactionNumbers.NormalizeWorkflowKey(completedTransactionNumber));
                 }
 
                 SelectedRow = null;
@@ -1626,7 +1690,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         if (suppressTransactionFromList && !string.IsNullOrWhiteSpace(transactionNumber))
         {
-            locallyCompletedTransactionNumbers.Add(transactionNumber);
+            locallyCompletedTransactionNumbers.Add(InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber));
             SelectedRow = null;
         }
         else
@@ -1749,7 +1813,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         var peNumber = string.Empty;
         var status = $"Loading SpatialUnit {plaBPlanAnnexationTaskSettings.SpatialUnitExaminationField} for transaction {currentTransactionNumber}.";
 
-        if (session.CurrentSession is null)
+        var currentSession = await EnsurePanelSessionAsync(
+            "PLA_B SpatialUnit examination lookup",
+            CancellationToken.None).ConfigureAwait(true);
+        if (currentSession is null)
         {
             status = "Plan Annexation Task requires an active Innola session.";
         }
@@ -1757,7 +1824,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         {
             var lookup = await plaBSpatialUnitService
                 .GetExaminationNumberAsync(
-                    session.CurrentSession,
+                    currentSession,
                     selected,
                     plaBPlanAnnexationTaskSettings.SpatialUnitExaminationField,
                     CancellationToken.None)
@@ -1804,7 +1871,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         var selected = session.SelectedTransaction;
-        if (session.CurrentSession is null || selected is null)
+        if (selected is null)
         {
             StatusText = "Fabric Maintenance requires an active Innola transaction.";
             return;
@@ -1820,9 +1887,18 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
         var currentTransactionNumber = selected.TransactionNumber;
         StatusText = $"Loading SpatialUnit {fabricMaintenancePromotionSettings.SpatialUnitExaminationField} for Fabric Maintenance transaction {currentTransactionNumber}.";
+        var currentSession = await EnsurePanelSessionAsync(
+            "Fabric Maintenance SpatialUnit examination lookup",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
+        {
+            StatusText = "Fabric Maintenance requires an active Innola session.";
+            return;
+        }
+
         var lookup = await plaBSpatialUnitService
             .GetExaminationNumberAsync(
-                session.CurrentSession,
+                currentSession,
                 selected,
                 fabricMaintenancePromotionSettings.SpatialUnitExaminationField,
                 cancellationToken)
@@ -1832,15 +1908,72 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             var missingPeStatus = string.IsNullOrWhiteSpace(lookup.Message)
                 ? "SpatialUnit examinationNumber is missing for this transaction. Enter the PE number manually."
                 : $"{lookup.Message} Enter the PE number manually.";
-            fabricMaintenanceWorkspaceLauncher(currentTransactionNumber, string.Empty, missingPeStatus);
+            fabricMaintenanceWorkspaceLauncher(
+                currentTransactionNumber,
+                string.Empty,
+                missingPeStatus,
+                new TransactionPanelFabricMaintenanceCancelService(this));
             StatusText = missingPeStatus;
             return;
         }
 
         var peNumber = lookup.ExaminationNumber.Trim();
         var status = $"Ready to review Fabric Maintenance promotion for PE {peNumber}.";
-        fabricMaintenanceWorkspaceLauncher(currentTransactionNumber, peNumber, status);
+        fabricMaintenanceWorkspaceLauncher(
+            currentTransactionNumber,
+            peNumber,
+            status,
+            new TransactionPanelFabricMaintenanceCancelService(this));
         StatusText = status;
+    }
+
+    internal async Task<FabricMaintenanceCancelResult> CancelCurrentTransactionForFabricMaintenanceAsync(
+        string? transactionNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (lifecycleCoordinator is null)
+        {
+            return FabricMaintenanceCancelResult.Failed("Cancel task is unavailable for the current transaction state.");
+        }
+
+        if (!MatchesActiveTransaction(transactionNumber))
+        {
+            return FabricMaintenanceCancelResult.Failed("Cancel task is available only for the active Fabric Maintenance transaction.");
+        }
+
+        IsLoading = true;
+        ErrorText = null;
+        StatusText = "Cancelling Fabric Maintenance transaction.";
+        try
+        {
+            var cancelledTransactionNumber = session.LoadedTransactionNumber;
+            var result = lifecycleCoordinator.CancelActiveProcess();
+            if (!result.Success)
+            {
+                ErrorText = result.ErrorMessage ?? "Could not cancel Fabric Maintenance transaction. Try again.";
+                StatusText = ErrorText;
+                return FabricMaintenanceCancelResult.Failed(StatusText);
+            }
+
+            SavedTransactionNumber = null;
+            session.ClearLoadedTransaction();
+            SelectedRow = null;
+            searchText = string.Empty;
+            selectedFilter = "All tasks";
+            NotifyPropertyChanged(nameof(SearchText));
+            NotifyPropertyChanged(nameof(SelectedFilter));
+            StatusText = result.StatusMessage ?? $"Cancelled {cancelledTransactionNumber}.";
+            NotifyPropertyChanged(nameof(LoadedCaseFolderPath));
+            await RefreshAsync(cancellationToken).ConfigureAwait(true);
+            ErrorText = null;
+            StatusText = result.StatusMessage ?? $"Cancelled {cancelledTransactionNumber}.";
+            return FabricMaintenanceCancelResult.Succeeded(StatusText);
+        }
+        finally
+        {
+            IsLoading = false;
+            NotifyListState();
+        }
     }
 
     private InnolaTransactionRow? ActiveFabricMaintenanceTransactionRow()
@@ -1904,7 +2037,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return PlaBTaskCompletionResult.Failed("Run Process successfully before completing Plan Annexation Preparation.");
         }
 
-        if (session.CurrentSession is null || transaction is null)
+        var currentSession = await EnsurePanelSessionAsync(
+            "Plan Annexation task completion",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null || transaction is null)
         {
             return PlaBTaskCompletionResult.Failed("Plan Annexation completion requires an active Innola session and selected transaction.");
         }
@@ -1923,7 +2059,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             caseFolderPath = PreparePlaBCaseFolder(
                 InnolaTransactionSettings.Load(),
                 input.CurrentTransactionNumber.Trim(),
-                session.CurrentSession.User.Username).Layout?.RootDirectory;
+                currentSession.User.Username).Layout?.RootDirectory;
         }
 
         if (string.IsNullOrWhiteSpace(caseFolderPath))
@@ -1932,7 +2068,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         var request = new InnolaTransactionLifecycleRequest(
-            session.CurrentSession,
+            currentSession,
             transaction,
             caseFolderPath,
             "loaded",
@@ -2009,7 +2145,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         PlaBTestEmulationInputViewModel input,
         CancellationToken cancellationToken)
     {
-        if (session.CurrentSession is null)
+        var currentSession = await EnsurePanelSessionAsync(
+            "PLA_B recovery",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
         {
             return PlaBTestInputPreparationResult.Failed("PLA_B recovery requires an active Innola session.");
         }
@@ -2028,24 +2167,36 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return PlaBTestInputPreparationResult.Failed(currentSourceLoad.Message);
         }
 
-        var layoutResult = PreparePlaBCaseFolder(settings, input.CurrentTransactionNumber.Trim(), session.CurrentSession.User.Username);
+        currentSession = await EnsurePanelSessionAsync("PLA_B case folder preparation", cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
+        {
+            return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+        }
+
+        var layoutResult = PreparePlaBCaseFolder(settings, input.CurrentTransactionNumber.Trim(), currentSession.User.Username);
         if (!layoutResult.Success || layoutResult.Layout is null)
         {
             return PlaBTestInputPreparationResult.Failed(layoutResult.ErrorMessage ?? "PLA_B recovery case folder could not be prepared.");
         }
 
         var peLookup = await new PlaBRelatedPeTransactionFinder(transactionService)
-            .FindAsync(session.CurrentSession, normalizedPe, cancellationToken)
+            .FindAsync(currentSession, normalizedPe, cancellationToken)
             .ConfigureAwait(true);
         if (!peLookup.Success || peLookup.Transaction is null)
         {
             return PlaBTestInputPreparationResult.Failed(peLookup.Message ?? "Related PE transaction could not be found.");
         }
 
+        currentSession = await EnsurePanelSessionAsync("related PE transaction detail", cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
+        {
+            return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+        }
+
         var detailService = ShellState.TransactionDetails;
         var peSelected = ToSelectedTransaction(peLookup.Transaction, clock());
         var detailResult = await detailService
-            .GetTransactionDetailAsync(session.CurrentSession, peSelected, cancellationToken)
+            .GetTransactionDetailAsync(currentSession, peSelected, cancellationToken)
             .ConfigureAwait(true);
         if (!detailResult.Success || detailResult.Detail is null)
         {
@@ -2054,8 +2205,14 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return PlaBTestInputPreparationResult.Failed($"PLA_B could not load related PE transaction {normalizedPe}: {reason}{category}");
         }
 
+        currentSession = await EnsurePanelSessionAsync("related PE package download", cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
+        {
+            return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+        }
+
         var package = await new PlaBPePackageDownloader(detailService)
-            .DownloadAsync(session.CurrentSession, detailResult.Detail, layoutResult.Layout, cancellationToken)
+            .DownloadAsync(currentSession, detailResult.Detail, layoutResult.Layout, cancellationToken)
             .ConfigureAwait(true);
         if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath))
         {
@@ -2218,13 +2375,28 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         SelectedInnolaTransaction selected,
         CancellationToken cancellationToken)
     {
-        return new PlaBCurrentTransactionSourceDownloadService(ShellState.TransactionDetails)
+        return DownloadPlaBCurrentTransactionSourcesWithSessionAsync(selected, cancellationToken);
+    }
+
+    private async Task<PlaBCurrentTransactionSourceDownloadResult> DownloadPlaBCurrentTransactionSourcesWithSessionAsync(
+        SelectedInnolaTransaction selected,
+        CancellationToken cancellationToken)
+    {
+        var currentSession = await EnsurePanelSessionAsync(
+            "PLA_B current transaction source download",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
+        {
+            return PlaBCurrentTransactionSourceDownloadResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+        }
+
+        return await new PlaBCurrentTransactionSourceDownloadService(ShellState.TransactionDetails)
             .DownloadAsync(
-                session.CurrentSession!,
+                currentSession,
                 selected,
                 InnolaTransactionSettings.Load().CaseFolderOutputRoot,
-                session.CurrentSession!.User.Username,
-                cancellationToken);
+                currentSession.User.Username,
+                cancellationToken).ConfigureAwait(true);
     }
 
     private async Task<PlaBTransactionRowLookupResult> FindOrFetchAvailableTransactionRowAsync(
@@ -2237,12 +2409,14 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return PlaBTransactionRowLookupResult.Succeeded(localRow);
         }
 
-        if (session.CurrentSession is null)
+        var currentSession = await EnsurePanelSessionAsync(
+            "PLA_B current transaction lookup",
+            cancellationToken).ConfigureAwait(true);
+        if (currentSession is null)
         {
             return PlaBTransactionRowLookupResult.Failed("PLA_B current transaction lookup requires an active Innola session.");
         }
 
-        var currentSession = session.CurrentSession;
         var result = await transactionService.GetAvailableTransactionsAsync(new InnolaTransactionQuery(
             currentSession.ServerUrl,
             currentSession.AccessToken,
@@ -2485,6 +2659,27 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         ErrorText = null;
     }
 
+    private void HandleSessionChangedOnUiContext()
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(
+                HandleSessionChanged,
+                System.Windows.Threading.DispatcherPriority.Background);
+            return;
+        }
+
+        if (uiSynchronizationContext is not null
+            && !ReferenceEquals(SynchronizationContext.Current, uiSynchronizationContext))
+        {
+            uiSynchronizationContext.Post(_ => HandleSessionChanged(), null);
+            return;
+        }
+
+        HandleSessionChanged();
+    }
+
     private void HandleSessionChanged()
     {
         RefreshSessionState();
@@ -2556,7 +2751,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     {
         var filtered = ApplyFilter(allRows)
             .Where(IsDefaultActiveQueueRow)
-            .Where(row => !locallyCompletedTransactionNumbers.Contains(row.TransactionNumber));
+            .Where(row => !locallyCompletedTransactionNumbers.Contains(InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber)));
         filtered = ApplySearch(filtered);
         filtered = ApplySort(filtered);
 
@@ -2585,7 +2780,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
 
     private void QueueSearchRefresh()
     {
-        if (!IsLoggedIn || IsTransactionPanelLocked)
+        if (!CanSearchTransactions || IsLoading)
         {
             return;
         }
@@ -2651,7 +2846,11 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return;
         }
 
-        SelectedRow = Rows.FirstOrDefault(row => row.TransactionNumber.Equals(transactionNumber, StringComparison.OrdinalIgnoreCase));
+        var normalizedTransactionNumber = InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber);
+        SelectedRow = Rows.FirstOrDefault(row => string.Equals(
+            InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber),
+            normalizedTransactionNumber,
+            StringComparison.OrdinalIgnoreCase));
     }
 
     private void RestoreSelectedRow(SelectedInnolaTransaction? transaction)
@@ -2672,7 +2871,10 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
     private bool IsActiveRow(InnolaTransactionRow row)
     {
         return ActiveTransactionNumber is not null
-            && row.TransactionNumber.Equals(ActiveTransactionNumber, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(
+                InnolaTransactionNumbers.NormalizeWorkflowKey(row.TransactionNumber),
+                InnolaTransactionNumbers.NormalizeWorkflowKey(ActiveTransactionNumber),
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private void QueueRefreshAfterLogin()
@@ -3313,6 +3515,23 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         public Task<CompareTaskLifecycleResult> CompleteAsync(string transactionNumber, CancellationToken cancellationToken = default)
         {
             return owner.CompleteCurrentTransactionForCompareAsync(transactionNumber, cancellationToken);
+        }
+    }
+
+    private sealed class TransactionPanelFabricMaintenanceCancelService : IFabricMaintenanceCancelService
+    {
+        private readonly TransactionPanelState owner;
+
+        public TransactionPanelFabricMaintenanceCancelService(TransactionPanelState owner)
+        {
+            this.owner = owner;
+        }
+
+        public Task<FabricMaintenanceCancelResult> CancelAsync(
+            string currentTransactionNumber,
+            CancellationToken cancellationToken = default)
+        {
+            return owner.CancelCurrentTransactionForFabricMaintenanceAsync(currentTransactionNumber, cancellationToken);
         }
     }
 }

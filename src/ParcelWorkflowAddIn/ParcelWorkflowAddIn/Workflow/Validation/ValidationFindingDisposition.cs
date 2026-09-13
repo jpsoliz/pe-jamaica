@@ -319,6 +319,15 @@ public static class ValidationFindingDispositionProjector
 {
     private const string NotAvailable = "N/A";
 
+    private static readonly HashSet<string> ExaminerVisibleRuleIds =
+    [
+        "georeference.parish_point_within_boundary",
+        "spatial_units.parish_polygon_within_boundary",
+        "pxa.embedded_compute_sheet_detected",
+        "pxa.plan_compute_sheet_consistency",
+        "document.printed_text_height"
+    ];
+
     private static readonly IReadOnlyList<ValidationFinding> BaselineFindings =
     [
         new(
@@ -376,6 +385,14 @@ public static class ValidationFindingDispositionProjector
         return summaryFindings
             .Concat(missingBaselineFindings)
             .Select(finding => BuildRow(finding, dispositionByKey))
+            .ToArray();
+    }
+
+    public static IReadOnlyList<ValidationFindingDispositionRow> FilterForExaminerReview(
+        IEnumerable<ValidationFindingDispositionRow> rows)
+    {
+        return rows
+            .Where(row => ExaminerVisibleRuleIds.Contains(row.RuleId))
             .ToArray();
     }
 

@@ -10,6 +10,12 @@
                     WindowStartupLocation="CenterOwner">
   <controls:ProWindow.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <Style x:Key="CompareIconImageStyle" TargetType="Image">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
   </controls:ProWindow.Resources>
   <Grid Background="#F4F7F9">
     <Grid.RowDefinitions>
@@ -53,8 +59,12 @@
               <Button DockPanel.Dock="Right"
                       Width="86"
                       Height="24"
-                      Content="{Binding PdfPanelToggleText}"
-                      Command="{Binding TogglePdfPanelCommand}" />
+                      Command="{Binding TogglePdfPanelCommand}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                  <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareShowFiles.png" />
+                  <TextBlock VerticalAlignment="Center" Text="{Binding PdfPanelToggleText}" />
+                </StackPanel>
+              </Button>
               <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Attached Documents" />
             </DockPanel>
             <TextBlock Margin="0,3,0,8" Foreground="#53636A" Text="{Binding DocumentStatus}" TextWrapping="Wrap" />
@@ -101,7 +111,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <Border Background="#EEF5F3" BorderBrush="#C9D8D4" BorderThickness="1" Padding="8">
@@ -113,25 +122,42 @@
               </Grid.ColumnDefinitions>
               <Button Width="138"
                       Height="26"
-                      Content="Load Compare Layers"
                       Command="{Binding ReloadGeometryCommand}"
-                      ToolTip="Loads or refreshes the Compare working layers and adjacent cadastre context in the ArcGIS Pro map." />
+                      ToolTip="Loads or refreshes the Compare working layers and adjacent cadastre context in the ArcGIS Pro map.">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                  <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareLoad.png" />
+                  <TextBlock VerticalAlignment="Center" Text="Load Compare Layers" />
+                </StackPanel>
+              </Button>
                 <Button Grid.Column="1"
                       Width="146"
                       Height="26"
                       Margin="10,0,0,0"
                       HorizontalAlignment="Left"
-                      Content="Run Overlap Review"
-                      Command="{Binding RunOverlapReviewCommand}" />
+                      Command="{Binding RunOverlapReviewCommand}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                  <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareRun.png" />
+                  <TextBlock VerticalAlignment="Center" Text="Run Overlap Review" />
+                </StackPanel>
+              </Button>
               <Button Grid.Column="1"
                       Width="146"
                       Height="26"
                       Margin="166,0,0,0"
                       HorizontalAlignment="Left"
-                      Content="View Overlap Review"
-                      Command="{Binding OpenOverlapReviewCommand}" />
+                      Command="{Binding OpenOverlapReviewCommand}">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                  <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareView.png" />
+                  <TextBlock VerticalAlignment="Center" Text="View Overlap Review" />
+                </StackPanel>
+              </Button>
               <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Width="86" Height="26" Content="{Binding PdfPanelToggleText}" Command="{Binding TogglePdfPanelCommand}" />
+                <Button Width="86" Height="26" Command="{Binding TogglePdfPanelCommand}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareShowFiles.png" />
+                    <TextBlock VerticalAlignment="Center" Text="{Binding PdfPanelToggleText}" />
+                  </StackPanel>
+                </Button>
               </StackPanel>
             </Grid>
           </Border>
@@ -141,6 +167,56 @@
           </Border>
 
           <Border Grid.Row="2" Margin="0,10,0,0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock FontWeight="SemiBold" Text="Computed Participants" />
+                <Button Grid.Column="1"
+                        Width="148"
+                        Height="24"
+                        Command="{Binding SearchTitleImageCommand}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/SearchTitleImages.png" />
+                    <TextBlock VerticalAlignment="Center" Text="Search Title Image" />
+                  </StackPanel>
+                </Button>
+              </Grid>
+              <TextBlock Grid.Row="1" Margin="0,4,0,6" Foreground="#315C6B" Text="{Binding ComputedParticipantsStatus}" TextWrapping="Wrap" />
+              <ListView Grid.Row="2"
+                        ItemsSource="{Binding ComputedParticipants}"
+                        SelectedItem="{Binding SelectedComputedParticipant, Mode=TwoWay}"
+                        BorderBrush="#D5E0E7"
+                        BorderThickness="1"
+                        MinHeight="86"
+                        MaxHeight="170"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListView.View>
+                  <GridView>
+                    <GridViewColumn Header="Name" Width="170" DisplayMemberBinding="{Binding Name}" />
+                    <GridViewColumn Header="Role" Width="92" DisplayMemberBinding="{Binding Role}" />
+                    <GridViewColumn Header="Lot Number" Width="92" DisplayMemberBinding="{Binding LotNumber}" />
+                    <GridViewColumn Header="Address" Width="160" DisplayMemberBinding="{Binding Address}" />
+                    <GridViewColumn Header="LandVal No." Width="100" DisplayMemberBinding="{Binding LandValuationNumber}" />
+                    <GridViewColumn Header="Exam No" Width="90" DisplayMemberBinding="{Binding ExaminationNumber}" />
+                    <GridViewColumn Header="Volume/Folio" Width="100" DisplayMemberBinding="{Binding VolumeFolio}" />
+                    <GridViewColumn Header="Source Artifact" Width="105" DisplayMemberBinding="{Binding Source}" />
+                    <GridViewColumn Header="Status" Width="95" DisplayMemberBinding="{Binding Status}" />
+                  </GridView>
+                </ListView.View>
+              </ListView>
+            </Grid>
+          </Border>
+
+          <Border Grid.Row="3" Margin="0,10,0,0" Background="#FFFFFF" BorderBrush="#C8D6DF" BorderThickness="1" Padding="8">
             <Grid>
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -195,8 +271,18 @@
                     <TextBox Grid.Column="1" Text="{Binding SearchName, UpdateSourceTrigger=PropertyChanged}" />
                   </Grid>
                 </StackPanel>
-                <Button Grid.Column="2" Margin="0,0,6,0" Content="Search" Command="{Binding RunEvidenceSearchCommand}" />
-                <Button Grid.Column="3" Content="Clear" Command="{Binding ClearEvidenceSearchFieldsCommand}" />
+                <Button Grid.Column="2" Margin="0,0,6,0" Command="{Binding RunEvidenceSearchCommand}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/Search.png" />
+                    <TextBlock VerticalAlignment="Center" Text="Search" />
+                  </StackPanel>
+                </Button>
+                <Button Grid.Column="3" Command="{Binding ClearEvidenceSearchFieldsCommand}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/ClearSearch.png" />
+                    <TextBlock VerticalAlignment="Center" Text="Clear" />
+                  </StackPanel>
+                </Button>
               </Grid>
               <StackPanel Grid.Row="2" Margin="0,6,0,0">
                 <TextBlock Foreground="#315C6B" Text="{Binding EvidenceSearchStatusMessage}" TextWrapping="Wrap" />
@@ -205,7 +291,7 @@
             </Grid>
           </Border>
 
-          <StackPanel Grid.Row="3"
+          <StackPanel Grid.Row="4"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasQueryResults, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Search Results" />
@@ -242,7 +328,7 @@
             </ListView>
           </StackPanel>
 
-          <StackPanel Grid.Row="4"
+          <StackPanel Grid.Row="5"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasRelatedPartyMatches, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Related Party Matches" />
@@ -277,7 +363,7 @@
             </ListView>
           </StackPanel>
 
-          <StackPanel Grid.Row="5"
+          <StackPanel Grid.Row="6"
                       Margin="0,10,0,0"
                       Visibility="{Binding HasValuableEvidenceItems, Converter={StaticResource BoolToVisibility}}">
             <TextBlock FontWeight="SemiBold" Text="Valuable Evidence" />
@@ -315,7 +401,7 @@
             </ListView>
           </StackPanel>
 
-          <Grid Grid.Row="6" Margin="0,10,0,0">
+          <Grid Grid.Row="7" Margin="0,10,0,0">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
@@ -323,22 +409,6 @@
             <TextBlock FontWeight="SemiBold" Text="Notes" />
             <TextBox Grid.Row="1" Height="54" Margin="0,6,0,0" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" />
           </Grid>
-
-          <StackPanel Grid.Row="7" Margin="0,10,0,0">
-            <UniformGrid Columns="3">
-              <Button Margin="0,0,4,0"
-                      Height="28"
-                      Content="Save"
-                      Command="{Binding SaveProgressCommand}"
-                      ToolTip="Saves the current Compare status and regenerates the PDF report without changing task ownership or stage." />
-              <Button Margin="4,0,4,0" Height="28" Content="Suspend" Command="{Binding SuspendTaskCommand}" />
-              <Button Margin="4,0,0,0"
-                      Height="28"
-                      Content="Finalize"
-                      Command="{Binding ApproveCompareCommand}"
-                      ToolTip="Saves the current Compare status, regenerates and uploads the PDF report, finalizes the transaction task, and clears the workspace." />
-            </UniformGrid>
-          </StackPanel>
         </Grid>
         </ScrollViewer>
       </Border>
@@ -349,12 +419,61 @@
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
+      <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+        <Button Width="100"
+                Margin="0,6,6,6"
+                ToolTip="Saves the current Compare status and regenerates the PDF report without changing task ownership or stage."
+                Command="{Binding SaveProgressCommand}">
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareSave.png" />
+            <TextBlock VerticalAlignment="Center" Text="Save" />
+          </StackPanel>
+        </Button>
+        <Button Width="100"
+                Margin="0,6,6,6"
+                Command="{Binding SuspendTaskCommand}">
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareSuspend.png" />
+            <TextBlock VerticalAlignment="Center" Text="Suspend" />
+          </StackPanel>
+        </Button>
+        <Button Width="100"
+                Margin="0,6,6,6"
+                ToolTip="Saves the current Compare status, regenerates and uploads the PDF report, finalizes the transaction task, and clears the workspace."
+                Command="{Binding ApproveCompareCommand}">
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareFinalize.png" />
+            <TextBlock VerticalAlignment="Center" Text="Finalize" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
+      <StackPanel Grid.Column="0"
+                  Margin="316,0,12,0"
+                  Orientation="Horizontal"
+                  HorizontalAlignment="Left"
+                  VerticalAlignment="Center"
+                  Visibility="{Binding IsFinalizeOperationRunning, Converter={StaticResource BoolToVisibility}}">
+        <ProgressBar Width="64"
+                     Height="8"
+                     IsIndeterminate="True"
+                     VerticalAlignment="Center" />
+        <TextBlock Text="{Binding FinalizeOperationRunningText}"
+                   Margin="6,0,0,0"
+                   FontSize="11"
+                   FontWeight="SemiBold"
+                   Foreground="#334E68"
+                   VerticalAlignment="Center" />
+      </StackPanel>
       <Button Grid.Column="1"
               Width="100"
               Margin="0,6,8,6"
-              Content="Cancel"
               ToolTip="Cancels the Compare workspace without saving, then clears the form and Compare map content."
-              Command="{Binding CancelTaskCommand}" />
+              Command="{Binding CancelTaskCommand}">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+          <Image Style="{StaticResource CompareIconImageStyle}" Source="Images/CompareIcons/CompareCancel.png" />
+          <TextBlock VerticalAlignment="Center" Text="Cancel" />
+        </StackPanel>
+      </Button>
     </Grid>
   </Grid>
 </controls:ProWindow>

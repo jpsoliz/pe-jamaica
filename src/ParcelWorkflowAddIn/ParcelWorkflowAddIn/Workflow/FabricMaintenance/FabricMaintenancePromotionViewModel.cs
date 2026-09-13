@@ -10,6 +10,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
     private readonly Func<string, bool> confirmAction;
     private readonly IFabricMaintenanceReviewLoadService reviewLoadService;
     private readonly IFabricMaintenanceFinalWriteCompletionService finalWriteCompletionService;
+    private readonly IFabricMaintenanceCancelService cancelService;
     private FabricMaintenanceTarget selectedTarget;
     private FabricMaintenancePromotionDecision selectedDecision;
     private string peNumber;
@@ -30,7 +31,8 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         Action<string>? showMessage = null,
         Func<string, bool>? confirmAction = null,
         IFabricMaintenanceReviewLoadService? reviewLoadService = null,
-        IFabricMaintenanceFinalWriteCompletionService? finalWriteCompletionService = null)
+        IFabricMaintenanceFinalWriteCompletionService? finalWriteCompletionService = null,
+        IFabricMaintenanceCancelService? cancelService = null)
     {
         CurrentTransactionNumber = currentTransactionNumber;
         this.peNumber = peNumber;
@@ -39,6 +41,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         this.confirmAction = confirmAction ?? (_ => true);
         this.reviewLoadService = reviewLoadService ?? new DeferredFabricMaintenanceReviewLoadService();
         this.finalWriteCompletionService = finalWriteCompletionService ?? new DeferredFabricMaintenanceFinalWriteCompletionService();
+        this.cancelService = cancelService ?? new DeferredFabricMaintenanceCancelService();
         Settings = settings;
         WorkingReviewPlan = FabricMaintenanceWorkingReviewPlanner.BuildPlan(settings, currentTransactionNumber, peNumber);
         StatusText = string.IsNullOrWhiteSpace(initialStatusText) ? WorkingReviewPlan.Message : initialStatusText;
@@ -252,6 +255,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
             isReviewLoaded = value;
             NotifyPropertyChanged(nameof(IsReviewLoaded));
             NotifyPropertyChanged(nameof(CanLoadParcel));
+            NotifyCheckSummaryChanged();
             RaiseCommandState();
         }
     }
@@ -304,6 +308,18 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
     };
 
     public string ReadinessText => readiness.Message;
+
+    public string TopologyReviewSummary => IsReviewLoaded
+        ? BuildCheckSummary("Topology Review", ReviewChecks)
+        : "Topology Review - load parcel to check";
+
+    public string AttributeReviewSummary => IsReviewLoaded
+        ? BuildCheckSummary("Attribute Review", AttributeChecks)
+        : "Attribute Review - load parcel to check";
+
+    public bool IsTopologyReviewExpanded => IsReviewLoaded && HasBlockingCheck(ReviewChecks);
+
+    public bool IsAttributeReviewExpanded => IsReviewLoaded && HasBlockingCheck(AttributeChecks);
 
     public string ConfirmationSummary =>
         $"TR {CurrentTransactionNumber}; Parcel in Review {ParcelInReview}; Target {TargetLabel}; Decision {DecisionLabel}; Working features P{WorkingFeatureCounts.Points}/L{WorkingFeatureCounts.Lines}/G{WorkingFeatureCounts.Polygons}; Candidate {SelectedCandidateId ?? "new final record candidate"}; Artifact final_cadastre_promotion_summary.json.";
@@ -422,6 +438,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
             AttributeChecks.Add(check);
         }
 
+        NotifyCheckSummaryChanged();
         StatusText = result.Message;
         IsReviewLoaded = result.Success;
         RefreshReadiness();
@@ -459,6 +476,15 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
                 return;
             }
 
+            StatusText = "Cancelling Fabric Maintenance transaction and returning to Transactions List...";
+            var cancelled = await cancelService.CancelAsync(CurrentTransactionNumber).ConfigureAwait(true);
+            StatusText = cancelled.Message;
+            if (!cancelled.Success)
+            {
+                showMessage(cancelled.Message);
+                return;
+            }
+
             RequestClose?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -485,6 +511,8 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         {
             AttributeChecks.Add(check);
         }
+
+        NotifyCheckSummaryChanged();
     }
 
     private void ApproveForFinalWrite()
@@ -597,6 +625,33 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
             cancel.RaiseCanExecuteChanged();
         }
     }
+
+    private void NotifyCheckSummaryChanged()
+    {
+        NotifyPropertyChanged(nameof(TopologyReviewSummary));
+        NotifyPropertyChanged(nameof(AttributeReviewSummary));
+        NotifyPropertyChanged(nameof(IsTopologyReviewExpanded));
+        NotifyPropertyChanged(nameof(IsAttributeReviewExpanded));
+    }
+
+    private static string BuildCheckSummary(string label, IEnumerable<FabricMaintenanceCheckResult> checks)
+    {
+        var materialized = checks.ToArray();
+        var blockers = materialized.Count(check => check.Severity == FabricMaintenanceCheckSeverity.Blocking);
+        var warnings = materialized.Count(check => check.Severity == FabricMaintenanceCheckSeverity.Warning);
+        var passed = materialized.Count(check => check.Severity == FabricMaintenanceCheckSeverity.Pass);
+        if (materialized.Length == 0)
+        {
+            return $"{label} - not checked";
+        }
+
+        return blockers > 0
+            ? $"{label} - {blockers} blocker(s), {warnings} warning(s), {passed} passed"
+            : $"{label} - {passed} passed, {warnings} warning(s)";
+    }
+
+    private static bool HasBlockingCheck(IEnumerable<FabricMaintenanceCheckResult> checks) =>
+        checks.Any(check => check.Severity == FabricMaintenanceCheckSeverity.Blocking);
 
     private void NotifyPropertyChanged(string propertyName)
     {

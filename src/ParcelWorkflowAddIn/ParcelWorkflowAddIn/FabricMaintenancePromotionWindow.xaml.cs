@@ -1,4 +1,5 @@
 using System.Windows;
+using System.ComponentModel;
 using ArcGIS.Desktop.Framework;
 using ArcGIS.Desktop.Framework.Controls;
 using ParcelWorkflowAddIn.Workflow.FabricMaintenance;
@@ -8,12 +9,14 @@ namespace ParcelWorkflowAddIn;
 public partial class FabricMaintenancePromotionWindow : ProWindow
 {
     private static FabricMaintenancePromotionWindow? activeWindow;
+    private bool allowClose;
 
     public FabricMaintenancePromotionWindow(FabricMaintenancePromotionViewModel viewModel)
     {
         InitializeComponent();
         SetViewModel(viewModel);
         Owner = FrameworkApplication.Current?.MainWindow;
+        Closing += OnClosing;
         Closed += OnClosed;
     }
 
@@ -38,8 +41,24 @@ public partial class FabricMaintenancePromotionWindow : ProWindow
         }
     }
 
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (allowClose)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (DataContext is FabricMaintenancePromotionViewModel viewModel
+            && viewModel.CancelCommand.CanExecute(null))
+        {
+            viewModel.CancelCommand.Execute(null);
+        }
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
+        Closing -= OnClosing;
         Closed -= OnClosed;
         if (DataContext is FabricMaintenancePromotionViewModel viewModel)
         {
@@ -54,6 +73,7 @@ public partial class FabricMaintenancePromotionWindow : ProWindow
 
     private void OnViewModelRequestClose(object? sender, EventArgs e)
     {
+        allowClose = true;
         Close();
     }
 

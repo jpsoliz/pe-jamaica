@@ -255,6 +255,10 @@ public sealed class ExtractionReviewPersistenceService
             {
                 name = owner.Name,
                 role = owner.Role,
+                lot_number = owner.LotNumber,
+                address = owner.Address,
+                land_valuation_number = owner.LandValuationNumber,
+                examination_number = owner.ExaminationNumber,
                 related_segment_from = owner.RelatedSegmentFrom,
                 related_segment_to = owner.RelatedSegmentTo,
                 volume = owner.Volume,
@@ -268,6 +272,12 @@ public sealed class ExtractionReviewPersistenceService
             {
                 name = party.Name,
                 role = party.Role,
+                lot_number = party.LotNumber,
+                address = party.Address,
+                land_valuation_number = party.LandValuationNumber,
+                examination_number = party.ExaminationNumber,
+                volume = party.Volume,
+                folio = party.Folio,
                 source_page = party.SourcePage,
                 source_zone = party.SourceZone,
                 review_status = party.ReviewStatus,
@@ -277,6 +287,12 @@ public sealed class ExtractionReviewPersistenceService
             {
                 name = representative.Name,
                 role = representative.Role,
+                lot_number = representative.LotNumber,
+                address = representative.Address,
+                land_valuation_number = representative.LandValuationNumber,
+                examination_number = representative.ExaminationNumber,
+                volume = representative.Volume,
+                folio = representative.Folio,
                 source_page = representative.SourcePage,
                 source_zone = representative.SourceZone,
                 review_status = representative.ReviewStatus,
@@ -706,6 +722,12 @@ public sealed class ExtractionReviewPersistenceService
         {
             Name = ReadFirstString(item, "name", "value", "party", "owner", "occupant") ?? string.Empty,
             Role = NormalizePartyRole(ReadFirstString(item, "role", "type") ?? defaultRole),
+            LotNumber = ReadFirstString(item, "lot_number", "lot") ?? string.Empty,
+            Address = ReadFirstString(item, "address") ?? string.Empty,
+            LandValuationNumber = ReadFirstString(item, "land_valuation_number", "landval_no", "land_val_no", "land_valuation_no") ?? string.Empty,
+            ExaminationNumber = ReadFirstString(item, "examination_number", "exam_no", "exam_number") ?? string.Empty,
+            Volume = ReadFirstString(item, "volume", "vol") ?? string.Empty,
+            Folio = ReadFirstString(item, "folio", "fol") ?? string.Empty,
             SourcePage = ReadFirstString(item, "source_page", "page") ?? string.Empty,
             SourceZone = ReadFirstString(item, "source_zone", "zone") ?? string.Empty,
             ReviewStatus = ReadFirstString(item, "review_status") ?? string.Empty,
@@ -971,6 +993,12 @@ public sealed class ExtractionReviewPersistenceService
             var node = CloneObject(item.RawParty);
             node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
             node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["lot_number"] = string.IsNullOrWhiteSpace(item.LotNumber) ? null : item.LotNumber;
+            node["address"] = string.IsNullOrWhiteSpace(item.Address) ? null : item.Address;
+            node["land_valuation_number"] = string.IsNullOrWhiteSpace(item.LandValuationNumber) ? null : item.LandValuationNumber;
+            node["examination_number"] = string.IsNullOrWhiteSpace(item.ExaminationNumber) ? null : item.ExaminationNumber;
+            node["volume"] = string.IsNullOrWhiteSpace(item.Volume) ? null : item.Volume;
+            node["folio"] = string.IsNullOrWhiteSpace(item.Folio) ? null : item.Folio;
             node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
             node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
             node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
@@ -982,6 +1010,12 @@ public sealed class ExtractionReviewPersistenceService
             var node = CloneObject(item.RawParty);
             node["name"] = string.IsNullOrWhiteSpace(item.Name) ? null : item.Name;
             node["role"] = string.IsNullOrWhiteSpace(item.Role) ? null : item.Role;
+            node["lot_number"] = string.IsNullOrWhiteSpace(item.LotNumber) ? null : item.LotNumber;
+            node["address"] = string.IsNullOrWhiteSpace(item.Address) ? null : item.Address;
+            node["land_valuation_number"] = string.IsNullOrWhiteSpace(item.LandValuationNumber) ? null : item.LandValuationNumber;
+            node["examination_number"] = string.IsNullOrWhiteSpace(item.ExaminationNumber) ? null : item.ExaminationNumber;
+            node["volume"] = string.IsNullOrWhiteSpace(item.Volume) ? null : item.Volume;
+            node["folio"] = string.IsNullOrWhiteSpace(item.Folio) ? null : item.Folio;
             node["source_page"] = string.IsNullOrWhiteSpace(item.SourcePage) ? null : item.SourcePage;
             node["source_zone"] = string.IsNullOrWhiteSpace(item.SourceZone) ? null : item.SourceZone;
             node["review_status"] = string.IsNullOrWhiteSpace(item.ReviewStatus) ? null : item.ReviewStatus;
