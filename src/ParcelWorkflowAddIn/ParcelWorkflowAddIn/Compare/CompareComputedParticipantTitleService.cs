@@ -128,7 +128,28 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
                 cancellationToken).ConfigureAwait(false);
             if (search.Failure is not null)
             {
-                return search.Failure;
+                if (!ShouldTryPortalSearchFallback(search.Failure))
+                {
+                    return search.Failure;
+                }
+
+                var portalSearch = await SendSearchRequestAsync(
+                    InnolaHttp.BuildUri(ensured.Session.ServerUrl, $"{InnolaSettings.V4RestPath}portal/searches"),
+                    ensured.Session.ServerUrl,
+                    payload,
+                    ensured.Session.AccessToken,
+                    cancellationToken).ConfigureAwait(false);
+                if (portalSearch.Failure is not null)
+                {
+                    return portalSearch.Failure with
+                    {
+                        Diagnostic = CombineDiagnostics(
+                            portalSearch.Failure.Diagnostic,
+                            $"Primary source search endpoint failed first: {search.Failure.Diagnostic}")
+                    };
+                }
+
+                search = portalSearch;
             }
 
             var body = search.ResponseBody ?? string.Empty;
@@ -150,6 +171,26 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
         {
             return CompareTitleSourceSearchResult.Failed("Title source search failed. Try again.", exception.Message);
         }
+    }
+
+    private static bool ShouldTryPortalSearchFallback(CompareTitleSourceSearchResult failure)
+    {
+        var diagnostic = failure.Diagnostic ?? failure.Message;
+        return failure.Message.Contains("rejected the title source search", StringComparison.OrdinalIgnoreCase)
+            || diagnostic.Contains("/api/v4/rest/search/", StringComparison.OrdinalIgnoreCase)
+            && (diagnostic.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)
+                || diagnostic.Contains("Forbidden", StringComparison.OrdinalIgnoreCase)
+                || diagnostic.Contains("401", StringComparison.OrdinalIgnoreCase)
+                || diagnostic.Contains("403", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string CombineDiagnostics(string? first, string? second)
+    {
+        var parts = new[] { first, second }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToArray();
+        return string.Join(" ", parts);
     }
 
     private async Task<(string? ResponseBody, CompareTitleSourceSearchResult? Failure)> SendSearchRequestAsync(
@@ -323,6 +364,7 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
                 return CompareTitleDownloadResult.Failed("Selected title source has no downloadable body.");
             }
 
+            var downloadDocumentName = ResolveDownloadDocumentName(sourceObject);
             ensured = await ensureSession("Compare title document download", cancellationToken).ConfigureAwait(false);
             if (!ensured.Success || ensured.Session is null)
             {
@@ -331,7 +373,7 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
 
             var downloadUri = InnolaHttp.BuildUri(
                 ensured.Session.ServerUrl,
-                $"{InnolaSettings.V4RestPath}source/download?noredirect=1&bodyId={Uri.EscapeDataString(bodyId)}");
+                BuildDownloadPath("bodyId", bodyId, downloadDocumentName));
             var currentDownloadUri = downloadUri;
             var currentDownloadServerUrl = ensured.Session.ServerUrl;
             var currentDownloadAccessToken = ensured.Session.AccessToken;
@@ -351,15 +393,37 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
                     currentDownloadAccessToken = refreshed.Session.AccessToken;
                     currentDownloadUri = InnolaHttp.BuildUri(
                         currentDownloadServerUrl,
-                        $"{InnolaSettings.V4RestPath}source/download?noredirect=1&bodyId={Uri.EscapeDataString(bodyId)}");
+                        BuildDownloadPath("bodyId", bodyId, downloadDocumentName));
                     return true;
                 },
                 cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                var failureBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (ShouldTrySourceIdDownloadFallback(response.StatusCode, failureBody))
+                {
+                    var fallback = await TrySourceIdDownloadFallbackAsync(
+                        source.SourceId,
+                        downloadDocumentName,
+                        volume,
+                        folio,
+                        layout,
+                        cancellationToken).ConfigureAwait(false);
+                    if (fallback.Success)
+                    {
+                        return fallback;
+                    }
+
+                    return CompareTitleDownloadResult.Failed(
+                        "Title document download failed. Try again.",
+                        CombineDiagnostics(
+                            fallback.Diagnostic,
+                            $"Primary bodyId download failed first: {(int)response.StatusCode} {response.StatusCode}. {BuildResponseDiagnostic(failureBody)}"));
+                }
+
                 return CompareTitleDownloadResult.Failed(
                     "Title document download failed. Try again.",
-                    $"Title document download failed: {(int)response.StatusCode} {response.StatusCode}");
+                    $"Title document download failed: {(int)response.StatusCode} {response.StatusCode}. {BuildResponseDiagnostic(failureBody)}");
             }
 
             var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
@@ -385,6 +449,75 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
         {
             return CompareTitleDownloadResult.Failed("Title document download failed. Try again.", exception.Message);
         }
+    }
+
+    private async Task<CompareTitleDownloadResult> TrySourceIdDownloadFallbackAsync(
+        string sourceId,
+        string? downloadDocumentName,
+        string volume,
+        string folio,
+        CaseFolderLayout layout,
+        CancellationToken cancellationToken)
+    {
+        var ensured = await ensureSession("Compare title source download fallback", cancellationToken).ConfigureAwait(false);
+        if (!ensured.Success || ensured.Session is null)
+        {
+            return CompareTitleDownloadResult.Failed(InnolaApiResilience.LoginRequiredMessage, ensured.Message);
+        }
+
+        var currentDownloadUri = InnolaHttp.BuildUri(
+            ensured.Session.ServerUrl,
+            BuildDownloadPath("sourceId", sourceId, downloadDocumentName));
+        var currentDownloadServerUrl = ensured.Session.ServerUrl;
+        var currentDownloadAccessToken = ensured.Session.AccessToken;
+        using var response = await InnolaApiResilience.SendWithAuthorizationRefreshAsync(
+            httpClient,
+            new InnolaApiOperation("Compare title source download fallback"),
+            () => CreateAuthenticatedGetRequest(currentDownloadUri, currentDownloadAccessToken),
+            async retryCancellationToken =>
+            {
+                var refreshed = await ensureSession("Compare title source download fallback auth retry", retryCancellationToken).ConfigureAwait(false);
+                if (!HasRequiredSession(refreshed.Session))
+                {
+                    return false;
+                }
+
+                currentDownloadServerUrl = refreshed.Session!.ServerUrl;
+                currentDownloadAccessToken = refreshed.Session.AccessToken;
+                currentDownloadUri = InnolaHttp.BuildUri(
+                    currentDownloadServerUrl,
+                    BuildDownloadPath("sourceId", sourceId, downloadDocumentName));
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var failureBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return CompareTitleDownloadResult.Failed(
+                "Title document download failed. Try again.",
+                $"SourceId fallback download failed: {(int)response.StatusCode} {response.StatusCode}. {BuildResponseDiagnostic(failureBody)}");
+        }
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (bytes.Length == 0)
+        {
+            return CompareTitleDownloadResult.Failed("Title document download returned an empty file.", "SourceId fallback returned an empty file.");
+        }
+
+        var filePath = WriteDownloadedTitle(layout, volume, folio, bytes);
+        return new CompareTitleDownloadResult(
+            true,
+            $"Downloaded title document {Path.GetFileName(filePath)}.",
+            filePath,
+            "Downloaded using sourceId fallback after bodyId download failed.");
+    }
+
+    private static bool ShouldTrySourceIdDownloadFallback(HttpStatusCode statusCode, string? responseBody)
+    {
+        return statusCode == HttpStatusCode.InternalServerError
+            && !string.IsNullOrWhiteSpace(responseBody)
+            && responseBody.Contains("specified key does not exist", StringComparison.OrdinalIgnoreCase)
+            && responseBody.Contains("S3", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<JsonObject?> ReadSourceObjectAsync(InnolaSession session, string sourceId, CancellationToken cancellationToken)
@@ -420,6 +553,14 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
         }
 
         return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)) as JsonObject;
+    }
+
+    private static string BuildDownloadPath(string queryName, string queryValue, string? documentName)
+    {
+        var path = $"{InnolaSettings.V4RestPath}source/download?{queryName}={Uri.EscapeDataString(queryValue)}&attachment=false";
+        return string.IsNullOrWhiteSpace(documentName)
+            ? path
+            : $"{path}&documentName={Uri.EscapeDataString(documentName)}";
     }
 
     private static HttpRequestMessage CreateAuthenticatedGetRequest(Uri uri, string? accessToken)
@@ -509,11 +650,57 @@ public sealed class InnolaCompareTitleSourceService : ICompareTitleSourceService
             return null;
         }
 
-        return ReadString(root, "bodyId", "body_id")
+        return ReadString(root, "bodyId", "body_id", "fileBodyId", "file_body_id")
             ?? ReadString(root["body"] as JsonObject, "id", "uid", "uuid")
             ?? ReadString(root["documentBody"] as JsonObject, "id", "uid", "uuid")
+            ?? ReadString(root["fileBody"] as JsonObject, "id", "uid", "uuid")
             ?? ReadString(root["source"]?["body"] as JsonObject, "id", "uid", "uuid")
             ?? ReadString(root["data"]?["body"] as JsonObject, "id", "uid", "uuid");
+    }
+
+    private static string? ResolveDownloadDocumentName(JsonNode? node)
+    {
+        if (node is not JsonObject root)
+        {
+            return null;
+        }
+
+        return ResolveFileName(root)
+            ?? ResolveFileName(root["body"] as JsonObject)
+            ?? ResolveFileName(root["documentBody"] as JsonObject)
+            ?? ResolveFileName(root["fileBody"] as JsonObject)
+            ?? ResolveFileName(root["source"]?["body"] as JsonObject)
+            ?? ResolveFileName(root["data"]?["body"] as JsonObject);
+    }
+
+    private static string? ResolveFileName(JsonObject? obj)
+    {
+        if (obj is null)
+        {
+            return null;
+        }
+
+        var fileName = ReadString(obj, "fileName", "filename", "documentName", "document_name", "originalName", "original_name", "name");
+        var extension = ReadString(obj, "extension", "Extension", "fileExtension", "file_extension");
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        fileName = Path.GetFileName(fileName.Trim());
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(Path.GetExtension(fileName)) && !string.IsNullOrWhiteSpace(extension))
+        {
+            fileName = $"{fileName}.{extension.Trim().TrimStart('.')}";
+        }
+
+        return string.IsNullOrWhiteSpace(Path.GetExtension(fileName))
+            ? null
+            : fileName;
     }
 
     private static IReadOnlyList<JsonNode> ResolveArray(JsonNode? node)

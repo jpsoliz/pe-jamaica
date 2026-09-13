@@ -823,7 +823,11 @@ public sealed class InnolaTransactionLifecycleCoordinator
                 exception.Message,
                 packagePath,
                 null);
-            return CasePackageUploadResult.Failure(fileName, sourceType, "Could not package case state for upload.", exception.GetType().Name);
+            return CasePackageUploadResult.Failure(
+                fileName,
+                sourceType,
+                BuildPackageAccessFailureMessage(exception),
+                exception.GetType().Name);
         }
         finally
         {
@@ -1194,5 +1198,20 @@ public sealed class InnolaTransactionLifecycleCoordinator
         {
             return new CasePackageUploadResult(false, fileName, sourceType, errorMessage, errorCategory);
         }
+    }
+
+    private static string BuildPackageAccessFailureMessage(Exception exception)
+    {
+        return exception is IOException ioException && IsSharingOrLockViolation(ioException)
+            ? $"Finalize could not create the completed case package because a case file is being used by another process. Close any editor, preview pane, sync tool, or other process using the case folder, then retry Finalize. Detail: {exception.Message}"
+            : $"Could not package case state for upload. Detail: {SanitizeUploadDiagnostic(exception.Message)}";
+    }
+
+    private static bool IsSharingOrLockViolation(IOException exception)
+    {
+        var errorCode = exception.HResult & 0xFFFF;
+        return errorCode is 32 or 33
+            || exception.Message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("cannot access the file", StringComparison.OrdinalIgnoreCase);
     }
 }

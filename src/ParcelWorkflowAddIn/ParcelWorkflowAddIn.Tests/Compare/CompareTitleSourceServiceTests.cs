@@ -49,7 +49,7 @@ internal static class CompareTitleSourceServiceTests
         File.WriteAllText(Path.Combine(fixture.Layout.SourceDirectory, "Repo_2000_1.pdf"), "existing");
         var handler = new RecordingHandler(new[]
         {
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"body":{"id":"body-1"}}""") },
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"body":{"id":"body-1","name":"Current Title 2000-1","extension":"pdf"}}""") },
             new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Encoding.ASCII.GetBytes("%PDF-1.4 body")) }
         });
         var ensureCalls = 0;
@@ -74,8 +74,10 @@ internal static class CompareTitleSourceServiceTests
         TestAssert.Equal("/api/v4/rest/portal/ladm-objects/source-1", handler.Requests[0].RequestUri!.AbsolutePath, "Source object endpoint mismatch.");
         TestAssert.Equal("typeKeyId=source", handler.Requests[0].RequestUri!.Query.TrimStart('?'), "Source object query mismatch.");
         TestAssert.Equal("/api/v4/rest/source/download", handler.Requests[1].RequestUri!.AbsolutePath, "Download endpoint mismatch.");
-        TestAssert.True(handler.Requests[1].RequestUri!.Query.Contains("noredirect=1", StringComparison.Ordinal), "Download should request no redirect.");
         TestAssert.True(handler.Requests[1].RequestUri!.Query.Contains("bodyId=body-1", StringComparison.Ordinal), "Download should use returned body id.");
+        TestAssert.True(handler.Requests[1].RequestUri!.Query.Contains("attachment=false", StringComparison.Ordinal), "Download should use the proven attachment download contract.");
+        TestAssert.True(handler.Requests[1].RequestUri!.Query.Contains("documentName=Current%20Title%202000-1.pdf", StringComparison.Ordinal), "Download should pass Innola's original source document name, not the local repo file name.");
+        TestAssert.True(!handler.Requests[1].RequestUri!.Query.Contains("documentName=Repo_2000_1.pdf", StringComparison.Ordinal), "Innola download documentName must not use the local repo file name.");
         TestAssert.Equal(2, ensureCalls, "Source object read and body download should each ensure a current Innola session.");
 
         var reopened = new CaseFolderStore().ReopenCaseFolder(fixture.Layout.RootDirectory);
@@ -99,6 +101,51 @@ internal static class CompareTitleSourceServiceTests
 
         TestAssert.False(result.Success, "Missing body id should fail safely.");
         TestAssert.False(File.Exists(Path.Combine(fixture.Layout.SourceDirectory, "Repo_2000_1.pdf")), "Missing body id should not create an empty title file.");
+    }
+
+    public static async Task DownloadFallsBackToSourceIdWhenBodyKeyIsMissing()
+    {
+        using var fixture = CreateCaseFolder();
+        var handler = new RecordingHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"body":{"id":"body-1","name":"Current Title 1298-168.pdf"}}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("""{"detail":"The specified key does not exist. (Service: S3, Status Code: 404)"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("""{"detail":"The specified key does not exist. (Service: S3, Status Code: 404)"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent("""{"detail":"The specified key does not exist. (Service: S3, Status Code: 404)"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(Encoding.ASCII.GetBytes("%PDF-1.4 recovered by source id"))
+            }
+        });
+        var service = CreateService(handler);
+
+        var result = await service.DownloadAsync(
+            new CompareTitleSourceRecord("source-168", "Title 1298/168", "1298/168", "st_title", "reg_status_current"),
+            "1298",
+            "168",
+            fixture.Layout);
+
+        TestAssert.True(result.Success, $"SourceId fallback should recover from Innola/S3 body-key misses. Diagnostic={result.Diagnostic}");
+        TestAssert.True(File.Exists(result.FilePath), "Recovered title should be written locally.");
+        TestAssert.True(result.FilePath!.EndsWith("Repo_1298_168.pdf", StringComparison.OrdinalIgnoreCase), "Local title filename should remain repo volume/folio format.");
+        TestAssert.Equal("/api/v4/rest/source/download", handler.Requests[1].RequestUri!.AbsolutePath, "Primary download endpoint mismatch.");
+        TestAssert.True(handler.Requests[1].RequestUri!.Query.Contains("bodyId=body-1", StringComparison.Ordinal), "Primary download should use bodyId.");
+        TestAssert.Equal("/api/v4/rest/source/download", handler.Requests[4].RequestUri!.AbsolutePath, "Fallback download endpoint mismatch.");
+        var fallbackQuery = Uri.UnescapeDataString(handler.Requests[4].RequestUri!.Query);
+        TestAssert.True(fallbackQuery.Contains("sourceId=source-168", StringComparison.Ordinal), $"Fallback download should use sourceId. Query={fallbackQuery}");
+        TestAssert.True(handler.Requests[4].RequestUri!.Query.Contains("documentName=Current%20Title%201298-168.pdf", StringComparison.Ordinal), "Fallback should preserve original source documentName.");
     }
 
     public static async Task SearchFailureRedactsSensitiveDiagnostics()
@@ -130,6 +177,14 @@ internal static class CompareTitleSourceServiceTests
             new HttpResponseMessage(HttpStatusCode.Unauthorized)
             {
                 Content = new StringContent("""{"detail":"Full authentication is required to access this resource"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"detail":"Full authentication is required to access this resource"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"detail":"Full authentication is required to access this resource"}""")
             }
         });
         var service = new InnolaCompareTitleSourceService(
@@ -143,6 +198,47 @@ internal static class CompareTitleSourceServiceTests
         TestAssert.False(result.Success, "Unauthorized source search should fail.");
         TestAssert.True(result.Message.Contains("rejected the title source search", StringComparison.OrdinalIgnoreCase), $"Unauthorized source search should not look like a generic connection failure. Message={result.Message}");
         TestAssert.True(result.Diagnostic?.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) == true, "Diagnostic should preserve safe HTTP status evidence.");
+    }
+
+    public static async Task SearchFallsBackToPortalSearchesWhenSourceSearchIsUnauthorized()
+    {
+        var handler = new RecordingHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"detail":"Full authentication is required"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("""{"detail":"Full authentication is required"}""")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"records":[{"id":"source-27","referenceNo":"1284/27","documentType":"st_title","status":"reg_status_current"}]}""")
+            }
+        });
+        var ensureCalls = 0;
+        var service = new InnolaCompareTitleSourceService(
+            new HttpClient(handler),
+            (_, _) =>
+            {
+                ensureCalls++;
+                return Task.FromResult(InnolaSessionEnsureResult.Succeeded(CreateSession() with { AccessToken = $"token-{ensureCalls}" }, "active"));
+            },
+            () => DateTimeOffset.Parse("2026-09-12T00:00:00Z"),
+            _ => false);
+
+        var result = await service.SearchCurrentTitlesAsync("1284", "27");
+
+        TestAssert.True(result.Success, $"Title source search should fall back to portal/searches when the source endpoint rejects authorization. Message={result.Message}; Diagnostic={result.Diagnostic}; Requests={handler.Requests.Count}");
+        TestAssert.Equal(1, result.Sources.Count, "Fallback response should be mapped.");
+        TestAssert.Equal(3, handler.Requests.Count, "Search should try source endpoint, refresh source endpoint, then use portal/searches fallback.");
+        TestAssert.Equal("/api/v4/rest/search/", handler.Requests[0].RequestUri!.AbsolutePath, "Primary title source search endpoint mismatch.");
+        TestAssert.Equal("/api/v4/rest/search/", handler.Requests[1].RequestUri!.AbsolutePath, "Primary auth refresh retry endpoint mismatch.");
+        TestAssert.Equal("/api/v4/rest/portal/searches", handler.Requests[2].RequestUri!.AbsolutePath, "Fallback title source search endpoint mismatch.");
+        using var document = JsonDocument.Parse(handler.Bodies[2]);
+        TestAssert.Equal("source", document.RootElement.GetProperty("searchKind").GetString(), "Fallback should preserve source searchKind.");
+        TestAssert.Equal("st_title", document.RootElement.GetProperty("params").GetProperty("documentTypes")[0].GetString(), "Fallback should preserve title document type filter.");
     }
 
     public static async Task SearchRetriesCookieOnlyWhenAccessTokenRejected()

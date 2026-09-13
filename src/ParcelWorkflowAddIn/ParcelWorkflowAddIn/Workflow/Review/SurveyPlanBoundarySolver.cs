@@ -9,7 +9,7 @@ public sealed class SurveyPlanBoundarySolver
     private const double CoordinateConflictToleranceM = 0.25d;
     private const double ClosureWarningToleranceM = 1.0d;
     private const double ReferenceFitScaleBlockerTolerance = 0.02d;
-    private const double DocumentAreaDeltaBlockerPercent = 5.0d;
+    private const double DocumentAreaDeltaWarningPercent = 5.0d;
 
     public SurveyPlanBoundarySolverResult Apply(
         ExtractionReviewDocument document,
@@ -289,6 +289,11 @@ public sealed class SurveyPlanBoundarySolver
         {
             areaDelta = Math.Abs(area.Value - documentAreaSqM.Value);
             areaDeltaPercent = areaDelta.Value / documentAreaSqM.Value * 100d;
+            if (areaDeltaPercent.Value > DocumentAreaDeltaWarningPercent)
+            {
+                findings.Add(
+                    $"Reviewed boundary area differs from the document area by {areaDeltaPercent.Value.ToString("0.###", CultureInfo.InvariantCulture)}%. Check the printed reference coordinates, bearings, distances, and boundary sequence.");
+            }
         }
 
         var uniqueFindings = DeduplicateFindings(findings);
@@ -389,7 +394,7 @@ public sealed class SurveyPlanBoundarySolver
 
         if (Math.Abs(scale - 1d) > ReferenceFitScaleBlockerTolerance
             && unscaledAreaDeltaPercent.HasValue
-            && unscaledAreaDeltaPercent.Value <= DocumentAreaDeltaBlockerPercent)
+            && unscaledAreaDeltaPercent.Value <= DocumentAreaDeltaWarningPercent)
         {
             var unscaledFindings = existingFindings.Concat(BuildUnscaledReferenceFindings(
                 anchors.Value.First,
@@ -468,7 +473,7 @@ public sealed class SurveyPlanBoundarySolver
                 $"Reference-fit scale factor {scale.ToString("0.######", CultureInfo.InvariantCulture)} exceeds allowable reviewed-boundary scale tolerance. Check the printed reference point labels, bearings, or distances.");
         }
 
-        if (areaDeltaPercent.HasValue && areaDeltaPercent.Value > DocumentAreaDeltaBlockerPercent)
+        if (areaDeltaPercent.HasValue && areaDeltaPercent.Value > DocumentAreaDeltaWarningPercent)
         {
             referenceFitFindings.Add(
                 $"Reviewed boundary area differs from the document area by {areaDeltaPercent.Value.ToString("0.###", CultureInfo.InvariantCulture)}%. Check the printed reference coordinates, bearings, distances, and boundary sequence.");
@@ -665,8 +670,7 @@ public sealed class SurveyPlanBoundarySolver
             return true;
         }
 
-        if (finding.Contains("exceeds allowable reviewed-boundary scale tolerance", StringComparison.OrdinalIgnoreCase)
-            || finding.Contains("Reviewed boundary area differs from the document area", StringComparison.OrdinalIgnoreCase))
+        if (finding.Contains("exceeds allowable reviewed-boundary scale tolerance", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

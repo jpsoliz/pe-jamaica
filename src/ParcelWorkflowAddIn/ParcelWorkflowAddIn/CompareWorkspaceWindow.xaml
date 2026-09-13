@@ -452,12 +452,12 @@
                   Orientation="Horizontal"
                   HorizontalAlignment="Left"
                   VerticalAlignment="Center"
-                  Visibility="{Binding IsFinalizeOperationRunning, Converter={StaticResource BoolToVisibility}}">
+                  Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}">
         <ProgressBar Width="64"
                      Height="8"
                      IsIndeterminate="True"
                      VerticalAlignment="Center" />
-        <TextBlock Text="{Binding FinalizeOperationRunningText}"
+        <TextBlock Text="{Binding StatusText}"
                    Margin="6,0,0,0"
                    FontSize="11"
                    FontWeight="SemiBold"

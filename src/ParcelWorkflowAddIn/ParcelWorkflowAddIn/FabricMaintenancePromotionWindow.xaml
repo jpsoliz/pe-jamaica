@@ -272,7 +272,7 @@
                      Height="12"
                      Margin="0,0,8,0"
                      IsIndeterminate="True"
-                     Visibility="{Binding IsConfirmFinalWriteRunning, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                     Visibility="{Binding IsOperationRunning, Converter={StaticResource BooleanToVisibilityConverter}}" />
         <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="#41515A" VerticalAlignment="Center" />
       </StackPanel>
       <Button Grid.Column="1" Width="92" Height="28" Margin="12,0,0,0" Command="{Binding CancelCommand}">

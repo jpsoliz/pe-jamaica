@@ -157,6 +157,7 @@ internal static class InnolaPlanCheckServiceTests
         using (var createBody = JsonDocument.Parse(handler.Bodies[1]))
         {
             TestAssert.Equal("Neighbor", createBody.RootElement.GetProperty("@c").GetString(), "Create-template body should request a Neighbor object.");
+            TestAssert.Equal(JsonValueKind.Null, createBody.RootElement.GetProperty("id").ValueKind, "Neighbor create-template body should include id:null for Innola.");
         }
 
         using var posted = JsonDocument.Parse(handler.Bodies[2]);
@@ -182,6 +183,74 @@ internal static class InnolaPlanCheckServiceTests
         TestAssert.True(!requestEvidence.Contains("token-abc", StringComparison.OrdinalIgnoreCase), "Plan Examination evidence must not log access tokens.");
         TestAssert.True(requestEvidence.Contains("neighbor_rows_created", StringComparison.OrdinalIgnoreCase), "Plan Examination evidence should include Neighbor writeback counts.");
         TestAssert.True(requestEvidence.Contains("Adrian Duncanson", StringComparison.OrdinalIgnoreCase), "Plan Examination evidence should identify reviewed Neighbor rows.");
+    }
+
+    public static async Task NormalizesCreatedNeighborAliasesBeforePlanSave()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteReport(layout);
+        WriteOutputSummary(layout);
+        WriteReviewArtifactRaw(layout,
+            """
+            {
+              "schema_version": "extraction_review_data_v1",
+              "transaction_number": "TR100000004",
+              "adjacent_owners": [
+                {
+                  "name": "William Coleman Denbigh P.O.",
+                  "role": "Neighbor"
+                },
+                {
+                  "name": "Audrey Coleman Denbigh P.O.",
+                  "role": "Neighbor"
+                }
+              ]
+            }
+            """);
+        var handler = new RecordingHandler(new[]
+        {
+            """
+            [
+              {
+                "@c": "Plan",
+                "id": "plan-1",
+                "checkList": [
+                  { "@c": "PlanCheck", "id": "closure", "checkType": "plan_check_type_closure", "passed": null, "description": null }
+                ],
+                "neighbors": []
+              }
+            ]
+            """,
+            """
+            {
+              "@c": "Neighbor",
+              "@id": "obj:1",
+              "id": "neighbor-1",
+              "neighborType": "neighbor_type_owner"
+            }
+            """,
+            """
+            {
+              "@c": "Neighbor",
+              "@id": "obj:1",
+              "id": "neighbor-2",
+              "neighborType": "neighbor_type_owner"
+            }
+            """,
+            "[{\"@c\":\"Plan\",\"id\":\"plan-1\"}]"
+        });
+        var service = new InnolaPlanCheckService(new HttpClient(handler));
+
+        var result = await service.WriteAsync(Session(), Transaction(), layout.RootDirectory, Disposition(layout));
+
+        TestAssert.True(result.Success, "Plan Examination writeback with multiple created neighbors should succeed.");
+        TestAssert.Equal(4, handler.Requests.Count, "Service should fetch Plan, create two Neighbor templates, then save Plan.");
+        using var posted = JsonDocument.Parse(handler.Bodies[3]);
+        var neighbors = posted.RootElement[0].GetProperty("neighbors").EnumerateArray().ToArray();
+        TestAssert.Equal(2, neighbors.Length, "Both reviewed neighbors should remain in the Plan save payload.");
+        TestAssert.Equal("obj:1", neighbors[0].GetProperty("@id").GetString(), "First created Neighbor should receive a normalized alias.");
+        TestAssert.Equal("obj:2", neighbors[1].GetProperty("@id").GetString(), "Second created Neighbor should receive a unique normalized alias.");
     }
 
 
@@ -240,10 +309,85 @@ internal static class InnolaPlanCheckServiceTests
         using var posted = JsonDocument.Parse(handler.Bodies[2]);
         var added = posted.RootElement[0].GetProperty("neighbors").EnumerateArray().First(item => item.GetProperty("name").GetString() == "Adrian Duncanson");
         TestAssert.Equal("Neighbor", added.GetProperty("@c").GetString(), "Local fallback Neighbor should preserve the Innola class name.");
+        TestAssert.Equal(JsonValueKind.Null, added.GetProperty("id").ValueKind, "Local fallback Neighbor should preserve id:null for Innola child creation.");
         TestAssert.Equal("neighbor_type_owner", added.GetProperty("neighborType").GetString(), "Local fallback Neighbor should include the default neighbor type.");
         TestAssert.Equal("Adrian Road", added.GetProperty("address").GetString(), "Reviewed Neighbor fields should still populate after local fallback.");
         TestAssert.True(!File.Exists(Path.Combine(layout.WorkingDirectory, "plan_examination_api_failure.json")), "Successful local fallback should not leave a Plan Examination failure artifact.");
     }
+
+    public static async Task RetriesChecklistOnlyWhenNewNeighborRowsMakePlanSaveFail()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path);
+        WriteReport(layout);
+        WriteOutputSummary(layout);
+        WriteReviewArtifactRaw(layout,
+            """
+            {
+              "schema_version": "extraction_review_data_v1",
+              "transaction_number": "TR100000004",
+              "adjacent_owners": [
+                {
+                  "name": "Dingle Foote et al Frome P.O.",
+                  "role": "Neighbor",
+                  "volume": "1149",
+                  "folio": "558"
+                }
+              ]
+            }
+            """);
+        var handler = new RecordingHandler(
+            new[]
+            {
+                """
+                [
+                  {
+                    "@c": "Plan",
+                    "id": "plan-1",
+                    "checkList": [
+                      { "@c": "PlanCheck", "id": "closure", "checkType": "plan_check_type_closure", "passed": null, "description": null }
+                    ]
+                  }
+                ]
+                """,
+                """
+                {
+                  "@c": "Neighbor",
+                  "id": "template-neighbor",
+                  "neighborType": "neighbor_type_owner"
+                }
+                """,
+                "{\"title\":\"Bad Request\",\"detail\":\"Neighbor rejected\"}",
+                "[{\"@c\":\"Plan\",\"id\":\"plan-1\"}]"
+            },
+            new[] { HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.OK });
+        var service = new InnolaPlanCheckService(new HttpClient(handler));
+
+        var result = await service.WriteAsync(Session(), Transaction(), layout.RootDirectory, Disposition(layout));
+
+        TestAssert.True(result.Success, $"Plan Check save should continue when only new Neighbor rows are rejected. Message={result.Message}");
+        TestAssert.Equal(4, handler.Requests.Count, "Service should fetch Plan, create Neighbor, try full Plan save, then retry checklist-only save.");
+        using (var createBody = JsonDocument.Parse(handler.Bodies[1]))
+        {
+            TestAssert.Equal(JsonValueKind.Null, createBody.RootElement.GetProperty("id").ValueKind, "Neighbor create-template body should include id:null before embedding new rows.");
+        }
+
+        using (var rejectedPayload = JsonDocument.Parse(handler.Bodies[2]))
+        {
+            TestAssert.True(rejectedPayload.RootElement[0].TryGetProperty("neighbors", out _), "First save should include the new Neighbor row.");
+        }
+
+        using (var fallbackPayload = JsonDocument.Parse(handler.Bodies[3]))
+        {
+            TestAssert.True(!fallbackPayload.RootElement[0].TryGetProperty("neighbors", out _), "Fallback save must restore the pre-neighbor Plan payload.");
+        }
+
+        var warningPath = Path.Combine(layout.WorkingDirectory, "plan_examination_neighbor_writeback_warning.json");
+        TestAssert.True(File.Exists(warningPath), "Neighbor save rejection should leave a warning artifact.");
+        var responseEvidence = File.ReadAllText(Path.Combine(layout.WorkingDirectory, "plan_examination_api_response.json"));
+        TestAssert.True(responseEvidence.Contains("skipped_after_plan_save_rejection", StringComparison.OrdinalIgnoreCase), "Response evidence should show Neighbor rows were skipped.");
+    }
+
     public static async Task FallsBackToTransactionNumberWhenUuidPlanLookupIsEmpty()
     {
         using var tempRoot = new TempDirectory();

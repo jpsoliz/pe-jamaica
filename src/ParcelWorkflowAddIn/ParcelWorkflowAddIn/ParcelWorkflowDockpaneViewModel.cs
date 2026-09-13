@@ -2456,7 +2456,10 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
         if (valueNode is JsonObject objectNode)
         {
             unitText = ReadJsonText(objectNode["unit"]);
-            valueNode = objectNode["value"];
+            valueNode = objectNode["numeric_value"]
+                ?? objectNode["value"]
+                ?? objectNode["raw_value"]
+                ?? objectNode["normalized_value"];
         }
 
         if (valueNode is null)

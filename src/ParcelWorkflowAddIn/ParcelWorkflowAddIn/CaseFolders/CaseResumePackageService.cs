@@ -11,6 +11,8 @@ namespace ParcelWorkflowAddIn.CaseFolders;
 public sealed class CaseResumePackageService
 {
     public const string ResumeManifestFileName = "sidwell_resume_manifest.json";
+    private const int PackageBuildMaxAttempts = 5;
+    private static readonly TimeSpan PackageBuildRetryDelay = TimeSpan.FromMilliseconds(250);
 
     private readonly Func<DateTimeOffset> getUtcNow;
     private readonly Func<string> getAddInVersion;
@@ -32,29 +34,58 @@ public sealed class CaseResumePackageService
         string? operatorId,
         bool includeFullOutputArtifacts = false)
     {
+        Exception? lastException = null;
+        for (var attempt = 1; attempt <= PackageBuildMaxAttempts; attempt++)
+        {
+            try
+            {
+                return BuildOnce(layout, transaction, operatorId, includeFullOutputArtifacts);
+            }
+            catch (Exception exception) when (IsExpectedPackageBuildFailure(exception))
+            {
+                lastException = exception;
+                if (IsTransientFileLock(exception) && attempt < PackageBuildMaxAttempts)
+                {
+                    Thread.Sleep(PackageBuildRetryDelay);
+                    continue;
+                }
+
+                return ResumePackageBuildResult.Failed(BuildPackageFailureMessage(exception));
+            }
+        }
+
+        return ResumePackageBuildResult.Failed(BuildPackageFailureMessage(lastException));
+    }
+
+    private ResumePackageBuildResult BuildOnce(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        string? operatorId,
+        bool includeFullOutputArtifacts)
+    {
+        if (!File.Exists(layout.ManifestPath))
+        {
+            return ResumePackageBuildResult.Failed("Case Folder manifest is missing. Save and Close cannot continue.");
+        }
+
+        var manifest = ManifestSerializer.Read(layout.ManifestPath);
+        var payload = manifest.Payload;
+        var now = getUtcNow().UtcDateTime.ToString("O");
+        var tempPackagePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-{InnolaResumePackageConventions.BuildResumeAttachmentFileName(transaction.TransactionNumber)}");
+        var resumeManifest = new ResumePackageManifest(
+            "1.0.0",
+            transaction.TransactionId,
+            transaction.TransactionNumber,
+            transaction.TaskId,
+            payload.WorkflowState,
+            now,
+            operatorId,
+            getAddInVersion(),
+            manifest.RunId,
+            manifest.SchemaVersion);
+
         try
         {
-            if (!File.Exists(layout.ManifestPath))
-            {
-                return ResumePackageBuildResult.Failed("Case Folder manifest is missing. Save and Close cannot continue.");
-            }
-
-            var manifest = ManifestSerializer.Read(layout.ManifestPath);
-            var payload = manifest.Payload;
-            var now = getUtcNow().UtcDateTime.ToString("O");
-            var tempPackagePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-{InnolaResumePackageConventions.BuildResumeAttachmentFileName(transaction.TransactionNumber)}");
-            var resumeManifest = new ResumePackageManifest(
-                "1.0.0",
-                transaction.TransactionId,
-                transaction.TransactionNumber,
-                transaction.TaskId,
-                payload.WorkflowState,
-                now,
-                operatorId,
-                getAddInVersion(),
-                manifest.RunId,
-                manifest.SchemaVersion);
-
             using (var fileStream = File.Create(tempPackagePath))
             using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create))
             {
@@ -90,14 +121,69 @@ public sealed class CaseResumePackageService
                 "application/zip",
                 resumeManifest);
         }
-        catch (Exception exception) when (exception is IOException
+        catch
+        {
+            TryDeleteTempPackage(tempPackagePath);
+            throw;
+        }
+    }
+
+    private static bool IsExpectedPackageBuildFailure(Exception exception)
+    {
+        return exception is IOException
             or UnauthorizedAccessException
             or InvalidOperationException
             or NotSupportedException
             or ArgumentException
-            or JsonException)
+            or JsonException;
+    }
+
+    private static bool IsTransientFileLock(Exception exception)
+    {
+        return exception is IOException ioException
+            && (IsSharingOrLockViolation(ioException) || LooksLikeFileInUseMessage(ioException.Message));
+    }
+
+    private static bool IsSharingOrLockViolation(IOException exception)
+    {
+        var errorCode = exception.HResult & 0xFFFF;
+        return errorCode is 32 or 33;
+    }
+
+    private static bool LooksLikeFileInUseMessage(string message)
+    {
+        return message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("cannot access the file", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("used by another process", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildPackageFailureMessage(Exception? exception)
+    {
+        if (exception is null)
         {
-            return ResumePackageBuildResult.Failed($"Resume package could not be created: {exception.Message}");
+            return "Resume package could not be created. Try Finalize again.";
+        }
+
+        if (IsTransientFileLock(exception))
+        {
+            return $"Finalize could not create the completed case package because a case file is being used by another process. Close any editor, preview pane, sync tool, or other process using the case folder, then retry Finalize. Detail: {exception.Message}";
+        }
+
+        return $"Resume package could not be created: {exception.Message}";
+    }
+
+    private static void TryDeleteTempPackage(string tempPackagePath)
+    {
+        try
+        {
+            if (File.Exists(tempPackagePath))
+            {
+                File.Delete(tempPackagePath);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Temporary resume package cleanup failed. Path={tempPackagePath}; Error={exception.GetType().Name}.");
         }
     }
 

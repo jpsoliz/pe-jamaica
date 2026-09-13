@@ -581,6 +581,61 @@ internal static class InnolaTransactionLoadServiceTests
             "Completed package should skip ArcGIS runtime lock files.");
     }
 
+    public static async Task CompletedPackageRetriesWhenManifestLockClears()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detailService = new MockInnolaTransactionDetailService();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, detailService, tempRoot.Path);
+
+        var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial load should succeed.");
+
+        var layout = first.Layout!;
+        using var manifestLock = new FileStream(layout.ManifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var releaseLock = Task.Run(async () =>
+        {
+            await Task.Delay(350);
+            manifestLock.Dispose();
+        });
+
+        var resumeService = new CaseResumePackageService(() => FixedNow(), () => "test");
+        var package = resumeService.Build(layout, manager.SelectedTransaction!, "tester", includeFullOutputArtifacts: true);
+        await releaseLock;
+
+        TestAssert.True(package.Success, package.ErrorMessage ?? "Completed package should retry after a transient manifest lock.");
+        using var archive = new ZipArchive(File.OpenRead(package.PackagePath!), ZipArchiveMode.Read);
+        var names = archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToArray();
+        TestAssert.True(names.Contains("manifest.json"), "Completed package should include manifest after lock retry.");
+    }
+
+    public static async Task CompletedPackageReportsLockedManifestAsRetryableFinalizeMessage()
+    {
+        using var tempRoot = new TempDirectory();
+        var manager = LoggedInManager();
+        var detailService = new MockInnolaTransactionDetailService();
+        manager.SelectTransaction(Row("task-100000004", "100000004", "100000004", "Computation Check"), FixedNow());
+        var service = LoadService(manager, detailService, tempRoot.Path);
+
+        var first = await service.LoadSelectedTransactionAsync();
+        TestAssert.True(first.Success, "Initial load should succeed.");
+
+        var layout = first.Layout!;
+        using var manifestLock = new FileStream(layout.ManifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var resumeService = new CaseResumePackageService(() => FixedNow(), () => "test");
+
+        var package = resumeService.Build(layout, manager.SelectedTransaction!, "tester", includeFullOutputArtifacts: true);
+
+        TestAssert.True(!package.Success, "Completed package should fail after retry attempts when manifest remains locked.");
+        TestAssert.True(
+            package.ErrorMessage?.Contains("retry Finalize", StringComparison.OrdinalIgnoreCase) == true,
+            $"Locked manifest message should tell the examiner to retry Finalize. Message: {package.ErrorMessage}");
+        TestAssert.True(
+            package.ErrorMessage?.Contains("manifest.json", StringComparison.OrdinalIgnoreCase) == true,
+            $"Locked manifest message should include the locked file detail. Message: {package.ErrorMessage}");
+    }
+
     public static async Task ExistingCaseFolderMismatchBlocksLoad()
     {
         using var tempRoot = new TempDirectory();

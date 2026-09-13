@@ -18,7 +18,22 @@ public static class ManifestSerializer
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, JsonSerializer.Serialize(manifest, Options));
+        var serialized = JsonSerializer.Serialize(manifest, Options);
+        var tempPath = Path.Combine(
+            string.IsNullOrWhiteSpace(directory) ? Directory.GetCurrentDirectory() : directory,
+            $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(tempPath, serialized);
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
     }
 
     public static ManifestDocument Read(string path)

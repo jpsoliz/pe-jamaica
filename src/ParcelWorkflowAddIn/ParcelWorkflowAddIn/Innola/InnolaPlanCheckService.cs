@@ -84,6 +84,7 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
                 return InnolaPlanCheckWritebackResult.Failed("Innola Plan Check writeback failed because no supported Plan checklist rows were returned.", "checklist_no_supported_rows");
             }
 
+            var plansBeforeNeighborMutation = ClonePlans(plans);
             var neighborMutation = await ApplyNeighborUpdatesAsync(
                 session,
                 transaction.TransactionId,
@@ -92,7 +93,23 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
                 cancellationToken).ConfigureAwait(false);
 
             WriteRequestEvidence(layout, transaction, disposition, evidence.ReportPath, mutation, neighborMutation);
-            var saved = await SavePlansAsync(session, planFetch.LookupTransactionId, planFetch, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<JsonObject> saved;
+            try
+            {
+                saved = await SavePlansAsync(session, planFetch.LookupTransactionId, planFetch, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException exception) when (neighborMutation.CreatedCount > 0)
+            {
+                WriteNeighborFallbackEvidence(layout, transaction, exception, neighborMutation);
+                var fallbackMutation = neighborMutation.AsSkipped("skipped_after_plan_save_rejection");
+                var fallbackFetch = planFetch with { Plans = plansBeforeNeighborMutation };
+                saved = await SavePlansAsync(session, fallbackFetch.LookupTransactionId, fallbackFetch, cancellationToken).ConfigureAwait(false);
+                WriteResponseEvidence(layout, transaction, mutation, fallbackMutation, saved.Count);
+                return InnolaPlanCheckWritebackResult.Succeeded(
+                    updates: mutation.Updates,
+                    message: "Innola Plan Check values saved. Neighbor writeback was skipped because Innola rejected new Neighbor rows.");
+            }
+
             WriteResponseEvidence(layout, transaction, mutation, neighborMutation, saved.Count);
             return InnolaPlanCheckWritebackResult.Succeeded(updates: mutation.Updates);
         }
@@ -440,7 +457,7 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
     private async Task<JsonObject> CreateDefaultNeighborAsync(InnolaSession session, string transactionId, CancellationToken cancellationToken)
     {
         var uri = BuildCreateObjectUri(session);
-        const string payloadJson = "{\"@c\":\"Neighbor\"}";
+        const string payloadJson = "{\"@c\":\"Neighbor\",\"id\":null}";
         using var response = await InnolaApiResilience.SendAsync(
             httpClient,
             new InnolaApiOperation(
@@ -482,6 +499,7 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         return new JsonObject
         {
             ["@c"] = NeighborClassName,
+            ["id"] = null,
             ["neighborType"] = DefaultNeighborType,
             ["name"] = null,
             ["address"] = null,
@@ -876,12 +894,59 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
 
     private static JsonNode BuildSavePayload(PlanFetchResult planFetch)
     {
+        JsonNode payload;
         if (!planFetch.SaveAsArray && planFetch.Plans.Count == 1)
         {
-            return planFetch.Plans[0].DeepClone();
+            payload = planFetch.Plans[0].DeepClone();
+        }
+        else
+        {
+            payload = new JsonArray(planFetch.Plans.Select(plan => plan.DeepClone()).ToArray());
         }
 
-        return new JsonArray(planFetch.Plans.Select(plan => plan.DeepClone()).ToArray());
+        NormalizeObjectAliases(payload);
+        return payload;
+    }
+
+    private static void NormalizeObjectAliases(JsonNode? node)
+    {
+        var nextAlias = 1;
+        Visit(node, ref nextAlias);
+    }
+
+    private static void Visit(JsonNode? node, ref int nextAlias)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                if (obj.ContainsKey("@id"))
+                {
+                    obj["@id"] = $"obj:{nextAlias++}";
+                }
+
+                foreach (var child in obj.Select(pair => pair.Value).ToArray())
+                {
+                    Visit(child, ref nextAlias);
+                }
+
+                break;
+            case JsonArray array:
+                foreach (var child in array.ToArray())
+                {
+                    Visit(child, ref nextAlias);
+                }
+
+                break;
+        }
+    }
+
+    private static IReadOnlyList<JsonObject> ClonePlans(IReadOnlyList<JsonObject> plans)
+    {
+        return plans
+            .Select(plan => plan.DeepClone() as JsonObject)
+            .Where(plan => plan is not null)
+            .Cast<JsonObject>()
+            .ToArray();
     }
 
     private static JsonObject? ResolveNeighborPlan(IReadOnlyList<JsonObject> plans)
@@ -977,6 +1042,33 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         };
         WriteEvidenceFile(layout, ResponseEvidenceFileName, evidence);
         WriteEvidenceFile(layout, PlanExaminationResponseEvidenceFileName, evidence);
+    }
+
+    private static void WriteNeighborFallbackEvidence(
+        CaseFolderLayout layout,
+        SelectedInnolaTransaction transaction,
+        Exception exception,
+        NeighborMutationResult neighborMutation)
+    {
+        Directory.CreateDirectory(layout.WorkingDirectory);
+        var evidence = new
+        {
+            schema_version = "plan_examination_neighbor_writeback_warning_v1",
+            written_at_utc = DateTimeOffset.UtcNow.UtcDateTime.ToString("O"),
+            transaction_id = transaction.TransactionId,
+            transaction_number = transaction.TransactionNumber,
+            task_id = transaction.TaskId,
+            status = "skipped",
+            reason = "Innola rejected Plan save after new Neighbor rows were added. Plan Check save was retried without new Neighbor rows.",
+            error_category = exception.GetType().Name,
+            error_message = SanitizeDiagnostic(exception.Message),
+            neighbor_rows_reviewed = neighborMutation.ReviewedCount,
+            neighbor_rows_created = neighborMutation.CreatedCount,
+            neighbor_rows_updated = neighborMutation.UpdatedCount,
+            neighbor_rows_skipped = neighborMutation.SkippedCount,
+            neighbor_updates = neighborMutation.Rows
+        };
+        WriteEvidenceFile(layout, "plan_examination_neighbor_writeback_warning.json", evidence);
     }
 
     private static void TryWriteFailure(string caseFolderPath, SelectedInnolaTransaction transaction, Exception exception)
@@ -1075,6 +1167,16 @@ public sealed class InnolaPlanCheckService : IInnolaPlanCheckService
         public static NeighborMutationResult Empty(int skippedCount = 0)
         {
             return new NeighborMutationResult(0, 0, 0, skippedCount, Array.Empty<InnolaNeighborUpdate>());
+        }
+
+        public NeighborMutationResult AsSkipped(string action)
+        {
+            return new NeighborMutationResult(
+                ReviewedCount,
+                0,
+                0,
+                ReviewedCount + SkippedCount,
+                Rows.Select(row => row with { Action = action }).ToArray());
         }
     }
 

@@ -701,6 +701,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
         IsLoading = true;
         DocumentStatus = "Loading attached documents.";
         GeometryStatus = "Loading transaction-scoped working geometry.";
+        StatusText = "Loading Compare workspace and map layers.";
         try
         {
             var state = await loadService.LoadAsync(cancellationToken);
@@ -743,6 +744,7 @@ public sealed class CompareWorkspaceViewModel : INotifyPropertyChanged
 
         IsLoading = true;
         GeometryStatus = "Reloading transaction-scoped working geometry.";
+        StatusText = "Loading Compare map layers.";
         try
         {
             ApplyGeometryState(await loadService.LoadGeometryAsync(cancellationToken));

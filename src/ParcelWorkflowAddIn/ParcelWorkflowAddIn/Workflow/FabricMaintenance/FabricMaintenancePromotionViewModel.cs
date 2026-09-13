@@ -242,6 +242,7 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         {
             isLoadParcelRunning = value;
             NotifyPropertyChanged(nameof(IsLoadParcelRunning));
+            NotifyPropertyChanged(nameof(IsOperationRunning));
             NotifyPropertyChanged(nameof(CanLoadParcel));
             RaiseCommandState();
         }
@@ -278,10 +279,13 @@ public sealed class FabricMaintenancePromotionViewModel : INotifyPropertyChanged
         {
             isConfirmFinalWriteRunning = value;
             NotifyPropertyChanged(nameof(IsConfirmFinalWriteRunning));
+            NotifyPropertyChanged(nameof(IsOperationRunning));
             NotifyPropertyChanged(nameof(CanConfirmFinalWrite));
             RaiseCommandState();
         }
     }
+
+    public bool IsOperationRunning => IsLoadParcelRunning || IsConfirmFinalWriteRunning;
 
     public bool CanLoadParcel => !IsLoadParcelRunning && !IsReviewLoaded;
 

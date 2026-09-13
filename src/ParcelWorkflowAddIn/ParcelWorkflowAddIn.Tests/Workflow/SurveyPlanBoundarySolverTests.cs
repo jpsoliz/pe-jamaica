@@ -79,9 +79,49 @@ internal static class SurveyPlanBoundarySolverTests
         TestAssert.True(!string.IsNullOrWhiteSpace(document.Rows.First(row => row.PointIdentifier == "16").Easting), "Solver should fill existing blank point 16 easting.");
         TestAssert.True(!string.IsNullOrWhiteSpace(document.Rows.First(row => row.PointIdentifier == "18").Northing), "Solver should fill existing blank point 18 northing.");
         TestAssert.True(result.ComputedAreaSqM.HasValue, "Solver should compute polygon area.");
-        TestAssert.True(Math.Abs(result.ComputedAreaSqM.Value - 854.807) < 2.0, "Computed area should be close to the document area.");
+        TestAssert.True(Math.Abs(result.ComputedAreaSqM.GetValueOrDefault() - 854.807) < 2.0, "Computed area should be close to the document area.");
         TestAssert.True(result.ClosureDistanceM.GetValueOrDefault(999d) < 1.0, "Solved boundary should close within one metre.");
         TestAssert.True(document.RootMetadata.ContainsKey("boundary_solver"), "Solver diagnostics should be written into review metadata.");
+    }
+
+    public static void DocumentAreaMismatchWarnsWithoutBlockingReviewedBoundary()
+    {
+        var document = new ExtractionReviewDocument
+        {
+            TransactionNumber = "100000562",
+            ExtractionSource = "survey_plan_ocr_vision"
+        };
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-15",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "15",
+            Easting = "712897.345",
+            Northing = "670582.156",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow
+        {
+            RowId = "point-17",
+            ParcelGroupId = "parcel-001",
+            PointIdentifier = "17",
+            Easting = "712856.553",
+            Northing = "670563.653",
+            ExtractionStatus = "printed_coordinate"
+        });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-16", ParcelGroupId = "parcel-001", PointIdentifier = "16", Easting = "", Northing = "", ExtractionStatus = "missing_coordinate" });
+        document.Rows.Add(new ExtractionReviewRow { RowId = "point-18", ParcelGroupId = "parcel-001", PointIdentifier = "18", Easting = "", Northing = "", ExtractionStatus = "missing_coordinate" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-1", Sequence = 1, FromPoint = "18", ToPoint = "15", BearingText = "S84°56'E", DistanceText = "33.470" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-2", Sequence = 2, FromPoint = "15", ToPoint = "30", BearingText = "S01°27'E", DistanceText = "18.343" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-3", Sequence = 3, FromPoint = "30", ToPoint = "16", BearingText = "S01°39'W", DistanceText = "5.230" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-4", Sequence = 4, FromPoint = "16", ToPoint = "17", BearingText = "N82°59'W", DistanceText = "41.415" });
+        document.Segments.Add(new ExtractionReviewSegment { SegmentId = "seg-5", Sequence = 5, FromPoint = "17", ToPoint = "18", BearingText = "N19°09'E", DistanceText = "22.715" });
+
+        var solver = new SurveyPlanBoundarySolver();
+        var result = solver.Apply(document, 2d);
+
+        TestAssert.Equal("warning", result.Status, "Document-area mismatch must warn but not block a closed reviewed boundary.");
+        TestAssert.True(result.Findings.Any(finding => finding.Contains("Reviewed boundary area differs from the document area", StringComparison.OrdinalIgnoreCase)), "Solver should keep the area mismatch visible.");
     }
 
     public static void DetectsPrintedCoordinateConflicts()
