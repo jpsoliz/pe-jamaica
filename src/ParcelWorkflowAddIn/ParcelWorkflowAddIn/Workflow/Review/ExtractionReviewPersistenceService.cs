@@ -349,9 +349,12 @@ public sealed class ExtractionReviewPersistenceService
         var sourceEvidence = ReadFirstString(rowObject, "source_evidence", "source_text", "evidence", "page_reference");
         var originalNode = rowObject["review_original_values"] as JsonObject;
 
+        var rowId = ReadFirstString(rowObject, "row_id", "review_row_id")
+            ?? BuildFallbackRowId(rowObject, index, pointIdentifier);
+
         var row = new ExtractionReviewRow
         {
-            RowId = ReadFirstString(rowObject, "row_id", "review_row_id") ?? pointIdentifier ?? $"row-{index:000}",
+            RowId = rowId,
             ParcelGroupId = ReadFirstString(rowObject, "review_parcel_group_id", "parcel_group_id") ?? string.Empty,
             ParcelName = ReadFirstString(rowObject, "review_parcel_name", "parcel_name") ?? string.Empty,
             TraverseId = ReadFirstString(rowObject, "review_traverse_id", "traverse_id") ?? string.Empty,
@@ -392,6 +395,28 @@ public sealed class ExtractionReviewPersistenceService
             || row.Unresolved
             || !string.IsNullOrWhiteSpace(row.ReviewNotes);
         return row;
+    }
+
+    private static string BuildFallbackRowId(JsonObject rowObject, int index, string? pointIdentifier)
+    {
+        var parcelGroupId = ReadFirstString(rowObject, "review_parcel_group_id", "parcel_group_id");
+        var traverseId = ReadFirstString(rowObject, "review_traverse_id", "traverse_id");
+        var sequenceInGroup = ReadNullableInt(rowObject, "review_sequence_in_group", "sequence_in_group", "point_order");
+
+        if (!string.IsNullOrWhiteSpace(parcelGroupId)
+            || !string.IsNullOrWhiteSpace(traverseId)
+            || sequenceInGroup.HasValue)
+        {
+            return string.Join(
+                "|",
+                "row",
+                string.IsNullOrWhiteSpace(parcelGroupId) ? "parcel" : parcelGroupId.Trim(),
+                string.IsNullOrWhiteSpace(traverseId) ? "traverse" : traverseId.Trim(),
+                sequenceInGroup?.ToString("000", CultureInfo.InvariantCulture) ?? index.ToString("000", CultureInfo.InvariantCulture),
+                string.IsNullOrWhiteSpace(pointIdentifier) ? index.ToString("000", CultureInfo.InvariantCulture) : pointIdentifier.Trim());
+        }
+
+        return pointIdentifier ?? $"row-{index:000}";
     }
 
     private static ExtractionReviewSegment MapSegment(JsonObject segmentObject, int index)

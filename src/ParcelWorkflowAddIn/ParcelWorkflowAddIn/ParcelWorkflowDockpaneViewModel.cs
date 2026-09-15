@@ -2295,7 +2295,8 @@ internal sealed class ParcelWorkflowDockpaneViewModel : DockPane
 
         var knownRowsById = ReviewRows
             .Where(row => !string.IsNullOrWhiteSpace(row.RowId))
-            .ToDictionary(row => row.RowId, StringComparer.Ordinal);
+            .GroupBy(row => row.RowId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         foreach (var row in loadedReviewDocument.Rows)
         {
             if (!string.IsNullOrWhiteSpace(row.RowId) && knownRowsById.TryGetValue(row.RowId, out var existingRow))

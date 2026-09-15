@@ -381,6 +381,17 @@ internal static class PlaBWorkflowServiceTests
         TestAssert.Equal(2, result.Groups.Count, "PLA_B map plan should contain current and PE groups.");
     }
 
+    public static void MapPlannerAllowsWorkingReviewOnlyWhenPeGdbIsUnavailable()
+    {
+        var result = PlaBMapReviewPlanner.Build("100001117", "100001041", null);
+
+        TestAssert.True(result.Success, "PLA_B should still plan Enterprise working_review geometry when the PE package/GDB is unavailable.");
+        TestAssert.Equal("PLA 100001117 - Current Transaction", result.CurrentTransactionGroupName, "Current transaction group name mismatch.");
+        TestAssert.Equal("PE 100001041 - Approved PE Output", result.PeTransactionGroupName, "PE group name mismatch.");
+        TestAssert.Equal(1, result.Groups.Count, "Working-review-only PLA_B map plan should contain only the Enterprise group.");
+        TestAssert.Equal("enterprise_working_layer", result.Groups[0].SourceKind, "Working-review group source mismatch.");
+    }
+
     public static void MapLoaderAppliesRequestedLabelsAndPolygonTransparency()
     {
         var source = File.ReadAllText(Path.Combine("src", "ParcelWorkflowAddIn", "ParcelWorkflowAddIn", "Workflow", "Pla", "PlaBWorkflowServices.cs"));

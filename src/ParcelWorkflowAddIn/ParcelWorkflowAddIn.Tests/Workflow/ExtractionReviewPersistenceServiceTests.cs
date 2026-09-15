@@ -122,6 +122,44 @@ internal static class ExtractionReviewPersistenceServiceTests
         TestAssert.Equal("404", document.Errors[0], "Numeric error entries should not crash string-array loading.");
     }
 
+    public static void LoadGeneratesUniqueRowIdsForRepeatedPointIdsAcrossParcels()
+    {
+        using var tempRoot = new TempDirectory();
+        var layout = CreateLayout(tempRoot.Path, "100001017");
+        var service = new ExtractionReviewPersistenceService();
+        File.WriteAllText(
+            Path.Combine(layout.WorkingDirectory, "extraction_review_data.json"),
+            """
+            {
+              "transaction_number": "100001017",
+              "rows": [
+                {
+                  "parcel_group_id": "Lot 1",
+                  "traverse_id": "Lot 1",
+                  "sequence_in_group": 1,
+                  "point_identifier": "66",
+                  "easting": "790916.937",
+                  "northing": "640503.977"
+                },
+                {
+                  "parcel_group_id": "parcel-001",
+                  "traverse_id": "parcel-001",
+                  "sequence_in_group": 1,
+                  "point_identifier": "66",
+                  "easting": "790865.653",
+                  "northing": "640509.836"
+                }
+              ]
+            }
+            """);
+
+        var document = service.Load(layout)!;
+
+        TestAssert.Equal(2, document.Rows.Count, "Both repeated point rows should load.");
+        TestAssert.Equal(2, document.Rows.Select(row => row.RowId).Distinct(StringComparer.Ordinal).Count(), "Fallback row ids should be unique across parcel groups.");
+        TestAssert.True(document.Rows.All(row => row.RowId.Contains("66", StringComparison.Ordinal)), "Fallback row ids should still retain the source point identifier for diagnostics.");
+    }
+
     public static void LoadEditAndSaveReviewArtifactPersistsSegments()
     {
         using var tempRoot = new TempDirectory();

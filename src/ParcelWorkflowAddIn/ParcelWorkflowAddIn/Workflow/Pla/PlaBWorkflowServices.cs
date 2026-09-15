@@ -547,21 +547,21 @@ internal static class PlaBMapReviewPlanner
             return PlaBMapReviewPlan.Failed(normalized.ErrorCode!, normalized.Message!);
         }
 
-        if (string.IsNullOrWhiteSpace(peOutputGdbPath))
-        {
-            return PlaBMapReviewPlan.Failed("pe_gdb_missing", "Related PE output geodatabase is required.");
-        }
-
         var currentGroup = $"PLA {currentTransactionNumber.Trim()} - Current Transaction";
         var peGroup = $"PE {normalized.PeNumber} - Approved PE Output";
+        var groups = new List<PlaBMapReviewGroupPlan>
+        {
+            new(currentGroup, "enterprise_working_layer", Array.Empty<string>())
+        };
+        if (!string.IsNullOrWhiteSpace(peOutputGdbPath))
+        {
+            groups.Add(new PlaBMapReviewGroupPlan(peGroup, "pe_output_gdb", new[] { peOutputGdbPath.Trim() }));
+        }
+
         return PlaBMapReviewPlan.Succeeded(
             currentGroup,
             peGroup,
-            new[]
-            {
-                new PlaBMapReviewGroupPlan(currentGroup, "enterprise_working_layer", Array.Empty<string>()),
-                new PlaBMapReviewGroupPlan(peGroup, "pe_output_gdb", new[] { peOutputGdbPath.Trim() })
-            });
+            groups);
     }
 }
 

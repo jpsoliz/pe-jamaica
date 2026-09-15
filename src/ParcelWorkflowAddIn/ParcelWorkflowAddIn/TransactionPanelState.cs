@@ -2167,6 +2167,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             return PlaBTestInputPreparationResult.Failed(currentSourceLoad.Message);
         }
 
+        var recoveryWarnings = currentSourceLoad.Warnings.ToList();
         currentSession = await EnsurePanelSessionAsync("PLA_B case folder preparation", cancellationToken).ConfigureAwait(true);
         if (currentSession is null)
         {
@@ -2182,57 +2183,69 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         var peLookup = await new PlaBRelatedPeTransactionFinder(transactionService)
             .FindAsync(currentSession, normalizedPe, cancellationToken)
             .ConfigureAwait(true);
+        string? peOutputGdbPath = null;
         if (!peLookup.Success || peLookup.Transaction is null)
         {
-            return PlaBTestInputPreparationResult.Failed(peLookup.Message ?? "Related PE transaction could not be found.");
+            recoveryWarnings.Add(peLookup.Message ?? "Related PE transaction could not be found; loading Enterprise working_review geometry only.");
         }
-
-        currentSession = await EnsurePanelSessionAsync("related PE transaction detail", cancellationToken).ConfigureAwait(true);
-        if (currentSession is null)
+        else
         {
-            return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+            currentSession = await EnsurePanelSessionAsync("related PE transaction detail", cancellationToken).ConfigureAwait(true);
+            if (currentSession is null)
+            {
+                return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+            }
+
+            var detailService = ShellState.TransactionDetails;
+            var peSelected = ToSelectedTransaction(peLookup.Transaction, clock());
+            var detailResult = await detailService
+                .GetTransactionDetailAsync(currentSession, peSelected, cancellationToken)
+                .ConfigureAwait(true);
+            if (!detailResult.Success || detailResult.Detail is null)
+            {
+                var reason = detailResult.ErrorMessage ?? "Related PE transaction detail could not be loaded.";
+                var category = string.IsNullOrWhiteSpace(detailResult.ErrorCode) ? string.Empty : $" ({detailResult.ErrorCode})";
+                recoveryWarnings.Add($"PLA_B could not load related PE transaction {normalizedPe}: {reason}{category}; loading Enterprise working_review geometry only.");
+            }
+            else
+            {
+                currentSession = await EnsurePanelSessionAsync("related PE package download", cancellationToken).ConfigureAwait(true);
+                if (currentSession is null)
+                {
+                    return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
+                }
+
+                var package = await new PlaBPePackageDownloader(detailService)
+                    .DownloadAsync(currentSession, detailResult.Detail, layoutResult.Layout, cancellationToken)
+                    .ConfigureAwait(true);
+                if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath))
+                {
+                    recoveryWarnings.Add(package.Message ?? "Related PE package could not be downloaded; loading Enterprise working_review geometry only.");
+                }
+                else
+                {
+                    var gdb = PlaBPackageService.ExtractAndResolveOutputGdb(layoutResult.Layout, package.PackagePath, normalizedPe);
+                    if (!gdb.Success || string.IsNullOrWhiteSpace(gdb.GdbPath))
+                    {
+                        recoveryWarnings.Add(gdb.Message ?? "Related PE output geodatabase could not be resolved; loading Enterprise working_review geometry only.");
+                    }
+                    else
+                    {
+                        peOutputGdbPath = gdb.GdbPath;
+                    }
+                }
+            }
         }
 
-        var detailService = ShellState.TransactionDetails;
-        var peSelected = ToSelectedTransaction(peLookup.Transaction, clock());
-        var detailResult = await detailService
-            .GetTransactionDetailAsync(currentSession, peSelected, cancellationToken)
-            .ConfigureAwait(true);
-        if (!detailResult.Success || detailResult.Detail is null)
-        {
-            var reason = detailResult.ErrorMessage ?? "Related PE transaction detail could not be loaded.";
-            var category = string.IsNullOrWhiteSpace(detailResult.ErrorCode) ? string.Empty : $" ({detailResult.ErrorCode})";
-            return PlaBTestInputPreparationResult.Failed($"PLA_B could not load related PE transaction {normalizedPe}: {reason}{category}");
-        }
-
-        currentSession = await EnsurePanelSessionAsync("related PE package download", cancellationToken).ConfigureAwait(true);
-        if (currentSession is null)
-        {
-            return PlaBTestInputPreparationResult.Failed(InnolaApiResilience.LoginRequiredMessage);
-        }
-
-        var package = await new PlaBPePackageDownloader(detailService)
-            .DownloadAsync(currentSession, detailResult.Detail, layoutResult.Layout, cancellationToken)
-            .ConfigureAwait(true);
-        if (!package.Success || string.IsNullOrWhiteSpace(package.PackagePath))
-        {
-            return PlaBTestInputPreparationResult.Failed(package.Message ?? "Related PE package could not be downloaded.");
-        }
-
-        var gdb = PlaBPackageService.ExtractAndResolveOutputGdb(layoutResult.Layout, package.PackagePath, normalizedPe);
-        if (!gdb.Success || string.IsNullOrWhiteSpace(gdb.GdbPath))
-        {
-            return PlaBTestInputPreparationResult.Failed(gdb.Message ?? "Related PE output geodatabase could not be resolved.");
-        }
-
-        var mapPlan = PlaBMapReviewPlanner.Build(input.CurrentTransactionNumber, normalizedPe, gdb.GdbPath);
+        var mapPlan = PlaBMapReviewPlanner.Build(input.CurrentTransactionNumber, normalizedPe, peOutputGdbPath);
         if (!mapPlan.Success)
         {
             return PlaBTestInputPreparationResult.Failed(mapPlan.Message ?? "PLA_B map recovery plan could not be built.");
         }
 
+        var mapContextDetail = currentSourceLoad.Detail ?? CreatePlaBMapContextDetail(input.CurrentTransactionNumber);
         var mapLoad = await new ArcGisPlaBMapRecoveryLoader()
-            .LoadAsync(settings, detailResult.Detail, enterprisePlan, mapPlan, cancellationToken)
+            .LoadAsync(settings, mapContextDetail, enterprisePlan, mapPlan, cancellationToken)
             .ConfigureAwait(true);
         if (!mapLoad.Success)
         {
@@ -2240,7 +2253,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         }
 
         return PlaBTestInputPreparationResult.Succeeded(
-            FormatPlaBAttachmentCountMessage(input.CurrentTransactionNumber, currentSourceLoad.SourceAttachmentCount),
+            FormatPlaBRecoveryMessage(input.CurrentTransactionNumber, currentSourceLoad.SourceAttachmentCount, enterprisePlan, peOutputGdbPath, recoveryWarnings),
             new[] { mapPlan.CurrentTransactionGroupName!, mapPlan.PeTransactionGroupName! });
     }
 
@@ -2314,6 +2327,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 sourceDownload.Layout.SourceDirectory,
                 sourceDownload.SourceFileCount,
                 sourceAttachmentCount,
+                sourceDownload.Detail,
                 warnings);
         }
 
@@ -2336,6 +2350,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
                 sourceDownload.Layout.SourceDirectory,
                 sourceDownload.SourceFileCount,
                 sourceDownload.SourceAttachmentCount,
+                sourceDownload.Detail,
                 sourceDownload.Warnings);
         }
 
@@ -2348,6 +2363,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             sourceDirectory,
             sourceFileCount,
             sourceFileCount,
+            null,
             warnings);
     }
 
@@ -2356,11 +2372,12 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         string sourceDirectory,
         int sourceFileCount,
         int sourceAttachmentCount,
+        InnolaTransactionDetail? detail,
         IReadOnlyList<string> warnings)
     {
         if (sourceFileCount > 0)
         {
-            return PlaBCurrentTransactionSourceLoadResult.Succeeded(sourceDirectory, sourceFileCount, sourceAttachmentCount, warnings);
+            return PlaBCurrentTransactionSourceLoadResult.Succeeded(sourceDirectory, sourceFileCount, sourceAttachmentCount, detail, warnings);
         }
 
         var noFilesWarning = $"Current transaction {requestedTransactionNumber} loaded, but no files were downloaded to {sourceDirectory}.";
@@ -2368,6 +2385,7 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             sourceDirectory,
             0,
             sourceAttachmentCount,
+            detail,
             warnings.Concat(new[] { noFilesWarning }).ToArray());
     }
 
@@ -2464,10 +2482,54 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
         return $"Attachments for transaction {normalized}: {sourceAttachmentCount} {fileLabel}.";
     }
 
+    private static string FormatPlaBRecoveryMessage(
+        string transactionNumber,
+        int sourceAttachmentCount,
+        PlaBEnterpriseWorkingLayerLookupPlan enterprisePlan,
+        string? peOutputGdbPath,
+        IReadOnlyList<string> warnings)
+    {
+        var lines = new List<string>
+        {
+            FormatPlaBAttachmentCountMessage(transactionNumber, sourceAttachmentCount),
+            $"Working_review query: {enterprisePlan.ScopeField} = {enterprisePlan.ScopeValue}"
+        };
+        if (string.IsNullOrWhiteSpace(peOutputGdbPath))
+        {
+            lines.Add("PE output GDB overlay skipped.");
+        }
+        else
+        {
+            lines.Add($"GDB: {Path.GetFileName(peOutputGdbPath)}");
+        }
+
+        lines.AddRange(warnings.Where(warning => !string.IsNullOrWhiteSpace(warning)));
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static InnolaTransactionDetail CreatePlaBMapContextDetail(string transactionNumber)
+    {
+        var normalized = InnolaTransactionNumbers.NormalizeWorkflowKey(transactionNumber);
+        return new InnolaTransactionDetail(
+            normalized,
+            normalized,
+            string.Empty,
+            "Plan Annexation",
+            ShellState.TransactionProcessStep,
+            null,
+            PlaBWorkflowConstants.WorkflowProfile,
+            null,
+            null,
+            null,
+            null,
+            Array.Empty<InnolaAttachmentMetadata>());
+    }
+
     private sealed record PlaBCurrentTransactionSourceLoadResult(
         bool Success,
         string Message,
         string? SourceDirectory,
+        InnolaTransactionDetail? Detail,
         int SourceFileCount,
         int SourceAttachmentCount,
         IReadOnlyList<string> Warnings)
@@ -2476,14 +2538,15 @@ public sealed class TransactionPanelState : INotifyPropertyChanged
             string sourceDirectory,
             int sourceFileCount,
             int sourceAttachmentCount,
+            InnolaTransactionDetail? detail = null,
             IReadOnlyList<string>? warnings = null)
         {
-            return new PlaBCurrentTransactionSourceLoadResult(true, string.Empty, sourceDirectory, sourceFileCount, sourceAttachmentCount, warnings ?? Array.Empty<string>());
+            return new PlaBCurrentTransactionSourceLoadResult(true, string.Empty, sourceDirectory, detail, sourceFileCount, sourceAttachmentCount, warnings ?? Array.Empty<string>());
         }
 
         public static PlaBCurrentTransactionSourceLoadResult Failed(string message)
         {
-            return new PlaBCurrentTransactionSourceLoadResult(false, message, null, 0, 0, Array.Empty<string>());
+            return new PlaBCurrentTransactionSourceLoadResult(false, message, null, null, 0, 0, Array.Empty<string>());
         }
     }
 
