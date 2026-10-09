@@ -173,4 +173,54 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Remove rules that become obvious or obsolete.
 - Prefer project-specific rules over generic engineering advice.
 
-Last Updated: 2026-09-12
+## Toolbox Continuation - 2026-10-09
+
+User is pausing and intends to return in approximately six hours. No scheduled execution or automatic continuation requested.
+
+### Workspace And Status
+
+- Continue only in `D:/Code/BMad-Method/dev/pe-jamaica/temp/toolbox-worktree`, branch `refactor/toolbox-case-workspace`. Preserve the Toolbox checkpoint and subsequent uncommitted work; do not reset, deploy, merge or mirror it into the operational checkout.
+- User authorized a source-control checkpoint on this branch, with message `feat(toolbox): checkpoint through 13.4B implementation; pending review`. Use `git log -1` to identify the checkpoint; committing does not accept 13.4B or authorize deployment.
+- Operational checkout remains on `wipRC9`, baseline `5908f30617cdc49e09873635a30343da8aff9ad6`; tracked diff was empty at handoff.
+- 13.1/13.2 accepted, 13.3 finished, 13.4A signed off for the isolated in-memory contract. D07 P01-P05 approved as `toolbox_d07_reconciliation_v1`.
+- 13.4B implemented in isolation and in **review**, not accepted. Parent 13.4 remains **in-progress** in the separate Toolbox tracker; no child sprint key added. 13.5 has not started.
+- Next action: review 13.4B implementation/evidence against the approved D07 rules, fix confirmed findings, then obtain acceptance before proceeding to 13.5. Do not infer acceptance from the completed implementation tasks.
+
+### Read First On Resume
+
+- [13.4B story](implementation-artifacts/toolbox/13-4b-add-rerun-reconciliation-shared-boundaries-and-lineage.md).
+- [13.4B implementation evidence](implementation-artifacts/toolbox/13-4b-implementation-evidence.md).
+- [13.4A evidence and baseline limitations](implementation-artifacts/toolbox/13-4a-implementation-evidence.md).
+- [Separate Toolbox tracker](implementation-artifacts/toolbox/sprint-status.yaml).
+- [Decision register](planning-artifacts/toolbox/toolbox-decision-register.md). Its latest follow-up supersedes historical preparation/execution-pending notes.
+
+### Delivered And Preserved
+
+- New services: `ToolboxReconciliation.cs`, `ToolboxBoundaryDependencies.cs`, `ToolboxParcelLineage.cs` under `src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Toolbox/Model/`.
+- Narrow updates: `ToolboxParcelModel.cs`, `ToolboxExamination.cs`; new `ToolboxReconciliationTests.cs` and harness registrations. Canonical owner, policy loader/resolver, original binding fixtures and A test bodies reused unchanged.
+- Reruns require complete case/source/base/policy/digest binding and exhaustive examiner choices. Manual values, original snapshots, raw suggestions and histories remain separate; empty extraction does not delete current entities. Ordinary same-key `ReAdapt` remains strict.
+- Shared physical boundaries retain independent segments and declared points. Actual dependency fingerprints and old/new graph union invalidate consuming checks/decisions, including excluded/retired neighbors. Adjacency and boundary removal require explicit evidence; unknown coverage or consistency blocks readiness.
+- Split/merge results receive fresh parcel identities and explicit inclusions, with retained parents and auditable finding/manual applicability. Original finding scopes/classification/history are not reassigned or automatically resolved.
+- Old human validation and finding dispositions cannot be renewed merely by refreshing check hashes. Changed inputs need current review/disposition; forwarding with source defects follows the normal next stage and does not approve defective geometry.
+- Compute requires explicit local geometry permission; Compare remains geometry-read-only with tabular corrections permitted. All included parcels require current dispositions; selection cannot hide unresolved candidates. Cad Maps have no three-parcel limit.
+- Future Toolbox FGDB name is `TR-<transaction-number>.gdb`; legacy numeric naming stays unchanged. B creates no FGDB or durable journal. Canonical JSON remains the persistence owner until the separately approved persistence work.
+
+### Verification At Handoff
+
+- Final build: zero warnings/errors.
+- Focused harness: **125 passed**, preserved 105 plus 20 B regression groups; includes variable counts 1, 2, 3, 5, 10, 50 and 100, manual recovery, lineage, shared-point changes, stale proof and A fingerprint compatibility.
+- Final full-suite retry: **146 passed before fail-fast**, then `UnauthorizedAccessException` at `ManifestSerializer.Write:28`, called by `CompareWorkspaceViewModelTests.SaveAndRestoreDraftPreservesNotesAndEvidence:94` through helpers 1508/1478. Later tests did not execute. Full suite did not pass; existing Manifest access and Compare XAML limitations remain documented.
+- Local self-review only; no independent peer/GIS certification, host smoke test, FGDB round trip, live TR/Innola transition or deployment claimed. Source hashes, authority and geometry semantics are trusted adapter inputs in synthetic fixtures, not production security/topology proof.
+- Source/document whitespace and relative links checked. Generated `obj-toolbox-13-4b` directories in both projects removed and verified absent; built test binaries remain available. No build/test session remains running.
+
+Verification commands, from the isolated worktree:
+
+```powershell
+dotnet build src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.sln /p:BaseIntermediateOutputPath=obj-toolbox-13-4b/ /p:UseSharedCompilation=false /m:1
+dotnet src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/bin/Debug/net8.0-windows/ParcelWorkflowAddIn.Tests.dll "toolbox" "workspace planner" "settings workspace" "workflow execution settings" "review persistence" "review approval"
+dotnet src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/bin/Debug/net8.0-windows/ParcelWorkflowAddIn.Tests.dll
+```
+
+SDK builds and harness runs needed outside-sandbox access. Preserve separate build/focused/full results and exact fail-fast limitations; do not fix unrelated legacy Manifest/XAML behavior as part of B review.
+
+Last Updated: 2026-10-09

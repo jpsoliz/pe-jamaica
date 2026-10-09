@@ -1,0 +1,1828 @@
+{
+  "schema_version": "toolbox_binding_catalog_fixture_v1",
+  "catalog_id": "compute-compare-binding-slice",
+  "catalog_version": "fixture-v1",
+  "activation_status": "isolated_test",
+  "classification_baseline": "compute-compare-v1",
+  "production_ready": false,
+  "notes": [
+    "Fixture declarations, not executable application adapters.",
+    "Unresolved stage bindings retain their baseline requirement; never silently N/A.",
+    "M41/M42 are expected-contract snapshots only; no completeness or approval engine implemented."
+  ],
+  "items": [
+    {
+      "item_id": "M01",
+      "display_name": "Current TR and source package",
+      "approved_applicability_note": "Case/TR identity and source/revision scope are always checked.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M02",
+      "display_name": "Source completeness and readable files",
+      "approved_applicability_note": "Assess completeness/readability; missing source is recorded, not silently N/A. Integrity failures remain technical blockers.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M03",
+      "display_name": "Workflow/script plan currency",
+      "approved_applicability_note": "Compute route/plan currency is required for automated extraction; N/A for an explicitly manual-only route. Compare does not select extraction scripts.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "automated_plan",
+              "scope": "case",
+              "applicability": {
+                "op": "equals",
+                "fact": "route.mode",
+                "value": "automated"
+              },
+              "evaluator_id": "fixture.automated_plan",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/case",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs",
+                  "symbol": "ManifestPreflightService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "not_applicable",
+          "binding_status": "stage_not_applicable",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M04",
+      "display_name": "Optional DWG signature/layers",
+      "approved_applicability_note": "Compute required when DWG is supplied for use or required by profile; otherwise N/A. Compare optional DWG reference, N/A if irrelevant.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "dwg_use",
+              "scope": "document",
+              "applicability": {
+                "op": "equals",
+                "fact": "document.dwg_in_use",
+                "value": true
+              },
+              "evaluator_id": "fixture.dwg_use",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/documents/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs",
+                  "symbol": "ManifestPreflightService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "dwg_use",
+              "scope": "document",
+              "applicability": {
+                "op": "equals",
+                "fact": "document.dwg_in_use",
+                "value": true
+              },
+              "evaluator_id": "fixture.dwg_use",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/documents/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs",
+                  "symbol": "ManifestPreflightService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M05",
+      "display_name": "Runtime/workspace prerequisites",
+      "approved_applicability_note": "Check prerequisites for the chosen tools only. Python/CAD checks are N/A to comparison-only tools that do not use them.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M06",
+      "display_name": "Extraction coverage and source trace",
+      "approved_applicability_note": "Compute checks capture/manual coverage; Compare checks provenance and outstanding capture. No mandatory rerun of extraction.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M07",
+      "display_name": "Legibility and printed text size",
+      "approved_applicability_note": "Assess legibility/limitations in both stages. Numeric text-height measurement is conditional on applicable policy/evidence; inability is recorded, not a guessed pass.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M08",
+      "display_name": "Embedded plan vs computation sheet",
+      "approved_applicability_note": "Compute required if plan and computation-sheet dimensional evidence both apply; otherwise N/A. Compare optional independent recheck; inherited defects always reviewed under M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M09",
+      "display_name": "Parcel coverage and identity",
+      "approved_applicability_note": "Every detected parcel/inclusion disposition must be accounted for; no active-parcel filter bypass.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "parcel_inventory",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.parcel_inventory",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/scope_inventory",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "parcel_inventory",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.parcel_inventory",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/scope_inventory",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M10",
+      "display_name": "Point IDs, coordinates and sequence",
+      "approved_applicability_note": "Compute required for point-based geometry; explicit alternate segment recipe may make point-only checks N/A. Compare optional independent read-only recheck.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "point_validation",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.point_validation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.PointIdentifier",
+                  "fixture_field": "point_id"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.Easting",
+                  "fixture_field": "easting"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.Northing",
+                  "fixture_field": "northing"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.SequenceInGroup",
+                  "fixture_field": "sequence"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "point_validation",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.point_validation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.PointIdentifier",
+                  "fixture_field": "point_id"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.Easting",
+                  "fixture_field": "easting"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.Northing",
+                  "fixture_field": "northing"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.SequenceInGroup",
+                  "fixture_field": "sequence"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M11",
+      "display_name": "Boundary segments and dimensions",
+      "approved_applicability_note": "Compute required for a boundary/dimension construction recipe; representation-specific subchecks may be N/A. Compare optional dimension recheck.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "boundary_dimensions",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.boundary_dimensions",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/segments",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.FromPoint",
+                  "fixture_field": "from_point"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.ToPoint",
+                  "fixture_field": "to_point"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.BearingText",
+                  "fixture_field": "bearing"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.DistanceText",
+                  "fixture_field": "distance"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "boundary_dimensions",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.boundary_dimensions",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/segments",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.FromPoint",
+                  "fixture_field": "from_point"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.ToPoint",
+                  "fixture_field": "to_point"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.BearingText",
+                  "fixture_field": "bearing"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewSegment.DistanceText",
+                  "fixture_field": "distance"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M12",
+      "display_name": "Chain, closure and area coherence",
+      "approved_applicability_note": "Compute required construction/closure/area assessment; open-boundary policy determines applicable closure test. Compare may recheck, but carries known defects via M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "closure",
+              "scope": "parcel",
+              "applicability": {
+                "op": "equals",
+                "fact": "geometry.closed_ring_applicable",
+                "value": true
+              },
+              "evaluator_id": "fixture.closure",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ParcelClosureReviewResult.Status",
+                  "fixture_field": "replayed_validator_result.Status"
+                },
+                {
+                  "legacy_contract_member": "ParcelClosureReviewResult.ClosureDistanceM",
+                  "fixture_field": "replayed_validator_result.ClosureDistanceM"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            },
+            {
+              "check_id": "printed_area",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.printed_area",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/geometry/parcels/{scope_id}/printed_area",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Value",
+                  "fixture_field": "value"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Unit",
+                  "fixture_field": "unit"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "closure",
+              "scope": "parcel",
+              "applicability": {
+                "op": "equals",
+                "fact": "geometry.closed_ring_applicable",
+                "value": true
+              },
+              "evaluator_id": "fixture.closure",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ParcelClosureReviewResult.Status",
+                  "fixture_field": "replayed_validator_result.Status"
+                },
+                {
+                  "legacy_contract_member": "ParcelClosureReviewResult.ClosureDistanceM",
+                  "fixture_field": "replayed_validator_result.ClosureDistanceM"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            },
+            {
+              "check_id": "printed_area",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.printed_area",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/geometry/parcels/{scope_id}/printed_area",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Value",
+                  "fixture_field": "value"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Unit",
+                  "fixture_field": "unit"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M13",
+      "display_name": "Ring orientation and bearing-coordinate consistency",
+      "approved_applicability_note": "Compute required orientation/consistency assessment where ring/source bearings apply; unavailable bearings are recorded, not passed. Compare optional recheck.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "orientation",
+              "scope": "parcel",
+              "applicability": {
+                "op": "equals",
+                "fact": "geometry.closed_ring_applicable",
+                "value": true
+              },
+              "evaluator_id": "fixture.orientation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ParcelOrientationReviewResult.DetectedOrientation",
+                  "fixture_field": "replayed_validator_result.DetectedOrientation"
+                },
+                {
+                  "legacy_contract_member": "ParcelOrientationReviewResult.Status",
+                  "fixture_field": "replayed_validator_result.Status"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "orientation",
+              "scope": "parcel",
+              "applicability": {
+                "op": "equals",
+                "fact": "geometry.closed_ring_applicable",
+                "value": true
+              },
+              "evaluator_id": "fixture.orientation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/points",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedReviewValidationService.cs",
+                  "symbol": "ParcelScopedReviewValidationService.Validate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ParcelOrientationReviewResult.DetectedOrientation",
+                  "fixture_field": "replayed_validator_result.DetectedOrientation"
+                },
+                {
+                  "legacy_contract_member": "ParcelOrientationReviewResult.Status",
+                  "fixture_field": "replayed_validator_result.Status"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M14",
+      "display_name": "Shared/duplicate edges and adjoining boundaries",
+      "approved_applicability_note": "Compute required duplicate/shared-boundary assessment when boundary data/adjacency applies; single-parcel cross-parcel subcheck N/A. Compare optional additional boundary analysis; known conflicts reviewed via M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "duplicate_edges",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.duplicate_edges",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/segments",
+              "reuse_sources": [
+                {
+                  "path": "src/ProcessingTools/adapters/validation_adapter.py",
+                  "symbol": "duplicate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            },
+            {
+              "check_id": "shared_boundaries",
+              "scope": "parcel",
+              "applicability": {
+                "op": "gt",
+                "fact": "scope.parcel_count",
+                "value": 1
+              },
+              "evaluator_id": "fixture.shared_boundaries",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/boundary_links",
+              "reuse_sources": [
+                {
+                  "path": "src/ProcessingTools/adapters/validation_adapter.py",
+                  "symbol": "duplicate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "duplicate_edges",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.duplicate_edges",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/segments",
+              "reuse_sources": [
+                {
+                  "path": "src/ProcessingTools/adapters/validation_adapter.py",
+                  "symbol": "duplicate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            },
+            {
+              "check_id": "shared_boundaries",
+              "scope": "parcel",
+              "applicability": {
+                "op": "gt",
+                "fact": "scope.parcel_count",
+                "value": 1
+              },
+              "evaluator_id": "fixture.shared_boundaries",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "captured_contract",
+              "evidence_selector": "/geometry/parcels/{scope_id}/boundary_links",
+              "reuse_sources": [
+                {
+                  "path": "src/ProcessingTools/adapters/validation_adapter.py",
+                  "symbol": "duplicate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M15",
+      "display_name": "Georeference, coordinate system and bounds",
+      "approved_applicability_note": "Compute assesses georeference/CRS/bounds; Compare confirms placement/evidence suitability where comparison needs it, without rerunning/editing Compute geometry. Source-defect limitations remain visible.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "georeference_evidence",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.georeference_evidence",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/geometry/parcels/{scope_id}/georeference",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs",
+                  "symbol": "ManifestPreflightService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "georeference_evidence",
+              "scope": "parcel",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.georeference_evidence",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/geometry/parcels/{scope_id}/georeference",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Preflight/ManifestPreflightService.cs",
+                  "symbol": "ManifestPreflightService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M16",
+      "display_name": "Parish/location consistency",
+      "approved_applicability_note": "Assess parish/location evidence and applicable source/system/spatial consistency. Missing printed parish is a finding, not an automatic pass.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "parish_source",
+              "scope": "document",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.parish_source",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/documents/{scope_id}/parish",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Value",
+                  "fixture_field": "parish"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "parish_system",
+              "scope": "document",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.parish_system",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "mock_system",
+              "evidence_selector": "/system_evidence/parish",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEvidenceModels.cs",
+                  "symbol": "LegalCadasterRecord"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M17",
+      "display_name": "Manual COGO / geometry recovery",
+      "approved_applicability_note": "Manual COGO is an alternative method, not an obligatory second construction. Use it when needed and feasible; lack of source dimensions is recorded, not invented. Geometry edits never in Compare.",
+      "stages": {
+        "Compute": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "manual_capture",
+              "scope": "parcel",
+              "applicability": {
+                "op": "equals",
+                "fact": "route.mode",
+                "value": "manual"
+              },
+              "evaluator_id": "fixture.manual_capture",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/geometry/parcels/{scope_id}/capture_history",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ParcelScopedManualPointService.cs",
+                  "symbol": "ParcelScopedManualPointService.CreateManualRow"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.IsManual",
+                  "fixture_field": "points[*].is_manual"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewRow.RowProvenance",
+                  "fixture_field": "points[*].row_provenance"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "not_applicable",
+          "binding_status": "stage_not_applicable",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M18",
+      "display_name": "Owner names and party roles",
+      "approved_applicability_note": "Assess source presence/accuracy and all relevant owner/party roles; compare available LTD evidence. No name means recorded absence, not omitted review.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "owner_source",
+              "scope": "participant",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.owner_source",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/participants/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewNamedParty.Name",
+                  "fixture_field": "reviewed_name"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewNamedParty.Role",
+                  "fixture_field": "role"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewNamedParty.SourcePage",
+                  "fixture_field": "source_evidence.page"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "owner_system",
+              "scope": "participant",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.owner_system",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "mock_system",
+              "evidence_selector": "/system_evidence/participants/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareWorkspaceViewModel.cs",
+                  "symbol": "ProjectComputedParticipants"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "LegalCadasterRecord.OwnerName",
+                  "fixture_field": "records[*].owner_name"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M19",
+      "display_name": "Neighbors/adjacent owners",
+      "approved_applicability_note": "Assess neighbors/adjacent roles and parcel links; distinguish legal ownership from fiscal/taxpayer context.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M20",
+      "display_name": "Volume / folio",
+      "approved_applicability_note": "Review presence and all available volume/folio pairs. Compare relevant pairs or documented alternative keys; missing pair is not an invented query/pass.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "title_reference_source",
+              "scope": "identifier_pair",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.title_reference_source",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/identifier_pairs/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewVolumeFolio.Volume",
+                  "fixture_field": "volume"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewVolumeFolio.Folio",
+                  "fixture_field": "folio"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "title_reference_system",
+              "scope": "identifier_pair",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.title_reference_system",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "mock_system",
+              "evidence_selector": "/system_evidence/identifier_pairs/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEvidenceModels.cs",
+                  "symbol": "LegalCadasterRecord"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "LegalCadasterQuery.Volume",
+                  "fixture_field": "query.volume"
+                },
+                {
+                  "legacy_contract_member": "LegalCadasterQuery.Folio",
+                  "fixture_field": "query.folio"
+                },
+                {
+                  "legacy_contract_member": "LegalCadasterRecord.Volume",
+                  "fixture_field": "records[*].volume"
+                },
+                {
+                  "legacy_contract_member": "LegalCadasterRecord.Folio",
+                  "fixture_field": "records[*].folio"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M21",
+      "display_name": "Lot/parcel/PID identifiers",
+      "approved_applicability_note": "Review lot/parcel identifiers and explicit system-key mapping; never substitute a lot label for verified PID.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M22",
+      "display_name": "Participant addresses",
+      "approved_applicability_note": "Assess printed addresses; compare when address is part of applicable participant verification. N/A only for a genuinely non-applicable comparison, not unavailable required evidence.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M23",
+      "display_name": "Land valuation number",
+      "approved_applicability_note": "Assess printed LandVal presence; compare when relevant to identity/reference matching. Field/source-specific comparison may be N/A with reason if not applicable.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M24",
+      "display_name": "Examination/file references",
+      "approved_applicability_note": "Compute reviews examination/file reference presence. Compare correlation is optional unless the case policy requires that reference to establish identity.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M25",
+      "display_name": "Property/estate name",
+      "approved_applicability_note": "Assess property-name evidence; compare when applicable system/source counterpart is part of identity review. No universal property-name endpoint is assumed.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M26",
+      "display_name": "Printed area and units",
+      "approved_applicability_note": "Compute requires source-area/unit/coherence review as applicable. Compare independent area comparison is optional unless a case-specific required check consumes it.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M27",
+      "display_name": "Survey date/method",
+      "approved_applicability_note": "Compute reviews printed survey date/method presence/accuracy. Compare independent date/method matching optional; no counterpart means N/A for matching only.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M28",
+      "display_name": "Surveyor/certification",
+      "approved_applicability_note": "Compute reviews certification/surveyor evidence as applicable. Compare may independently verify against actual records; inherited certification defects remain required M41 review.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M29",
+      "display_name": "Equipment/instrument evidence",
+      "approved_applicability_note": "Compute assesses equipment/instrument/check evidence and applicable memorandum fields. Compare equipment matching optional only with a real counterpart; otherwise N/A, while findings are retained.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M30",
+      "display_name": "Plan-check date and other printed metadata",
+      "approved_applicability_note": "Compute inventories/reviews supported printed metadata, conditional on document profile. Compare extra metadata matching optional unless explicitly required; manual correction remains available.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M31",
+      "display_name": "Memorandum applicability",
+      "approved_applicability_note": "Compute must assess memorandum applicability. Compare need not rerun detection; it consumes applicability/history under M06/M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "not_applicable",
+          "binding_status": "stage_not_applicable",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M32",
+      "display_name": "Survey made at instance of / surveyed-for parties",
+      "approved_applicability_note": "Compute required if memorandum/survey-request section applies; otherwise N/A. Compare required for applicable participant/role relationships, not an assumption requestor equals owner.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M33",
+      "display_name": "Notices served and attendance",
+      "approved_applicability_note": "Compute required when notice/attendance evidence is applicable; otherwise N/A. Compare optional independent verification, while recorded defects/roles remain covered by M18/M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M34",
+      "display_name": "Objections and surveyor decision grounds",
+      "approved_applicability_note": "Required when objection/decision-ground evidence or inherited related findings applies; otherwise N/A. Explicit None/N/A remains valid reviewed evidence.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M35",
+      "display_name": "North arrow",
+      "approved_applicability_note": "Compute assesses north-arrow presence/source evidence, not automatic rotation or guaranteed direction accuracy. Compare independent visual check optional.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "north_arrow_source",
+              "scope": "document",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.north_arrow_source",
+              "evaluator_version": "fixture-v1",
+              "effect": "report_only",
+              "execution_kind": "human_review",
+              "evidence_selector": "/documents/{scope_id}/north_arrow",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Present",
+                  "fixture_field": "present"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.RawText",
+                  "fixture_field": "raw_text"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            },
+            {
+              "check_id": "north_arrow_memorandum",
+              "scope": "document",
+              "applicability": {
+                "op": "equals",
+                "fact": "document.memorandum_applicable",
+                "value": true
+              },
+              "evaluator_id": "fixture.north_arrow_memorandum",
+              "evaluator_version": "fixture-v1",
+              "effect": "report_only",
+              "execution_kind": "reused_service",
+              "evidence_selector": "/documents/{scope_id}/north_arrow",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/PxaMemorandumReviewRuleService.cs",
+                  "symbol": "PxaMemorandumReviewRuleService.Evaluate"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMemorandumRuleResult.Outcome",
+                  "fixture_field": "replayed_memorandum_result.Outcome"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMemorandumRuleResult.WorkflowEffect",
+                  "fixture_field": "replayed_memorandum_result.WorkflowEffect"
+                }
+              ],
+              "binding_notes": "Fixture tests execute the named pure existing service; no UI or runtime adapter is connected."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "north_arrow_source",
+              "scope": "document",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.north_arrow_source",
+              "evaluator_version": "fixture-v1",
+              "effect": "report_only",
+              "execution_kind": "human_review",
+              "evidence_selector": "/documents/{scope_id}/north_arrow",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Present",
+                  "fixture_field": "present"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.RawText",
+                  "fixture_field": "raw_text"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M36",
+      "display_name": "Scale bar / printed scale",
+      "approved_applicability_note": "Compute assesses scale/scale-bar presence/text. Compare independent scale check optional unless needed for a declared required measurement; no inferred georeference.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M37",
+      "display_name": "Property name near diagram",
+      "approved_applicability_note": "Compute required when relevant property-name/diagram rule applies; otherwise N/A. Compare does not repeat proximity rule; inherits findings under M41.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "not_applicable",
+          "binding_status": "stage_not_applicable",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M38",
+      "display_name": "Legal/LTD query evidence",
+      "approved_applicability_note": "Actual legal/LTD retrieval/comparison belongs to Compare; Compute prepares keys under M18-M25. Unavailable/incomplete required comparison stays pending.",
+      "stages": {
+        "Compute": {
+          "requirement": "not_applicable",
+          "binding_status": "stage_not_applicable",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "legal_query_evidence",
+              "scope": "identifier_pair",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.legal_query_evidence",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "mock_system",
+              "evidence_selector": "/system_evidence/identifier_pairs/{scope_id}",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareEvidenceModels.cs",
+                  "symbol": "LegalCadasterRecord"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "LegalCadasterQuery.Volume",
+                  "fixture_field": "query.volume"
+                },
+                {
+                  "legacy_contract_member": "LegalCadasterQuery.Folio",
+                  "fixture_field": "query.folio"
+                },
+                {
+                  "legacy_contract_member": "LegalCadasterRecord.OwnerName",
+                  "fixture_field": "records[*].owner_name"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M39",
+      "display_name": "Spatial overlap/fiscal/Enterprise context",
+      "approved_applicability_note": "Compute optional external overlap/context preparation. Compare spatial/neighbor context required when applicable geometry-based comparison is declared; irrelevant checks N/A, required-but-unavailable evidence pending/limitation recorded.",
+      "stages": {
+        "Compute": {
+          "requirement": "optional",
+          "binding_status": "unresolved",
+          "checks": []
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "unresolved",
+          "checks": []
+        }
+      }
+    },
+    {
+      "item_id": "M40",
+      "display_name": "Human presence and accuracy confirmation",
+      "approved_applicability_note": "Human presence/accuracy review is required for consumed values; manual tabular correction allowed in Compare, not geometry editing.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "human_validation",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.human_validation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/human_reviews",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Present",
+                  "fixture_field": "presence"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.ReviewStatus",
+                  "fixture_field": "accuracy (fixture normalization; not a universal accuracy property)"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.ReviewNotes",
+                  "fixture_field": "review evidence"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "fixture_bound",
+          "checks": [
+            {
+              "check_id": "human_validation",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.human_validation",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "human_review",
+              "evidence_selector": "/human_reviews",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Review/ExtractionReviewDocument.cs",
+                  "symbol": "ExtractionReviewDocument"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.Present",
+                  "fixture_field": "presence"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.ReviewStatus",
+                  "fixture_field": "accuracy (fixture normalization; not a universal accuracy property)"
+                },
+                {
+                  "legacy_contract_member": "ExtractionReviewMetadataField.ReviewNotes",
+                  "fixture_field": "review evidence"
+                }
+              ],
+              "binding_notes": "Captured/human/mock contract mapping only; not an implemented automated matcher or adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M41",
+      "display_name": "Cumulative findings and full review coverage",
+      "approved_applicability_note": "Full applicable examination coverage and cumulative finding history required; no stop at first source defect or clearing earlier-stage findings.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "contract_snapshot_only",
+          "checks": [
+            {
+              "check_id": "cumulative_findings",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.cumulative_findings",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "expected_contract",
+              "evidence_selector": "/finding_history",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareReviewDraftPersistenceService.cs",
+                  "symbol": "CompareReviewDraftPersistenceService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Expected future case contract only; no current cumulative finding or stage decision adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "contract_snapshot_only",
+          "checks": [
+            {
+              "check_id": "cumulative_findings",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.cumulative_findings",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "expected_contract",
+              "evidence_selector": "/finding_history",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Compare/CompareReviewDraftPersistenceService.cs",
+                  "symbol": "CompareReviewDraftPersistenceService"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Expected future case contract only; no current cumulative finding or stage decision adapter."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "item_id": "M42",
+      "display_name": "Stage disposition and final decision",
+      "approved_applicability_note": "Compute records examination/forwarding disposition; Compare records completed approved/rejected or pending-with-reason. Geometry validation is separate.",
+      "stages": {
+        "Compute": {
+          "requirement": "required",
+          "binding_status": "contract_snapshot_only",
+          "checks": [
+            {
+              "check_id": "stage_disposition",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.stage_disposition",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "expected_contract",
+              "evidence_selector": "/expected_stage_outcomes",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Disposition/ComputeReviewDisposition.cs",
+                  "symbol": "ComputeReviewDisposition"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Expected future case contract only; no current cumulative finding or stage decision adapter."
+            }
+          ]
+        },
+        "Compare": {
+          "requirement": "required",
+          "binding_status": "contract_snapshot_only",
+          "checks": [
+            {
+              "check_id": "stage_disposition",
+              "scope": "case",
+              "applicability": {
+                "op": "always"
+              },
+              "evaluator_id": "fixture.stage_disposition",
+              "evaluator_version": "fixture-v1",
+              "effect": "requires_disposition",
+              "execution_kind": "expected_contract",
+              "evidence_selector": "/expected_stage_outcomes",
+              "reuse_sources": [
+                {
+                  "path": "src/ParcelWorkflowAddIn/ParcelWorkflowAddIn/Workflow/Disposition/ComputeReviewDisposition.cs",
+                  "symbol": "ComputeReviewDisposition"
+                }
+              ],
+              "runtime_adapter_status": "not_connected",
+              "field_mappings": [],
+              "binding_notes": "Expected future case contract only; no current cumulative finding or stage decision adapter."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

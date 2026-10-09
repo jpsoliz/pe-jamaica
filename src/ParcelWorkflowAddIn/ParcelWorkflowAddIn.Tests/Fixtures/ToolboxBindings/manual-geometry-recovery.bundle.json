@@ -1,0 +1,474 @@
+{
+  "schema_version": "toolbox_binding_fixture_v1",
+  "fixture_id": "manual-geometry-recovery",
+  "is_synthetic": true,
+  "case": {
+    "case_id": "fixture-manual-geometry-recovery",
+    "transaction_number": "000000103",
+    "fgdb_name": "TR-000000103.gdb",
+    "revision_id": "fixture-revision-2",
+    "geometry_edit_stage": "Compute",
+    "no_remote_actions": true
+  },
+  "documents": {
+    "plan-1": {
+      "document_id": "plan-1",
+      "kind": "synthetic_survey_plan_text",
+      "page_count": 1,
+      "parish": "Synthetic Parish",
+      "north_arrow": {
+        "present": false,
+        "raw_text": "",
+        "source_evidence_id": "source-north"
+      },
+      "memorandum_applicable": true
+    }
+  },
+  "source_evidence": {
+    "source-north": {
+      "document_id": "plan-1",
+      "page": 1,
+      "zone": "map",
+      "raw_text": "North arrow absent on the synthetic source",
+      "is_synthetic": true
+    },
+    "source-parcel-1": {
+      "document_id": "plan-1",
+      "page": 1,
+      "zone": "parcel-1",
+      "raw_text": "parcel-1: four 10m sides; coordinates 680000,640000; 680010,640000; 680010,640010; 680000,640010; printed area 100m2",
+      "is_synthetic": true
+    },
+    "source-owner-1": {
+      "document_id": "plan-1",
+      "page": 1,
+      "zone": "parcel-1-owner",
+      "raw_text": "Synthetic Owner 1; volume 1001; folio 1",
+      "is_synthetic": true
+    }
+  },
+  "geometry": {
+    "coordinate_system_label": "Synthetic planar coordinates; no verified CRS transformation",
+    "extracted_rows": [],
+    "parcels": {
+      "parcel-1": {
+        "parcel_id": "parcel-1",
+        "included": true,
+        "points": [
+          {
+            "row_id": "parcel-1-row-1",
+            "point_id": "parcel-1-P1",
+            "sequence": 1,
+            "easting": "680000",
+            "northing": "640000",
+            "is_manual": true,
+            "unresolved": false,
+            "raw_row": {
+              "to_point": "parcel-1-P1"
+            },
+            "source_evidence_id": "source-parcel-1",
+            "row_provenance": "manual"
+          },
+          {
+            "row_id": "parcel-1-row-2",
+            "point_id": "parcel-1-P2",
+            "sequence": 2,
+            "easting": "680010",
+            "northing": "640000",
+            "is_manual": true,
+            "unresolved": false,
+            "raw_row": {
+              "from_point": "parcel-1-P1",
+              "to_point": "parcel-1-P2"
+            },
+            "source_evidence_id": "source-parcel-1",
+            "row_provenance": "manual"
+          },
+          {
+            "row_id": "parcel-1-row-3",
+            "point_id": "parcel-1-P3",
+            "sequence": 3,
+            "easting": "680010",
+            "northing": "640010",
+            "is_manual": true,
+            "unresolved": false,
+            "raw_row": {
+              "from_point": "parcel-1-P2",
+              "to_point": "parcel-1-P3"
+            },
+            "source_evidence_id": "source-parcel-1",
+            "row_provenance": "manual"
+          },
+          {
+            "row_id": "parcel-1-row-4",
+            "point_id": "parcel-1-P4",
+            "sequence": 4,
+            "easting": "680000",
+            "northing": "640010",
+            "is_manual": true,
+            "unresolved": false,
+            "raw_row": {
+              "from_point": "parcel-1-P3",
+              "to_point": "parcel-1-P4"
+            },
+            "source_evidence_id": "source-parcel-1",
+            "row_provenance": "manual"
+          }
+        ],
+        "segments": [
+          {
+            "segment_id": "parcel-1-segment-1",
+            "from_point": "parcel-1-P1",
+            "to_point": "parcel-1-P2",
+            "distance": "10",
+            "bearing": "90",
+            "source_evidence_id": "source-parcel-1"
+          },
+          {
+            "segment_id": "parcel-1-segment-2",
+            "from_point": "parcel-1-P2",
+            "to_point": "parcel-1-P3",
+            "distance": "10",
+            "bearing": "0",
+            "source_evidence_id": "source-parcel-1"
+          },
+          {
+            "segment_id": "parcel-1-segment-3",
+            "from_point": "parcel-1-P3",
+            "to_point": "parcel-1-P4",
+            "distance": "10",
+            "bearing": "270",
+            "source_evidence_id": "source-parcel-1"
+          },
+          {
+            "segment_id": "parcel-1-segment-4",
+            "from_point": "parcel-1-P4",
+            "to_point": "parcel-1-P1",
+            "distance": "10",
+            "bearing": "180",
+            "source_evidence_id": "source-parcel-1"
+          }
+        ],
+        "printed_area": {
+          "value": "100",
+          "unit": "m2",
+          "source_evidence_id": "source-parcel-1"
+        },
+        "georeference": {
+          "status": "not_evaluable",
+          "reason": "Synthetic fixture coordinates are not surveyed CRS evidence."
+        },
+        "boundary_links": [],
+        "capture_history": [
+          {
+            "method": "manual",
+            "actor": "fixture-examiner",
+            "source_evidence_id": "source-parcel-1",
+            "original_extracted_rows": [],
+            "reviewed_point_count": 4,
+            "reason": "Unusable extraction; readable synthetic dimensions captured manually."
+          }
+        ]
+      }
+    }
+  },
+  "participants": {
+    "owner-1": {
+      "participant_id": "owner-1",
+      "role": "owner",
+      "parcel_ids": [
+        "parcel-1"
+      ],
+      "raw_name": "Synthetic Owmer 1",
+      "reviewed_name": "Synthetic Owner 1",
+      "source_evidence_id": "source-owner-1",
+      "capture_method": "manual_correction",
+      "presence": "present",
+      "accuracy": "corrected",
+      "review_events": [
+        {
+          "stage": "Compute",
+          "status": "outstanding_tabular_review",
+          "value": "Synthetic Owmer 1"
+        },
+        {
+          "stage": "Compare",
+          "status": "corrected_and_rechecked",
+          "value": "Synthetic Owner 1"
+        }
+      ]
+    }
+  },
+  "identifier_pairs": {
+    "pair-1": {
+      "pair_id": "pair-1",
+      "participant_id": "owner-1",
+      "parcel_ids": [
+        "parcel-1"
+      ],
+      "volume": "1001",
+      "folio": "1",
+      "source_evidence_id": "source-owner-1"
+    }
+  },
+  "system_evidence": {
+    "is_mock": true,
+    "parish": "Synthetic Parish",
+    "participants": {
+      "owner-1": {
+        "status": "ready",
+        "is_mock": true,
+        "query": {
+          "name": "Synthetic Owner 1"
+        },
+        "records": [
+          {
+            "owner_name": "Synthetic Owner 1"
+          }
+        ]
+      }
+    },
+    "identifier_pairs": {
+      "pair-1": {
+        "status": "ready",
+        "is_mock": true,
+        "reason": "",
+        "query": {
+          "volume": "1001",
+          "folio": "1"
+        },
+        "records": [
+          {
+            "record_id": "mock-title-1",
+            "volume": "1001",
+            "folio": "1",
+            "owner_name": "Synthetic Owner 1"
+          }
+        ]
+      }
+    }
+  },
+  "scope_inventory": [
+    {
+      "case_id": "fixture-manual-geometry-recovery",
+      "scope_kind": "case",
+      "scope_id": "fixture-manual-geometry-recovery",
+      "revision_id": "fixture-revision-2",
+      "input_fingerprint": "manual-geometry-recovery:case:fixture-manual-geometry-recovery:v2",
+      "facts": {
+        "route.mode": "manual",
+        "document.memorandum_applicable": true,
+        "document.dwg_in_use": false,
+        "document.computation_sheet_applicable": false,
+        "geometry.recipe": "points",
+        "geometry.closed_ring_applicable": true,
+        "scope.parcel_count": 1
+      }
+    },
+    {
+      "case_id": "fixture-manual-geometry-recovery",
+      "scope_kind": "document",
+      "scope_id": "plan-1",
+      "revision_id": "fixture-revision-2",
+      "input_fingerprint": "manual-geometry-recovery:document:plan-1:v2",
+      "facts": {
+        "route.mode": "manual",
+        "document.memorandum_applicable": true,
+        "document.dwg_in_use": false,
+        "document.computation_sheet_applicable": false,
+        "geometry.recipe": "points",
+        "geometry.closed_ring_applicable": true,
+        "scope.parcel_count": 1
+      }
+    },
+    {
+      "case_id": "fixture-manual-geometry-recovery",
+      "scope_kind": "parcel",
+      "scope_id": "parcel-1",
+      "revision_id": "fixture-revision-2",
+      "input_fingerprint": "manual-geometry-recovery:parcel:parcel-1:v2",
+      "facts": {
+        "route.mode": "manual",
+        "document.memorandum_applicable": true,
+        "document.dwg_in_use": false,
+        "document.computation_sheet_applicable": false,
+        "geometry.recipe": "points",
+        "geometry.closed_ring_applicable": true,
+        "scope.parcel_count": 1
+      }
+    },
+    {
+      "case_id": "fixture-manual-geometry-recovery",
+      "scope_kind": "participant",
+      "scope_id": "owner-1",
+      "revision_id": "fixture-revision-2",
+      "input_fingerprint": "manual-geometry-recovery:participant:owner-1:v2",
+      "facts": {
+        "route.mode": "manual",
+        "document.memorandum_applicable": true,
+        "document.dwg_in_use": false,
+        "document.computation_sheet_applicable": false,
+        "geometry.recipe": "points",
+        "geometry.closed_ring_applicable": true,
+        "scope.parcel_count": 1
+      }
+    },
+    {
+      "case_id": "fixture-manual-geometry-recovery",
+      "scope_kind": "identifier_pair",
+      "scope_id": "pair-1",
+      "revision_id": "fixture-revision-2",
+      "input_fingerprint": "manual-geometry-recovery:identifier_pair:pair-1:v2",
+      "facts": {
+        "route.mode": "manual",
+        "document.memorandum_applicable": true,
+        "document.dwg_in_use": false,
+        "document.computation_sheet_applicable": false,
+        "geometry.recipe": "points",
+        "geometry.closed_ring_applicable": true,
+        "scope.parcel_count": 1
+      }
+    }
+  ],
+  "human_reviews": [
+    {
+      "scope_kind": "parcel",
+      "scope_id": "parcel-1",
+      "stage": "Compute",
+      "actor": "fixture-examiner",
+      "reviewed_at": "2026-10-08T12:00:00Z",
+      "presence": "present",
+      "accuracy": "confirmed",
+      "source_evidence_ids": [
+        "source-parcel-1"
+      ],
+      "is_synthetic": true
+    },
+    {
+      "scope_kind": "participant",
+      "scope_id": "owner-1",
+      "stage": "Compare",
+      "actor": "fixture-examiner",
+      "reviewed_at": "2026-10-08T12:00:00Z",
+      "presence": "present",
+      "accuracy": "corrected",
+      "source_evidence_ids": [
+        "source-owner-1"
+      ],
+      "is_synthetic": true
+    },
+    {
+      "scope_kind": "identifier_pair",
+      "scope_id": "pair-1",
+      "stage": "Compute",
+      "actor": "fixture-examiner",
+      "reviewed_at": "2026-10-08T12:00:00Z",
+      "presence": "present",
+      "accuracy": "confirmed",
+      "source_evidence_ids": [
+        "source-owner-1"
+      ],
+      "is_synthetic": true
+    },
+    {
+      "scope_kind": "document",
+      "scope_id": "plan-1",
+      "stage": "Compute",
+      "actor": "fixture-examiner",
+      "reviewed_at": "2026-10-08T12:00:00Z",
+      "presence": "missing_from_source",
+      "accuracy": "confirmed",
+      "source_evidence_ids": [
+        "source-north"
+      ],
+      "is_synthetic": true
+    }
+  ],
+  "finding_history": [
+    {
+      "finding_id": "finding-extraction-owner",
+      "item_id": "M18",
+      "scope_id": "owner-1",
+      "stage": "Compare",
+      "origin": "extraction_mismatch",
+      "status": "corrected_and_rechecked",
+      "source_evidence_ids": [
+        "source-owner-1"
+      ],
+      "reason": "Fix Owmer typo without modifying geometry.",
+      "history": [
+        {
+          "stage": "Compute",
+          "status": "outstanding_tabular_review"
+        },
+        {
+          "stage": "Compare",
+          "status": "corrected_and_rechecked"
+        }
+      ]
+    },
+    {
+      "finding_id": "finding-source-north",
+      "item_id": "M35",
+      "scope_id": "plan-1",
+      "stage": "Compute",
+      "origin": "source_defect",
+      "status": "recorded",
+      "source_evidence_ids": [
+        "source-north"
+      ],
+      "reason": "Human confirms missing north arrow; retain report-only finding.",
+      "history": [
+        {
+          "stage": "Compute",
+          "status": "recorded"
+        },
+        {
+          "stage": "Compare",
+          "status": "retained"
+        }
+      ]
+    }
+  ],
+  "expected_stage_outcomes": {
+    "expected_only": true,
+    "case_complete": false,
+    "Compute": "source_defect_recorded_expected_only",
+    "Compare": "review_slice_only"
+  },
+  "expectations": {
+    "unresolved_item_ids": [
+      "M01",
+      "M02",
+      "M05",
+      "M06",
+      "M07",
+      "M08",
+      "M19",
+      "M21",
+      "M22",
+      "M23",
+      "M24",
+      "M25",
+      "M26",
+      "M27",
+      "M28",
+      "M29",
+      "M30",
+      "M31",
+      "M32",
+      "M33",
+      "M34",
+      "M36",
+      "M37",
+      "M39"
+    ],
+    "parcel_count": 1,
+    "participant_count": 1,
+    "identifier_pair_count": 1,
+    "shared_boundary_applicability": "not_applicable",
+    "manual_capture_applicability": "applicable",
+    "unavailable_legal_scope_ids": [],
+    "memo_north_status": "not_available"
+  }
+}

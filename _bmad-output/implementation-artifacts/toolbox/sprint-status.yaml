@@ -1,0 +1,30 @@
+# Separate Toolbox delivery track. Do not merge into the operational tracker automatically.
+# Pass this path explicitly to BMAD workflows; their default remains the operational sprint.
+# ready-for-dev on documentation stories does not authorize production implementation.
+generated: 2026-10-08
+last_updated: 2026-10-09
+project: Sid-jamaica
+project_key: TOOLBOX
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts/toolbox
+
+development_status:
+  epic-13: in-progress
+  13-1-define-toolbox-process-and-task-matrix: done
+  # Execute after 13.1 acceptance; this is an architecture/documentation story.
+  13-2-define-toolbox-architecture-and-parallel-migration-plan: done
+  # Local context-only slice; isolation checklist must pass before code execution.
+  13-3-add-toolbox-case-context-and-workspace-selection: done
+  # 13.4A accepted/done for isolated in-memory contract; clean build and 105 focused passes.
+  # 11.2 mapped adaptation tested. GIS reconciliation/production cutover and 13.4B remain open.
+  # D07 P01-P05 approved as toolbox_d07_reconciliation_v1; A gaps and evidence aliases fixed, signoff complete.
+  # B implemented in isolation, in review: clean build, 125 focused passes; baseline full-suite access limitation retained.
+  # Parent stays in-progress pending B acceptance; no child key, persistence or production GIS certification.
+  13-4-add-single-and-multi-parcel-toolbox-model: in-progress
+  13-5-add-versioned-toolbox-workspace-persistence: backlog
+  13-6-register-reusable-toolbox-capabilities: backlog
+  13-7-compose-compute-toolbox-preset: backlog
+  13-8-compose-read-only-compare-and-correction-flow: backlog
+  13-9-add-revision-consistent-toolbox-handoff: backlog
+  13-10-compose-plan-annexation-and-rt-toolbox-presets: backlog
+  epic-13-retrospective: optional
