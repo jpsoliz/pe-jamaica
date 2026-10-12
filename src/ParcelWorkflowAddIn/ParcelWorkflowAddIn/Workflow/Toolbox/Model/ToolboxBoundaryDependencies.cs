@@ -57,9 +57,9 @@ public static class ToolboxBoundaryValidator
 
 public enum ToolboxDependencyKind { Parcel, Point, Segment, Boundary, Evidence, Source, Participant, IdentifierPair, GlobalFacts, Policy, Check, Decision, Artifact, Case }
 public sealed record ToolboxDependencyCheckBinding(ToolboxPreset Stage, string ItemId, string CheckId,
-    ToolboxScopeKind ScopeKind, string ScopeId, string Revision, string InputFingerprint);
+    ToolboxScopeKind ScopeKind, string ScopeId, string Revision, string InputFingerprint, bool GeometryCheck = false);
 public sealed record ToolboxDependencyNode(string Id, ToolboxDependencyKind Kind, string ReferenceId,
-    ToolboxDependencyCheckBinding? CheckBinding = null);
+    ToolboxDependencyCheckBinding? CheckBinding = null, string? DecisionParcelId = null);
 public sealed record ToolboxDependencyEdge(string ProducerId, string ConsumerId);
 public sealed record ToolboxImpactPath(string ChangedId, string AffectedId, ImmutableArray<string> Path, string Reason);
 public sealed record ToolboxDependencyImpact(ImmutableArray<string> ChangedIds, ImmutableArray<string> AffectedIds,
@@ -76,18 +76,32 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
                 && !string.IsNullOrWhiteSpace(x.ReferenceId) && Enum.IsDefined(x.Kind))
             && Nodes.Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() == Nodes.Length,
             "Invalid dependency inventory identity.");
-        ToolboxParcelModel.Require(Edges.All(e => Nodes.Any(x => ToolboxParcelModel.Same(x.Id, e.ProducerId))
-            && Nodes.Any(x => ToolboxParcelModel.Same(x.Id, e.ConsumerId)) && !ToolboxParcelModel.Same(e.ProducerId, e.ConsumerId))
-            && Edges.Distinct().Count() == Edges.Length, "Orphan/duplicate dependency edge.");
-        foreach (var n in Nodes) _ = ActualInput(model, n);
-        ToolboxParcelModel.Require(Nodes.GroupBy(x => (x.Kind, x.ReferenceId.ToUpperInvariant())).All(x => x.Count() == 1), "Duplicate dependency identity aliases.");
-        foreach (var n in Nodes) Visit(n.Id, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        void Visit(string id, HashSet<string> path)
+        var known = Nodes.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ToolboxParcelModel.Require(Edges.All(e => known.Contains(e.ProducerId) && known.Contains(e.ConsumerId)
+            && !ToolboxParcelModel.Same(e.ProducerId, e.ConsumerId))
+            && Edges.Select(e => (e.ProducerId.ToUpperInvariant(), e.ConsumerId.ToUpperInvariant())).Distinct().Count() == Edges.Length,
+            "Orphan/duplicate dependency edge.");
+        foreach (var n in Nodes)
         {
-            ToolboxParcelModel.Require(path.Add(id), "Dependency cycle.");
-            foreach (var e in Edges.Where(x => ToolboxParcelModel.Same(x.ProducerId, id))) Visit(e.ConsumerId, path);
-            path.Remove(id);
+            if (n.Kind == ToolboxDependencyKind.Check)
+                ToolboxParcelModel.Require(n.CheckBinding is { } binding && model.KnowsScope(binding.ScopeKind, binding.ScopeId), "Unbound check dependency.");
+            if (n.Kind == ToolboxDependencyKind.Decision)
+                ToolboxParcelModel.Require(model.Parcels.Any(p => ToolboxParcelModel.Same(p.Id, n.DecisionParcelId ?? n.ReferenceId)), "Unbound parcel decision dependency.");
+            ToolboxParcelModel.Require(n.DecisionParcelId is null || n.Kind == ToolboxDependencyKind.Decision, "Only decisions may declare a parcel binding.");
+            _ = ActualInput(model, n);
         }
+        ToolboxParcelModel.Require(Nodes.GroupBy(x => (x.Kind, x.ReferenceId.ToUpperInvariant())).All(x => x.Count() == 1), "Duplicate dependency identity aliases.");
+        var consumers = Nodes.ToDictionary(n => n.Id, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+        var indegrees = Nodes.ToDictionary(n => n.Id, _ => 0, StringComparer.OrdinalIgnoreCase);
+        foreach (var edge in Edges) { consumers[edge.ProducerId].Add(edge.ConsumerId); indegrees[edge.ConsumerId]++; }
+        var queue = new Queue<string>(Nodes.Where(n => indegrees[n.Id] == 0).Select(n => n.Id));
+        var completed = 0;
+        while (queue.TryDequeue(out var id))
+        {
+            completed++;
+            foreach (var consumer in consumers[id]) if (--indegrees[consumer] == 0) queue.Enqueue(consumer);
+        }
+        ToolboxParcelModel.Require(completed == Nodes.Length, "Dependency cycle.");
     }
 
     public ImmutableArray<string> CoverageIssues(ToolboxParcelModel model)
@@ -129,6 +143,31 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
                 var edge = Nodes.FirstOrDefault(x => x.Kind == ToolboxDependencyKind.Boundary && ToolboxParcelModel.Same(x.ReferenceId, boundary.Id));
                 if (point is null || edge is null || !Consumes(point.Id, edge.Id)) issues.Add("Unregistered boundary point: " + id);
             }
+        foreach (var trace in model.Source.Traces)
+        {
+            var source = Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Source && ToolboxParcelModel.Same(n.ReferenceId, trace.SourceId));
+            var evidence = Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Evidence && ToolboxParcelModel.Same(n.ReferenceId, trace.Id));
+            if (source is null || evidence is null || !Consumes(source.Id, evidence.Id)) issues.Add("Unregistered evidence source: " + trace.Id);
+        }
+        foreach (var boundary in model.Relations?.Boundaries ?? [])
+            foreach (var id in boundary.EvidenceIds)
+            {
+                var evidence = Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Evidence && ToolboxParcelModel.Same(n.ReferenceId, id));
+                var consumer = Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Boundary && ToolboxParcelModel.Same(n.ReferenceId, boundary.Id));
+                if (evidence is null || consumer is null || !Consumes(evidence.Id, consumer.Id)) issues.Add("Unregistered boundary evidence: " + boundary.Id + "/" + id);
+            }
+        foreach (var link in model.Source.Links)
+        {
+            var parcelId = model.IdentityMap.Ids["parcel:" + link.ParcelKey];
+            var evidence = Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Evidence && ToolboxParcelModel.Same(n.ReferenceId, link.EvidenceId));
+            var decisions = Nodes.Where(n => n.Kind == ToolboxDependencyKind.Decision
+                && ToolboxParcelModel.Same(n.DecisionParcelId ?? n.ReferenceId, parcelId)).OrderBy(n => n.Id, StringComparer.Ordinal).ToArray();
+            if (evidence is null || decisions.Length == 0)
+                issues.Add("Unregistered linked evidence decision: " + link.EvidenceId + "/" + link.ParcelKey + "/" + link.Role);
+            else foreach (var decision in decisions)
+                if (!Consumes(evidence.Id, decision.Id))
+                    issues.Add("Unregistered linked evidence decision: " + link.EvidenceId + "/" + link.ParcelKey + "/" + link.Role + "/" + decision.Id);
+        }
         return issues.ToImmutable();
         bool HasConsumer(string id) => Edges.Any(x => ToolboxParcelModel.Same(x.ProducerId, id));
         IEnumerable<(ToolboxDependencyKind, string)> Facts(string name, ToolboxDependencyKind kind) =>
@@ -151,15 +190,15 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
         var node = Nodes.SingleOrDefault(x => x.Kind == kind && ToolboxParcelModel.Same(x.ReferenceId, id));
         if (node is null) return "unknown";
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Collect(string current)
+        var pending = new Stack<string>(); pending.Push(node.Id);
+        while (pending.TryPop(out var current))
         {
-            if (!visited.Add(current)) return;
-            foreach (var e in Edges.Where(x => ToolboxParcelModel.Same(x.ConsumerId, current))) Collect(e.ProducerId);
+            if (!visited.Add(current)) continue;
+            foreach (var edge in Edges.Where(x => ToolboxParcelModel.Same(x.ConsumerId, current))) pending.Push(edge.ProducerId);
         }
-        Collect(node.Id);
-        return ToolboxSemanticHash.Of(new { version = "toolbox_dependencies_v1", inventoryVersion = Version,
+        return ToolboxSemanticHash.Of(new { version = "toolbox_dependencies_v2", inventoryVersion = Version,
             inputs = Nodes.Where(x => visited.Contains(x.Id)).OrderBy(x => x.Id, StringComparer.Ordinal)
-                .Select(x => new { x.Id, x.Kind, x.ReferenceId, value = ActualInput(model, x) }),
+                .Select(x => new { x.Id, x.Kind, x.ReferenceId, x.CheckBinding, x.DecisionParcelId, value = ActualInput(model, x) }),
             edges = Edges.Where(x => visited.Contains(x.ProducerId) && visited.Contains(x.ConsumerId))
                 .OrderBy(x => x.ProducerId, StringComparer.Ordinal).ThenBy(x => x.ConsumerId, StringComparer.Ordinal) });
     }
@@ -181,13 +220,26 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
             ToolboxDependencyKind.GlobalFacts => new[] { "survey_metadata", "document_sections", "parties", "representatives", "adjacent_owners", "volume_folios", "global_facts" }
                 .Where(name => model.Source.GlobalData.TryGetProperty(name, out _)).ToDictionary(name => name, name => model.Source.GlobalData.GetProperty(name)),
             ToolboxDependencyKind.Policy => model.Relations?.Policy,
-            ToolboxDependencyKind.Case => model.Case.CaseId == id ? model.Case : null,
+            ToolboxDependencyKind.Check => node.CheckBinding is { } binding
+                ? new { id, canonical = ToolboxReadinessEvaluator.CanonicalInputFingerprint(model, binding.ScopeKind, binding.ScopeId, binding.GeometryCheck) } : null,
+            ToolboxDependencyKind.Decision => DecisionInput(),
+            ToolboxDependencyKind.Case => model.Case.CaseId == id
+                ? new { model.Case, model.InclusionFingerprint, links = EvidenceLinks() } : null,
             _ => id
         };
         ToolboxParcelModel.Require(input is not null, "Unknown same-case dependency reference: " + node.Id);
         return ToolboxSemanticHash.Of(input!);
         JsonElement? Fact(string name) => model.Source.GlobalData.TryGetProperty(name, out var facts)
             ? facts.EnumerateObject().Where(x => ToolboxParcelModel.Same(x.Name, id)).Select(x => (JsonElement?)x.Value).FirstOrDefault() : null;
+        object DecisionInput()
+        {
+            var parcel = model.Parcels.FirstOrDefault(p => ToolboxParcelModel.Same(p.Id, node.DecisionParcelId ?? id));
+            ToolboxParcelModel.Require(parcel is not null, "Unbound parcel decision dependency.");
+            return new { id, parcelId = parcel!.Id, inclusion = model.Inclusions[parcel.Id],
+                history = model.InclusionHistory.Where(h => ToolboxParcelModel.Same(h.ParcelId, parcel.Id)), links = EvidenceLinks(parcel.SourceKey) };
+        }
+        object EvidenceLinks(string? parcelKey = null) => model.Source.Links.Where(l => parcelKey is null || ToolboxParcelModel.Same(l.ParcelKey, parcelKey))
+            .OrderBy(l => l.EvidenceId, StringComparer.Ordinal).ThenBy(l => l.ParcelKey, StringComparer.Ordinal).ThenBy(l => l.Role, StringComparer.Ordinal).ToArray();
     }
 
     public static ToolboxDependencyImpact Impact(ToolboxParcelModel oldModel, ToolboxParcelModel newModel)
@@ -197,7 +249,7 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
         ToolboxParcelModel.Require(old is not null && next is not null && oldModel.Case == newModel.Case, "Impact needs both same-case inventories.");
         old!.Validate(oldModel); next!.Validate(newModel);
         var ids = old.Nodes.Select(x => x.Id).Union(next.Nodes.Select(x => x.Id), StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-        var changed = ids.Where(id => Value(old, oldModel, id) != Value(next, newModel, id)
+        var changed = ids.Where(id => old.Version != next.Version || Value(old, oldModel, id) != Value(next, newModel, id)
             || ToolboxSemanticHash.Of(old.Edges.Where(x => ToolboxParcelModel.Same(x.ConsumerId, id)).OrderBy(x => x.ProducerId))
                 != ToolboxSemanticHash.Of(next.Edges.Where(x => ToolboxParcelModel.Same(x.ConsumerId, id)).OrderBy(x => x.ProducerId))).ToImmutableArray();
         var edges = old.Edges.Union(next.Edges).OrderBy(x => x.ProducerId, StringComparer.Ordinal).ThenBy(x => x.ConsumerId, StringComparer.Ordinal).ToArray();
@@ -216,6 +268,7 @@ public sealed record ToolboxDependencyInventory(ToolboxCaseIdentity Case, string
         return new(changed, paths.Select(x => x.AffectedId).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToImmutableArray(),
             paths.ToImmutable(), old.CoverageIssues(oldModel).AddRange(next.CoverageIssues(newModel)).Distinct().Order().ToImmutableArray());
         static string Value(ToolboxDependencyInventory graph, ToolboxParcelModel model, string id) =>
-            graph.Nodes.FirstOrDefault(x => ToolboxParcelModel.Same(x.Id, id)) is { } node ? ActualInput(model, node) : "removed";
+            graph.Nodes.FirstOrDefault(x => ToolboxParcelModel.Same(x.Id, id)) is { } node
+                ? ToolboxSemanticHash.Of(new { node.Id, node.Kind, node.ReferenceId, node.CheckBinding, node.DecisionParcelId, input = ActualInput(model, node) }) : "removed";
     }
 }

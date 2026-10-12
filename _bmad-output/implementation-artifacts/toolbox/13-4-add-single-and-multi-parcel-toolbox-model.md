@@ -12,8 +12,10 @@ tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 
 # 13.4 - Add Single- And Multi-Parcel Toolbox Model
 
-Status: in-progress
-Implementation: 13.4A isolated in-memory slice is accepted/done; 13.4B D07 contract approved and story prepared, implementation not started. Parent remains in-progress until B delivery/review.
+Status: done
+Implementation: 13.4A and 13.4B are accepted/done for the isolated in-memory M2 deliverable. JotaPe explicitly accepted B on 2026-10-11 after all eight review findings and follow-ups were fixed. Parent 13.4 is closed for that scope; persistence, real GIS/host proof, production policy integration and operational 11.2 remain separate gates. Historical preparation notes below do not override this acceptance.
+
+Acceptance evidence: [13.4B review fixes](13-4b-review-fixes-2026-10-11.md), final build zero warnings/errors and 135 focused passes; full harness stopped after 207 passes at the documented baseline Compare XAML assertion. This is not a full-suite or live GIS acceptance claim.
 
 Current evidence: [13.4A implementation and verification](13-4a-implementation-evidence.md) and [11.2 isolated contract amendment](11-2-toolbox-contract-amendment.md). Historical preparation gates below remain relevant to the full parent and production integration; the ordered request authorized the local A adaptation only.
 

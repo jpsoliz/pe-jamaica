@@ -53,6 +53,14 @@ public sealed class ToolboxExaminationRegister
         ImmutableArray<ToolboxHumanReview> humanReviews, ImmutableArray<ToolboxReadinessSnapshot> decisions)
     { Case = identity; Findings = findings; HumanReviews = humanReviews; Decisions = decisions; }
 
+    internal static ToolboxExaminationRegister Restore(ToolboxParcelModel model, ToolboxCaseIdentity? identity,
+        ImmutableArray<ToolboxFinding> findings, ImmutableArray<ToolboxHumanReview> humanReviews,
+        ImmutableArray<ToolboxReadinessSnapshot> decisions)
+    {
+        Persistence.ToolboxStorageValidation.Examination(model, identity, findings, humanReviews, decisions, []);
+        return new(identity, findings, humanReviews, decisions);
+    }
+
     public ToolboxExaminationRegister RecordFinding(ToolboxParcelModel model, ToolboxFinding finding)
     {
         ToolboxParcelModel.Require(Case is null || Case == model.Case, "Foreign finding register.");
@@ -125,7 +133,8 @@ public static class ToolboxReadinessEvaluator
     internal static string FindingEventId(ToolboxFinding finding) => ToolboxSemanticHash.Of(new { finding.Id, latest = finding.History[^1] });
     internal static string FindingInputFingerprint(ToolboxParcelModel model, ToolboxFinding finding)
     {
-        var parcels = finding.ParcelIds.Length == 0 ? model.Parcels.Select(x => x.Id).ToImmutableArray() : model.FindingParcels(finding);
+        var parcels = model.Relations is null && finding.ParcelIds.Length == 0
+            ? model.Parcels.Select(x => x.Id).ToImmutableArray() : model.FindingParcels(finding);
         return ToolboxSemanticHash.Of(new { version = "toolbox_finding_dependencies_v1", model.Case, policy = model.Relations?.Policy,
             inputs = parcels.Order(StringComparer.Ordinal).Select(id => new { id,
                 geometry = finding.GeometryDefect ? model.Relations?.Dependencies.ConsumerFingerprint(model, ToolboxDependencyKind.Parcel, id) : null,
@@ -161,7 +170,18 @@ public static class ToolboxReadinessEvaluator
                 .Where(name => model.Source.GlobalData.TryGetProperty(name, out _))
                 .ToDictionary(name => name, name => model.Source.GlobalData.GetProperty(name), StringComparer.Ordinal)
         };
-        return ToolboxSemanticHash.Of(new { version = "toolbox_canonical_inputs_v2", kind, scopeId, geometryCheck, inputs });
+        var baseline = ToolboxSemanticHash.Of(new { version = "toolbox_canonical_inputs_v2", kind, scopeId, geometryCheck, inputs });
+        if (model.Relations is null || geometryCheck) return baseline;
+        var parcelIds = model.ParcelsForScope(kind, scopeId);
+        var parcelKeys = model.Parcels.Where(x => parcelIds.Contains(x.Id, StringComparer.OrdinalIgnoreCase))
+            .Select(x => x.SourceKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var links = model.Source.Links.Where(x => kind is ToolboxScopeKind.Case or ToolboxScopeKind.Document
+                || parcelKeys.Contains(x.ParcelKey))
+            .OrderBy(x => x.EvidenceId, StringComparer.Ordinal).ThenBy(x => x.ParcelKey, StringComparer.Ordinal)
+            .ThenBy(x => x.Role, StringComparer.Ordinal).ToArray();
+        if (links.Length == 0) return baseline;
+        return ToolboxSemanticHash.Of(new { version = "toolbox_canonical_dependencies_v2", baseline,
+            links = links.Select(link => new { link.EvidenceId, link.ParcelKey, link.Role, source = HumanSourceFingerprint(model, link.EvidenceId) }) });
 
         JsonElement? Fact(string name, string? id) => model.Source.GlobalData.TryGetProperty(name, out var facts)
             && facts.ValueKind == JsonValueKind.Object
@@ -222,7 +242,8 @@ public static class ToolboxReadinessEvaluator
         {
             reasons.Add(reason);
             var affected = parcelIds ?? (requirement is not null ? model.ParcelsForScope(requirement.ScopeKind, requirement.ScopeId)
-                : finding is not null && finding.ParcelIds.Length > 0 ? model.FindingParcels(finding) : included.Select(x => x.Id).ToImmutableArray());
+                : finding is not null && (model.Relations is not null || finding.ParcelIds.Length > 0)
+                    ? model.FindingParcels(finding) : included.Select(x => x.Id).ToImmutableArray());
             foreach (var id in affected) if (parcelReasons.TryGetValue(id, out var issues)) issues.Add(reason);
         }
         var unresolved = model.Inclusions.Count(x => x.Value == ToolboxInclusion.Unresolved);
@@ -299,12 +320,12 @@ public static class ToolboxReadinessEvaluator
         {
             var latest = finding.History[^1];
             var historical = finding.ParcelIds.Any(id => !model.Parcels.Any(x => ToolboxParcelModel.Same(x.Id, id)));
-            if (historical)
+            var link = model.Relations?.Applicability.LastOrDefault(x => ToolboxParcelModel.Same(x.RecordId, finding.Id));
+            if (link?.Disposition == ToolboxApplicabilityDisposition.NotApplicable) continue;
+            if (historical || link is not null)
             {
-                var link = model.Relations?.Applicability.LastOrDefault(x => ToolboxParcelModel.Same(x.RecordId, finding.Id));
-                if (link?.Disposition == ToolboxApplicabilityDisposition.NotApplicable) continue;
                 if (link is null || link.Disposition == ToolboxApplicabilityDisposition.Unresolved || model.FindingParcels(finding).Length == 0)
-                    Issue("Historical finding applicability unresolved: " + finding.Id);
+                    Issue("Historical finding applicability unresolved: " + finding.Id, finding: finding);
             }
             if (!FindingInputsCurrent(model, finding)) Issue("Finding disposition dependencies changed: " + finding.Id, finding: finding);
             if (finding.Origin == ToolboxFindingOrigin.Unknown
@@ -320,7 +341,8 @@ public static class ToolboxReadinessEvaluator
                     || !requirements.Any(x => x.ItemId == finding.RuleId && x.EvaluatorVersion == latest.RuleVersion)
                     || !scopes.Any(x => x.InputFingerprint == latest.InputFingerprint
                         && (x.Kind == ToolboxScopeKind.Document && x.ScopeId == finding.DocumentId
-                            || model.ParcelsForScope(x.Kind, x.ScopeId).Any(id => finding.ParcelIds.Length == 0 || model.FindingParcels(finding).Contains(id)))))
+                            || model.ParcelsForScope(x.Kind, x.ScopeId).Any(id => model.Relations is null && finding.ParcelIds.Length == 0
+                                || model.FindingParcels(finding).Contains(id)))))
                     Issue("Stale or unauthorized finding disposition: " + finding.Id, finding: finding);
                 if (!resolved && finding.Origin is ToolboxFindingOrigin.SourceDefect or ToolboxFindingOrigin.Mixed)
                 {
@@ -371,7 +393,7 @@ public static class ToolboxReadinessEvaluator
             var reviewInputs = reviews.Where(x => relevant.Any(r => r.ResolutionFingerprint == x.ResolutionFingerprint))
                 .OrderBy(x => x.ResolutionFingerprint, StringComparer.Ordinal).ToArray();
             var evidence = reviewInputs.Where(x => !x.EvidenceIds.IsDefaultOrEmpty).SelectMany(x => x.EvidenceIds).Distinct(StringComparer.Ordinal).ToArray();
-            return ToolboxSemanticHash.Of(new
+            var baseline = ToolboxSemanticHash.Of(new
             {
                 model.Case, context.SelectedPreset, id, policy.Pin, authority, geometryPolicyVerified,
                 geometry = string.IsNullOrWhiteSpace(geometryPolicyToken) ? "missing" : model.ParcelFingerprint(id, geometryPolicyToken),
@@ -379,8 +401,14 @@ public static class ToolboxReadinessEvaluator
                 required = relevant.Select(x => x.ResolutionFingerprint).OrderBy(x => x, StringComparer.Ordinal),
                 canonicalInputs = CurrentCanonicalInputs(relevant),
                 reviewInputs = ReviewRecords(reviewInputs), evidence = EvidenceFingerprint(model, register, evidence),
-                findings = ReviewRecords(register.Findings.Where(x => x.ParcelIds.Length == 0 || model.FindingParcels(x).Contains(id)).OrderBy(x => x.Id, StringComparer.Ordinal))
+                findings = ReviewRecords(register.Findings.Where(x => model.Relations is null && x.ParcelIds.Length == 0
+                    || model.FindingParcels(x).Contains(id)).OrderBy(x => x.Id, StringComparer.Ordinal))
             });
+            if (model.Relations is null) return baseline;
+            var decisions = model.Relations.Dependencies.Nodes.Where(n => n.Kind == ToolboxDependencyKind.Decision
+                    && ToolboxParcelModel.Same(n.DecisionParcelId ?? n.ReferenceId, id)).OrderBy(n => n.Id, StringComparer.Ordinal)
+                .Select(n => model.Relations.Dependencies.ConsumerFingerprint(model, n.Kind, n.ReferenceId)).ToArray();
+            return ToolboxSemanticHash.Of(new { version = "toolbox_parcel_decision_dependencies_v1", baseline, decisions });
         }
         object CurrentCanonicalInputs(IEnumerable<ToolboxResolvedReview> resolved) => resolved
             .Where(x => x.EffectiveRequirement != ToolboxReviewRequirement.NotApplicable)
@@ -418,7 +446,8 @@ public static class ToolboxReadinessEvaluator
             && last.Actor == authority.Actor && last.PolicyVersion == required.PolicyPin.PolicyVersion
             && last.RuleVersion == required.EvaluatorVersion && finding.RuleId == required.ItemId
             && last.InputFingerprint == required.InputFingerprint
-            && (required.ScopeKind != ToolboxScopeKind.Parcel || finding.ParcelIds.Length == 0 || model.FindingParcels(finding).Contains(required.ScopeId!));
+            && (required.ScopeKind != ToolboxScopeKind.Parcel || model.Relations is null && finding.ParcelIds.Length == 0
+                || model.FindingParcels(finding).Contains(required.ScopeId!));
     }
 
     private static IEnumerable<string> ReviewInputIssues(ToolboxParcelModel model, ToolboxExaminationRegister register,
@@ -441,6 +470,10 @@ public static class ToolboxReadinessEvaluator
             var dependency = relations.Dependencies.ConsumerFingerprint(model, ToolboxDependencyKind.Check, required.ResolutionFingerprint);
             if (dependency == "unknown" || review.DependencyFingerprint != dependency)
                 yield return "Consumed dependency inputs changed or unregistered";
+            var binding = relations.Dependencies.Nodes.FirstOrDefault(n => n.Kind == ToolboxDependencyKind.Check
+                && ToolboxParcelModel.Same(n.ReferenceId, required.ResolutionFingerprint))?.CheckBinding;
+            if (binding is null || binding.GeometryCheck != review.GeometryCheck)
+                yield return "Check geometry binding mismatch";
         }
         if (review.GeometryCheck && (!geometryPolicyVerified || string.IsNullOrWhiteSpace(geometryPolicyToken)))
             yield return "Geometry policy inputs missing or unverified";
@@ -487,6 +520,7 @@ public static class ToolboxReadinessEvaluator
             && finding.Origin != ToolboxFindingOrigin.Unknown
             && (finding.Origin is not (ToolboxFindingOrigin.ExtractionMismatch or ToolboxFindingOrigin.Mixed) || finding.ExtractionCorrected)
             && checks.Length > 0 && (finding.ParcelIds.Length == 0
+                && model.Relations?.Applicability.Any(x => ToolboxParcelModel.Same(x.RecordId, finding.Id)) != true
                 ? checks.Any(x => x.ScopeKind is ToolboxScopeKind.Case or ToolboxScopeKind.Document && Passed(x))
                 : model.FindingParcels(finding).Length > 0 && model.FindingParcels(finding).All(id => checks.Any(x => model.ParcelsForScope(x.ScopeKind, x.ScopeId).Contains(id) && Passed(x))));
     }

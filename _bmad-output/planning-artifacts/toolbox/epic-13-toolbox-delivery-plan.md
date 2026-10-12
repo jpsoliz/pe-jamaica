@@ -1,6 +1,6 @@
 # Epic 13: Transaction Case Toolbox
 
-Status: in-progress (13.1-13.3 done for their scoped deliverables; baseline validation issues deferred; 13.4-13.10 backlog)
+Status: in-progress (13.1-13.4 done for scoped deliverables; 13.5 prepared/backlog; 13.6-13.10 backlog; baseline validation issues deferred)
 Created: 2026-10-08
 Track: toolbox
 Operational baseline inspected: wipRC9, commit 5908f30617cdc49e09873635a30343da8aff9ad6
@@ -36,9 +36,15 @@ This plan is the Toolbox epic source. It does not replace the operational epics 
 | 13.9 - Add Revision-Consistent Toolbox Handoff | 13-9-add-revision-consistent-toolbox-handoff | Code: snapshot, package, publish receipts, retries and task validation | Read/write scopes and server-side policy accepted |
 | 13.10 - Compose Plan Annexation And RT Toolbox Presets | 13-10-compose-plan-annexation-and-rt-toolbox-presets | Code: shared tools with task-specific writeback and linked-PE read-only context | Foundation and handoff proven; split into smaller stories before development |
 
-Stories 13.1-13.3 have detailed files and are done for their scoped deliverables. Story 13.3's reviewed local context foundation has a clean build and 22 focused tests; full-suite green remains a separately tracked baseline/release gate. Story 13.4 has a detailed specification with readiness gates still open. Rows 4-10 remain backlog, not ready for implementation. Refine/split them and resolve their named gates before execution.
+Stories 13.1-13.4 are done for their scoped deliverables. JotaPe accepted 13.4B's isolated in-memory scope on 2026-10-11, closing parent 13.4 for M2. Final correction build is clean and 135 focused tests pass; the full harness stops after 207 passes at the known Compare XAML assertion. No full-suite or production GIS acceptance is claimed.
+
+[Story 13.5](../../implementation-artifacts/toolbox/13-5-add-versioned-toolbox-workspace-persistence.md) remains backlog pending production storage/schema review and feasibility gates. [13.5A](../../implementation-artifacts/toolbox/13-5a-add-storage-contract-and-hydration-foundation.md) is accepted/done for isolated no-writer byte-codec/hydration on 2026-10-11, tracked through parent without a new key. Final build clean and 158 focused passes; full207 then known Compare XAML failure. [A evidence](../../implementation-artifacts/toolbox/13-5a-implementation-evidence.md) retains limits. Remaining M3 work is refined into C/D/E/B candidates below, not implemented or authorized. 13.6-13.10 remain backlog. Historical updates below do not override this current summary.
 
 ## Tracking And Execution
+
+2026-10-11 remaining-work refinement: execution order A -> C -> D/E -> B. [C prototype disk revisions](../../implementation-artifacts/toolbox/13-5c-add-isolated-prototype-disk-revisions.md), [D read-only copied import](../../implementation-artifacts/toolbox/13-5d-add-read-only-copied-case-import.md), [E exact schema/projection mapping](../../implementation-artifacts/toolbox/13-5e-define-fgdb-schema-and-projection-mapping.md) and [B final FGDB recovery/activation](../../implementation-artifacts/toolbox/13-5b-add-recoverable-fgdb-commits-and-isolated-activation.md) are backlog, with contract/dependency review gates. Next scoped C path/writer-contract review; E catalog review may proceed alongside it. No new child tracker keys, product decision acceptance, runtime implementation, installation or ownership switch.
+
+2026-10-11 latest acceptance: JotaPe accepted 13.5A for isolated no-writer contract/codec/hydration; child done, superseding review-pending descriptions above. Parent 13.5 and later disk/import/schema/FGDB gates remain open. Next refine remaining M3 foundation; no production/cutover approval or full-suite green implied. See [accepted A evidence](../../implementation-artifacts/toolbox/13-5a-implementation-evidence.md).
 
 Separate tracker: `_bmad-output/implementation-artifacts/toolbox/sprint-status.yaml`.
 Story directory: `_bmad-output/implementation-artifacts/toolbox/`.
@@ -91,6 +97,6 @@ No branch/worktree is created by story preparation. Implementation isolation wil
 - [Process proposal](../toolbox-case-workspace-and-task-matrix-2026-10-08.md)
 - [Earlier toolbox draft](../toolbox-transaction-stage-architecture.md)
 - [Operational architecture](../architecture.md)
-- [Sprint reconciliation](../../implementation-artifacts/sprint-reconciliation-2026-10-08.md)
+- [Operational sprint reconciliation, main checkout](../../../../../_bmad-output/implementation-artifacts/sprint-reconciliation-2026-10-08.md)
 - [Story 13.1](../../implementation-artifacts/toolbox/13-1-define-toolbox-process-and-task-matrix.md)
 - [Story 13.2](../../implementation-artifacts/toolbox/13-2-define-toolbox-architecture-and-parallel-migration-plan.md)

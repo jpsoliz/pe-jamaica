@@ -23,12 +23,14 @@ public sealed record ToolboxModelRelations(ToolboxPolicyPin Policy, ImmutableDic
     public ToolboxAdjacencyReview? Adjacency { get; init; }
     public ImmutableArray<string> FindingParcels(ToolboxParcelModel current, ToolboxFinding finding)
     {
+        var link = Applicability.LastOrDefault(x => ToolboxParcelModel.Same(x.RecordId, finding.Id));
+        if (link is not null)
+            return link.Disposition is ToolboxApplicabilityDisposition.Applicable or ToolboxApplicabilityDisposition.Retained
+                ? link.TargetParcelKeys.Where(key => current.IdentityMap.Ids.ContainsKey("parcel:" + key))
+                    .Select(key => current.IdentityMap.Ids["parcel:" + key]).ToImmutableArray() : [];
         if (finding.ParcelIds.Length == 0) return current.Parcels.Select(x => x.Id).ToImmutableArray();
         if (finding.ParcelIds.All(id => current.Parcels.Any(x => ToolboxParcelModel.Same(x.Id, id)))) return finding.ParcelIds;
-        var link = Applicability.LastOrDefault(x => ToolboxParcelModel.Same(x.RecordId, finding.Id));
-        return link is not null && link.Disposition is ToolboxApplicabilityDisposition.Applicable or ToolboxApplicabilityDisposition.Retained
-            ? link.TargetParcelKeys.Where(key => current.IdentityMap.Ids.ContainsKey("parcel:" + key))
-                .Select(key => current.IdentityMap.Ids["parcel:" + key]).ToImmutableArray() : [];
+        return [];
     }
 }
 
@@ -62,8 +64,11 @@ internal static class ToolboxLineageValidator
             && !lineage.Any(x => current.Lineage.Any(y => ToolboxParcelModel.Same(y.Proposal.OperationId, x.OperationId))), "Duplicate lineage operation.");
         ToolboxParcelModel.Require(applicability.Select(x => x.RecordId).Distinct(StringComparer.OrdinalIgnoreCase).Count() == applicability.Length,
             "Duplicate applicability mapping.");
+        var archives = current.Model.Relations!.Archives;
+        ToolboxParcelModel.Require(archives.All(x => x.Case == current.Model.Case), "Foreign historical correction registry.");
         var records = current.Register.Findings.Select(x => x.Id)
-            .Concat(current.Register.HumanReviews.Select(CorrectionId)).Concat(ManualEntityIds(current.Model)).ToArray();
+            .Concat(current.Register.HumanReviews.Select(CorrectionId)).Concat(ManualEntityIds(current.Model))
+            .Concat(archives.SelectMany(ManualEntityIds)).ToArray();
         foreach (var link in applicability)
             ToolboxParcelModel.Require(records.Contains(link.RecordId, StringComparer.OrdinalIgnoreCase)
                 && link.OriginalRevision == current.Revision && Enum.IsDefined(link.Disposition)
@@ -76,7 +81,11 @@ internal static class ToolboxLineageValidator
         var retired = lineage.SelectMany(x => x.ParentIds).ToArray();
         var affectedFindings = current.Register.Findings.Where(x => current.Model.FindingParcels(x).Any(id => retired.Contains(id, StringComparer.OrdinalIgnoreCase))).Select(x => x.Id);
         var required = affectedFindings.Concat(lineage.Length > 0
-            ? current.Register.HumanReviews.Select(CorrectionId).Concat(ManualEntityIds(current.Model)) : []);
+            ? current.Register.HumanReviews.Select(CorrectionId).Concat(ManualEntityIds(current.Model)) : [])
+            .Concat(current.Model.Relations.Applicability.GroupBy(x => x.RecordId, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.Last()).Where(x => x.Disposition != ToolboxApplicabilityDisposition.NotApplicable
+                    && x.TargetParcelKeys.Any(key => current.Model.IdentityMap.Ids.TryGetValue("parcel:" + key, out var id)
+                        && retired.Contains(id, StringComparer.OrdinalIgnoreCase))).Select(x => x.RecordId));
         ToolboxParcelModel.Require(required.All(id => applicability.Any(x => ToolboxParcelModel.Same(x.RecordId, id))), "Missing historical finding/manual correction applicability.");
     }
 

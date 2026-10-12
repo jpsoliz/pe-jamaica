@@ -12,6 +12,16 @@ using ParcelWorkflowAddIn.Tests.WorkflowRules;
 
 var tests = new (string Name, Action Run)[]
 {
+    ("toolbox review fix secondary boundary evidence", ToolboxReconciliationTests.ReviewSecondaryBoundaryEvidenceInvalidatesBothParcels),
+    ("toolbox review fix archived manual applicability", ToolboxReconciliationTests.ReviewArchivedManualApplicabilityAfterRegeneration),
+    ("toolbox review fix evidence link invalidation", ToolboxReconciliationTests.ReviewEvidenceLinkChangesInvalidateOnlyConsumers),
+    ("toolbox review fix evidence link coverage", ToolboxReconciliationTests.ReviewEvidenceLinksRequireRegisteredDecisionConsumers),
+    ("toolbox review fix case wide applicability", ToolboxReconciliationTests.ReviewCaseWideFindingApplicability),
+    ("toolbox review fix dependency version and binding", ToolboxReconciliationTests.ReviewDependencyVersionAndBindingChangesHaveImpact),
+    ("toolbox review fix inclusion impact", ToolboxReconciliationTests.ReviewInclusionImpactPreservesGeometryChecks),
+    ("toolbox review fix accepted disposition audit", ToolboxReconciliationTests.ReviewAcceptedDispositionAuditAndReplay),
+    ("toolbox review fix canonical evidence fingerprints", ToolboxReconciliationTests.ReviewCanonicalEvidenceLinkFingerprints),
+    ("toolbox review fix shared and deep dag", ToolboxReconciliationTests.ReviewSharedDeepDagValidationRetainsCycleGuards),
     ("toolbox reconciliation separate contract", ToolboxReconciliationTests.SeparateReconciliationContractExists),
     ("toolbox reconciliation envelope atomic failures", ToolboxReconciliationTests.EnvelopeAndAtomicFailures),
     ("toolbox reconciliation variable counts rename replay", ToolboxReconciliationTests.VariableCountsRenameAndReplay),
@@ -957,7 +967,30 @@ var tests = new (string Name, Action Run)[]
     ("transaction panel disabled toolbar tooltips explain unavailable actions", () => TransactionPanelStateTests.DisabledToolbarTooltipsExplainUnavailableActions().GetAwaiter().GetResult()),
     ("transaction panel loading refresh disables list controls", () => TransactionPanelStateTests.LoadingRefreshDisablesListControls().GetAwaiter().GetResult()),
     ("transaction panel refresh timeout releases disabled controls", () => TransactionPanelStateTests.RefreshTimeoutReleasesDisabledControls().GetAwaiter().GetResult()),
-    ("transaction panel logout clears selected transaction and rows", () => TransactionPanelStateTests.LogoutClearsSelectedTransactionRowsAndKeepsParcelWorkflowDisabled().GetAwaiter().GetResult())
+    ("transaction panel logout clears selected transaction and rows", () => TransactionPanelStateTests.LogoutClearsSelectedTransactionRowsAndKeepsParcelWorkflowDisabled().GetAwaiter().GetResult()),
+    ("toolbox storage explicit contract", ToolboxWorkspaceStorageTests.ContractHasNoWriterAuthority),
+    ("toolbox storage A round trip", ToolboxWorkspaceStorageTests.AStateRoundTripsWithoutActions),
+    ("toolbox storage A history and live checks", ToolboxWorkspaceStorageTests.AHistoryRawValuesAndLiveReviews),
+    ("toolbox storage strict shape and versions", ToolboxWorkspaceStorageTests.StrictShapeAndVersionFailures),
+    ("toolbox storage map and TR closure", ToolboxWorkspaceStorageTests.MapAndTransactionClosureFailures),
+    ("toolbox storage payload and resource limits", ToolboxWorkspaceStorageTests.PayloadIntegrityAndResourceLimits),
+    ("toolbox storage missing A evidence", ToolboxWorkspaceStorageTests.MissingAHistoricalEvidenceIsUnsupported),
+    ("toolbox storage B readiness and invalidation", ToolboxReconciliationTests.StorageBReadinessAndInvalidation),
+    ("toolbox storage B lineage audit archives", ToolboxReconciliationTests.StorageBLineageAuditAndSharedArchives),
+    ("toolbox storage policy bytes and trust", ToolboxReconciliationTests.StoragePolicyBytesAndTrust),
+    ("toolbox storage blocked optional state", ToolboxReconciliationTests.StorageBlockedAndOptionalState),
+    ("toolbox storage unknown and text bounds", ToolboxWorkspaceStorageTests.BoundsCoverCanonicalUnknownAndWrapperText),
+    ("toolbox storage required and null fields", ToolboxWorkspaceStorageTests.MissingNullAndCaseAliasFieldsFail),
+    ("toolbox storage deep archives projection budgets", ToolboxReconciliationTests.StorageDeepArchivesAndProjectionBudgets),
+    ("toolbox storage graph corruption comparer limits", ToolboxReconciliationTests.StorageGraphCorruptionAndLimits),
+    ("toolbox storage finding applicability history", ToolboxReconciliationTests.StorageFindingScopesAndHistoricalAudit),
+    ("toolbox storage direct restore alias guards", ToolboxWorkspaceStorageTests.RestoreFactoriesRejectEqualValuedAliases),
+    ("toolbox storage historical reference guards", ToolboxReconciliationTests.StorageRejectsForgedHistoricalReferences),
+    ("toolbox storage capture aggregate payload budget", ToolboxReconciliationTests.StorageCaptureAggregatePayloadLimit),
+    ("toolbox storage candidate only applicability evidence", ToolboxReconciliationTests.StorageCandidateOnlyApplicabilityEvidence),
+    ("toolbox storage direct source and audit shape guards", ToolboxReconciliationTests.StorageDirectSourceAliasAndAuditShapeGuards),
+    ("toolbox storage split merge regeneration history", ToolboxReconciliationTests.StorageSplitMergeRegeneratedHistory),
+    ("toolbox storage all input invalidation parity", ToolboxReconciliationTests.StorageAllInputInvalidationParity)
 };
 
 var selectedTests = args.Length == 0

@@ -14,7 +14,13 @@ tracking_parent_key: 13-4-add-single-and-multi-parcel-toolbox-model
 
 # 13.4B - Add Rerun Reconciliation, Shared Boundaries And Lineage
 
-Status: review
+Status: done
+
+2026-10-11 scoped acceptance: JotaPe explicitly accepted 13.4B for its isolated in-memory scope and requested 13.5 preparation. All eight findings and re-review follow-ups are resolved; clean build and 135 focused passes are the acceptance evidence, with the known full-suite failure retained. This does not accept live GIS integration, durable persistence, deployment or operational 11.2 completion.
+
+2026-10-11 correction completion: all eight findings fixed with ten new regression groups; final clean build and 135 focused passes. Full harness passed 207 tests before the documented Compare XAML assertion. Re-review follow-ups resolved; ready for scoped acceptance, not yet accepted. See [fix evidence and review order](13-4b-review-fixes-2026-10-11.md).
+
+2026-10-11 independent review: eight actionable patch findings (three P1, five P2); corrections required before acceptance. See [review report and reproductions](13-4b-code-review-2026-10-11.md). Existing 20 B tests pass but do not cover the reproduced gaps. No production code fixes applied by this review.
 
 Current implementation (2026-10-09): isolated in-memory slice implemented; clean build and 125 focused passes. Preparation/readiness text below is historical and superseded by this status and the Dev Agent Record. Full-suite, GIS/FGDB and production acceptance are not claimed.
 Preparation: detailed isolated specification prepared; implementation not started.
@@ -87,6 +93,19 @@ FGDB/schema creation, save/reopen/recovery, durable journals, JSON writer/hash c
 - [x] Implement split/merge proposals, historical parent registry and correction/finding applicability links without weakening original scope/history guards. (AC10-12)
 - [x] Enforce Compute geometry eligibility, linked-source protection and same-operation replay rules. (AC13-14)
 - [x] Run focused/legacy/full verification, inspect isolation diff and record evidence plus remaining host/production gates. (AC1, 16)
+
+### Review Findings
+
+- [x] [Review][Patch][P1][R1] Bind every shared-boundary supporting evidence/source input into dependency coverage and approval invalidation. `ToolboxBoundaryDependencies.cs:116`.
+- [x] [Review][Patch][P1][R2] Permit audited remapping of same-case archived manual corrections across later lineage/key changes. `ToolboxParcelLineage.cs:65`; `ToolboxReconciliation.cs:217`.
+- [x] [Review][Patch][P1][R3] Register/fingerprint canonical evidence-link changes and invalidate their consuming checks/decisions. `ToolboxBoundaryDependencies.cs:170`.
+- [x] [Review][Patch][P2][R4] Honor accepted applicability for case-wide findings while preserving original history. `ToolboxParcelLineage.cs:26`; `ToolboxExamination.cs:301`.
+- [x] [Review][Patch][P2][R5] Include dependency-version/binding changes in impact semantics consistently with consumer fingerprints. `ToolboxBoundaryDependencies.cs:200`.
+- [x] [Review][Patch][P2][R6] Include inclusion/disposition changes in downstream decision/artifact impact without staling unrelated geometry. `ToolboxBoundaryDependencies.cs:172`.
+- [x] [Review][Patch][P2][R7] Retain accepted examiner value-disposition audit records in the returned immutable snapshot. `ToolboxReconciliation.cs:235`.
+- [x] [Review][Patch][P2][R8] Avoid repeated traversal of completed DAG descendants while preserving cycle rejection. `ToolboxBoundaryDependencies.cs:84`.
+
+Full triggers, acceptance references, fixes and verification: [2026-10-11 review report](13-4b-code-review-2026-10-11.md).
 
 ## Dev Notes
 
@@ -229,5 +248,11 @@ Current B delivery (repository-relative; historical preparation list below retai
 - Decision register: proposed D07 package link, not a confirmed decision.
 
 ## Change Log
+
+- 2026-10-11: JotaPe accepted the isolated in-memory delivery; story done and parent 13.4 closed for migration M2. 13.5 preparation authorized; persistence implementation has not started.
+
+- 2026-10-11: All eight findings corrected; ten regression groups added; final build zero warnings/errors, 135 focused passes, full harness 207 passes then existing Compare XAML failure. Re-review follow-ups fixed; status review pending scoped acceptance. Details in correction evidence.
+
+- 2026-10-11: Three-layer independent review completed; eight patch findings recorded, 20 existing B tests pass and new probes reproduce uncovered failures. Status in-progress pending corrections and re-review; no code fix or acceptance claimed.
 
 - 2026-10-09: approved D07 in-memory slice implemented; 20 regression groups added, A behavior and full-suite baseline limits retained; status review pending acceptance.

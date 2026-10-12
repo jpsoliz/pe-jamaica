@@ -2,7 +2,7 @@
 # Pass this path explicitly to BMAD workflows; their default remains the operational sprint.
 # ready-for-dev on documentation stories does not authorize production implementation.
 generated: 2026-10-08
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 project: Sid-jamaica
 project_key: TOOLBOX
 tracking_system: file-system
@@ -15,12 +15,26 @@ development_status:
   13-2-define-toolbox-architecture-and-parallel-migration-plan: done
   # Local context-only slice; isolation checklist must pass before code execution.
   13-3-add-toolbox-case-context-and-workspace-selection: done
+  # Historical A/B progression below; final acceptance on 2026-10-11 supersedes pending descriptions.
   # 13.4A accepted/done for isolated in-memory contract; clean build and 105 focused passes.
   # 11.2 mapped adaptation tested. GIS reconciliation/production cutover and 13.4B remain open.
   # D07 P01-P05 approved as toolbox_d07_reconciliation_v1; A gaps and evidence aliases fixed, signoff complete.
   # B implemented in isolation, in review: clean build, 125 focused passes; baseline full-suite access limitation retained.
   # Parent stays in-progress pending B acceptance; no child key, persistence or production GIS certification.
-  13-4-add-single-and-multi-parcel-toolbox-model: in-progress
+  # 2026-10-11 independent B review: eight patch findings (3 P1/5 P2); B in-progress pending fixes/re-review.
+  # 20 existing B tests pass; probes expose gaps. See 13-4b-code-review-2026-10-11.md. No acceptance implied.
+  # Correction closure 2026-10-11: all eight and re-review follow-ups fixed; B back in review awaiting scoped acceptance.
+  # Final clean build, 135 focused passes; full suite 207 passes then known Compare XAML assertion. See 13-4b-review-fixes-2026-10-11.md.
+  # 2026-10-11 JotaPe explicitly accepted B's isolated in-memory scope; A+B complete, parent M2 closed.
+  # Persistence/GIS/deployment gates and operational 11.2 remain open; 13.5 preparation authorized only.
+  13-4-add-single-and-multi-parcel-toolbox-model: done
+  # 13.5 parent prepared; A implemented/accepted, remaining children not implemented, no child keys.
+  # 13.5A accepted/done for isolated no-writer scope by JotaPe 2026-10-11; exact child story records status.
+  # 2026-10-11 final clean build, 158 focused passes (135 existing + 23 new); full207 then known Compare XAML assertion.
+  # No-writer headless byte codec/hydration only; child status in story, no additional key.
+  # Remaining work refined 2026-10-11: C prototype disk, D copied import, E schema, B final hosted FGDB activation.
+  # All C/D/E/B backlog until named reviews/dependencies; next scoped C path/writer contract review.
+  # Production ownership and F01/F02/F03/F07 gates retained; no execution or cutover authorized.
   13-5-add-versioned-toolbox-workspace-persistence: backlog
   13-6-register-reusable-toolbox-capabilities: backlog
   13-7-compose-compute-toolbox-preset: backlog

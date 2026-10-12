@@ -1,5 +1,7 @@
 # 11.2 - Isolated Toolbox Contract Amendment
 
+2026-10-11 reconciliation: [field ownership and identity mapping](../../planning-artifacts/toolbox/toolbox-contract-ownership-and-identity-mapping.md) verified against checkpoint `0a6188f`; build and 125 focused tests pass. Existing isolated acceptance stands; operational 11.2 remains open.
+
 Status: accepted as an isolated mapped contract on 2026-10-08; original operational 11.2 remains open.
 Authorization: JotaPe requested amendment, implementation/tests, then 13.4A in that order on 2026-10-08.
 

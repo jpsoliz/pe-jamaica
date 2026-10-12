@@ -52,6 +52,8 @@ M3 cannot run until D01/D07 design and commit feasibility are accepted. M6 canno
 
 ## Proposed Refined Story Slicing
 
+Current 2026-10-11 decomposition supersedes the historical 13.5A grouping below: A is accepted no-writer codec/hydration; [C](../../implementation-artifacts/toolbox/13-5c-add-isolated-prototype-disk-revisions.md) is the isolated ordinary-file prototype store; [D](../../implementation-artifacts/toolbox/13-5d-add-read-only-copied-case-import.md) is plan-bound copied import; [E](../../implementation-artifacts/toolbox/13-5e-define-fgdb-schema-and-projection-mapping.md) is exact schema/ownership mapping then gated hosted materialization; [B](../../implementation-artifacts/toolbox/13-5b-add-recoverable-fgdb-commits-and-isolated-activation.md) retains final recoverable FGDB commits, edit/snapshot proofs and isolated authority activation. Order A -> C -> D/E -> B, with E catalog review possible alongside C. All remaining children backlog; no child tracker keys or implementation authorization. C prototype receipts do not move M3 authority. D01/D06/D11 production policy and F01/F02/F03/F07 remain gates for affected scope.
+
 13.3 context/preset is the first small code slice after architecture acceptance and isolation. It must not move storage authority or perform server writes.
 
 Keep 13.4 as canonical parcel identity/dependency work and 13.5 as persistence ownership, but split before development:
@@ -79,6 +81,16 @@ Use the existing 11.2 contract as dependency or deliberate cross-track adaptatio
 2026-10-08 current scoped acceptance: A's authorized corrections plus evidence-alias follow-up are fixed and final patch review is clear; clean build and 105 focused passes. A and its isolated canonical amendment are accepted, superseding the withheld-signoff note above. Full-suite baseline failures remain documented; B awaits explicit implementation authorization, with no deployment/FGDB/production authority cutover or original 11.2 closure.
 
 ## Future UPDATE Target Mapping
+
+2026-10-11 refinement current state: remaining disk/import/schema/host scopes now have bounded C/D/E/B story files and unchecked tasks. This supersedes historical unrefined descriptions below, not named ownership/host gates. Immediate review is C's isolated physical path/writer/conflict contract; no runtime UPDATE performed by this refinement. E/B must enumerate and read any later operational activation adapter targets before changing them; no broad writer/reader migration authorized.
+
+2026-10-11 latest A acceptance: JotaPe accepted the isolated no-writer codec/hydration foundation, marking 13.5A done. Supersedes A review-pending descriptions below; no disk/import/schema/FGDB work or authority activation implied. Parent remains gated. Next refine remaining M3 foundation, preserving accepted source/history semantics and the documented full-suite/default-array limits.
+
+2026-10-11 A implementation current state: no-writer codec/hydration is implemented and in review with [158 focused passes and explicit limits](../../implementation-artifacts/toolbox/13-5a-implementation-evidence.md). Narrow restoration methods added without changing action/hash algorithms. The default-PointIds domain hash limitation is preserved, not normalized. Disk/import/schema and hosted M3 work remain unrefined/gated; no active writer, source migration, FGDB, registration or remote change. This supersedes the no-runtime/readiness description in the preparation note below.
+
+2026-10-11 refined A boundary: [13.5A foundation](../../implementation-artifacts/toolbox/13-5a-add-storage-contract-and-hydration-foundation.md) is ready-for-dev for a no-filesystem byte bundle, bounded validation and lossless historical hydration. The earlier proposed A grouping of copied-case import, disk revisions and FGDB schema adapters is not this executable slice; retain those as separately gated M3 work to refine after A review. No runtime code or child tracker key added. Parent 13.5 remains backlog; production ownership and hosted feasibility remain open.
+
+2026-10-11 current M2/M3 update: JotaPe accepted B's isolated in-memory scope after review corrections, closing A+B and parent 13.4 for M2. [13.5 persistence](../../implementation-artifacts/toolbox/13-5-add-versioned-toolbox-workspace-persistence.md) is now prepared/backlog with ordered proposed A/B work: refine A's versioned contract/hydration foundation first, then isolated save/reopen/schema adapters; B proves FGDB recovery, edit tracking and snapshots before isolated authority activation. No new child tracker keys or runtime persistence are added. Detailed schema/ownership and F01/F02 remain gates; original 11.2 and production writers stay unchanged. This supersedes earlier B-pending descriptions above, not their retained GIS/release limitations.
 
 | Existing boundary | Current behavior | Intended adapter/change | Preserve |
 |---|---|---|---|

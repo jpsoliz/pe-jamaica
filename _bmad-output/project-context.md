@@ -223,4 +223,29 @@ dotnet src/ParcelWorkflowAddIn/ParcelWorkflowAddIn.Tests/bin/Debug/net8.0-window
 
 SDK builds and harness runs needed outside-sandbox access. Preserve separate build/focused/full results and exact fail-fast limitations; do not fix unrelated legacy Manifest/XAML behavior as part of B review.
 
-Last Updated: 2026-10-09
+## Toolbox Review Corrections - 2026-10-11
+
+- All eight 13.4B review findings are fixed in isolation; ten regression groups added. Final build has zero warnings/errors and 135 focused tests pass. Full suite passed 207 tests then stopped at the existing Compare XAML progress-indicator assertion; later tests did not execute.
+- JotaPe explicitly accepted 13.4B for its isolated in-memory scope on 2026-10-11; B and parent 13.4 are done for M2. See `implementation-artifacts/toolbox/13-4b-review-fixes-2026-10-11.md` for current evidence, superseding historical continuation status.
+- Parent `implementation-artifacts/toolbox/13-5-add-versioned-toolbox-workspace-persistence.md` remains backlog for its gated scope. Child `implementation-artifacts/toolbox/13-5a-add-storage-contract-and-hydration-foundation.md` is implemented/in review: no-writer headless byte codec and validated A/B hydration. Final clean build, 158 focused passes (135 preserved + 23 new); full207 then known Compare XAML failure. See `implementation-artifacts/toolbox/13-5a-implementation-evidence.md`. No extra tracker key; run the exact child. Disk/import/schema work must be refined after A acceptance; production schema/ownership and FGDB recovery/edit/snapshot/deployment gates remain. No cutover or operational 11.2 closure.
+- Dependency checks must declare their geometry/nongeometry input class, agree with review records, and bind known scopes. Logical decision nodes need valid parcel bindings. Every decision consuming a linked parcel must consume the link's supporting evidence; source hashes and linked traces participate in stale-proof checks.
+- Preserve accepted disposition audit history (operation/digest/revisions, actor/reason/evidence/choice, UTC acceptance time), same-case archived correction identity and append-only applicability during future persistence. Replay must not duplicate audit records.
+- B fingerprint versions were updated; A's v2 and geometry-only canonical contracts remain compatible. Existing operational review writer/hash/approval, UI, source adapters, settings and remote boundaries remain unchanged.
+- Storage hydration must never replay review/reconciliation actions or refresh proofs. V1 byte codec locks field names/types/nullability and enum values; hashes are transport/representation IDs, not authenticity, geometry verification or committed revision proof. Trusted policy pins and fresh permissions remain external.
+- Prototype capture rejects unsupported dictionary comparers, missing A historical evidence and pending proposals. Preserve default vs empty boundary PointIds; the existing generic domain hash cannot evaluate default arrays, so inspection is not approval. Do not silently normalize them during persistence or alter accepted hashes without a separate reviewed domain change.
+
+Last Updated: 2026-10-11
+
+## Toolbox 13.5A Scoped Acceptance - 2026-10-11
+
+- JotaPe explicitly accepted 13.5A for isolated no-writer storage-contract/byte-codec/hydration; child done. This supersedes historical in-review descriptions above. No separate tracker key; child status and parent tracker comments are synchronized.
+- Preserve 158 focused passes, full-harness stop after 207 at known Compare XAML failure, and default-PointIds domain-hash limitation. No full-suite green, disk durability, FGDB/host proof, production cutover or operational 11.2 closure implied.
+- Next refine remaining M3 disk/import/schema foundation and ownership/path/writer gates; acceptance does not authorize its implementation or a commit/deployment.
+
+## Toolbox Remaining Persistence Refinement - 2026-10-11
+
+- Remaining M3 scope is refined, not implemented: `implementation-artifacts/toolbox/13-5c-add-isolated-prototype-disk-revisions.md`, `13-5d-add-read-only-copied-case-import.md`, `13-5e-define-fgdb-schema-and-projection-mapping.md`, `13-5b-add-recoverable-fgdb-commits-and-isolated-activation.md`. All backlog pending their named contract/dependency gates; parent backlog, no additional tracker keys.
+- Order A -> C -> D/E -> B; E's catalog review can run alongside C. B retains final actual FGDB commit/edit/snapshot proofs and isolated ownership activation, never reuse its ID for disk-only work. Next review C's scoped path/writer/conflict contract and obtain separate implementation authorization.
+- C uses `toolbox/prototype-store/` and its own disk contract around unchanged A `prototype_bundle` bytes. Ordinary-file commit receipts are not domain approval/accepted geometry/FGDB authority. Never expand locked A v1 field/type/nullability/enums to active-store metadata silently.
+- D requires frozen sanitized source bytes, explicit source/target identity and reviewed mapping. Legacy top-level transaction_id can mean transaction number; stale copied_path must not read the original root. Legacy approval/task flags remain audit observations, not current acceptance/permission. Missing known Toolbox maps/history cannot be repaired with new-import identity allocation.
+- E exact schema/geometry profile and D01/D11 ownership review precede host writes; C/D precede affected storage/import integration. F01/F02/F03 and F07 before installation remain B gates. No operational writer/source/settings/registration/remote changes or production/11.2 closure authorized by refinement.

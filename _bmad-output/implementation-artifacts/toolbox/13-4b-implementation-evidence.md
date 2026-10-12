@@ -1,5 +1,9 @@
 # 13.4B - Implementation Evidence
 
+Latest 2026-10-11 correction result: all eight independent-review findings and follow-up issues fixed, ten regression groups added; clean build and 135 focused passes. Full run passed 207 tests before the existing Compare XAML assertion. Story is back in review, ready for scoped acceptance; [correction evidence](13-4b-review-fixes-2026-10-11.md) supersedes the unresolved-review status below.
+
+2026-10-11 independent review outcome: changes requested, eight patch findings; story returned to in-progress. The historical implementation/test evidence below remains valid for those runs but is not acceptance. See [review report](13-4b-code-review-2026-10-11.md) for reproduced boundary/evidence invalidation, historical applicability, audit and impact gaps. No production fixes were applied by the review.
+
 Date: 2026-10-09. Status: review, not product acceptance or production certification.
 
 ## Isolation And Ownership

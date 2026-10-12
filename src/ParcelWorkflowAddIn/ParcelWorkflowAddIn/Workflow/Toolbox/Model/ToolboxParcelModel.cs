@@ -50,6 +50,35 @@ public sealed class ToolboxParcelModel
     public ImmutableArray<ToolboxSourceReference> LinkedSources { get; }
     public ToolboxModelRelations? Relations { get; }
 
+    internal static ToolboxParcelModel Restore(ToolboxCaseIdentity identity, CanonicalReviewContract source,
+        ToolboxIdentityMap map, ImmutableDictionary<string, ToolboxInclusion> inclusions,
+        ImmutableArray<ToolboxInclusionRecord> history, ImmutableArray<ToolboxSourceReference> linkedSources,
+        ToolboxModelRelations? relations, ImmutableArray<CanonicalReviewContract> auditCandidates = default)
+    {
+        Persistence.ToolboxStorageValidation.Identity(identity);
+        Persistence.ToolboxStorageJson.Require(map.Case == identity, "foreign_case");
+        Persistence.ToolboxStorageJson.Require(string.Equals(source.TransactionNumber.Trim(), identity.TransactionNumber,
+            StringComparison.OrdinalIgnoreCase), "foreign_case");
+        Persistence.ToolboxStorageJson.Require(map.Ids.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() == map.Ids.Count
+            && inclusions.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() == inclusions.Count, "duplicate_identity");
+        var ids = map.Ids.WithComparers(StringComparer.OrdinalIgnoreCase);
+        var keys = source.Parcels.Select(p => Key("parcel", p.Key)).Concat(source.Rows.Select(p => Key("row", p.Key)))
+            .Concat(source.Segments.Select(p => Key("segment", p.Key))).ToArray();
+        Persistence.ToolboxStorageJson.Require(ids.Count == keys.Length && keys.All(ids.ContainsKey), "missing_reference");
+        Persistence.ToolboxStorageJson.Require(ids.Values.All(id => !string.IsNullOrWhiteSpace(id) && id == id.Trim())
+            && ids.Values.Distinct(StringComparer.OrdinalIgnoreCase).Count() == ids.Count, "duplicate_identity");
+        var states = inclusions.WithComparers(StringComparer.OrdinalIgnoreCase);
+        var parcels = source.Parcels.Select(p => ids[Key("parcel", p.Key)]).ToArray();
+        Persistence.ToolboxStorageJson.Require(states.Count == parcels.Length && parcels.All(states.ContainsKey)
+            && states.Values.All(Enum.IsDefined), "missing_reference");
+        var restored = new ToolboxParcelModel(identity, source, new(identity, ids), states, history, linkedSources, relations);
+        var candidates = auditCandidates.IsDefault ? ImmutableArray<CanonicalReviewContract>.Empty : auditCandidates;
+        Persistence.ToolboxStorageJson.Require(candidates.All(candidate => string.Equals(candidate.TransactionNumber.Trim(), identity.TransactionNumber,
+            StringComparison.OrdinalIgnoreCase)), "foreign_case");
+        Persistence.ToolboxStorageValidation.Model(restored, candidates);
+        return restored;
+    }
+
     internal ToolboxParcelModel WithRelations(ToolboxModelRelations relations) =>
         new(Case, Source, IdentityMap, Inclusions, InclusionHistory, LinkedSources, relations);
 

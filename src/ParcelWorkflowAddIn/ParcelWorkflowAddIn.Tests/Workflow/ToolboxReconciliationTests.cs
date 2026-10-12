@@ -11,7 +11,7 @@ using ParcelWorkflowAddIn.Workflow.Toolbox.Policy;
 
 namespace ParcelWorkflowAddIn.Tests.Workflow;
 
-internal static class ToolboxReconciliationTests
+internal static partial class ToolboxReconciliationTests
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-10-09T00:00:00Z");
     private const string Geometry = "synthetic-only-planar-v1";
@@ -68,15 +68,17 @@ internal static class ToolboxReconciliationTests
         foreach (var b in boundaries.IsDefault ? [] : boundaries)
         {
             Node("boundary:" + b.Id, ToolboxDependencyKind.Boundary, b.Id);
+            foreach (var evidence in b.EvidenceIds) Edge("evidence:" + evidence, "boundary:" + b.Id);
             foreach (var m in b.Members) { Edge("boundary:" + b.Id, "parcel:" + model.Parcels.Single(x => x.Id == m.ParcelId).SourceKey);
                 Edge("segment:" + model.Segments.Single(x => x.Id == m.SegmentId).SourceKey, "boundary:" + b.Id); }
             foreach (var id in b.PointIds.IsDefault ? [] : b.PointIds) Edge("point:" + model.Rows.Single(x => x.Id == id).SourceKey, "boundary:" + b.Id);
         }
+        foreach (var link in model.Source.Links) Edge("evidence:" + link.EvidenceId, "decision:" + link.ParcelKey);
         foreach (var r in ToolboxReviewPolicyResolver.Resolve(policy, ToolboxPreset.Compute, Scopes(model)).Where(x => x.EffectiveRequirement != ToolboxReviewRequirement.NotApplicable))
         {
             var id = "check:" + r.ResolutionFingerprint;
             nodes.Add(new(id, ToolboxDependencyKind.Check, r.ResolutionFingerprint,
-                new(ToolboxPreset.Compute, r.ItemId, r.CheckId, r.ScopeKind, r.ScopeId!, "review-revision", "caller-input"))); Edge("policy", id);
+                new(ToolboxPreset.Compute, r.ItemId, r.CheckId, r.ScopeKind, r.ScopeId!, "review-revision", "caller-input", GeometryCheck: r.ItemId == "M01"))); Edge("policy", id);
             if (r.ScopeKind == ToolboxScopeKind.Parcel)
             { var key = model.Parcels.Single(x => x.Id == r.ScopeId).SourceKey; Edge("parcel:" + key, id); Edge(id, "decision:" + key); }
             else { Edge("evidence:ev", id); Edge("global-facts", id); foreach (var fact in facts) Edge(fact, id); Edge(id, "case"); }

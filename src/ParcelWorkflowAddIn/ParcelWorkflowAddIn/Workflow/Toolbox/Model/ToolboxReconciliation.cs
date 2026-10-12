@@ -21,11 +21,14 @@ public sealed record ToolboxReconciliationProposal(string OperationId, string Re
     ImmutableArray<ToolboxPhysicalBoundary> Boundaries, ToolboxDependencyInventory Dependencies, string Digest,
     ToolboxAdjacencyReview? Adjacency = null, ImmutableArray<ToolboxBoundaryRemoval> BoundaryRemovals = default);
 public sealed record ToolboxAcceptedOperation(string OperationId, string Digest, string ResultRevision);
+public sealed record ToolboxAcceptedDispositions(string OperationId, string Digest, string ParentRevision,
+    string ResultRevision, DateTimeOffset AcceptedAt, ImmutableArray<ToolboxCandidateDisposition> Dispositions);
 public sealed record ToolboxReconciliationSnapshot(string Revision, ToolboxParcelModel Model,
     ToolboxExaminationRegister Register, ImmutableArray<ToolboxRerunBatch> Reruns,
     ImmutableArray<ToolboxAppliedLineage> Lineage, ImmutableArray<ToolboxAcceptedOperation> Operations)
 {
-    public string Fingerprint => ToolboxSemanticHash.Of(new { version = "toolbox_reconciliation_base_v1", Revision,
+    public ImmutableArray<ToolboxAcceptedDispositions> AcceptedDispositions { get; init; } = [];
+    public string Fingerprint => ToolboxSemanticHash.Of(new { version = "toolbox_reconciliation_base_v2", Revision,
         Model.Case, source = Model.Source.GlobalData, Model.IdentityMap, Model.InclusionFingerprint,
         relations = Model.Relations is { } r ? new { r.Policy, r.SourceHashes, r.Boundaries, r.Dependencies,
             r.Lineage, r.Applicability, r.ReadinessBarriers, r.HumanInputBindings, r.FindingInputBindings, r.Adjacency } : null,
@@ -33,7 +36,7 @@ public sealed record ToolboxReconciliationSnapshot(string Revision, ToolboxParce
             a.InclusionFingerprint, hashes = a.Relations?.SourceHashes, boundaries = a.Relations?.Boundaries }),
         reruns = Reruns.Select(r => new { r.BatchId, r.RunId, r.ToolVersion, r.ProviderVersion, r.SourceHashes,
             r.BaseRevision, r.BaseFingerprint, digest = ToolboxReconciliation.CandidateDigest(r.Candidate), r.Status }),
-        Lineage, Register.Findings, Register.HumanReviews, Register.Decisions, Operations });
+        Lineage, Register.Findings, Register.HumanReviews, Register.Decisions, Operations, AcceptedDispositions });
 }
 
 public static class ToolboxReconciliation
@@ -203,7 +206,8 @@ public static class ToolboxReconciliation
             PointIds = b.PointIds.IsDefault ? [] : b.PointIds.Select(Resolve).ToImmutableArray() }).ToImmutableArray();
         var graph = proposal.Dependencies with { Nodes = proposal.Dependencies.Nodes.Select(n =>
         {
-            if (n.CheckBinding is not { } b) return n with { ReferenceId = Resolve(n.ReferenceId) };
+            if (n.CheckBinding is not { } b) return n with { ReferenceId = Resolve(n.ReferenceId),
+                DecisionParcelId = n.DecisionParcelId is null ? null : Resolve(n.DecisionParcelId) };
             ToolboxParcelModel.Require(n.Kind == ToolboxDependencyKind.Check, "Only check nodes may declare check bindings.");
             var bound = b with { ScopeId = Resolve(b.ScopeId) };
             var scope = new ToolboxPolicyScope(model.Case.CaseId, bound.ScopeKind, bound.ScopeId, bound.Revision, bound.InputFingerprint);
@@ -216,7 +220,8 @@ public static class ToolboxReconciliation
         var applicability = current.Model.Relations.Applicability.AddRange(proposal.Applicability);
         var barriers = applicability.GroupBy(x => x.RecordId, StringComparer.OrdinalIgnoreCase).Select(x => x.Last())
             .Where(x => x.Disposition == ToolboxApplicabilityDisposition.Unresolved
-                || x.TargetParcelKeys.Any(key => !identityMap.Ids.ContainsKey("parcel:" + key)))
+                || x.Disposition != ToolboxApplicabilityDisposition.NotApplicable
+                    && x.TargetParcelKeys.Any(key => !identityMap.Ids.ContainsKey("parcel:" + key)))
             .Select(x => "Unresolved historical applicability: " + x.RecordId).ToImmutableArray();
         var relations = new ToolboxModelRelations(policy.Pin, proposal.Batch.SourceHashes, boundaries, graph,
             current.Model.Relations.Archives.Add(current.Model), current.Lineage.AddRange(applied),
@@ -233,7 +238,11 @@ public static class ToolboxReconciliation
                 model = model.SetInclusion(new(identityMap.Ids["parcel:" + key], l.Proposal.ChildInclusions[key], authority.Actor,
                     DateTimeOffset.UtcNow, l.Proposal.Reason, l.Proposal.EvidenceId, policy.Pin.PolicyVersion), policy.Pin.PolicyVersion, true);
         return new(proposal.ResultRevision, model, current.Register, current.Reruns.Add(proposal.Batch),
-            current.Lineage.AddRange(applied), current.Operations.Add(new(proposal.OperationId, proposal.Digest, proposal.ResultRevision)));
+            current.Lineage.AddRange(applied), current.Operations.Add(new(proposal.OperationId, proposal.Digest, proposal.ResultRevision)))
+        {
+            AcceptedDispositions = current.AcceptedDispositions.Add(new(proposal.OperationId, proposal.Digest,
+                current.Revision, proposal.ResultRevision, DateTimeOffset.UtcNow, choices))
+        };
     }
 
     private sealed record Candidate(string Kind, string Key, string ParcelKey, JsonElement Data);
