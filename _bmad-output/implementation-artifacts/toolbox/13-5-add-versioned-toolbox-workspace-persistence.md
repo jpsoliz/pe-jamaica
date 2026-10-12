@@ -12,11 +12,11 @@ tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 
 # 13.5 - Add Versioned Toolbox Workspace Persistence
 
-Status: backlog
-Preparation: detailed parent specification; A implemented and scoped-accepted, remaining children refined but not implemented.
+Status: in-progress
+Preparation: A implemented and scoped-accepted; C.1-C.3 implementation/verification/independent review complete and review-ready in isolation; D/E/B remain reviewed specifications.
 Predecessor: 13.4A and 13.4B accepted for their isolated in-memory scope; parent 13.4 done for M2 on 2026-10-11.
 
-The parent remains backlog because detailed production storage/schema ownership and FGDB commit/edit feasibility are not yet accepted or proven. [13.5A's no-writer foundation](13-5a-add-storage-contract-and-hydration-foundation.md) is accepted/done. C/D/E/B are refined backlog candidates with explicit review/dependency gates, not execution authorization. No separate child tracker keys are created.
+The parent is in progress for isolated foundation/prototype work, not accepted for production storage/schema ownership or FGDB commit/edit feasibility. [13.5A's no-writer foundation](13-5a-add-storage-contract-and-hydration-foundation.md) is accepted/done. JotaPe authorized C.1-C.3 execution; final scoped C acceptance remains separate. D/E/B retain their review/dependency gates and have no runtime authorization. No separate child tracker keys are created.
 
 ## Story
 
@@ -31,12 +31,16 @@ This is migration M3 over the accepted A/B model. Implement only in `temp/toolbo
 | Slice | Deliverable | Entry / exit |
 |---|---|---|
 | [13.5A](13-5a-add-storage-contract-and-hydration-foundation.md), done | Prototype byte codec and validated lossless A/B hydration | Scoped acceptance 2026-10-11; no storage ownership/cutover claim |
-| [13.5C](13-5c-add-isolated-prototype-disk-revisions.md), backlog | Contained ordinary-file revision store, exclusive local writer, expected-parent/retry receipts and process-interruption recovery | Scoped prototype path/writer contract review before implementation; no FGDB or approved-revision authority |
+| [13.5C](13-5c-add-isolated-prototype-disk-revisions.md), backlog | Contained ordinary-file revision store, exclusive local writer, expected-parent/retry receipts and process-interruption recovery | R1-R10 contract corrections applied 2026-10-11; runtime authorization and adapter capability proof outstanding; no FGDB or approved-revision authority |
 | [13.5D](13-5d-add-read-only-copied-case-import.md), backlog | Frozen read-only copied-case import plan, explicit normalization/identity/provenance and C target commit | C accepted and mapper/identity review; no legacy approval promotion or GDB adoption |
 | [13.5E](13-5e-define-fgdb-schema-and-projection-mapping.md), backlog | Exact machine-checkable ownership/schema catalog, pure projection planner, then isolated hosted adapter | Contract first; D01/D11 and geometry-profile review before host writes; C/D before affected integration |
 | [13.5B](13-5b-add-recoverable-fgdb-commits-and-isolated-activation.md), backlog | Real FGDB commits, edit detection, supported snapshots/restore and explicit isolated authority activation | C/E accepted; D when importing; F01/F02/F03 proof and writer/cutover review before activation; F07 before installation |
 
-Next review C's scoped contract, then authorize its implementation separately. Execution order is A -> C -> D/E -> B; E's catalog can be refined alongside C/D, but hosted/integration gates remain. Letters retain stable IDs, not execution order: B remains the previously reserved final FGDB slice. A acceptance does not authorize these children or complete the parent.
+The [C contract review](13-5c-contract-review-2026-10-11.md) identified ten gaps; their documentation corrections were applied at JotaPe's request on 2026-10-11. Next obtain separate authorization for the corrected C implementation; actual adapter feasibility and runtime acceptance remain unproved. Execution order is A -> C -> D/E -> B; E's catalog can be refined alongside C/D, but hosted/integration gates remain. Letters retain stable IDs, not execution order: B remains the previously reserved final FGDB slice. A acceptance and C document corrections do not authorize these children or complete the parent.
+
+C is now specified as [C.1 protocol -> C.2 Windows adapter -> C.3 revision operations](13-5c-add-isolated-prototype-disk-revisions.md#ordered-implementation-stories), prepared under JotaPe's explicit no-coding instruction. All are backlog, tracked through the existing parent without new keys. Specification review is distinct from implementation authorization, runtime capability proof and scoped acceptance.
+
+The same documentation-only refinement now covers [D.1 planning -> D.2 sealed preparation -> D.3 execute/retry](13-5d-add-read-only-copied-case-import.md#ordered-implementation-stories), [E.1 exact catalog -> E.2 pure projection -> E.3 hosted schema](13-5e-define-fgdb-schema-and-projection-mapping.md#ordered-implementation-stories) and [B.1 host commits/F01 -> B.2 edits/snapshots/F02-F03 -> B.3 activation/rollback](13-5b-add-recoverable-fgdb-commits-and-isolated-activation.md#ordered-implementation-stories). All specifications are tracked through this parent; no new runtime status/key or named gate closure. Exact mapper/catalog/profile and activation UPDATE targets remain future reviewed deliverables. [Preparation review](13-5deb-story-preparation-review-2026-10-11.md) records cross-story clarifications and limits.
 
 ### Readiness Gates
 

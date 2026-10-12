@@ -26,19 +26,34 @@ development_status:
   # Correction closure 2026-10-11: all eight and re-review follow-ups fixed; B back in review awaiting scoped acceptance.
   # Final clean build, 135 focused passes; full suite 207 passes then known Compare XAML assertion. See 13-4b-review-fixes-2026-10-11.md.
   # 2026-10-11 JotaPe explicitly accepted B's isolated in-memory scope; A+B complete, parent M2 closed.
-  # Persistence/GIS/deployment gates and operational 11.2 remain open; 13.5 preparation authorized only.
+  # Persistence/GIS/deployment gates and operational 11.2 remain open; isolated A and C execution authorized separately.
   13-4-add-single-and-multi-parcel-toolbox-model: done
-  # 13.5 parent prepared; A implemented/accepted, remaining children not implemented, no child keys.
+  # 13.5 parent: A implemented/accepted; isolated C authorized/in progress; D/E/B remain specifications, no child keys.
   # 13.5A accepted/done for isolated no-writer scope by JotaPe 2026-10-11; exact child story records status.
   # 2026-10-11 final clean build, 158 focused passes (135 existing + 23 new); full207 then known Compare XAML assertion.
   # No-writer headless byte codec/hydration only; child status in story, no additional key.
   # Remaining work refined 2026-10-11: C prototype disk, D copied import, E schema, B final hosted FGDB activation.
-  # All C/D/E/B backlog until named reviews/dependencies; next scoped C path/writer contract review.
+  # C contract reviewed; R1-R10 document corrections applied at JotaPe's request 2026-10-11.
+  # C.1 protocol -> C.2 Windows adapter -> C.3 revision operations implemented/review-ready 2026-10-11.
+  # Clean build; focused197 = preserved158 + new39; native interruption154; full207 then unchanged Compare XAML.
+  # D.1-D.3 import, E.1-E.3 schema/projection and B.1-B.3 hosted/activation specifications prepared/reviewed.
+  # Exact mapper/catalog/profile, host tests and activation guards remain future deliverables; no runtime authorized.
+  # C technical implementation/independent review complete; final scoped acceptance pending; D/E/B backlog.
   # Production ownership and F01/F02/F03/F07 gates retained; no execution or cutover authorized.
-  13-5-add-versioned-toolbox-workspace-persistence: backlog
+  13-5-add-versioned-toolbox-workspace-persistence: in-progress
+  # 13.6 parent and .1 registry/.2 eligibility/.3 headless runner specifications prepared/reviewed, no coding.
+  # Descriptor coverage is not authority; affected 13.5/policy/host gates remain, remote effects disabled.
   13-6-register-reusable-toolbox-capabilities: backlog
+  # 13.7 parent and .1 routes/.2 examiner workspace/.3 save and Compare-readiness specified/reviewed, no coding.
+  # C15 classification retained; detailed deferral/policy/owner/host/provider gates stay explicit and open.
   13-7-compose-compute-toolbox-preset: backlog
+  # 13.8 parent/.1 immutable inputs-evidence/.2 tabular-partial workspace/.3 decisions-Compute loop specified/reviewed.
+  # Geometry/source PE read-only; required incomplete evidence pending; no coding or lifecycle side effects authorized.
   13-8-compose-read-only-compare-and-correction-flow: backlog
+  # 13.9 parent/A snapshot-package-restore/B projection-receipts/C ledger-attachments-task specified/reviewed, no coding.
+  # D02/D05/D06/D10 and F03/F04/F05/F06/F07 where applicable remain open; no remote mutations authorized.
   13-9-add-revision-consistent-toolbox-handoff: backlog
+  # 13.10 parent/A PLA_A evidence-construction/B readonly PE annex/C RT Save-branch specifications prepared/reviewed.
+  # PLA profile/permission/reference, RT Plan-child-branch and 13.9 effect proofs remain gates; no coding/effects authorized.
   13-10-compose-plan-annexation-and-rt-toolbox-presets: backlog
   epic-13-retrospective: optional

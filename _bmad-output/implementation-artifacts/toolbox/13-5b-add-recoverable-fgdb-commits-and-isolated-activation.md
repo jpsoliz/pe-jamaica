@@ -6,6 +6,7 @@ created: 2026-10-11
 parent_story: 13-5-add-versioned-toolbox-workspace-persistence
 depends_on: [13-5c-add-isolated-prototype-disk-revisions, 13-5e-define-fgdb-schema-and-projection-mapping]
 execution_gate: accepted-schema-writer-policy-and-real-fgdb-recovery-edit-snapshot-proof
+implementation_authorized: false
 baseline_branch: refactor/toolbox-case-workspace
 tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 ---
@@ -14,6 +15,18 @@ tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 
 Status: backlog
 Refinement: retains the previously reserved B identity; final M3 slice, not the next implementation. Tracked through parent, no child key.
+
+## Ordered Implementation Stories
+
+Prepared under JotaPe's documentation-only/no-coding instruction. This parent owns host requirements; no prototype receipt becomes a host commit and no new tracker keys are added.
+
+| Story | Owns | Runtime dependency |
+|---|---|---|
+| [B.1 Host Commit And Recovery Protocol](13-5b-1-define-host-commit-and-recovery-protocol.md) | Host envelope/F01 faults and verified baseline bootstrap | C/E accepted, D if imported, reviewed policy/profile and explicit host authorization |
+| [B.2 Edit Detection And Supported Snapshot Proofs](13-5b-2-define-edit-detection-and-supported-snapshot-proofs.md) | Full F02/F03 actual edit/copy/restore evidence | B.1 accepted plus explicit host authorization |
+| [B.3 Isolated Activation And Rollback](13-5b-3-define-isolated-activation-and-rollback.md) | Exact writer/consumer guards, ownership activation and rollback | B.1/B.2 accepted, F01/F02/F03/policy/F07 where applicable and explicit activation authorization |
+
+Order B.1 -> B.2 -> B.3; full B/parent acceptance requires actual evidence, not story preparation. [Review/coverage record](13-5deb-story-preparation-review-2026-10-11.md).
 
 ## Story
 
@@ -25,9 +38,13 @@ Execution order is A -> C -> D/E -> B; letters are stable story identifiers, not
 
 First perform isolated feasibility proofs F01 (commit failures), F02 (tracked/untracked edits) and F03 (quiesced supported snapshot/read-back/restore). Only after these pass and ownership policy is accepted may the isolated activation adapter be enabled. F07 before any experimental installation; a worktree/build is not installation isolation. Record authorized host/case root, no operational installation/service targets. Remote handoff/package v2 stays 13.9.
 
+To avoid a circular F01/F03 dependency, B.1 first proves a narrow supported immutable previous-state baseline and independent complete read-back before any active mutation. First commit uses a reviewed initialized empty-schema or explicit synthetic baseline, with baseline-only identity rather than invented accepted commit/receipt. Missing/unverified prior snapshot blocks mutation. B.2 still owns full F03 coverage of edits/assets/fresh-root restore; bootstrap evidence does not pass F03.
+
 ## Commit Protocol To Prove
 
 Reuse C's contained filesystem/lock primitives and immutable evidence mechanics, not its prototype contract as an FGDB commit claim. Define a separately versioned host commit envelope with case/store/schema/geometry profile, operation/parent/revision/sequence, actor/fresh local permission class, affected entities/dependencies, semantic input/output digests, exact canonical/source/policy asset inventory, dataset/table manifest, projection inventory and recovery snapshot references. Keep A bytes unchanged inside their owning evidence catalog.
+
+Original actor/permission class is immutable intent audit included in its digest, not saved authority. Separately supplied current authorization gates every mutation/recovery publication without rewriting original audit/digest on retry. Receipt inspection itself has no mutation effect. Source C identifiers remain immutable provenance; host identifiers own host authority, consistent with E's exact catalog.
 
 Compute geometry mutations require fresh local geometry permission; Compare current-case tabular changes only. No persisted permission/task/actor grants authority. Linked PE/current RT identities stay separate. Quiesce map edits/tool runs, acquire single CaseStore writer, resolve pending commits and compare expected parent under lock. Reject untracked active changes before mutation. Durable identical retries return verified receipts before stale-parent checks; changed intents conflict.
 
@@ -41,7 +58,9 @@ Compute geometry mutations require fresh local geometry permission; Compare curr
 
 Inject failure before/after every actual host save, metadata change, catalog/asset/projection flush, pointer replacement and receipt write. There is no atomic transaction across FGDB and files. Resume only if durable evidence proves the complete new revision; otherwise quarantine mutable active data and expose the previous verified immutable snapshot read-only. Snapshot restoration must use supported ArcGIS operations and preserve uncertain evidence; never overwrite active GDB internals piecemeal. A marker alone, successful API return or cached revision does not prove completion.
 
-Prototype C states and host states are different protocols; share primitives but do not rename `sealed` into `fgdb_saved` or mutate A/C contract versions. Bound journal/catalog/inventory and recovery work; cancellation after verified publication returns the receipt plus diagnostic, not a false no-save result. Access denied/disk full/schema lock/GP failure remain explicit pending or quarantined outcomes until read-back resolves them.
+Prototype C states and host states are different protocols; share primitives but do not rename `sealed` into `fgdb_saved` or mutate A/C contract versions. Bound journal/catalog/inventory and recovery work; cancellation after verified publication completes the verified receipt/terminal tail when possible and returns the receipt plus diagnostic, otherwise reports published-but-recovery-required, never false no-save or committed. Access denied/disk full/schema lock/GP failure remain explicit pending or quarantined outcomes until read-back resolves them.
+
+Forward recovery publication requires complete exact intent plus actual FGDB/catalog/assets/projection agreement, current authority and matching parent bindings under the writer lock. Historical retries after successors require immutable host ancestry/snapshot/catalog/payload proof and matching intent, not comparison with the later active GDB alone. Explicit historical tail reconstruction never moves current; missing proof blocks a receipt claim. After verified publication, an unverified receipt/terminal tail returns published-but-recovery-required rather than false committed, until exact recovery completes it.
 
 ### Edit And Snapshot Proof
 
@@ -90,4 +109,4 @@ NEW host persistence/recovery/snapshot/activation adapters under `Workflow/Toolb
 
 ## Dev Agent Record
 
-Prepared 2026-10-11; not implemented; no hosted tests, deployment or authority switch performed. All tasks and named proof gates remain open.
+Prepared/refined into B.1-B.3 on 2026-10-11 under explicit no-coding instruction; not implemented. No hosted tests, deployment or authority switch performed. All runtime tasks, exact activation UPDATE list and named proof gates remain open.

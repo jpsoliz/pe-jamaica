@@ -6,9 +6,22 @@ using ParcelWorkflowAddIn.Tests.Intake;
 using ParcelWorkflowAddIn.Tests.ParcelSearch;
 using ParcelWorkflowAddIn.Tests.Preflight;
 using ParcelWorkflowAddIn.Tests.Settings;
+using ParcelWorkflowAddIn.Tests.Tests;
 using ParcelWorkflowAddIn.Tests.Workflow;
 using ParcelWorkflowAddIn.Tests.Workflow.FabricMaintenance;
 using ParcelWorkflowAddIn.Tests.WorkflowRules;
+
+if (args.Length > 0 && args[0] == "--toolbox-contained-worker")
+{
+    Environment.ExitCode = ToolboxContainedFileSystemTests.RunWorker(args.Skip(1).ToArray());
+    return;
+}
+
+if (args.Length > 0 && args[0] == "--toolbox-disk-store-worker")
+{
+    Environment.ExitCode = ToolboxPrototypeRevisionStoreTests.RunWorker(args.Skip(1).ToArray());
+    return;
+}
 
 var tests = new (string Name, Action Run)[]
 {
@@ -990,7 +1003,46 @@ var tests = new (string Name, Action Run)[]
     ("toolbox storage candidate only applicability evidence", ToolboxReconciliationTests.StorageCandidateOnlyApplicabilityEvidence),
     ("toolbox storage direct source and audit shape guards", ToolboxReconciliationTests.StorageDirectSourceAliasAndAuditShapeGuards),
     ("toolbox storage split merge regeneration history", ToolboxReconciliationTests.StorageSplitMergeRegeneratedHistory),
-    ("toolbox storage all input invalidation parity", ToolboxReconciliationTests.StorageAllInputInvalidationParity)
+    ("toolbox storage all input invalidation parity", ToolboxReconciliationTests.StorageAllInputInvalidationParity),
+    ("toolbox disk independent golden bytes and digests", ToolboxPrototypeDiskContractTests.IndependentGoldenBytesAndDigests),
+    ("toolbox disk required duplicate unknown and null fields", ToolboxPrototypeDiskContractTests.StrictRequiredDuplicateUnknownAndNullFields),
+    ("toolbox disk malformed json types and integers", ToolboxPrototypeDiskContractTests.MalformedJsonTypesAndIntegers),
+    ("toolbox disk versions enums ids and revision checksums", ToolboxPrototypeDiskContractTests.StrictVersionsEnumsIdsAndRevisionChecksums),
+    ("toolbox disk intent bindings and revision hash scope", ToolboxPrototypeDiskContractTests.EveryIntentFieldBindsDigestAndRevisionHashScope),
+    ("toolbox disk null empty default and duplicate assets", ToolboxPrototypeDiskContractTests.NullEmptyDefaultAndDuplicateAssets),
+    ("toolbox disk owned bytes and typed sequence overflow", ToolboxPrototypeDiskContractTests.PreparedBytesAreOwnedAndSequenceOverflowIsTyped),
+    ("toolbox disk metadata depth text and limit configuration", ToolboxPrototypeDiskContractTests.MetadataDepthTextAndLimitConfigurationBounds),
+    ("toolbox disk lowered inventory budgets", ToolboxPrototypeDiskContractTests.PreparationAndDecodeChargeLoweredInventoryBudgets),
+    ("toolbox disk journal ownership and preserved parent", ToolboxPrototypeDiskContractTests.JournalBindsExactOwnershipAndPreviousParent),
+    ("toolbox disk planner resume and parent table", ToolboxPrototypeDiskContractTests.PlannerResumeAndParentDecisionTable),
+    ("toolbox disk planner publication receipts historical tails and trust", ToolboxPrototypeDiskContractTests.PlannerPublicationReceiptsHistoricalTailsAndTrust),
+    ("toolbox disk planner ambiguity abandonment and publication proof", ToolboxPrototypeDiskContractTests.PlannerAmbiguousAbandonedAndUnprovenPublication),
+    ("toolbox disk planner contradictory physical and ownership evidence", ToolboxPrototypeDiskContractTests.PlannerRejectsContradictoryPhysicalAndOwnershipEvidence),
+    ("toolbox disk journal transitions and terminal states", ToolboxPrototypeDiskContractTests.EveryJournalTransitionAndTerminalState),
+    ("toolbox disk pinned field type and nullability manifest", ToolboxPrototypeDiskContractTests.ReflectedFieldTypeAndNullabilityManifestIsPinned),
+    ("toolbox disk store initialization owner lock and layout", ToolboxPrototypeDiskContractTests.StoreInitializationRequiresOwnerLockAndLayout),
+    ("toolbox disk store pending competition current and policy", ToolboxPrototypeDiskContractTests.StorePendingCompetitionCurrentAndPolicyTable),
+    ("toolbox disk ancestry bounded owned and exact", ToolboxPrototypeDiskContractTests.AncestryWalkIsBoundedOwnedAndExact),
+    ("toolbox disk ancestry missing mismatch foreign sequence and cycles", ToolboxPrototypeDiskContractTests.AncestryMissingMismatchForeignSequenceAndCyclesFail),
+    ("toolbox disk contained filesystem native contract", ToolboxContainedFileSystemTests.RunAll),
+    ("toolbox disk revision store create open and detached round trip", ToolboxPrototypeRevisionStoreTests.CreateOpenAndDetachedRoundTrip),
+    ("toolbox disk revision store successive commits historical retry and tail recovery", ToolboxPrototypeRevisionStoreTests.SuccessiveCommitsExactHistoricalRetryAndTailRecovery),
+    ("toolbox disk revision store changed intent stale parent and reserved ids", ToolboxPrototypeRevisionStoreTests.ChangedIntentStaleParentAndReservedIds),
+    ("toolbox disk revision store policy trust gates writers", ToolboxPrototypeRevisionStoreTests.PolicyTrustGatesAllWriters),
+    ("toolbox disk revision store malformed layout inventory and ancestry", ToolboxPrototypeRevisionStoreTests.MalformedLayoutInventoryAndAncestryCorruption),
+    ("toolbox disk revision store audited idempotent abandonment", ToolboxPrototypeRevisionStoreTests.AbandonmentIsAuditedIdempotentAndReservesIds),
+    ("toolbox disk revision store cancellation before mutation and after publication", ToolboxPrototypeRevisionStoreTests.CancellationBeforeMutationAndAfterPublication),
+    ("toolbox disk revision store save fault boundaries recovery and abandonment", ToolboxPrototypeRevisionStoreTests.EverySaveBoundaryRetainsEvidenceAndRecoversOrAbandons),
+    ("toolbox disk revision store process interruption publication and recovery", ToolboxPrototypeRevisionStoreTests.ProcessInterruptionPreservesPublicationAndRecovery),
+    ("toolbox disk revision store initialization and abandonment faults", ToolboxPrototypeRevisionStoreTests.InitializationAndAbandonmentBoundaryFailures),
+    ("toolbox disk revision store lock consistent relocation", ToolboxPrototypeRevisionStoreTests.LockConsistentRelocationPreservesCommittedAndPendingEvidence),
+    ("toolbox disk revision store independent review regressions", ToolboxPrototypeRevisionStoreTests.IndependentReviewRegressionsRequireExactRefusals),
+    ("toolbox disk revision store initialization native process interruption", ToolboxPrototypeRevisionStoreTests.InitializationNativeProcessInterruption),
+    ("toolbox disk revision store abandonment native process interruption", ToolboxPrototypeRevisionStoreTests.AbandonmentNativeProcessInterruption),
+    ("toolbox disk revision store short names depth and forward candidates", ToolboxPrototypeRevisionStoreTests.ShortReplacementNamesDepthAdmissionAndForwardCandidates),
+    ("toolbox disk revision store B history without authority", ToolboxPrototypeRevisionStoreTests.BStateRoundTripsWithoutAuthority),
+    ("toolbox disk revision store competing process initialization and save", ToolboxPrototypeRevisionStoreTests.CompetingProcessInitializersAndSaves),
+    ("toolbox disk revision store forged aliases and resolution admission", ToolboxPrototypeRevisionStoreTests.ForgedRevisionAliasesAndResolutionAdmissionFailBeforeMutation)
 };
 
 var selectedTests = args.Length == 0

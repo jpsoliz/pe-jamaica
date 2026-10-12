@@ -68,7 +68,7 @@ Keep 13.4 as canonical parcel identity/dependency work and 13.5 as persistence o
 - 13.10B: PLA_B source recovery/crop/attachment preset.
 - 13.10C: RT read-only PE and current-Plan Save/Save & Close preset.
 
-These are proposed slices, not yet new accepted story IDs/files/tracker entries. Keep original backlog rows until architecture/product review accepts the decomposition; do not silently create a second overlapping sprint.
+The 13.9A/B/C rows now have [detailed specifications](../../implementation-artifacts/toolbox/13-9-add-revision-consistent-toolbox-handoff.md) and 13.10A/B/C have [preset specifications](../../implementation-artifacts/toolbox/13-10-compose-plan-annexation-and-rt-toolbox-presets.md), prepared/reviewed under JotaPe's continuing no-coding instruction on 2026-10-11. They retain these architecture identities and existing parent backlog tracking without child keys. Their named runtime/host/service/profile gates remain open; specification preparation is not implementation or product/service acceptance. Other historical slice rows retain their recorded scope/status. Do not create a second overlapping sprint.
 
 2026-10-08 preparation clarification: JotaPe subsequently requested [13.4A](../../implementation-artifacts/toolbox/13-4a-add-stable-parcel-memberships-and-acceptance.md) as a separate detailed story. A covers local identities/memberships/inclusion/acceptance; B retains rerun reconciliation, shared-boundary dependencies and lineage. A is prepared but backlog, tracked through parent 13.4 with no new sprint entry. This supersedes the no-file statement for A only; D11/11.2 and local identity-policy gates remain open, and B/other slices remain proposed.
 

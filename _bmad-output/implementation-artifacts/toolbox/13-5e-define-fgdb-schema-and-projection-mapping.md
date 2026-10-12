@@ -6,6 +6,7 @@ created: 2026-10-11
 parent_story: 13-5-add-versioned-toolbox-workspace-persistence
 depends_on: [13-5a-add-storage-contract-and-hydration-foundation]
 execution_gate: reviewed-exact-schema-and-geometry-profile-before-hosted-adapter
+implementation_authorized: false
 baseline_branch: refactor/toolbox-case-workspace
 tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 ---
@@ -14,6 +15,18 @@ tracker: _bmad-output/implementation-artifacts/toolbox/sprint-status.yaml
 
 Status: backlog
 Refinement: contract-first candidate. Exact schema review precedes adapter implementation; no production schema approval inferred. No child tracker key.
+
+## Ordered Implementation Stories
+
+Prepared under JotaPe's documentation-only/no-coding instruction; exact catalog/profile authoring is itself a future E.1 deliverable, not fabricated by story preparation.
+
+| Story | Owns | Execution dependency |
+|---|---|---|
+| [E.1 Exact FGDB Catalog And Geometry Profile](13-5e-1-define-exact-fgdb-catalog-and-geometry-profile.md) | Exact catalog/ownership/profile documentation | Separately authorized catalog execution and named review; no GIS writes |
+| [E.2 Pure Projection And Read-Back Verification](13-5e-2-define-pure-projection-and-readback-verification.md) | Headless row/link/payload plans and reconstruction | E.1 accepted plus explicit code authorization |
+| [E.3 Isolated Hosted Schema Adapter](13-5e-3-define-isolated-hosted-schema-adapter.md) | Disposable FGDB schema/geometry round-trip evidence | E.1/E.2 accepted, schema/profile/host authorization and applicable C/D/F07 gates |
+
+Order E.1 -> E.2 -> E.3. Full E acceptance precedes B host commit work; no new tracker keys. [Review/coverage record](13-5deb-story-preparation-review-2026-10-11.md).
 
 ## Story
 
@@ -28,6 +41,8 @@ No authority switch in E. No operational output adapter, legacy reader/writer di
 ## Required Schema Deliverable
 
 Add one machine-readable `toolbox_fgdb_schema_v1` catalog plus readable ownership matrix. Every persisted property in A's actual field manifests, including B nested records, must be assigned exactly one owning representation: typed table field/link row, immutable canonical/policy payload reference, or explicitly derived projection. No "serialize the rest" catch-all without exact record/field ownership. Store model/archive snapshot identity separately from durable revision/commit/sequence and domain identity; never use ObjectID as a stable key.
+
+Explicitly separate metadata namespaces: A owns model/archive/domain identity; C's store/revision/request/receipt is immutable import/prototype provenance; the host envelope owns host store/commit/parent/sequence/schema/profile authority. E.1 defines/reviews exact preliminary host-context fields for E.2/E.3 synthetic disposable fixtures, without a committed-host claim or dependency on B.1 execution. After E acceptance, B.1 freezes its host protocol against those ownership fields; incompatible refinements require E catalog/adapter re-review before affected B integration, not silently changing A/C formats.
 
 Each dataset definition specifies name, role (`draft`, `accepted`, `evidence`, `audit`, `projection`), geometry type/profile or nonspatial, schema version, fields with storage type/length/nullability/default/domain/index, exact primary/foreign logical keys, relationship cardinality, ordering/uniqueness/comparer rules, source property/JSON pointer, conversion/rejection rules and read-back assertion. Cross-table referential integrity is validated by the adapter; do not assume an FGDB enforces arbitrary application constraints.
 
@@ -51,6 +66,8 @@ Do not cast opaque Toolbox IDs to GUIDs or truncate them to a convenient field l
 Large values (A accepts long text, token IDs and unknown JSON) remain in immutable payload assets with verified reference, record pointer and kind. Proposed bounded table display text can be nullable derived output, but truncation must be labeled projection-only and cannot replace owned values. Required identifiers/relations never truncate. Catalog must state supported maximums compatible with A or return explicit unsupported-size diagnostics.
 
 Preserve DateTimeOffset exact round-trip text as the owning audit value; optional query-time UTC/date fields are derived. Don't lose offset/fractional precision through an ordinary Date field. Null, absent, empty, zero, unavailable and default-array states are distinct; if table storage cannot express them, assign explicit semantic-state columns plus payload reference. Arrays use ordinal link rows; do not reconstruct order from ObjectID/insertion order. All logical duplicate/comparer checks precede inserts.
+
+ArcGIS Pro 3.6 BigInteger writable values are limited to the documented safe integer range, not every signed Int64. Preserve out-of-range owning values through an exact reviewed text/payload representation or typed unsupported rejection; numeric projections must never silently round sequence or identity metadata.
 
 Geometry profile must be explicitly supplied/reviewed: spatial reference including local/unreferenced cases, units, precision/resolution/tolerance, ring/direction rules, multipart/holes, empty/invalid handling and curves/Z/M policy. No universal CRS or arbitrary snapping tolerance. Unsupported semantics fail, not flatten/drop. Geometry token strings from headless tests are not coordinate truth. Default PointIds remains an inspection-only domain limitation until a separate reviewed hash change; schema mapping may not normalize it to pass approval.
 
@@ -87,4 +104,4 @@ REUSE A actual `ToolboxWorkspaceStorageDocument.cs` DTOs/manifests, codec and no
 
 ## Dev Agent Record
 
-Prepared 2026-10-11; not implemented. Exact catalog and hosted geometry choices remain deliverables/review gates, not fabricated accepted decisions. No GIS tests run by refinement.
+Prepared/refined into E.1-E.3 on 2026-10-11 under explicit no-coding instruction; not implemented. Exact catalog and hosted geometry choices remain deliverables/review gates, not fabricated accepted decisions. No GIS tests, catalog acceptance or authority switch performed by preparation.
